@@ -1,0 +1,81 @@
+package prividers
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+
+	"github.com/tidwall/sjson"
+)
+
+type OpenAI struct {
+	BaseURL string
+	APIKey  string
+	Model   string
+}
+
+func NewOpenAI(baseURL, apiKey, model string) *OpenAI {
+	return &OpenAI{
+		BaseURL: baseURL,
+		APIKey:  apiKey,
+		Model:   model,
+	}
+}
+
+func (o *OpenAI) Chat(ctx context.Context, rawBody []byte) (io.Reader, int, error) {
+	body, err := sjson.SetBytes(rawBody, "model", o.Model)
+	if err != nil {
+		return nil, 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/chat/completions", o.BaseURL), bytes.NewReader(body))
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", o.APIKey))
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	pr, pw := io.Pipe()
+	reader := io.TeeReader(res.Body, pw)
+	go func() {
+		defer res.Body.Close()
+		defer pw.Close()
+		reader := bufio.NewScanner(pr)
+		for reader.Scan() {
+			slog.Info("reader", "chunk", reader.Text())
+		}
+		slog.Info("reader off")
+	}()
+
+	return reader, res.StatusCode, nil
+}
+
+func (o *OpenAI) Models(ctx context.Context) ([]Model, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("%s/models", o.BaseURL), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", o.APIKey))
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status code: %d", res.StatusCode)
+	}
+
+	var modelList ModelList
+	if err := json.NewDecoder(res.Body).Decode(&modelList); err != nil {
+		return nil, err
+	}
+	return modelList.Data, nil
+}

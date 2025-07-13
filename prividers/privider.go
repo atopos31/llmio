@@ -18,6 +18,6 @@ type Model struct {
 }
 
 type Privider interface {
-	Chat(ctx context.Context, rawBody []byte) (reader io.Reader, status int, err error)
+	Chat(ctx context.Context, rawData []byte) (body io.ReadCloser, status int, err error)
 	Models(ctx context.Context) ([]Model, error)
 }

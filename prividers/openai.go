@@ -1,13 +1,11 @@
 package prividers
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 
 	"github.com/tidwall/sjson"
@@ -27,7 +25,7 @@ func NewOpenAI(baseURL, apiKey, model string) *OpenAI {
 	}
 }
 
-func (o *OpenAI) Chat(ctx context.Context, rawBody []byte) (io.Reader, int, error) {
+func (o *OpenAI) Chat(ctx context.Context, rawBody []byte) (io.ReadCloser, int, error) {
 	body, err := sjson.SetBytes(rawBody, "model", o.Model)
 	if err != nil {
 		return nil, 0, err
@@ -42,19 +40,8 @@ func (o *OpenAI) Chat(ctx context.Context, rawBody []byte) (io.Reader, int, erro
 	if err != nil {
 		return nil, 0, err
 	}
-	pr, pw := io.Pipe()
-	reader := io.TeeReader(res.Body, pw)
-	go func() {
-		defer res.Body.Close()
-		defer pw.Close()
-		reader := bufio.NewScanner(pr)
-		for reader.Scan() {
-			slog.Info("reader", "chunk", reader.Text())
-		}
-		slog.Info("reader off")
-	}()
 
-	return reader, res.StatusCode, nil
+	return res.Body, res.StatusCode, nil
 }
 
 func (o *OpenAI) Models(ctx context.Context) ([]Model, error) {

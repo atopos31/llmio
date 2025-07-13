@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/atopos31/llmio/prividers"
+	"github.com/atopos31/llmio/model"
+	"github.com/atopos31/llmio/providers"
 	"github.com/atopos31/llmio/service"
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
+	model.InitDB("llmio.db")
 	router := gin.Default()
 	v1 := router.Group("/v1")
 	v1.POST("/chat/completions", ChatCompletionsHandler)

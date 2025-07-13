@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/atopos31/llmio/balancer"
-	"github.com/atopos31/llmio/prividers"
+	"github.com/atopos31/llmio/providers"
 	"github.com/tidwall/gjson"
 )
 

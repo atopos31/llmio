@@ -36,6 +36,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 			return nil, err
 		}
 		slog.Info("selected model", "model", *item)
+
 		var chatModel prividers.Privider
 		switch *item {
 		case "deepseek":
@@ -43,6 +44,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 		case "flow":
 			chatModel = prividers.NewOpenAI(os.Getenv("FLOW_BASE_URL"), os.Getenv("FLOW_API_KEY"), "Pro/deepseek-ai/DeepSeek-V3")
 		}
+
 		body, status, err := chatModel.Chat(ctx, rawData)
 		if err != nil {
 			slog.Error("chat error", "error", err)
@@ -57,6 +59,8 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 			body.Close()
 			continue
 		}
+
+		// 与客户端并行处理响应数据流
 		teeReader := processTee(ctx, body)
 
 		return teeReader, nil
@@ -66,6 +70,14 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 
 func processTee(ctx context.Context, body io.ReadCloser) io.Reader {
 	pr, pw := io.Pipe()
+	go func() {
+		defer body.Close()
+		defer pw.Close()
+
+		// 等待请求结束
+		<-ctx.Done()
+	}()
+
 	teeReader := io.TeeReader(body, pw)
 	go func() {
 		var usage Usage
@@ -85,10 +97,6 @@ func processTee(ctx context.Context, body io.ReadCloser) io.Reader {
 		}
 		slog.Info("reader off", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens)
 	}()
-	go func() {
-		defer body.Close()
-		defer pw.Close()
-		<-ctx.Done()
-	}()
+
 	return teeReader
 }

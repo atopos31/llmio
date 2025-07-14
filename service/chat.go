@@ -3,6 +3,7 @@ package service
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -30,18 +31,14 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 	if originModel == "" {
 		return nil, errors.New("model is empty")
 	}
-	llmModel, err := gorm.G[model.Model](model.DB).Where("name = ?", originModel).First(ctx)
-	if err != nil {
-		return nil, err
-	}
 
-	llmproviders, err := gorm.G[model.ModelWithProvider](model.DB).Where("model_id = ?", llmModel.ID).Find(ctx)
+	llmproviders, err := ProvidersByModelName(ctx, originModel)
 	if err != nil {
 		return nil, err
 	}
 
 	stream := gjson.GetBytes(rawData, "stream").Bool()
-	slog.Info("request", "origin model", originModel, "stream", stream)
+	slog.Info("request", "originModel", originModel, "stream", stream)
 
 	items := make(map[uint]int)
 	for _, provider := range llmproviders {
@@ -50,6 +47,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 
 	restry := 10
 	for range restry {
+		// 加权负载均衡
 		item, err := balancer.WeightedRandom(items)
 		if err != nil {
 			return nil, err
@@ -59,19 +57,25 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 			delete(items, *item)
 			continue
 		}
-		slog.Info("selected provider", "provider", provider.Name)
+
+		index := slices.IndexFunc(llmproviders, func(mp model.ModelWithProvider) bool {
+			return mp.ProviderID == provider.ID
+		})
 
 		var chatModel prividers.Privider
 		switch provider.Type {
 		case "openai":
-			baseUrl := gjson.Get(provider.Config, "base_url")
-			apiKey := gjson.Get(provider.Config, "api_key")
-			id := provider.ID
-			index := slices.IndexFunc(llmproviders, func(provider model.ModelWithProvider) bool {
-				return provider.ProviderID == id
-			})
+			var config model.OpenAIConfig
+			if err := json.Unmarshal([]byte(provider.Config), &config); err != nil {
+				delete(items, *item)
+				continue
+			}
 
-			chatModel = prividers.NewOpenAI(baseUrl.String(), apiKey.String(), llmproviders[index].ProviderName)
+			providerName := llmproviders[index].ProviderName
+
+			slog.Info("using provider", "provider", provider.Name, "model", providerName)
+
+			chatModel = prividers.NewOpenAI(config.BaseUrl, config.ApiKey, providerName)
 		default:
 			continue
 		}
@@ -85,9 +89,20 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 		}
 
 		if status != http.StatusOK {
-			slog.Error("chat error", "status", status)
+			byteBody, err := io.ReadAll(body)
+			if err != nil {
+				slog.Error("read body error", "error", err)
+			}
+			slog.Error("chat error", "status", status, "body", string(byteBody))
+
+			// 非RPM限制 移除待选
 			if status != http.StatusTooManyRequests {
 				delete(items, *item)
+			}
+
+			// 达到RPM限制
+			if status == http.StatusTooManyRequests {
+				time.Sleep(time.Second * 2)
 			}
 			body.Close()
 			continue
@@ -99,6 +114,26 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 		return teeReader, nil
 	}
 	return nil, errors.New("no provider available")
+}
+
+func ProvidersByModelName(ctx context.Context, modelName string) ([]model.ModelWithProvider, error) {
+	llmModel, err := gorm.G[model.Model](model.DB).Where("name = ?", modelName).First(ctx)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("not found model " + modelName)
+		}
+		return nil, err
+	}
+
+	llmproviders, err := gorm.G[model.ModelWithProvider](model.DB).Where("model_id = ?", llmModel.ID).Find(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(llmproviders) == 0 {
+		return nil, errors.New("not provider for model " + modelName)
+	}
+	return llmproviders, nil
 }
 
 func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Reader {
@@ -122,18 +157,22 @@ func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Rea
 				firstChunkTime = time.Since(start)
 				slog.Info("request", "first_chunk_time", firstChunkTime)
 			})
+
 			usageStr := logReader.Text()
 			if usageStr == "" {
 				continue
 			}
+
 			usageStr = strings.TrimPrefix(usageStr, "data: ")
 			if !gjson.Valid(usageStr) {
 				continue
 			}
+
 			usage.PromptTokens = gjson.Get(usageStr, "usage.prompt_tokens").Int()
 			usage.CompletionTokens = gjson.Get(usageStr, "usage.completion_tokens").Int()
 			usage.TotalTokens = gjson.Get(usageStr, "usage.total_tokens").Int()
 		}
+
 		chunkTime := time.Since(start) - firstChunkTime
 		tps := float64(usage.TotalTokens) / chunkTime.Seconds()
 		slog.Info("reader off", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens, "chunkTime", chunkTime, "tps", tps)

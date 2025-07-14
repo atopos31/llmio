@@ -6,15 +6,12 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 var DB *gorm.DB
 
 func InitDB(name string) {
-	db, err := gorm.Open(sqlite.Open(name), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info), // 开启日志，方便看SQL
-	})
+	db, err := gorm.Open(sqlite.Open(name), &gorm.Config{})
 	if err != nil {
 		panic(err)
 	}

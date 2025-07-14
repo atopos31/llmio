@@ -64,11 +64,11 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 			baseUrl := gjson.Get(provider.Config, "base_url")
 			apiKey := gjson.Get(provider.Config, "api_key")
 			id := provider.ID
-			indes := slices.IndexFunc(llmproviders, func(provider model.ModelWithProvider) bool {
+			index := slices.IndexFunc(llmproviders, func(provider model.ModelWithProvider) bool {
 				return provider.ProviderID == id
 			})
 
-			chatModel = prividers.NewOpenAI(baseUrl.String(), apiKey.String(), llmproviders[indes].ProviderName)
+			chatModel = prividers.NewOpenAI(baseUrl.String(), apiKey.String(), llmproviders[index].ProviderName)
 		default:
 			continue
 		}

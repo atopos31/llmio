@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -38,6 +39,10 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 	llmproviders, err := ProvidersByModelName(ctx, before.model)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(llmproviders) == 0 {
+		return nil, fmt.Errorf("no provider found for model %s", before.model)
 	}
 
 	items := make(map[uint]int)

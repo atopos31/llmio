@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/atopos31/llmio/balancer"
 	"github.com/atopos31/llmio/model"
@@ -46,7 +48,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 		items[provider.ProviderID] = provider.Weight
 	}
 
-	restry := 3
+	restry := 10
 	for range restry {
 		item, err := balancer.WeightedRandom(items)
 		if err != nil {
@@ -57,7 +59,8 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 			delete(items, *item)
 			continue
 		}
-		slog.Info("selected provider", "provider", provider)
+		slog.Info("selected provider", "provider", provider.Name)
+
 		var chatModel prividers.Privider
 		switch provider.Type {
 		case "openai":
@@ -73,12 +76,14 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 			continue
 		}
 
+		reqStart := time.Now()
 		body, status, err := chatModel.Chat(ctx, rawData)
 		if err != nil {
 			slog.Error("chat error", "error", err)
 			delete(items, *item)
 			continue
 		}
+
 		if status != http.StatusOK {
 			slog.Error("chat error", "status", status)
 			if status != http.StatusTooManyRequests {
@@ -89,14 +94,14 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 		}
 
 		// 与客户端并行处理响应数据流
-		teeReader := processTee(ctx, body)
+		teeReader := processTee(ctx, reqStart, body)
 
 		return teeReader, nil
 	}
 	return nil, errors.New("no provider available")
 }
 
-func processTee(ctx context.Context, body io.ReadCloser) io.Reader {
+func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Reader {
 	pr, pw := io.Pipe()
 	go func() {
 		defer body.Close()
@@ -109,8 +114,14 @@ func processTee(ctx context.Context, body io.ReadCloser) io.Reader {
 	teeReader := io.TeeReader(body, pw)
 	go func() {
 		var usage Usage
+		var once sync.Once
+		var firstChunkTime time.Duration
 		logReader := bufio.NewScanner(pr)
 		for logReader.Scan() {
+			once.Do(func() {
+				firstChunkTime = time.Since(start)
+				slog.Info("request", "first_chunk_time", firstChunkTime)
+			})
 			usageStr := logReader.Text()
 			if usageStr == "" {
 				continue
@@ -123,7 +134,9 @@ func processTee(ctx context.Context, body io.ReadCloser) io.Reader {
 			usage.CompletionTokens = gjson.Get(usageStr, "usage.completion_tokens").Int()
 			usage.TotalTokens = gjson.Get(usageStr, "usage.total_tokens").Int()
 		}
-		slog.Info("reader off", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens)
+		chunkTime := time.Since(start) - firstChunkTime
+		tps := float64(usage.TotalTokens) / chunkTime.Seconds()
+		slog.Info("reader off", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens, "chunkTime", chunkTime, "tps", tps)
 	}()
 
 	return teeReader

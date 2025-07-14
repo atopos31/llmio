@@ -17,6 +17,7 @@ import (
 	"github.com/atopos31/llmio/model"
 	"github.com/atopos31/llmio/providers"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"gorm.io/gorm"
 )
 
@@ -27,18 +28,17 @@ type Usage struct {
 }
 
 func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
-	originModel := gjson.GetBytes(rawData, "model").String()
-	if originModel == "" {
-		return nil, errors.New("model is empty")
-	}
-
-	llmproviders, err := ProvidersByModelName(ctx, originModel)
+	before, err := processBefore(rawData)
 	if err != nil {
 		return nil, err
 	}
 
-	stream := gjson.GetBytes(rawData, "stream").Bool()
-	slog.Info("request", "originModel", originModel, "stream", stream)
+	slog.Info("request", "model", before.model, "stream", before.stream)
+
+	llmproviders, err := ProvidersByModelName(ctx, before.model)
+	if err != nil {
+		return nil, err
+	}
 
 	items := make(map[uint]int)
 	for _, provider := range llmproviders {
@@ -81,7 +81,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 		}
 
 		reqStart := time.Now()
-		body, status, err := chatModel.Chat(ctx, rawData)
+		body, status, err := chatModel.Chat(ctx, before.raw)
 		if err != nil {
 			slog.Error("chat error", "error", err)
 			delete(items, *item)
@@ -114,6 +114,35 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 		return teeReader, nil
 	}
 	return nil, errors.New("no provider available")
+}
+
+type before struct {
+	model  string
+	stream bool
+	raw    []byte
+}
+
+func processBefore(data []byte) (*before, error) {
+	model := gjson.GetBytes(data, "model").String()
+	if model == "" {
+		return nil, errors.New("model is empty")
+	}
+	stream := gjson.GetBytes(data, "stream").Bool()
+	if stream {
+		// 为processTee记录usage添加选项
+		newData, err := sjson.SetBytes(data, "stream_options", struct {
+			IncludeUsage bool `json:"include_usage"`
+		}{IncludeUsage: true})
+		if err != nil {
+			return nil, err
+		}
+		data = newData
+	}
+	return &before{
+		model:  model,
+		stream: stream,
+		raw:    data,
+	}, nil
 }
 
 func ProvidersByModelName(ctx context.Context, modelName string) ([]model.ModelWithProvider, error) {
@@ -155,7 +184,7 @@ func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Rea
 		for logReader.Scan() {
 			once.Do(func() {
 				firstChunkTime = time.Since(start)
-				slog.Info("request", "first_chunk_time", firstChunkTime)
+				slog.Info("response", "first_chunk_time", firstChunkTime)
 			})
 
 			usageStr := logReader.Text()
@@ -175,7 +204,7 @@ func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Rea
 
 		chunkTime := time.Since(start) - firstChunkTime
 		tps := float64(usage.TotalTokens) / chunkTime.Seconds()
-		slog.Info("reader off", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens, "chunkTime", chunkTime, "tps", tps)
+		slog.Info("response", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens, "chunkTime", chunkTime, "tps", tps)
 	}()
 
 	return teeReader

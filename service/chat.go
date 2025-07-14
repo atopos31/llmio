@@ -7,12 +7,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
+	"slices"
 	"strings"
 
 	"github.com/atopos31/llmio/balancer"
+	"github.com/atopos31/llmio/model"
 	"github.com/atopos31/llmio/providers"
 	"github.com/tidwall/gjson"
+	"gorm.io/gorm"
 )
 
 type Usage struct {
@@ -23,11 +25,26 @@ type Usage struct {
 
 func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 	originModel := gjson.GetBytes(rawData, "model").String()
+	if originModel == "" {
+		return nil, errors.New("model is empty")
+	}
+	llmModel, err := gorm.G[model.Model](model.DB).Where("name = ?", originModel).First(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	llmproviders, err := gorm.G[model.ModelWithProvider](model.DB).Where("model_id = ?", llmModel.ID).Find(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	stream := gjson.GetBytes(rawData, "stream").Bool()
 	slog.Info("request", "origin model", originModel, "stream", stream)
-	items := make(map[string]int)
-	items["deepseek"] = 10
-	items["flow"] = 5
+
+	items := make(map[uint]int)
+	for _, provider := range llmproviders {
+		items[provider.ProviderID] = provider.Weight
+	}
 
 	restry := 3
 	for range restry {
@@ -35,14 +52,25 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 		if err != nil {
 			return nil, err
 		}
-		slog.Info("selected model", "model", *item)
-
+		provider, err := gorm.G[model.Provider](model.DB).Where("id = ?", *item).First(ctx)
+		if err != nil {
+			delete(items, *item)
+			continue
+		}
+		slog.Info("selected provider", "provider", provider)
 		var chatModel prividers.Privider
-		switch *item {
-		case "deepseek":
-			chatModel = prividers.NewOpenAI(os.Getenv("DEEPSEEK_BASE_URL"), os.Getenv("DEEPSEEK_API_KEY"), "deepseek-chat")
-		case "flow":
-			chatModel = prividers.NewOpenAI(os.Getenv("FLOW_BASE_URL"), os.Getenv("FLOW_API_KEY"), "Pro/deepseek-ai/DeepSeek-V3")
+		switch provider.Type {
+		case "openai":
+			baseUrl := gjson.Get(provider.Config, "base_url")
+			apiKey := gjson.Get(provider.Config, "api_key")
+			id := provider.ID
+			indes := slices.IndexFunc(llmproviders, func(provider model.ModelWithProvider) bool {
+				return provider.ProviderID == id
+			})
+
+			chatModel = prividers.NewOpenAI(baseUrl.String(), apiKey.String(), llmproviders[indes].ProviderName)
+		default:
+			continue
 		}
 
 		body, status, err := chatModel.Chat(ctx, rawData)

@@ -6,3 +6,6 @@ fmt:
 
 run: fmt tidy
 	go run .
+
+add: fmt tidy
+	git add .

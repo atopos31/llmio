@@ -66,6 +66,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 		index := slices.IndexFunc(llmproviders, func(mp model.ModelWithProvider) bool {
 			return mp.ProviderID == provider.ID
 		})
+		providerName := llmproviders[index].ProviderName
 
 		var chatModel prividers.Privider
 		switch provider.Type {
@@ -76,14 +77,12 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 				continue
 			}
 
-			providerName := llmproviders[index].ProviderName
-
-			slog.Info("using provider", "provider", provider.Name, "model", providerName)
-
 			chatModel = prividers.NewOpenAI(config.BaseUrl, config.ApiKey, providerName)
 		default:
 			continue
 		}
+
+		slog.Info("using provider", "provider", provider.Name, "model", providerName)
 
 		reqStart := time.Now()
 		body, status, err := chatModel.Chat(ctx, before.raw)
@@ -105,7 +104,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 				delete(items, *item)
 			}
 
-			// 达到RPM限制
+			// 达到RPM限制 sleep
 			if status == http.StatusTooManyRequests {
 				time.Sleep(time.Second * 2)
 			}
@@ -134,7 +133,7 @@ func processBefore(data []byte) (*before, error) {
 	}
 	stream := gjson.GetBytes(data, "stream").Bool()
 	if stream {
-		// 为processTee记录usage添加选项
+		// 为processTee记录usage添加选项 PS:很多客户端只会开启stream 而不会开启include_usage
 		newData, err := sjson.SetBytes(data, "stream_options", struct {
 			IncludeUsage bool `json:"include_usage"`
 		}{IncludeUsage: true})
@@ -183,33 +182,45 @@ func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Rea
 	teeReader := io.TeeReader(body, pw)
 	go func() {
 		var usage Usage
-		var once sync.Once
+		var usagemu sync.Mutex
+
+		// 首字时延
 		var firstChunkTime time.Duration
+		var once sync.Once
+
 		logReader := bufio.NewScanner(pr)
 		for logReader.Scan() {
+			chunk := logReader.Text()
+			if chunk == "" {
+				continue
+			}
+
 			once.Do(func() {
 				firstChunkTime = time.Since(start)
-				slog.Info("response", "first_chunk_time", firstChunkTime)
 			})
 
-			usageStr := logReader.Text()
-			if usageStr == "" {
-				continue
-			}
+			go func() {
+				chunk := strings.TrimPrefix(chunk, "data: ")
+				if !gjson.Valid(chunk) {
+					return
+				}
 
-			usageStr = strings.TrimPrefix(usageStr, "data: ")
-			if !gjson.Valid(usageStr) {
-				continue
-			}
+				usageStr := gjson.Get(chunk, "usage")
+				if !usageStr.Exists() {
+					return
+				}
 
-			usage.PromptTokens = gjson.Get(usageStr, "usage.prompt_tokens").Int()
-			usage.CompletionTokens = gjson.Get(usageStr, "usage.completion_tokens").Int()
-			usage.TotalTokens = gjson.Get(usageStr, "usage.total_tokens").Int()
+				usagemu.Lock()
+				if err := json.Unmarshal([]byte(usageStr.Raw), &usage); err != nil {
+					slog.Error("unmarshal usage error, raw:" + usageStr.Raw)
+				}
+				usagemu.Unlock()
+			}()
 		}
 
 		chunkTime := time.Since(start) - firstChunkTime
 		tps := float64(usage.TotalTokens) / chunkTime.Seconds()
-		slog.Info("response", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens, "chunkTime", chunkTime, "tps", tps)
+		slog.Info("response", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens, "firstChunkTime", firstChunkTime, "chunkTime", chunkTime, "tps", tps)
 	}()
 
 	return teeReader

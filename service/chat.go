@@ -68,7 +68,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 		})
 		providerName := llmproviders[index].ProviderName
 
-		var chatModel prividers.Privider
+		var chatModel providers.Privider
 		switch provider.Type {
 		case "openai":
 			var config model.OpenAIConfig
@@ -77,7 +77,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 				continue
 			}
 
-			chatModel = prividers.NewOpenAI(config.BaseUrl, config.ApiKey, providerName)
+			chatModel = providers.NewOpenAI(config.BaseUrl, config.ApiKey, providerName)
 		default:
 			continue
 		}

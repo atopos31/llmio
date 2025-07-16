@@ -3,8 +3,8 @@ package handler
 import (
 	"io"
 	"log/slog"
-	"net/http"
 
+	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/model"
 	"github.com/atopos31/llmio/providers"
 	"github.com/atopos31/llmio/service"
@@ -19,9 +19,7 @@ func ChatCompletionsHandler(c *gin.Context) {
 	}
 	reader, err := service.BalanceChat(c.Request.Context(), data)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
+		common.InternalServerError(c, err.Error())
 		return
 	}
 	n, err := io.Copy(c.Writer, reader)
@@ -36,22 +34,20 @@ func ChatCompletionsHandler(c *gin.Context) {
 func ModelsHandler(c *gin.Context) {
 	llmModels, err := gorm.G[model.Model](model.DB).Find(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
+		common.InternalServerError(c, err.Error())
 		return
 	}
 	slog.Info("models", "models", llmModels)
-	models := make([]prividers.Model, len(llmModels))
+	models := make([]providers.Model, len(llmModels))
 	for _, llmModel := range llmModels {
-		models = append(models, prividers.Model{
+		models = append(models, providers.Model{
 			ID:      llmModel.Name,
 			Object:  "model",
 			Created: llmModel.CreatedAt.Unix(),
 			OwnedBy: "llmio",
 		})
 	}
-	c.JSON(http.StatusOK, prividers.ModelList{
+	common.Success(c, providers.ModelList{
 		Object: "list",
 		Data:   models,
 	})

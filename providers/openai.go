@@ -1,4 +1,4 @@
-package prividers
+package providers
 
 import (
 	"bytes"

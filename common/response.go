@@ -22,6 +22,11 @@ func Success(c *gin.Context, data any) {
 	})
 }
 
+// Success 成功响应
+func SuccessRaw(c *gin.Context, data any) {
+	c.JSON(http.StatusOK, data)
+}
+
 // SuccessWithMessage 带消息的成功响应
 func SuccessWithMessage(c *gin.Context, message string, data any) {
 	c.JSON(http.StatusOK, Response{

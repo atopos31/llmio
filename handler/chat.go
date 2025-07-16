@@ -37,8 +37,8 @@ func ModelsHandler(c *gin.Context) {
 		common.InternalServerError(c, err.Error())
 		return
 	}
-	slog.Info("models", "models", llmModels)
-	models := make([]providers.Model, len(llmModels))
+
+	models := make([]providers.Model, 0)
 	for _, llmModel := range llmModels {
 		models = append(models, providers.Model{
 			ID:      llmModel.Name,
@@ -47,7 +47,8 @@ func ModelsHandler(c *gin.Context) {
 			OwnedBy: "llmio",
 		})
 	}
-	common.Success(c, providers.ModelList{
+	slog.Info("models", "models", models)
+	common.SuccessRaw(c, providers.ModelList{
 		Object: "list",
 		Data:   models,
 	})

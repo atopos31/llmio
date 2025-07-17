@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -189,16 +190,14 @@ func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Rea
 		var once sync.Once
 
 		logReader := bufio.NewScanner(pr)
-		for logReader.Scan() {
-			chunk := logReader.Text()
-			if chunk == "" {
-				continue
+		for chunk, err := range ScannerToken(logReader) {
+			if err != nil {
+				slog.Error("log reader error", "error", err)
+				break
 			}
-
 			once.Do(func() {
 				firstChunkTime = time.Since(start)
 			})
-
 			go func() {
 				chunk := strings.TrimPrefix(chunk, "data: ")
 				if !gjson.Valid(chunk) {
@@ -224,4 +223,19 @@ func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Rea
 	}()
 
 	return teeReader
+}
+
+func ScannerToken(reader *bufio.Scanner) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		for reader.Scan() {
+			chunk := reader.Text()
+			if chunk == "" {
+				continue
+			}
+			if !yield(chunk, nil) {
+				return
+			}
+		}
+		yield("", reader.Err())
+	}
 }

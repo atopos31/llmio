@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/atopos31/llmio/balancer"
-	"github.com/atopos31/llmio/model"
+	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -37,13 +37,13 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 
 	slog.Info("request", "model", before.model, "stream", before.stream)
 
-	llmproviders, err := ProvidersByModelName(ctx, before.model)
+	llmproviders, err := ProvidersBymodelsName(ctx, before.model)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(llmproviders) == 0 {
-		return nil, fmt.Errorf("no provider found for model %s", before.model)
+		return nil, fmt.Errorf("no provider found for models %s", before.model)
 	}
 
 	items := make(map[uint]int)
@@ -58,29 +58,21 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 		if err != nil {
 			return nil, err
 		}
-		provider, err := gorm.G[model.Provider](model.DB).Where("id = ?", *item).First(ctx)
+		provider, err := gorm.G[models.Provider](models.DB).Where("id = ?", *item).First(ctx)
 		if err != nil {
 			delete(items, *item)
 			continue
 		}
 
-		index := slices.IndexFunc(llmproviders, func(mp model.ModelWithProvider) bool {
+		// 获取对应提供商的原始model名
+		index := slices.IndexFunc(llmproviders, func(mp models.ModelWithProvider) bool {
 			return mp.ProviderID == provider.ID
 		})
 		providerName := llmproviders[index].ProviderName
 
-		var chatModel providers.Privider
-		switch provider.Type {
-		case "openai":
-			var config model.OpenAIConfig
-			if err := json.Unmarshal([]byte(provider.Config), &config); err != nil {
-				delete(items, *item)
-				continue
-			}
-
-			chatModel = providers.NewOpenAI(config.BaseUrl, config.ApiKey, providerName)
-		default:
-			continue
+		chatModel, err := providers.New(provider.Type, llmproviders[index].ProviderName, provider.Config)
+		if err != nil {
+			return nil, err
 		}
 
 		slog.Info("using provider", "provider", provider.Name, "model", providerName)
@@ -150,22 +142,22 @@ func processBefore(data []byte) (*before, error) {
 	}, nil
 }
 
-func ProvidersByModelName(ctx context.Context, modelName string) ([]model.ModelWithProvider, error) {
-	llmModel, err := gorm.G[model.Model](model.DB).Where("name = ?", modelName).First(ctx)
+func ProvidersBymodelsName(ctx context.Context, modelsName string) ([]models.ModelWithProvider, error) {
+	llmmodels, err := gorm.G[models.Model](models.DB).Where("name = ?", modelsName).First(ctx)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("not found model " + modelName)
+			return nil, errors.New("not found model " + modelsName)
 		}
 		return nil, err
 	}
 
-	llmproviders, err := gorm.G[model.ModelWithProvider](model.DB).Where("model_id = ?", llmModel.ID).Find(ctx)
+	llmproviders, err := gorm.G[models.ModelWithProvider](models.DB).Where("model_id = ?", llmmodels.ID).Find(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	if len(llmproviders) == 0 {
-		return nil, errors.New("not provider for model " + modelName)
+		return nil, errors.New("not provider for model " + modelsName)
 	}
 	return llmproviders, nil
 }

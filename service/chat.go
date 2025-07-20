@@ -51,66 +51,71 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 		items[provider.ProviderID] = provider.Weight
 	}
 
-	restry := 10
-	for range restry {
-		// 加权负载均衡
-		item, err := balancer.WeightedRandom(items)
-		if err != nil {
-			return nil, err
-		}
-		provider, err := gorm.G[models.Provider](models.DB).Where("id = ?", *item).First(ctx)
-		if err != nil {
-			delete(items, *item)
-			continue
-		}
-
-		// 获取对应提供商的原始model名
-		index := slices.IndexFunc(llmproviders, func(mp models.ModelWithProvider) bool {
-			return mp.ProviderID == provider.ID
-		})
-		providerName := llmproviders[index].ProviderName
-
-		chatModel, err := providers.New(provider.Type, llmproviders[index].ProviderName, provider.Config)
-		if err != nil {
-			return nil, err
-		}
-
-		slog.Info("using provider", "provider", provider.Name, "model", providerName)
-
-		reqStart := time.Now()
-		body, status, err := chatModel.Chat(ctx, before.raw)
-		if err != nil {
-			slog.Error("chat error", "error", err)
-			delete(items, *item)
-			continue
-		}
-
-		if status != http.StatusOK {
-			byteBody, err := io.ReadAll(body)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Second * 20):
+			return nil, errors.New("retry time out !")
+		default:
+			// 加权负载均衡
+			item, err := balancer.WeightedRandom(items)
 			if err != nil {
-				slog.Error("read body error", "error", err)
+				return nil, err
 			}
-			slog.Error("chat error", "status", status, "body", string(byteBody))
-
-			// 非RPM限制 移除待选
-			if status != http.StatusTooManyRequests {
+			provider, err := gorm.G[models.Provider](models.DB).Where("id = ?", *item).First(ctx)
+			if err != nil {
 				delete(items, *item)
+				continue
 			}
 
-			// 达到RPM限制 sleep
-			if status == http.StatusTooManyRequests {
-				time.Sleep(time.Second * 2)
+			// 获取对应提供商的原始model名
+			index := slices.IndexFunc(llmproviders, func(mp models.ModelWithProvider) bool {
+				return mp.ProviderID == provider.ID
+			})
+			providerName := llmproviders[index].ProviderName
+
+			chatModel, err := providers.New(provider.Type, llmproviders[index].ProviderName, provider.Config)
+			if err != nil {
+				return nil, err
 			}
-			body.Close()
-			continue
+
+			slog.Info("using provider", "provider", provider.Name, "model", providerName)
+
+			reqStart := time.Now()
+			body, status, err := chatModel.Chat(ctx, before.raw)
+			if err != nil {
+				slog.Error("chat error", "error", err)
+				delete(items, *item)
+				continue
+			}
+
+			if status != http.StatusOK {
+				byteBody, err := io.ReadAll(body)
+				if err != nil {
+					slog.Error("read body error", "error", err)
+				}
+				slog.Error("chat error", "status", status, "body", string(byteBody))
+
+				// 非RPM限制 移除待选
+				if status != http.StatusTooManyRequests {
+					delete(items, *item)
+				}
+
+				// 达到RPM限制 降低权重
+				if status == http.StatusTooManyRequests {
+					items[*item] -= 10
+				}
+				body.Close()
+				continue
+			}
+
+			// 与客户端并行处理响应数据流
+			teeReader := processTee(ctx, reqStart, body)
+
+			return teeReader, nil
 		}
-
-		// 与客户端并行处理响应数据流
-		teeReader := processTee(ctx, reqStart, body)
-
-		return teeReader, nil
 	}
-	return nil, errors.New("no provider available")
 }
 
 type before struct {

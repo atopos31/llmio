@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net/http"
 	"strconv"
 
 	"github.com/atopos31/llmio/common"
@@ -9,6 +10,16 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+const test = `{
+        "model": "gpt-4.1",
+        "messages": [
+            {
+                "role": "user",
+                "content": "Write a one-sentence bedtime story about a unicorn."
+            }
+        ]
+    }`
 
 func ProviderTestHandler(c *gin.Context) {
 	idStr := c.Param("id")
@@ -48,9 +59,14 @@ func ProviderTestHandler(c *gin.Context) {
 	}
 
 	// Test connectivity by fetching models
-	_, err = providerInstance.Models(c.Request.Context())
+	_, status, err := providerInstance.Chat(c.Request.Context(), []byte(test))
 	if err != nil {
 		common.ErrorWithHttpStatus(c, 502, 502, "Failed to connect to provider: "+err.Error())
+		return
+	}
+
+	if status != http.StatusOK {
+		common.InternalServerError(c, "Provider returned non-200 status code: "+strconv.Itoa(status))
 		return
 	}
 

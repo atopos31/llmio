@@ -70,7 +70,7 @@ func BadRequest(c *gin.Context, message string) {
 
 // NotFound 资源未找到
 func NotFound(c *gin.Context, message string) {
-	c.JSON(http.StatusNotFound, Response{
+	c.JSON(http.StatusOK, Response{
 		Code:    404,
 		Message: message,
 	})

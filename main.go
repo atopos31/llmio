@@ -15,7 +15,7 @@ func main() {
 	v1.GET("/models", handler.ModelsHandler)
 
 	api := router.Group("/api")
-	api.GET("/test/:id")
+	api.GET("/test/:id", handler.ProviderTestHandler)
 
 	router.Run(":7070")
 }

@@ -124,6 +124,7 @@ type before struct {
 	raw    []byte
 }
 
+// 向provicer发送请求之前进行body处理
 func processBefore(data []byte) (*before, error) {
 	model := gjson.GetBytes(data, "model").String()
 	if model == "" {
@@ -179,6 +180,7 @@ func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Rea
 
 	teeReader := io.TeeReader(body, pw)
 	go func() {
+		// token用量
 		var usage Usage
 		var usagemu sync.Mutex
 
@@ -187,11 +189,7 @@ func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Rea
 		var once sync.Once
 
 		logReader := bufio.NewScanner(pr)
-		for chunk, err := range ScannerToken(logReader) {
-			if err != nil {
-				slog.Error("log reader error", "error", err)
-				break
-			}
+		for chunk := range ScannerToken(logReader) {
 			once.Do(func() {
 				firstChunkTime = time.Since(start)
 			})
@@ -213,6 +211,10 @@ func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Rea
 				usagemu.Unlock()
 			}()
 		}
+		if err := logReader.Err(); err != nil {
+			slog.Error("log reader error", "error", err)
+			return
+		}
 
 		chunkTime := time.Since(start) - firstChunkTime
 		tps := float64(usage.TotalTokens) / chunkTime.Seconds()
@@ -222,17 +224,16 @@ func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Rea
 	return teeReader
 }
 
-func ScannerToken(reader *bufio.Scanner) iter.Seq2[string, error] {
-	return func(yield func(string, error) bool) {
+func ScannerToken(reader *bufio.Scanner) iter.Seq[string] {
+	return func(yield func(string) bool) {
 		for reader.Scan() {
 			chunk := reader.Text()
 			if chunk == "" {
 				continue
 			}
-			if !yield(chunk, nil) {
+			if !yield(chunk) {
 				return
 			}
 		}
-		yield("", reader.Err())
 	}
 }

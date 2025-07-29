@@ -17,7 +17,7 @@ func TestProviderTestHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	// Initialize a mock database or use an in-memory database
-	models.InitDB(":memory:")
+	models.Init(":memory:")
 
 	// Create a test router
 	router := gin.New()

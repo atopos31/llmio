@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const test = `{
+const testBody = `{
         "model": "gpt-4.1",
         "messages": [
             {
@@ -59,7 +59,7 @@ func ProviderTestHandler(c *gin.Context) {
 	}
 
 	// Test connectivity by fetching models
-	_, status, err := providerInstance.Chat(c.Request.Context(), []byte(test))
+	_, status, err := providerInstance.Chat(c.Request.Context(), []byte(testBody))
 	if err != nil {
 		common.ErrorWithHttpStatus(c, 502, 502, "Failed to connect to provider: "+err.Error())
 		return

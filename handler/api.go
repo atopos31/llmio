@@ -64,8 +64,7 @@ func CreateProvider(c *gin.Context) {
 		Config: req.Config,
 	}
 
-	err := gorm.G[models.Provider](models.DB).Create(c.Request.Context(), &provider)
-	if err != nil {
+	if err := gorm.G[models.Provider](models.DB).Create(c.Request.Context(), &provider); err != nil {
 		common.InternalServerError(c, "Failed to create provider: "+err.Error())
 		return
 	}
@@ -89,7 +88,6 @@ func UpdateProvider(c *gin.Context) {
 	}
 
 	// Check if provider exists
-
 	if _, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).First(c.Request.Context()); err != nil {
 		if err == gorm.ErrRecordNotFound {
 			common.NotFound(c, "Provider not found")

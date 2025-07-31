@@ -12,19 +12,19 @@ import { ThemeProvider } from "@/components/theme-provider"
 function App() {
   return (
     <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
-    <Router>
-      <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Home />} />
-          <Route path="providers" element={<ProvidersPage />} />
-          <Route path="models" element={<ModelsPage />} />
-          <Route path="model-providers" element={<ModelProvidersPage />} />
-          <Route path="system" element={<SystemPage />} />
-          <Route path="logs" element={<LogsPage />} />
-        </Route>
-      </Routes>
+      <Router>
+        <Routes>
+          <Route path="/" element={<Layout />}>
+            <Route index element={<Home />} />
+            <Route path="providers" element={<ProvidersPage />} />
+            <Route path="models" element={<ModelsPage />} />
+            <Route path="model-providers" element={<ModelProvidersPage />} />
+            <Route path="system" element={<SystemPage />} />
+            <Route path="logs" element={<LogsPage />} />
+          </Route>
+        </Routes>
       </Router>
-      </ThemeProvider>
+    </ThemeProvider>
   );
 }
 

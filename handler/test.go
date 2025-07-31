@@ -66,7 +66,7 @@ func ProviderTestHandler(c *gin.Context) {
 	}
 
 	if status != http.StatusOK {
-		common.InternalServerError(c, "Provider returned non-200 status code: "+strconv.Itoa(status))
+		common.ErrorWithHttpStatus(c, status, status, "Provider returned non-200 status code: "+strconv.Itoa(status))
 		return
 	}
 

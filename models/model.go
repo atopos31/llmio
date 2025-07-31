@@ -22,8 +22,15 @@ type Model struct {
 
 type ModelWithProvider struct {
 	gorm.Model
-	ModelID      uint
-	ProviderName string
-	ProviderID   uint
-	Weight       int
+	ModelID       uint
+	ProviderModel string
+	ProviderID    uint
+	Weight        int
+}
+
+type ChatLog struct {
+	gorm.Model
+	Name          string
+	ProviderModel string
+	ProviderName  string
 }

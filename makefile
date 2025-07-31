@@ -9,3 +9,8 @@ run: fmt tidy
 
 add: fmt tidy
 	git add .
+
+.PHONY: webui
+
+webui: 
+	cd webui && pnpm run build

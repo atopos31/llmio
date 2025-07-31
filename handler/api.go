@@ -24,10 +24,10 @@ type ModelRequest struct {
 
 // ModelWithProviderRequest represents the request body for creating/updating a model-provider association
 type ModelWithProviderRequest struct {
-	ModelID      uint   `json:"model_id"`
-	ProviderName string `json:"provider_name"`
-	ProviderID   uint   `json:"provider_id"`
-	Weight       int    `json:"weight"`
+	ModelID       uint   `json:"model_id"`
+	ProviderModel string `json:"provider_name"`
+	ProviderID    uint   `json:"provider_id"`
+	Weight        int    `json:"weight"`
 }
 
 // SystemConfigRequest represents the request body for updating system configuration
@@ -277,10 +277,10 @@ func CreateModelProvider(c *gin.Context) {
 	}
 
 	modelProvider := models.ModelWithProvider{
-		ModelID:      req.ModelID,
-		ProviderName: req.ProviderName,
-		ProviderID:   req.ProviderID,
-		Weight:       req.Weight,
+		ModelID:       req.ModelID,
+		ProviderModel: req.ProviderModel,
+		ProviderID:    req.ProviderID,
+		Weight:        req.Weight,
 	}
 
 	err := gorm.G[models.ModelWithProvider](models.DB).Create(c.Request.Context(), &modelProvider)
@@ -320,10 +320,10 @@ func UpdateModelProvider(c *gin.Context) {
 
 	// Update fields
 	updates := models.ModelWithProvider{
-		ModelID:      req.ModelID,
-		ProviderID:   req.ProviderID,
-		ProviderName: req.ProviderName,
-		Weight:       req.Weight,
+		ModelID:       req.ModelID,
+		ProviderID:    req.ProviderID,
+		ProviderModel: req.ProviderModel,
+		Weight:        req.Weight,
 	}
 
 	if _, err := gorm.G[models.ModelWithProvider](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {

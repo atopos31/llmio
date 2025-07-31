@@ -52,7 +52,7 @@ func ProviderTestHandler(c *gin.Context) {
 	}
 
 	// Create the provider instance
-	providerInstance, err := providers.New(provider.Type, modelWithProvider.ProviderName, provider.Config)
+	providerInstance, err := providers.New(provider.Type, modelWithProvider.ProviderModel, provider.Config)
 	if err != nil {
 		common.BadRequest(c, "Failed to create provider: "+err.Error())
 		return

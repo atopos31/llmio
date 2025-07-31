@@ -73,14 +73,14 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 			index := slices.IndexFunc(llmproviders, func(mp models.ModelWithProvider) bool {
 				return mp.ProviderID == provider.ID
 			})
-			providerName := llmproviders[index].ProviderName
+			ProviderModel := llmproviders[index].ProviderModel
 
-			chatModel, err := providers.New(provider.Type, llmproviders[index].ProviderName, provider.Config)
+			chatModel, err := providers.New(provider.Type, llmproviders[index].ProviderModel, provider.Config)
 			if err != nil {
 				return nil, err
 			}
 
-			slog.Info("using provider", "provider", provider.Name, "model", providerName)
+			slog.Info("using provider", "provider", provider.Name, "model", ProviderModel)
 
 			reqStart := time.Now()
 			body, status, err := chatModel.Chat(ctx, before.raw)

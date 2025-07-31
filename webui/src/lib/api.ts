@@ -18,7 +18,7 @@ export interface Model {
 export interface ModelWithProvider {
   ID: number;
   ModelID: number;
-  ProviderName: string;
+  ProviderModel: string;
   ProviderID: number;
   Weight: number;
 }

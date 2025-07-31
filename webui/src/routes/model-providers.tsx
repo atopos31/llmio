@@ -183,7 +183,7 @@ export default function ModelProvidersPage() {
     setEditingAssociation(association);
     setFormData({
       model_id: association.ModelID,
-      provider_name: association.ProviderName,
+      provider_name: association.ProviderModel,
       provider_id: association.ProviderID,
       weight: association.Weight,
     });
@@ -217,7 +217,7 @@ export default function ModelProvidersPage() {
     }
   };
 
-  const handleProviderNameChange = (name: string) => {
+  const handleProviderModelChange = (name: string) => {
     setFormData({
       ...formData,
       provider_name: name
@@ -276,7 +276,7 @@ export default function ModelProvidersPage() {
                 return (
                   <TableRow key={association.ID}>
                     <TableCell>{association.ID}</TableCell>
-                    <TableCell>{association.ProviderName}</TableCell>
+                    <TableCell>{association.ProviderModel}</TableCell>
                     <TableCell>{provider ? provider.Name : '未知'}</TableCell>
                     <TableCell>{association.Weight}</TableCell>
                     <TableCell className="space-x-2 text-right">
@@ -375,7 +375,7 @@ export default function ModelProvidersPage() {
                 id="provider-name"
                 className="form-input"
                 value={formData.provider_name}
-                onChange={(e) => handleProviderNameChange(e.target.value)}
+                onChange={(e) => handleProviderModelChange(e.target.value)}
                 placeholder="输入提供商模型名称"
               />
             </div>

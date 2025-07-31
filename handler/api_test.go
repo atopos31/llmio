@@ -274,10 +274,10 @@ func TestModelProviderCRUD(t *testing.T) {
 	// Test CreateModelProvider
 	t.Run("CreateModelProvider", func(t *testing.T) {
 		mpReq := ModelWithProviderRequest{
-			ModelID:      1,
-			ProviderName: "OpenAI",
-			ProviderID:   1,
-			Weight:       10,
+			ModelID:       1,
+			ProviderModel: "OpenAI",
+			ProviderID:    1,
+			Weight:        10,
 		}
 
 		jsonValue, _ := json.Marshal(mpReq)
@@ -326,10 +326,10 @@ func TestModelProviderCRUD(t *testing.T) {
 
 		// Update the model-provider association
 		updateReq := ModelWithProviderRequest{
-			ModelID:      1,
-			ProviderName: "Anthropic",
-			ProviderID:   2,
-			Weight:       5,
+			ModelID:       1,
+			ProviderModel: "Anthropic",
+			ProviderID:    2,
+			Weight:        5,
 		}
 
 		jsonValue, _ = json.Marshal(updateReq)

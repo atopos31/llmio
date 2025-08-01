@@ -73,9 +73,9 @@ export async function getProviders(): Promise<Provider[]> {
   return apiRequest<Provider[]>('/providers');
 }
 
-export async function createProvider(provider: { 
-  name: string; 
-  type: string; 
+export async function createProvider(provider: {
+  name: string;
+  type: string;
   config: string;
 }): Promise<Provider> {
   return apiRequest<Provider>('/providers', {
@@ -84,9 +84,9 @@ export async function createProvider(provider: {
   });
 }
 
-export async function updateProvider(id: number, provider: { 
-  name?: string; 
-  type?: string; 
+export async function updateProvider(id: number, provider: {
+  name?: string;
+  type?: string;
   config?: string;
 }): Promise<Provider> {
   return apiRequest<Provider>(`/providers/${id}`, {
@@ -106,8 +106,8 @@ export async function getModels(): Promise<Model[]> {
   return apiRequest<Model[]>('/models');
 }
 
-export async function createModel(model: { 
-  name: string; 
+export async function createModel(model: {
+  name: string;
   remark: string;
 }): Promise<Model> {
   return apiRequest<Model>('/models', {
@@ -116,8 +116,8 @@ export async function createModel(model: {
   });
 }
 
-export async function updateModel(id: number, model: { 
-  name?: string; 
+export async function updateModel(id: number, model: {
+  name?: string;
   remark?: string;
 }): Promise<Model> {
   return apiRequest<Model>(`/models/${id}`, {
@@ -137,10 +137,10 @@ export async function getModelProviders(modelId: number): Promise<ModelWithProvi
   return apiRequest<ModelWithProvider[]>(`/model-providers?model_id=${modelId}`);
 }
 
-export async function createModelProvider(association: { 
-  model_id: number; 
-  provider_name: string; 
-  provider_id: number; 
+export async function createModelProvider(association: {
+  model_id: number;
+  provider_name: string;
+  provider_id: number;
   weight: number;
 }): Promise<ModelWithProvider> {
   return apiRequest<ModelWithProvider>('/model-providers', {
@@ -149,10 +149,10 @@ export async function createModelProvider(association: {
   });
 }
 
-export async function updateModelProvider(id: number, association: { 
-  model_id?: number; 
-  provider_name?: string; 
-  provider_id?: number; 
+export async function updateModelProvider(id: number, association: {
+  model_id?: number;
+  provider_name?: string;
+  provider_id?: number;
   weight?: number;
 }): Promise<ModelWithProvider> {
   return apiRequest<ModelWithProvider>(`/model-providers/${id}`, {
@@ -204,11 +204,9 @@ export interface ChatLog {
   FirstChunkTime: number;
   ChunkTime: number;
   Tps: number;
-  Usage: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  };
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
 }
 
 export interface LogsResponse {
@@ -232,11 +230,11 @@ export async function getLogs(
   const params = new URLSearchParams();
   params.append("page", page.toString());
   params.append("page_size", pageSize.toString());
-  
+
   if (filters.name) params.append("name", filters.name);
   if (filters.providerModel) params.append("provider_model", filters.providerModel);
   if (filters.providerName) params.append("provider_name", filters.providerName);
   if (filters.status) params.append("status", filters.status);
-  
+
   return apiRequest<LogsResponse>(`/logs?${params.toString()}`);
 }

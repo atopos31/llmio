@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -42,15 +42,15 @@ export default function LogsPage() {
   const [logs, setLogs] = useState<ChatLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(20);
+  const [pageSize] = useState(10);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(0);
   const [providers, setProviders] = useState<Provider[]>([]);
-  
+
   // 筛选条件
   const [providerNameFilter, setProviderNameFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  
+
   // 详情弹窗
   const [selectedLog, setSelectedLog] = useState<ChatLog | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -72,12 +72,12 @@ export default function LogsPage() {
       // 处理筛选条件，"all"表示不过滤
       const providerName = providerNameFilter === "all" ? undefined : providerNameFilter;
       const status = statusFilter === "all" ? undefined : statusFilter;
-      
+
       const result = await getLogs(page, pageSize, {
         providerName: providerName,
         status: status
       });
-      
+
       setLogs(result.data);
       setTotal(result.total);
       setPages(result.pages);
@@ -171,20 +171,21 @@ export default function LogsPage() {
           </div>
 
           {/* 日志表格 */}
-          {logs.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              {loading ? "加载中..." : "暂无请求日志"}
-            </div>
-          ) : (
+          {loading ? (
+            <Loading message="加载日志数据" />
+          ) : logs.length == 0 ? <div className="text-center py-8 text-gray-500">暂无请求日志</div> : (
             <div className="border rounded-lg overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>时间</TableHead>
-                    <TableHead>名称</TableHead>
+                    <TableHead>模型名称</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead>Tokens</TableHead>
+                    <TableHead>耗时</TableHead>
                     <TableHead>提供商模型</TableHead>
                     <TableHead>提供商名称</TableHead>
-                    <TableHead>状态</TableHead>
+
                     <TableHead>操作</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -193,13 +194,17 @@ export default function LogsPage() {
                     <TableRow key={log.ID}>
                       <TableCell>{new Date(log.CreatedAt).toLocaleString()}</TableCell>
                       <TableCell>{log.Name}</TableCell>
-                      <TableCell>{log.ProviderModel}</TableCell>
-                      <TableCell>{log.ProviderName}</TableCell>
                       <TableCell>
                         <span className={log.Status === 'success' ? 'text-green-600' : 'text-red-600'}>
                           {log.Status}
                         </span>
                       </TableCell>
+                      <TableCell>{log.total_tokens}</TableCell>
+                      <TableCell><div className="col-span-3">{formatTime(log.ChunkTime)}</div></TableCell>
+                      <TableCell>{log.ProviderModel}</TableCell>
+                      <TableCell>{log.ProviderName}</TableCell>
+
+
                       <TableCell>
                         <Button variant="outline" size="sm" onClick={() => openDetailDialog(log)}>
                           详情
@@ -219,16 +224,16 @@ export default function LogsPage() {
                 共 {total} 条记录，第 {page} 页，共 {pages} 页
               </div>
               <div className="flex space-x-2">
-                <Button 
-                  variant="outline" 
-                  onClick={() => handlePageChange(page - 1)} 
+                <Button
+                  variant="outline"
+                  onClick={() => handlePageChange(page - 1)}
                   disabled={page === 1}
                 >
                   上一页
                 </Button>
-                <Button 
-                  variant="outline" 
-                  onClick={() => handlePageChange(page + 1)} 
+                <Button
+                  variant="outline"
+                  onClick={() => handlePageChange(page + 1)}
                   disabled={page === pages}
                 >
                   下一页
@@ -300,16 +305,27 @@ export default function LogsPage() {
                   <div className="col-span-3">{formatTPS(selectedLog.Tps)}</div>
                 </div>
               )}
-              {selectedLog.Usage && (
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right">使用情况:</Label>
-                  <div className="col-span-3">
-                    <div>提示Token: {selectedLog.Usage.prompt_tokens}</div>
-                    <div>完成Token: {selectedLog.Usage.completion_tokens}</div>
-                    <div>总Token: {selectedLog.Usage.total_tokens}</div>
-                  </div>
+
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right">输入:</Label>
+                <div className="col-span-3">
+                  {selectedLog.prompt_tokens} tokens
                 </div>
-              )}
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right">输出:</Label>
+                <div className="col-span-3">
+                  {selectedLog.completion_tokens} tokens
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right">总计:</Label>
+                <div className="col-span-3">
+                  {selectedLog.total_tokens} tokens
+                </div>
+              </div>
+
             </div>
           </DialogContent>
         </Dialog>

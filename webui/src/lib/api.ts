@@ -191,3 +191,52 @@ export async function updateSystemConfig(config: SystemConfig): Promise<SystemCo
 export async function testModelProvider(id: number): Promise<any> {
   return apiRequest<any>(`/test/${id}`);
 }
+
+// Logs API functions
+export interface ChatLog {
+  ID: number;
+  CreatedAt: string;
+  Name: string;
+  ProviderModel: string;
+  ProviderName: string;
+  Status: string;
+  Error: string;
+  FirstChunkTime: number;
+  ChunkTime: number;
+  Tps: number;
+  Usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+}
+
+export interface LogsResponse {
+  data: ChatLog[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+}
+
+export async function getLogs(
+  page: number = 1,
+  pageSize: number = 20,
+  filters: {
+    name?: string;
+    providerModel?: string;
+    providerName?: string;
+    status?: string;
+  } = {}
+): Promise<LogsResponse> {
+  const params = new URLSearchParams();
+  params.append("page", page.toString());
+  params.append("page_size", pageSize.toString());
+  
+  if (filters.name) params.append("name", filters.name);
+  if (filters.providerModel) params.append("provider_model", filters.providerModel);
+  if (filters.providerName) params.append("provider_name", filters.providerName);
+  if (filters.status) params.append("status", filters.status);
+  
+  return apiRequest<LogsResponse>(`/logs?${params.toString()}`);
+}

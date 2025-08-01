@@ -417,30 +417,70 @@ func GetProviderMetrics(c *gin.Context) {
 	common.Success(c, metrics)
 }
 
-// GetRequestLogs 获取最近的请求日志
+// GetRequestLogs 获取最近的请求日志（支持分页和筛选）
 func GetRequestLogs(c *gin.Context) {
-	limitStr := c.Query("limit")
-	limit := 50 // Default limit
-	if limitStr != "" {
-		parsedLimit, err := strconv.Atoi(limitStr)
-		if err != nil {
-			common.BadRequest(c, "Invalid limit parameter")
+	// 分页参数
+	pageStr := c.Query("page")
+	page := 1
+	if pageStr != "" {
+		parsedPage, err := strconv.Atoi(pageStr)
+		if err != nil || parsedPage < 1 {
+			common.BadRequest(c, "Invalid page parameter")
 			return
 		}
-		limit = parsedLimit
+		page = parsedPage
 	}
 
-	// For demo purposes, return an empty list
-	// In a real implementation, this would fetch from a logs table
-	logs := make([]map[string]interface{}, 0)
-
-	// Limit the number of logs returned
-	if limit > 0 && limit < 1000 {
-		// In a real implementation, we would query the logs table with a limit
-		// For now, we just return an empty list
+	pageSizeStr := c.Query("page_size")
+	pageSize := 20 // Default page size
+	if pageSizeStr != "" {
+		parsedPageSize, err := strconv.Atoi(pageSizeStr)
+		if err != nil || parsedPageSize < 1 || parsedPageSize > 100 {
+			common.BadRequest(c, "Invalid page_size parameter (must be between 1 and 100)")
+			return
+		}
+		pageSize = parsedPageSize
 	}
 
-	common.Success(c, logs)
+	// 筛选参数
+	providerName := c.Query("provider_name")
+	status := c.Query("status")
+
+	// 构建查询条件
+	query := models.DB.Model(&models.ChatLog{})
+
+	if providerName != "" {
+		query = query.Where("provider_name = ?", providerName)
+	}
+
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	// 获取总数
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		common.InternalServerError(c, "Failed to count logs: "+err.Error())
+		return
+	}
+
+	// 获取分页数据
+	var logs []models.ChatLog
+	offset := (page - 1) * pageSize
+	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&logs).Error; err != nil {
+		common.InternalServerError(c, "Failed to query logs: "+err.Error())
+		return
+	}
+
+	result := map[string]interface{}{
+		"data":      logs,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+		"pages":     (total + int64(pageSize) - 1) / int64(pageSize),
+	}
+
+	common.Success(c, result)
 }
 
 // GetSystemConfig 获取系统配置

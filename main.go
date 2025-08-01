@@ -43,7 +43,7 @@ func main() {
 	// System status and monitoring
 	api.GET("/status", handler.GetSystemStatus)
 	api.GET("/metrics/providers", handler.GetProviderMetrics)
-	api.GET("/logs/requests", handler.GetRequestLogs)
+	api.GET("/logs", handler.GetRequestLogs)
 
 	// System configuration
 	api.GET("/config", handler.GetSystemConfig)

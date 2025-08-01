@@ -38,8 +38,8 @@ const AnimatedCounter = ({ value, duration = 1000 }: { value: number; duration?:
 };
 
 export default function Home() {
-  const [status, setStatus] = useState<SystemStatus | null>(null);
-  const [metrics, setMetrics] = useState<ProviderMetric[]>([]);
+  const [, setStatus] = useState<SystemStatus | null>(null);
+  const [, setMetrics] = useState<ProviderMetric[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeChart, setActiveChart] = useState<"distribution" | "ranking">("distribution");

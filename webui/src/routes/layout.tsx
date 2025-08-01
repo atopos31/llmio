@@ -26,7 +26,7 @@ export default function Layout() {
       {/* 侧边栏 - 固定定位 */}
       <div 
         className={`fixed h-full shadow-md transition-all duration-300 ${
-          sidebarOpen ? "w-64" : "w-20"
+          sidebarOpen ? "w-45" : "w-15"
         }`}
       >
         <div className="flex items-center justify-between p-4 border-b">
@@ -45,7 +45,7 @@ export default function Layout() {
                 <Link to={item.to}>
                   <div className={`flex items-center p-4 ${sidebarOpen ? "" : "justify-center"}`}>
                     <span className="text-lg">{item.icon}</span>
-                    {sidebarOpen && <span className="ml-3">{item.label}</span>}
+                    {sidebarOpen && <span className="ml-2">{item.label}</span>}
                   </div>
                 </Link>
               </li>
@@ -57,11 +57,11 @@ export default function Layout() {
       {/* 主内容区域 */}
       <div 
         className="flex-1 flex flex-col"
-        style={{ marginLeft: sidebarOpen ? "16rem" : "5rem" }}
+        style={{ marginLeft: sidebarOpen ? "10rem" : "3rem" }}
       >
         {/* 顶部栏 - 固定定位 */}
         <header className="fixed top-0 right-0 shadow-sm bg-background z-10"
-                style={{ left: sidebarOpen ? "16rem" : "5rem" }}>
+                style={{ left: sidebarOpen ? "10rem" : "3rem" }}>
           <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8 flex justify-between">
             <h1 className="text-2xl font-bold tracking-tight">管理面板</h1>
             <Button 
@@ -93,7 +93,7 @@ export default function Layout() {
         </header>
         
         {/* 主要内容区域 - 添加顶部边距以避免被顶部栏遮挡 */}
-        <main className="flex-1 overflow-x-hidden overflow-y-auto mt-16">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto mt-16 ml-2 mr-2">
           <div className="mx-auto max-w-7xl py-6 sm:px-6 lg:px-8">
             <Outlet />
           </div>

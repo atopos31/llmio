@@ -1,11 +1,7 @@
-import * as React from "react"
-import { TrendingUp } from "lucide-react"
-import { Label, Pie, PieChart } from "recharts"
+import { Pie, PieChart } from "recharts"
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -78,7 +74,7 @@ export function ChartPieDonutText() {
               
             </Pie>
             <ChartLegend
-              content={<ChartLegendContent nameKey="model" payload={null} />}
+              content={<ChartLegendContent nameKey="model" payload={undefined} />}
               className="-translate-y-2 flex-wrap gap-2 *:basis-1/4 *:justify-center"
             />
           </PieChart>

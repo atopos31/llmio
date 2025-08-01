@@ -23,12 +23,6 @@ import (
 	"gorm.io/gorm"
 )
 
-type Usage struct {
-	PromptTokens     int64 `json:"prompt_tokens"`
-	CompletionTokens int64 `json:"completion_tokens"`
-	TotalTokens      int64 `json:"total_tokens"`
-}
-
 func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 	before, err := processBefore(rawData)
 	if err != nil {
@@ -75,17 +69,25 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 			})
 			ProviderModel := llmproviders[index].ProviderModel
 
-			chatModel, err := providers.New(provider.Type, llmproviders[index].ProviderModel, provider.Config)
+			chatModel, err := providers.New(provider.Type, ProviderModel, provider.Config)
 			if err != nil {
 				return nil, err
 			}
 
 			slog.Info("using provider", "provider", provider.Name, "model", ProviderModel)
 
+			log := &models.ChatLog{
+				Name:          before.model,
+				ProviderModel: ProviderModel,
+				ProviderName:  provider.Name,
+				Status:        "success",
+			}
+
 			reqStart := time.Now()
 			body, status, err := chatModel.Chat(ctx, before.raw)
 			if err != nil {
 				slog.Error("chat error", "error", err)
+				go SaveChatLog(ctx, log, err)
 				delete(items, *item)
 				continue
 			}
@@ -96,6 +98,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 					slog.Error("read body error", "error", err)
 				}
 				slog.Error("chat error", "status", status, "body", string(byteBody))
+				go SaveChatLog(ctx, log, fmt.Errorf("status: %d, body: %s", status, string(byteBody)))
 
 				// 非RPM限制 移除待选
 				if status != http.StatusTooManyRequests {
@@ -110,11 +113,23 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 				continue
 			}
 
-			// 与客户端并行处理响应数据流
-			teeReader := processTee(ctx, reqStart, body)
+			SaveChatLog(ctx, log, nil)
+
+			// 与客户端并行处理响应数据流 同时记录日志
+			teeReader := processTee(ctx, log.ID, reqStart, body)
 
 			return teeReader, nil
 		}
+	}
+}
+
+func SaveChatLog(ctx context.Context, log *models.ChatLog, err error) {
+	if err != nil {
+		log.Error = err.Error()
+		log.Status = "error"
+	}
+	if err := gorm.G[models.ChatLog](models.DB).Create(ctx, log); err != nil {
+		slog.Error("Failed to create log: ", "err", err)
 	}
 }
 
@@ -168,7 +183,7 @@ func ProvidersBymodelsName(ctx context.Context, modelsName string) ([]models.Mod
 	return llmproviders, nil
 }
 
-func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Reader {
+func processTee(ctx context.Context, logId uint, start time.Time, body io.ReadCloser) io.Reader {
 	pr, pw := io.Pipe()
 	go func() {
 		defer body.Close()
@@ -179,9 +194,9 @@ func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Rea
 	}()
 
 	teeReader := io.TeeReader(body, pw)
-	go func() {
+	go func(ctx context.Context) {
 		// token用量
-		var usage Usage
+		var usage models.Usage
 		var usagemu sync.Mutex
 
 		// 首字时延
@@ -218,8 +233,18 @@ func processTee(ctx context.Context, start time.Time, body io.ReadCloser) io.Rea
 
 		chunkTime := time.Since(start) - firstChunkTime
 		tps := float64(usage.TotalTokens) / chunkTime.Seconds()
+
+		log := models.ChatLog{
+			Usage:          usage,
+			ChunkTime:      chunkTime,
+			Tps:            tps,
+			FirstChunkTime: firstChunkTime,
+		}
+		if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, log); err != nil {
+			slog.Error("update chat log error", "error", err)
+		}
 		slog.Info("response", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens, "firstChunkTime", firstChunkTime, "chunkTime", chunkTime, "tps", tps)
-	}()
+	}(context.Background())
 
 	return teeReader
 }

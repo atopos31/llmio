@@ -13,6 +13,7 @@ import (
 
 const testBody = `{
         "model": "gpt-4.1",
+		"stream": true,
         "messages": [
             {
                 "role": "user",
@@ -22,9 +23,8 @@ const testBody = `{
     }`
 
 func ProviderTestHandler(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
+	id := c.Param("id")
+	if id == "" {
 		common.BadRequest(c, "Invalid ID format")
 		return
 	}
@@ -59,11 +59,12 @@ func ProviderTestHandler(c *gin.Context) {
 	}
 
 	// Test connectivity by fetching models
-	_, status, err := providerInstance.Chat(c.Request.Context(), []byte(testBody))
+	body, status, err := providerInstance.Chat(c.Request.Context(), []byte(testBody))
 	if err != nil {
 		common.ErrorWithHttpStatus(c, 502, 502, "Failed to connect to provider: "+err.Error())
 		return
 	}
+	defer body.Close()
 
 	if status != http.StatusOK {
 		common.ErrorWithHttpStatus(c, status, status, "Provider returned non-200 status code: "+strconv.Itoa(status))

@@ -13,7 +13,7 @@ func Init(name string) {
 		panic(err)
 	}
 	DB = db
-	if err := db.AutoMigrate(&Provider{}, &Model{}, &ModelWithProvider{}); err != nil {
+	if err := db.AutoMigrate(&Provider{}, &Model{}, &ModelWithProvider{}, &ChatLog{}); err != nil {
 		panic(err)
 	}
 }

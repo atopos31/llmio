@@ -1,6 +1,10 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 type Provider struct {
 	gorm.Model
@@ -33,4 +37,17 @@ type ChatLog struct {
 	Name          string
 	ProviderModel string
 	ProviderName  string
+	Status        string // error or success
+
+	Error          string // if status is error, this field will be set
+	FirstChunkTime time.Duration
+	ChunkTime      time.Duration
+	Tps            float64
+	Usage
+}
+
+type Usage struct {
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	TotalTokens      int64 `json:"total_tokens"`
 }

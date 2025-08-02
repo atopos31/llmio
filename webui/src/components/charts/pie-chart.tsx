@@ -13,40 +13,61 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-export const description = "A donut chart with text"
-const chartData = [
-  { model: "gpt4", calls: 275, fill: "var(--color-gpt4)" },
-  { model: "deepseekv3", calls: 200, fill: "var(--color-deepseekv3)" },
-  { model: "qwen", calls: 287, fill: "var(--color-qwen)" },
-  { model: "gemini", calls: 173, fill: "var(--color-gemini)" },
-  { model: "other", calls: 190, fill: "var(--color-other)" },
+
+// 预定义颜色数组，按顺序生成颜色
+const predefinedColors = [
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+  "var(--chart-6)",
+  "var(--chart-7)",
+  "var(--chart-8)",
+  "var(--chart-9)",
+  "var(--chart-10)",
 ]
-const chartConfig = {
-  calls: {
-    label: "calls",
-  },
-  gpt4: {
-    label: "gpt4",
-    color: "var(--chart-1)",
-  },
-  deepseekv3: {
-    label: "deepseekv3",
-    color: "var(--chart-2)",
-  },
-  qwen: {
-    label: "qwen",
-    color: "var(--chart-3)",
-  },
-  gemini: {
-    label: "gemini",
-    color: "var(--chart-4)",
-  },
-  other: {
-    label: "Other",
-    color: "var(--chart-5)",
-  },
-} satisfies ChartConfig
+
+// 模拟后端数据
+const mockModelData = [
+  { model: "gpt-4", calls: 1240 },
+  { model: "claude-3", calls: 850 },
+  { model: "gemini-pro", calls: 620 },
+  { model: "llama-2", calls: 480 },
+  { model: "mistral", calls: 320 },
+]
+
+// 根据模型数据生成图表配置
+const generateChartConfig = (data: typeof mockModelData) => {
+  const config: ChartConfig = {
+    calls: {
+      label: "调用次数",
+    },
+  }
+  
+  data.forEach((item, index) => {
+    config[item.model] = {
+      label: item.model,
+      color: predefinedColors[index % predefinedColors.length],
+    }
+  })
+  
+  return config
+}
+
+// 根据模型数据生成图表数据
+const generateChartData = (data: typeof mockModelData) => {
+  return data.map((item, index) => ({
+    model: item.model,
+    calls: item.calls,
+    fill: predefinedColors[index % predefinedColors.length],
+  }))
+}
+
 export function ChartPieDonutText() {
+  const chartData = generateChartData(mockModelData)
+  const chartConfig = generateChartConfig(mockModelData)
+  
   return (
     <Card className="flex flex-col">
       <CardHeader className="items-center pb-0">
@@ -70,9 +91,7 @@ export function ChartPieDonutText() {
               labelLine={false}
               innerRadius={70}
               strokeWidth={1}
-            >
-              
-            </Pie>
+            />
             <ChartLegend
               content={<ChartLegendContent nameKey="model" payload={undefined} />}
               className="-translate-y-2 flex-wrap gap-2 *:basis-1/4 *:justify-center"

@@ -66,6 +66,11 @@
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
+  --chart-6: oklch(0.488 0.243 264.376);
+  --chart-7: oklch(0.696 0.17 162.48);
+  --chart-8: oklch(0.627 0.265 303.9);
+  --chart-9: oklch(0.645 0.246 16.439);
+  --chart-10: oklch(0.488 0.243 264.376);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -100,6 +105,11 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
+  --chart-6: oklch(0.398 0.07 227.392);
+  --chart-7: oklch(0.6 0.118 184.704);
+  --chart-8: oklch(0.646 0.222 41.116);
+  --chart-9: oklch(0.577 0.245 27.325);
+  --chart-10: oklch(0.488 0.243 264.376);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
@@ -114,10 +124,11 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
-  
+
   /* Custom scrollbar styles */
   ::-webkit-scrollbar {
     width: 8px;
@@ -156,7 +167,7 @@
 .form-input,
 .form-select,
 .form-textarea {
-  @apply px-3 py-2 border border-gray-300 rounded-md shadow-sm ;
+  @apply px-3 py-2 border border-gray-300 rounded-md shadow-sm;
 }
 
 /* Loading animation */
@@ -201,6 +212,7 @@
   0% {
     transform: scale(0);
   }
+
   100% {
     transform: scale(1);
   }
@@ -210,6 +222,7 @@
   0% {
     transform: scale(1);
   }
+
   100% {
     transform: scale(0);
   }
@@ -219,6 +232,7 @@
   0% {
     transform: translate(0, 0);
   }
+
   100% {
     transform: translate(24px, 0);
   }

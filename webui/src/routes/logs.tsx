@@ -126,21 +126,22 @@ export default function LogsPage() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
             <div>
               <CardTitle>请求日志</CardTitle>
               <CardDescription>系统处理的请求日志，支持分页和筛选</CardDescription>
             </div>
+            <Button onClick={handleRefresh} className="w-full sm:w-auto">刷新</Button>
           </div>
         </CardHeader>
         <CardContent>
           {/* 筛选区域 */}
-          <div className="flex flex-wrap gap-4 mb-6 justify-between items-end">
-            <div className="flex flex-wrap gap-4">
-              <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row gap-4 mb-6 justify-between">
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex flex-col gap-2">
                 <Label htmlFor="provider-name-filter" className="whitespace-nowrap">提供商名称</Label>
                 <Select value={providerNameFilter} onValueChange={setProviderNameFilter}>
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full sm:w-[180px]">
                     <SelectValue placeholder="选择提供商" />
                   </SelectTrigger>
                   <SelectContent>
@@ -153,10 +154,10 @@ export default function LogsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-2">
                 <Label htmlFor="status-filter" className="whitespace-nowrap">状态</Label>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full sm:w-[180px]">
                     <SelectValue placeholder="选择状态" />
                   </SelectTrigger>
                   <SelectContent>
@@ -167,14 +168,15 @@ export default function LogsPage() {
                 </Select>
               </div>
             </div>
-            <Button onClick={handleRefresh}>刷新</Button>
           </div>
 
-          {/* 日志表格 */}
-          {loading ? (
+          {loading && (
             <Loading message="加载日志数据" />
-          ) : logs.length == 0 ? <div className="text-center py-8 text-gray-500">暂无请求日志</div> : (
-            <div className="border rounded-lg overflow-hidden">
+          )}
+
+          {/* 桌面端日志表格 */}
+          {!loading && (logs.length == 0 ? <div className="text-center py-8 text-gray-500">暂无请求日志</div> : (
+            <div className="hidden sm:block border rounded-lg overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -185,7 +187,6 @@ export default function LogsPage() {
                     <TableHead>耗时</TableHead>
                     <TableHead>提供商模型</TableHead>
                     <TableHead>提供商名称</TableHead>
-
                     <TableHead>操作</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -203,8 +204,6 @@ export default function LogsPage() {
                       <TableCell><div className="col-span-3">{formatTime(log.ChunkTime)}</div></TableCell>
                       <TableCell>{log.ProviderModel}</TableCell>
                       <TableCell>{log.ProviderName}</TableCell>
-
-
                       <TableCell>
                         <Button variant="outline" size="sm" onClick={() => openDetailDialog(log)}>
                           详情
@@ -215,11 +214,47 @@ export default function LogsPage() {
                 </TableBody>
               </Table>
             </div>
-          )}
+          ))}
+
+          {/* 移动端卡片布局 */}
+          {!loading && logs.length > 0 && (logs.length == 0 ? <div className="text-center py-8 text-gray-500">暂无请求日志</div> : (
+            <div className="sm:hidden space-y-4">
+              {logs.map((log) => (
+                <div key={log.ID} className="border rounded-lg p-4 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="font-bold text-lg">{log.Name}</h3>
+                      <p className="text-sm text-gray-500">{new Date(log.CreatedAt).toLocaleString()}</p>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => openDetailDialog(log)}>
+                      详情
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="text-gray-500">状态:</div>
+                    <div>
+                      <span className={log.Status === 'success' ? 'text-green-600' : 'text-red-600'}>
+                        {log.Status}
+                      </span>
+                    </div>
+                    <div className="text-gray-500">Tokens:</div>
+                    <div>{log.total_tokens}</div>
+                    <div className="text-gray-500">耗时:</div>
+                    <div>{formatTime(log.ChunkTime)}</div>
+                    <div className="text-gray-500">提供商:</div>
+                    <div>{log.ProviderName}</div>
+                    <div className="text-gray-500">模型:</div>
+                    <div>{log.ProviderModel}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+
 
           {/* 分页控件 */}
           {!loading && pages > 1 && (
-            <div className="flex justify-between items-center mt-6">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mt-6">
               <div className="text-sm text-gray-500">
                 共 {total} 条记录，第 {page} 页，共 {pages} 页
               </div>
@@ -253,7 +288,7 @@ export default function LogsPage() {
               <DialogDescription>请求日志的详细信息</DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-4 items-center gap-4">
+              <div className="grid  grid-cols-4 items-center gap-4">
                 <Label className="text-right">ID:</Label>
                 <div className="col-span-3">{selectedLog.ID}</div>
               </div>

@@ -154,12 +154,13 @@ export default function ProvidersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <h2 className="text-2xl font-bold">提供商管理</h2>
-        <Button onClick={openCreateDialog}>添加提供商</Button>
+        <Button onClick={openCreateDialog} className="w-full sm:w-auto">添加提供商</Button>
       </div>
       
-      <div className="border rounded-lg">
+      {/* 桌面端表格 */}
+      <div className="border rounded-lg hidden sm:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -217,6 +218,53 @@ export default function ProvidersPage() {
             ))}
           </TableBody>
         </Table>
+      </div>
+      
+      {/* 移动端卡片布局 */}
+      <div className="sm:hidden space-y-4">
+        {providers.map((provider) => (
+          <div key={provider.ID} className="border rounded-lg p-4 space-y-3">
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="font-bold text-lg">{provider.Name}</h3>
+                <p className="text-sm text-gray-500">ID: {provider.ID}</p>
+                <p className="text-sm text-gray-500">类型: {provider.Type}</p>
+              </div>
+              <div className="flex space-x-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => openEditDialog(provider)}
+                >
+                  编辑
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button 
+                      variant="destructive" 
+                      size="sm" 
+                      onClick={() => openDeleteDialog(provider.ID)}
+                    >
+                      删除
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>确定要删除这个提供商吗？</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        此操作无法撤销。这将永久删除该提供商。
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>

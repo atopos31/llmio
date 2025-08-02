@@ -234,11 +234,11 @@ export default function ModelProvidersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <h2 className="text-2xl font-bold">模型提供商关联</h2>
-        <div className="flex space-x-4">
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
           <Select value={selectedModelId?.toString() || ""} onValueChange={handleModelChange}>
-            <SelectTrigger className="w-64">
+            <SelectTrigger className="w-full sm:w-64">
               <SelectValue placeholder="选择模型" />
             </SelectTrigger>
             <SelectContent>
@@ -249,34 +249,103 @@ export default function ModelProvidersPage() {
               ))}
             </SelectContent>
           </Select>
-          <Button onClick={openCreateDialog} disabled={!selectedModelId}>添加关联</Button>
+          <Button onClick={openCreateDialog} disabled={!selectedModelId} className="w-full sm:w-auto">
+            添加关联
+          </Button>
         </div>
       </div>
       
       {!selectedModelId ? (
         <div>请选择一个模型来查看其提供商关联</div>
       ) : (
-        <div className="border rounded-lg">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>提供商模型</TableHead>
-                <TableHead>提供商</TableHead>
-                <TableHead>权重</TableHead>
-                <TableHead className="text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {modelProviders.map((association) => {
-                const provider = providers.find(p => p.ID === association.ProviderID);
-                return (
-                  <TableRow key={association.ID}>
-                    <TableCell>{association.ID}</TableCell>
-                    <TableCell>{association.ProviderModel}</TableCell>
-                    <TableCell>{provider ? provider.Name : '未知'}</TableCell>
-                    <TableCell>{association.Weight}</TableCell>
-                    <TableCell className="space-x-2 text-right">
+        <>
+          {/* 桌面端表格 */}
+          <div className="border rounded-lg hidden sm:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ID</TableHead>
+                  <TableHead>提供商模型</TableHead>
+                  <TableHead>提供商</TableHead>
+                  <TableHead>权重</TableHead>
+                  <TableHead className="text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {modelProviders.map((association) => {
+                  const provider = providers.find(p => p.ID === association.ProviderID);
+                  return (
+                    <TableRow key={association.ID}>
+                      <TableCell>{association.ID}</TableCell>
+                      <TableCell>{association.ProviderModel}</TableCell>
+                      <TableCell>{provider ? provider.Name : '未知'}</TableCell>
+                      <TableCell>{association.Weight}</TableCell>
+                      <TableCell className="space-x-2 text-right">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => openEditDialog(association)}
+                        >
+                          编辑
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button 
+                              variant="destructive" 
+                              size="sm" 
+                              onClick={() => openDeleteDialog(association.ID)}
+                            >
+                              删除
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                此操作无法撤销。这将永久删除该模型提供商关联。
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
+                              <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => handleTest(association.ID)}
+                          disabled={testResults[association.ID]?.loading}
+                        >
+                          {testResults[association.ID]?.loading ? "测试中..." : "测试"}
+                        </Button>
+                        {testResults[association.ID] && !testResults[association.ID].loading && (
+                          <span className={testResults[association.ID].result?.error ? "text-red-500" : "text-green-500"}>
+                            {testResults[association.ID].result?.error ? "失败" : "成功"}
+                          </span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+          
+          {/* 移动端卡片布局 */}
+          <div className="sm:hidden space-y-4">
+            {modelProviders.map((association) => {
+              const provider = providers.find(p => p.ID === association.ProviderID);
+              return (
+                <div key={association.ID} className="border rounded-lg p-4 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="font-bold text-lg">{provider ? provider.Name : '未知'}</h3>
+                      <p className="text-sm text-gray-500">提供商模型: {association.ProviderModel}</p>
+                      <p className="text-sm text-gray-500">ID: {provider?.ID}</p>
+                      <p className="text-sm text-gray-500">权重: {association.Weight}</p>
+                    </div>
+                    <div className="flex flex-col space-y-2">
                       <Button 
                         variant="outline" 
                         size="sm" 
@@ -285,48 +354,50 @@ export default function ModelProvidersPage() {
                         编辑
                       </Button>
                       <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button 
-                        variant="destructive" 
-                        size="sm" 
-                        onClick={() => openDeleteDialog(association.ID)}
-                      >
-                        删除
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          此操作无法撤销。这将永久删除该模型提供商关联。
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => handleTest(association.ID)}
-                        disabled={testResults[association.ID]?.loading}
-                      >
-                        {testResults[association.ID]?.loading ? "测试中..." : "测试"}
-                      </Button>
-                      {testResults[association.ID] && !testResults[association.ID].loading && (
-                        <span className={testResults[association.ID].result?.error ? "text-red-500" : "text-green-500"}>
-                          {testResults[association.ID].result?.error ? "失败" : "成功"}
-                        </span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+                        <AlertDialogTrigger asChild>
+                          <Button 
+                            variant="destructive" 
+                            size="sm" 
+                            onClick={() => openDeleteDialog(association.ID)}
+                          >
+                            删除
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              此操作无法撤销。这将永久删除该模型提供商关联。
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => handleTest(association.ID)}
+                      disabled={testResults[association.ID]?.loading}
+                    >
+                      {testResults[association.ID]?.loading ? "测试中..." : "测试"}
+                    </Button>
+                    {testResults[association.ID] && !testResults[association.ID].loading && (
+                      <span className={testResults[association.ID].result?.error ? "text-red-500" : "text-green-500"}>
+                        {testResults[association.ID].result?.error ? "失败" : "成功"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>

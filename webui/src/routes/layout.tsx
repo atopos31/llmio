@@ -17,7 +17,6 @@ export default function Layout() {
     { to: "/providers", label: "提供商管理", icon: <FaCloud /> },
     { to: "/models", label: "模型管理", icon: <FaRobot /> },
     { to: "/model-providers", label: "模型提供商关联", icon: <FaLink /> },
-    { to: "/system", label: "系统配置", icon: <FaCogs /> },
     { to: "/logs", label: "请求日志", icon: <FaFileAlt /> },
   ];
 

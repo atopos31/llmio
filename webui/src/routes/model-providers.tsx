@@ -3,13 +3,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from "@/components/ui/table";
 import {
   Dialog,
@@ -41,10 +41,10 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import Loading from "@/components/loading";
-import { 
-  getModelProviders, 
-  createModelProvider, 
-  updateModelProvider, 
+import {
+  getModelProviders,
+  createModelProvider,
+  updateModelProvider,
   deleteModelProvider,
   getModels,
   getProviders,
@@ -71,7 +71,7 @@ export default function ModelProvidersPage() {
   const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [testResults, setTestResults] = useState<Record<number, { loading: boolean; result: any }>>({});
-  
+
   // 初始化表单
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -146,7 +146,7 @@ export default function ModelProvidersPage() {
 
   const handleUpdate = async (values: z.infer<typeof formSchema>) => {
     if (!editingAssociation) return;
-    
+
     try {
       await updateModelProvider(editingAssociation.ID, values);
       setOpen(false);
@@ -181,7 +181,7 @@ export default function ModelProvidersPage() {
         ...prev,
         [id]: { loading: true, result: null }
       }));
-      
+
       const result = await testModelProvider(id);
       setTestResults(prev => ({
         ...prev,
@@ -209,10 +209,10 @@ export default function ModelProvidersPage() {
 
   const openCreateDialog = () => {
     setEditingAssociation(null);
-    form.reset({ 
-      model_id: selectedModelId || 0, 
-      provider_name: "", 
-      provider_id: 0, 
+    form.reset({
+      model_id: selectedModelId || 0,
+      provider_name: "",
+      provider_id: 0,
       weight: 1
     });
     setOpen(true);
@@ -254,7 +254,7 @@ export default function ModelProvidersPage() {
           </Button>
         </div>
       </div>
-      
+
       {!selectedModelId ? (
         <div>请选择一个模型来查看其提供商关联</div>
       ) : (
@@ -281,18 +281,18 @@ export default function ModelProvidersPage() {
                       <TableCell>{provider ? provider.Name : '未知'}</TableCell>
                       <TableCell>{association.Weight}</TableCell>
                       <TableCell className="space-x-2 text-right">
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => openEditDialog(association)}
                         >
                           编辑
                         </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button 
-                              variant="destructive" 
-                              size="sm" 
+                            <Button
+                              variant="destructive"
+                              size="sm"
                               onClick={() => openDeleteDialog(association.ID)}
                             >
                               删除
@@ -311,9 +311,9 @@ export default function ModelProvidersPage() {
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => handleTest(association.ID)}
                           disabled={testResults[association.ID]?.loading}
                         >
@@ -331,7 +331,7 @@ export default function ModelProvidersPage() {
               </TableBody>
             </Table>
           </div>
-          
+
           {/* 移动端卡片布局 */}
           <div className="sm:hidden space-y-4">
             {modelProviders.map((association) => {
@@ -341,23 +341,23 @@ export default function ModelProvidersPage() {
                   <div className="flex justify-between items-start">
                     <div>
                       <h3 className="font-bold text-lg">{provider ? provider.Name : '未知'}</h3>
-                      <p className="text-sm text-gray-500">提供商模型: {association.ProviderModel}</p>
                       <p className="text-sm text-gray-500">ID: {provider?.ID}</p>
+                      <p className="text-sm text-gray-500">提供商模型: {association.ProviderModel}</p>
                       <p className="text-sm text-gray-500">权重: {association.Weight}</p>
                     </div>
                     <div className="flex flex-col space-y-2">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => openEditDialog(association)}
                       >
                         编辑
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button 
-                            variant="destructive" 
-                            size="sm" 
+                          <Button
+                            variant="destructive"
+                            size="sm"
                             onClick={() => openDeleteDialog(association.ID)}
                           >
                             删除
@@ -379,9 +379,9 @@ export default function ModelProvidersPage() {
                     </div>
                   </div>
                   <div className="flex justify-between items-center">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => handleTest(association.ID)}
                       disabled={testResults[association.ID]?.loading}
                     >
@@ -407,12 +407,12 @@ export default function ModelProvidersPage() {
               {editingAssociation ? "编辑关联" : "添加关联"}
             </DialogTitle>
             <DialogDescription>
-              {editingAssociation 
-                ? "修改模型提供商关联" 
+              {editingAssociation
+                ? "修改模型提供商关联"
                 : "添加一个新的模型提供商关联"}
             </DialogDescription>
           </DialogHeader>
-          
+
           <Form {...form}>
             <form onSubmit={form.handleSubmit(editingAssociation ? handleUpdate : handleCreate)} className="space-y-4">
               <FormField
@@ -421,8 +421,8 @@ export default function ModelProvidersPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>模型</FormLabel>
-                    <Select 
-                      value={field.value.toString()} 
+                    <Select
+                      value={field.value.toString()}
                       onValueChange={(value) => field.onChange(parseInt(value))}
                       disabled={!!editingAssociation}
                     >
@@ -443,15 +443,15 @@ export default function ModelProvidersPage() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="provider_id"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>提供商</FormLabel>
-                    <Select 
-                      value={field.value.toString()} 
+                    <Select
+                      value={field.value.toString()}
                       onValueChange={(value) => field.onChange(parseInt(value))}
                     >
                       <FormControl>
@@ -471,7 +471,7 @@ export default function ModelProvidersPage() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="provider_name"
@@ -479,7 +479,7 @@ export default function ModelProvidersPage() {
                   <FormItem>
                     <FormLabel>提供商模型</FormLabel>
                     <FormControl>
-                      <Input 
+                      <Input
                         {...field}
                         placeholder="输入提供商模型名称"
                       />
@@ -488,7 +488,7 @@ export default function ModelProvidersPage() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="weight"
@@ -507,7 +507,7 @@ export default function ModelProvidersPage() {
                   </FormItem>
                 )}
               />
-              
+
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                   取消

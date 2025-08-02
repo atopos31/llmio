@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, Outlet } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { FaBars, FaTimes, FaHome, FaCloud, FaRobot, FaLink, FaCogs, FaFileAlt } from "react-icons/fa";
+import { FaBars, FaTimes, FaHome, FaCloud, FaRobot, FaLink, FaFileAlt } from "react-icons/fa";
 import { useTheme } from "@/components/theme-provider";
 
 export default function Layout() {

@@ -1,4 +1,7 @@
 import { useState, useEffect } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { 
   Table, 
@@ -17,8 +20,26 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import Loading from "@/components/loading";
 import { 
   getModelProviders, 
@@ -31,6 +52,14 @@ import {
 } from "@/lib/api";
 import type { ModelWithProvider, Model, Provider } from "@/lib/api";
 
+// 定义表单验证模式
+const formSchema = z.object({
+  model_id: z.number().positive({ message: "模型ID必须大于0" }),
+  provider_name: z.string().min(1, { message: "提供商模型名称不能为空" }),
+  provider_id: z.number().positive({ message: "提供商ID必须大于0" }),
+  weight: z.number().positive({ message: "权重必须大于0" }),
+});
+
 export default function ModelProvidersPage() {
   const [modelProviders, setModelProviders] = useState<ModelWithProvider[]>([]);
   const [models, setModels] = useState<Model[]>([]);
@@ -40,13 +69,19 @@ export default function ModelProvidersPage() {
   const [open, setOpen] = useState(false);
   const [editingAssociation, setEditingAssociation] = useState<ModelWithProvider | null>(null);
   const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
-  const [formData, setFormData] = useState({
-    model_id: 0,
-    provider_name: "",
-    provider_id: 0,
-    weight: 1, // 默认权重为1
-  });
+  const [deleteId, setDeleteId] = useState<number | null>(null);
   const [testResults, setTestResults] = useState<Record<number, { loading: boolean; result: any }>>({});
+  
+  // 初始化表单
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      model_id: 0,
+      provider_name: "",
+      provider_id: 0,
+      weight: 1,
+    },
+  });
 
   useEffect(() => {
     Promise.all([fetchModels(), fetchProviders()]);
@@ -64,6 +99,7 @@ export default function ModelProvidersPage() {
       setModels(data);
       if (data.length > 0 && !selectedModelId) {
         setSelectedModelId(data[0].ID);
+        form.setValue("model_id", data[0].ID); // 设置默认model_id
       }
     } catch (err) {
       setError("获取模型列表失败");
@@ -94,20 +130,11 @@ export default function ModelProvidersPage() {
     }
   };
 
-  const handleCreate = async () => {
-    // 验证权重必须大于0
-    if (formData.weight <= 0) {
-      setError("权重必须大于0");
-      return;
-    }
-    
+  const handleCreate = async (values: z.infer<typeof formSchema>) => {
     try {
-      await createModelProvider({
-        ...formData,
-        model_id: selectedModelId || 0
-      });
+      await createModelProvider(values);
       setOpen(false);
-      setFormData({ model_id: 0, provider_name: "", provider_id: 0, weight: 1 });
+      form.reset({ model_id: selectedModelId || 0, provider_name: "", provider_id: 0, weight: 1 });
       if (selectedModelId) {
         fetchModelProviders(selectedModelId);
       }
@@ -117,25 +144,14 @@ export default function ModelProvidersPage() {
     }
   };
 
-  const handleUpdate = async () => {
+  const handleUpdate = async (values: z.infer<typeof formSchema>) => {
     if (!editingAssociation) return;
     
-    // 验证权重必须大于0
-    if (formData.weight <= 0) {
-      setError("权重必须大于0");
-      return;
-    }
-    
     try {
-      await updateModelProvider(editingAssociation.ID, {
-        model_id: formData.model_id,
-        provider_name: formData.provider_name,
-        provider_id: formData.provider_id,
-        weight: formData.weight,
-      });
+      await updateModelProvider(editingAssociation.ID, values);
       setOpen(false);
       setEditingAssociation(null);
-      setFormData({ model_id: 0, provider_name: "", provider_id: 0, weight: 1 });
+      form.reset({ model_id: 0, provider_name: "", provider_id: 0, weight: 1 });
       if (selectedModelId) {
         fetchModelProviders(selectedModelId);
       }
@@ -145,10 +161,11 @@ export default function ModelProvidersPage() {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("确定要删除这个关联吗？")) return;
+  const handleDelete = async () => {
+    if (!deleteId) return;
     try {
-      await deleteModelProvider(id);
+      await deleteModelProvider(deleteId);
+      setDeleteId(null);
       if (selectedModelId) {
         fetchModelProviders(selectedModelId);
       }
@@ -181,7 +198,7 @@ export default function ModelProvidersPage() {
 
   const openEditDialog = (association: ModelWithProvider) => {
     setEditingAssociation(association);
-    setFormData({
+    form.reset({
       model_id: association.ModelID,
       provider_name: association.ProviderModel,
       provider_id: association.ProviderID,
@@ -192,45 +209,25 @@ export default function ModelProvidersPage() {
 
   const openCreateDialog = () => {
     setEditingAssociation(null);
-    setFormData({ 
+    form.reset({ 
       model_id: selectedModelId || 0, 
       provider_name: "", 
       provider_id: 0, 
-      weight: 1 // 默认权重为1
+      weight: 1
     });
     setOpen(true);
+  };
+
+  const openDeleteDialog = (id: number) => {
+    setDeleteId(id);
   };
 
   const handleModelChange = (modelId: string) => {
     const id = parseInt(modelId);
     setSelectedModelId(id);
+    form.setValue("model_id", id);
   };
 
-  const handleProviderChange = (providerId: string) => {
-    const id = parseInt(providerId);
-    const provider = providers.find(p => p.ID === id);
-    if (provider) {
-      setFormData({
-        ...formData,
-        provider_id: id,
-      });
-    }
-  };
-
-  const handleProviderModelChange = (name: string) => {
-    setFormData({
-      ...formData,
-      provider_name: name
-    });
-  };
-
-  const handleWeightChange = (weight: string) => {
-    const weightValue = parseInt(weight) || 0;
-    setFormData({
-      ...formData,
-      weight: weightValue
-    });
-  };
 
   if (loading && modelProviders.length === 0) return <Loading message="加载模型提供商关联" />;
   if (error) return <div className="text-red-500">{error}</div>;
@@ -287,13 +284,29 @@ export default function ModelProvidersPage() {
                       >
                         编辑
                       </Button>
+                      <AlertDialog>
+                    <AlertDialogTrigger asChild>
                       <Button 
                         variant="destructive" 
                         size="sm" 
-                        onClick={() => handleDelete(association.ID)}
+                        onClick={() => openDeleteDialog(association.ID)}
                       >
                         删除
                       </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          此操作无法撤销。这将永久删除该模型提供商关联。
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                       <Button 
                         variant="outline" 
                         size="sm" 
@@ -329,78 +342,111 @@ export default function ModelProvidersPage() {
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4">
-            <div className="form-group">
-              <Label htmlFor="model" className="form-label">模型</Label>
-              <Select 
-                value={selectedModelId?.toString() || ""} 
-                onValueChange={handleModelChange}
-                disabled={!!editingAssociation}
-              >
-                <SelectTrigger id="model" className="form-select">
-                  <SelectValue placeholder="选择模型" />
-                </SelectTrigger>
-                <SelectContent>
-                  {models.map((model) => (
-                    <SelectItem key={model.ID} value={model.ID.toString()}>
-                      {model.Name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="form-group">
-              <Label htmlFor="provider" className="form-label">提供商</Label>
-              <Select 
-                value={formData.provider_id.toString() || ""} 
-                onValueChange={handleProviderChange}
-              >
-                <SelectTrigger id="provider" className="form-select">
-                  <SelectValue placeholder="选择提供商" />
-                </SelectTrigger>
-                <SelectContent>
-                  {providers.map((provider) => (
-                    <SelectItem key={provider.ID} value={provider.ID.toString()}>
-                      {provider.Name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="form-group">
-              <Label htmlFor="provider-name" className="form-label">提供商模型</Label>
-              <Input
-                id="provider-name"
-                className="form-input"
-                value={formData.provider_name}
-                onChange={(e) => handleProviderModelChange(e.target.value)}
-                placeholder="输入提供商模型名称"
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(editingAssociation ? handleUpdate : handleCreate)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="model_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>模型</FormLabel>
+                    <Select 
+                      value={field.value.toString()} 
+                      onValueChange={(value) => field.onChange(parseInt(value))}
+                      disabled={!!editingAssociation}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="form-select">
+                          <SelectValue placeholder="选择模型" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {models.map((model) => (
+                          <SelectItem key={model.ID} value={model.ID.toString()}>
+                            {model.Name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-            
-            <div className="form-group">
-              <Label htmlFor="weight" className="form-label">权重 (必须大于0)</Label>
-              <Input
-                id="weight"
-                className="form-input"
-                type="number"
-                min="1"
-                value={formData.weight}
-                onChange={(e) => handleWeightChange(e.target.value)}
+              
+              <FormField
+                control={form.control}
+                name="provider_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>提供商</FormLabel>
+                    <Select 
+                      value={field.value.toString()} 
+                      onValueChange={(value) => field.onChange(parseInt(value))}
+                    >
+                      <FormControl>
+                        <SelectTrigger className="form-select">
+                          <SelectValue placeholder="选择提供商" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {providers.map((provider) => (
+                          <SelectItem key={provider.ID} value={provider.ID.toString()}>
+                            {provider.Name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              取消
-            </Button>
-            <Button onClick={editingAssociation ? handleUpdate : handleCreate}>
-              {editingAssociation ? "更新" : "创建"}
-            </Button>
-          </DialogFooter>
+              
+              <FormField
+                control={form.control}
+                name="provider_name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>提供商模型</FormLabel>
+                    <FormControl>
+                      <Input 
+                        {...field}
+                        placeholder="输入提供商模型名称"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <FormField
+                control={form.control}
+                name="weight"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>权重 (必须大于0)</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type="number"
+                        min="1"
+                        onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                  取消
+                </Button>
+                <Button type="submit">
+                  {editingAssociation ? "更新" : "创建"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
         </DialogContent>
       </Dialog>
     </div>

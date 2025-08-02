@@ -1,4 +1,7 @@
 import { useState, useEffect } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { 
   Table, 
@@ -17,8 +20,26 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import Loading from "@/components/loading";
 import { 
   getProviders, 
@@ -28,16 +49,29 @@ import {
 } from "@/lib/api";
 import type { Provider } from "@/lib/api";
 
+// 定义表单验证模式
+const formSchema = z.object({
+  name: z.string().min(1, { message: "提供商名称不能为空" }),
+  type: z.string().min(1, { message: "提供商类型不能为空" }),
+  config: z.string().min(1, { message: "配置不能为空" }),
+});
+
 export default function ProvidersPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
-  const [formData, setFormData] = useState({
-    name: "",
-    type: "",
-    config: "",
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  
+  // 初始化表单
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: "",
+      type: "",
+      config: "",
+    },
   });
 
   useEffect(() => {
@@ -57,11 +91,11 @@ export default function ProvidersPage() {
     }
   };
 
-  const handleCreate = async () => {
+  const handleCreate = async (values: z.infer<typeof formSchema>) => {
     try {
-      await createProvider(formData);
+      await createProvider(values);
       setOpen(false);
-      setFormData({ name: "", type: "", config: "" });
+      form.reset({ name: "", type: "", config: "" });
       fetchProviders();
     } catch (err) {
       setError("创建提供商失败");
@@ -69,13 +103,13 @@ export default function ProvidersPage() {
     }
   };
 
-  const handleUpdate = async () => {
+  const handleUpdate = async (values: z.infer<typeof formSchema>) => {
     if (!editingProvider) return;
     try {
-      await updateProvider(editingProvider.ID, formData);
+      await updateProvider(editingProvider.ID, values);
       setOpen(false);
       setEditingProvider(null);
-      setFormData({ name: "", type: "", config: "" });
+      form.reset({ name: "", type: "", config: "" });
       fetchProviders();
     } catch (err) {
       setError("更新提供商失败");
@@ -83,10 +117,11 @@ export default function ProvidersPage() {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("确定要删除这个提供商吗？")) return;
+  const handleDelete = async () => {
+    if (!deleteId) return;
     try {
-      await deleteProvider(id);
+      await deleteProvider(deleteId);
+      setDeleteId(null);
       fetchProviders();
     } catch (err) {
       setError("删除提供商失败");
@@ -96,7 +131,7 @@ export default function ProvidersPage() {
 
   const openEditDialog = (provider: Provider) => {
     setEditingProvider(provider);
-    setFormData({
+    form.reset({
       name: provider.Name,
       type: provider.Type,
       config: provider.Config,
@@ -106,8 +141,12 @@ export default function ProvidersPage() {
 
   const openCreateDialog = () => {
     setEditingProvider(null);
-    setFormData({ name: "", type: "", config: "" });
+    form.reset({ name: "", type: "", config: "" });
     setOpen(true);
+  };
+
+  const openDeleteDialog = (id: number) => {
+    setDeleteId(id);
   };
 
   if (loading) return <Loading message="加载提供商列表" />;
@@ -150,13 +189,29 @@ export default function ProvidersPage() {
                   >
                     编辑
                   </Button>
-                  <Button 
-                    variant="destructive" 
-                    size="sm" 
-                    onClick={() => handleDelete(provider.ID)}
-                  >
-                    删除
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button 
+                        variant="destructive" 
+                        size="sm" 
+                        onClick={() => openDeleteDialog(provider.ID)}
+                      >
+                        删除
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>确定要删除这个提供商吗？</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          此操作无法撤销。这将永久删除该提供商。
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </TableCell>
               </TableRow>
             ))}
@@ -177,47 +232,63 @@ export default function ProvidersPage() {
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4 min-w-0">
-            <div className="form-group">
-              <Label htmlFor="name" className="form-label">名称</Label>
-              <Input
-                id="name"
-                className="form-input"
-                value={formData.name}
-                onChange={(e) => setFormData({...formData, name: e.target.value})}
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(editingProvider ? handleUpdate : handleCreate)} className="space-y-4 min-w-0">
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>名称</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-            
-            <div className="form-group">
-              <Label htmlFor="type" className="form-label">类型</Label>
-              <Input
-                id="type"
-                className="form-input"
-                value={formData.type}
-                onChange={(e) => setFormData({...formData, type: e.target.value})}
+              
+              <FormField
+                control={form.control}
+                name="type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>类型</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-            
-            <div className="form-group">
-              <Label htmlFor="config" className="form-label">配置</Label>
-              <Textarea
-                id="config"
-                
-                className="form-textarea resize-none whitespace-pre overflow-x-auto"
-                value={formData.config}
-                onChange={(e) => setFormData({...formData, config: e.target.value})}
+              
+              <FormField
+                control={form.control}
+                name="config"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>配置</FormLabel>
+                    <FormControl>
+                      <Textarea 
+                        {...field} 
+                        className="resize-none whitespace-pre overflow-x-auto" 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              取消
-            </Button>
-            <Button onClick={editingProvider ? handleUpdate : handleCreate}>
-              {editingProvider ? "更新" : "创建"}
-            </Button>
-          </DialogFooter>
+              
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                  取消
+                </Button>
+                <Button type="submit">
+                  {editingProvider ? "更新" : "创建"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
         </DialogContent>
       </Dialog>
     </div>

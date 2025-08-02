@@ -1,4 +1,7 @@
 import { useState, useEffect } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { 
   Table, 
@@ -17,8 +20,26 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import Loading from "@/components/loading";
 import { 
   getModels, 
@@ -26,7 +47,13 @@ import {
   updateModel, 
   deleteModel,
 } from "@/lib/api";
-import type { Model,  } from "@/lib/api";
+import type { Model } from "@/lib/api";
+
+// 定义表单验证模式
+const formSchema = z.object({
+  name: z.string().min(1, { message: "模型名称不能为空" }),
+  remark: z.string(),
+});
 
 export default function ModelsPage() {
   const [models, setModels] = useState<Model[]>([]);
@@ -34,9 +61,15 @@ export default function ModelsPage() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<Model | null>(null);
-  const [formData, setFormData] = useState({
-    name: "",
-    remark: "",
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  
+  // 初始化表单
+  const form = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: "",
+      remark: "",
+    },
   });
 
   useEffect(() => {
@@ -57,11 +90,11 @@ export default function ModelsPage() {
     }
   };
 
-  const handleCreate = async () => {
+  const handleCreate = async (values: z.infer<typeof formSchema>) => {
     try {
-      await createModel(formData);
+      await createModel(values);
       setOpen(false);
-      setFormData({ name: "", remark: "" });
+      form.reset({ name: "", remark: "" });
       fetchModels();
     } catch (err) {
       setError("创建模型失败");
@@ -69,13 +102,13 @@ export default function ModelsPage() {
     }
   };
 
-  const handleUpdate = async () => {
+  const handleUpdate = async (values: z.infer<typeof formSchema>) => {
     if (!editingModel) return;
     try {
-      await updateModel(editingModel.ID, formData);
+      await updateModel(editingModel.ID, values);
       setOpen(false);
       setEditingModel(null);
-      setFormData({ name: "", remark: "" });
+      form.reset({ name: "", remark: "" });
       fetchModels();
     } catch (err) {
       setError("更新模型失败");
@@ -83,10 +116,11 @@ export default function ModelsPage() {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm("确定要删除这个模型吗？")) return;
+  const handleDelete = async () => {
+    if (!deleteId) return;
     try {
-      await deleteModel(id);
+      await deleteModel(deleteId);
+      setDeleteId(null);
       fetchModels();
     } catch (err) {
       setError("删除模型失败");
@@ -96,7 +130,7 @@ export default function ModelsPage() {
 
   const openEditDialog = (model: Model) => {
     setEditingModel(model);
-    setFormData({
+    form.reset({
       name: model.Name,
       remark: model.Remark,
     });
@@ -105,8 +139,12 @@ export default function ModelsPage() {
 
   const openCreateDialog = () => {
     setEditingModel(null);
-    setFormData({ name: "", remark: "" });
+    form.reset({ name: "", remark: "" });
     setOpen(true);
+  };
+
+  const openDeleteDialog = (id: number) => {
+    setDeleteId(id);
   };
 
   if (loading) return <Loading message="加载模型列表" />;
@@ -143,13 +181,29 @@ export default function ModelsPage() {
                   >
                     编辑
                   </Button>
-                  <Button 
-                    variant="destructive" 
-                    size="sm" 
-                    onClick={() => handleDelete(model.ID)}
-                  >
-                    删除
-                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button 
+                        variant="destructive" 
+                        size="sm" 
+                        onClick={() => openDeleteDialog(model.ID)}
+                      >
+                        删除
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>确定要删除这个模型吗？</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          此操作无法撤销。这将永久删除该模型。
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </TableCell>
               </TableRow>
             ))}
@@ -170,37 +224,46 @@ export default function ModelsPage() {
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4">
-            <div className="form-group">
-              <Label htmlFor="name" className="form-label">名称</Label>
-              <Input
-                id="name"
-                className="form-input"
-                value={formData.name}
-                onChange={(e) => setFormData({...formData, name: e.target.value})}
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(editingModel ? handleUpdate : handleCreate)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>名称</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-            
-            <div className="form-group">
-              <Label htmlFor="remark" className="form-label">备注</Label>
-              <Textarea
-                id="remark"
-                className="form-textarea"
-                value={formData.remark}
-                onChange={(e) => setFormData({...formData, remark: e.target.value})}
-                rows={3}
+              
+              <FormField
+                control={form.control}
+                name="remark"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>备注</FormLabel>
+                    <FormControl>
+                      <Textarea {...field} rows={3} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              取消
-            </Button>
-            <Button onClick={editingModel ? handleUpdate : handleCreate}>
-              {editingModel ? "更新" : "创建"}
-            </Button>
-          </DialogFooter>
+              
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                  取消
+                </Button>
+                <Button type="submit">
+                  {editingModel ? "更新" : "创建"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
         </DialogContent>
       </Dialog>
     </div>

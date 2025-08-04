@@ -289,7 +289,7 @@ export default function LogsPage() {
                 <DialogDescription>请求日志的详细信息</DialogDescription>
               </DialogHeader>
             </div>
-            <div className="max-h-[60vh] overflow-y-auto p-6">
+            <div className="max-h-[85vh] overflow-y-auto p-6">
               <div className="grid gap-4">
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label className="text-right">ID:</Label>
@@ -322,7 +322,7 @@ export default function LogsPage() {
                 {selectedLog.Status === 'error' && selectedLog.Error && (
                   <div className="grid grid-cols-4 items-start gap-4">
                     <Label className="text-right pt-1">错误信息:</Label>
-                    <div className="col-span-3 text-red-600 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                    <div className="col-span-3 text-red-600 whitespace-pre-wrap break-words max-h-30 overflow-y-auto">
                       {selectedLog.Error}
                   </div>
                 </div>

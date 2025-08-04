@@ -116,7 +116,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 			SaveChatLog(ctx, log, nil)
 
 			// 与客户端并行处理响应数据流 同时记录日志
-			teeReader := processTee(ctx, log.ID, reqStart, body)
+			teeReader := processTee(ctx, before.stream, log.ID, reqStart, body)
 
 			return teeReader, nil
 		}
@@ -183,7 +183,7 @@ func ProvidersBymodelsName(ctx context.Context, modelsName string) ([]models.Mod
 	return llmproviders, nil
 }
 
-func processTee(ctx context.Context, logId uint, start time.Time, body io.ReadCloser) io.Reader {
+func processTee(ctx context.Context, stream bool, logId uint, start time.Time, body io.ReadCloser) io.Reader {
 	pr, pw := io.Pipe()
 	go func() {
 		defer body.Close()
@@ -203,15 +203,21 @@ func processTee(ctx context.Context, logId uint, start time.Time, body io.ReadCl
 		var firstChunkTime time.Duration
 		var once sync.Once
 
+		var wg sync.WaitGroup
+
 		logReader := bufio.NewScanner(pr)
 		for chunk := range ScannerToken(logReader) {
 			once.Do(func() {
 				firstChunkTime = time.Since(start)
 			})
+			wg.Add(1)
 			go func() {
-				chunk := strings.TrimPrefix(chunk, "data: ")
-				if !gjson.Valid(chunk) {
-					return
+				defer wg.Done()
+				if stream {
+					chunk := strings.TrimPrefix(chunk, "data: ")
+					if !gjson.Valid(chunk) {
+						return
+					}
 				}
 
 				usageStr := gjson.Get(chunk, "usage")
@@ -230,9 +236,14 @@ func processTee(ctx context.Context, logId uint, start time.Time, body io.ReadCl
 			slog.Error("log reader error", "error", err)
 			return
 		}
-
 		chunkTime := time.Since(start) - firstChunkTime
-		tps := float64(usage.TotalTokens) / chunkTime.Seconds()
+		// 等待日志数据
+		wg.Wait()
+
+		var tps float64
+		if stream {
+			tps = float64(usage.TotalTokens) / chunkTime.Seconds()
+		}
 
 		log := models.ChatLog{
 			Usage:          usage,
@@ -240,6 +251,7 @@ func processTee(ctx context.Context, logId uint, start time.Time, body io.ReadCl
 			Tps:            tps,
 			FirstChunkTime: firstChunkTime,
 		}
+
 		if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, log); err != nil {
 			slog.Error("update chat log error", "error", err)
 		}

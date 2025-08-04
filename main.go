@@ -57,7 +57,7 @@ func main() {
 }
 
 func Setwebui(r *gin.Engine, path string) {
-	r.Use(gzip.Gzip(gzip.DefaultCompression))
+	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/v1/"})))
 	r.Use(static.Serve("/", static.LocalFile(path, false)))
 
 	r.NoRoute(func(c *gin.Context) {

@@ -1,0 +1,57 @@
+package handler
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/atopos31/llmio/common"
+	"github.com/atopos31/llmio/models"
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+)
+
+type MetricsRes struct {
+	Reqs   int64 `json:"reqs"`
+	Tokens int64 `json:"tokens"`
+}
+
+func Metrics(c *gin.Context) {
+	days, err := strconv.Atoi(c.Param("days"))
+	if err != nil {
+		common.BadRequest(c, "Invalid days parameter")
+		return
+	}
+	if days < 1 {
+		common.BadRequest(c, "Invalid days parameter")
+		return
+	}
+
+	chain := gorm.G[models.ChatLog](models.DB).Where("created_at >= ?", time.Now().Add(-time.Duration(days)*24*time.Hour))
+	reqs, err := chain.Count(c.Request.Context(), "id")
+	if err != nil {
+		common.InternalServerError(c, "Failed to count requests: "+err.Error())
+		return
+	}
+	var tokens int64
+	if err := chain.Select("sum(total_tokens) as tokens").Scan(c.Request.Context(), &tokens); err != nil {
+		common.InternalServerError(c, "Failed to sum tokens: "+err.Error())
+		return
+	}
+	common.Success(c, MetricsRes{
+		Reqs:   reqs,
+		Tokens: tokens,
+	})
+}
+
+type Count struct {
+	Model string `json:"model"`
+	Calls int64  `json:"calls"`
+}
+
+func Counts(c *gin.Context) {
+	var results []Count
+	if err := models.DB.Raw("SELECT name as model,COUNT(*) as calls FROM `chat_logs` WHERE `chat_logs`.`deleted_at` IS NULL GROUP BY `name`").Scan(&results).Error; err != nil {
+		common.InternalServerError(c, err.Error())
+	}
+	common.Success(c, results)
+}

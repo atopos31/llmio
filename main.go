@@ -22,6 +22,8 @@ func main() {
 	v1.GET("/models", handler.ModelsHandler)
 
 	api := router.Group("/api")
+	api.GET("/metrics/use/:days", handler.Metrics)
+	api.GET("/metrics/counts", handler.Counts)
 	// Provider management
 	api.GET("/providers/template", handler.GetProviderTemplates)
 	api.GET("/providers", handler.GetProviders)

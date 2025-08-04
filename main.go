@@ -23,6 +23,7 @@ func main() {
 
 	api := router.Group("/api")
 	// Provider management
+	api.GET("/providers/template", handler.GetProviderTemplates)
 	api.GET("/providers", handler.GetProviders)
 	api.POST("/providers", handler.CreateProvider)
 	api.PUT("/providers/:id", handler.UpdateProvider)

@@ -282,85 +282,90 @@ export default function LogsPage() {
       {/* 详情弹窗 */}
       {selectedLog && (
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>日志详情</DialogTitle>
-              <DialogDescription>请求日志的详细信息</DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid  grid-cols-4 items-center gap-4">
-                <Label className="text-right">ID:</Label>
-                <div className="col-span-3">{selectedLog.ID}</div>
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label className="text-right">时间:</Label>
-                <div className="col-span-3">{new Date(selectedLog.CreatedAt).toLocaleString()}</div>
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label className="text-right">名称:</Label>
-                <div className="col-span-3">{selectedLog.Name}</div>
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label className="text-right">提供商模型:</Label>
-                <div className="col-span-3">{selectedLog.ProviderModel}</div>
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label className="text-right">提供商名称:</Label>
-                <div className="col-span-3">{selectedLog.ProviderName}</div>
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label className="text-right">状态:</Label>
-                <div className="col-span-3">
-                  <span className={selectedLog.Status === 'success' ? 'text-green-600' : 'text-red-600'}>
-                    {selectedLog.Status}
-                  </span>
-                </div>
-              </div>
-              {selectedLog.Status === 'error' && selectedLog.Error && (
+          <DialogContent className="max-w-2xl p-0">
+            <div className="sticky top-0 z-10 bg-background border-b p-6">
+              <DialogHeader className="p-0">
+                <DialogTitle>日志详情</DialogTitle>
+                <DialogDescription>请求日志的详细信息</DialogDescription>
+              </DialogHeader>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto p-6">
+              <div className="grid gap-4">
                 <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right">错误信息:</Label>
-                  <div className="col-span-3 text-red-600">{selectedLog.Error}</div>
+                  <Label className="text-right">ID:</Label>
+                  <div className="col-span-3">{selectedLog.ID}</div>
                 </div>
-              )}
-              {selectedLog.FirstChunkTime !== undefined && (
                 <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right">首字耗时:</Label>
-                  <div className="col-span-3">{formatTime(selectedLog.FirstChunkTime)}</div>
+                  <Label className="text-right">时间:</Label>
+                  <div className="col-span-3">{new Date(selectedLog.CreatedAt).toLocaleString()}</div>
                 </div>
-              )}
-              {selectedLog.ChunkTime !== undefined && (
                 <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right">耗时:</Label>
-                  <div className="col-span-3">{formatTime(selectedLog.ChunkTime)}</div>
+                  <Label className="text-right">名称:</Label>
+                  <div className="col-span-3">{selectedLog.Name}</div>
                 </div>
-              )}
-              {selectedLog.Tps !== undefined && (
                 <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right">TPS:</Label>
-                  <div className="col-span-3">{formatTPS(selectedLog.Tps)}</div>
+                  <Label className="text-right">实际模型:</Label>
+                  <div className="col-span-3">{selectedLog.ProviderModel}</div>
                 </div>
-              )}
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label className="text-right">提供商:</Label>
+                  <div className="col-span-3">{selectedLog.ProviderName}</div>
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label className="text-right">状态:</Label>
+                  <div className="col-span-3">
+                    <span className={selectedLog.Status === 'success' ? 'text-green-600' : 'text-red-600'}>
+                      {selectedLog.Status}
+                    </span>
+                  </div>
+                </div>
+                {selectedLog.Status === 'error' && selectedLog.Error && (
+                  <div className="grid grid-cols-4 items-start gap-4">
+                    <Label className="text-right pt-1">错误信息:</Label>
+                    <div className="col-span-3 text-red-600 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                      {selectedLog.Error}
+                  </div>
+                </div>
+                )}
+                {selectedLog.FirstChunkTime !== undefined && (
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label className="text-right">首字耗时:</Label>
+                    <div className="col-span-3">{formatTime(selectedLog.FirstChunkTime)}</div>
+                  </div>
+                )}
+                {selectedLog.ChunkTime !== undefined && (
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label className="text-right">耗时:</Label>
+                    <div className="col-span-3">{formatTime(selectedLog.ChunkTime)}</div>
+                  </div>
+                )}
+                {selectedLog.Tps !== undefined && (
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label className="text-right">TPS:</Label>
+                    <div className="col-span-3">{formatTPS(selectedLog.Tps)}</div>
+                  </div>
+                )}
 
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label className="text-right">输入:</Label>
-                <div className="col-span-3">
-                  {selectedLog.prompt_tokens} tokens
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label className="text-right">输入:</Label>
+                  <div className="col-span-3">
+                    {selectedLog.prompt_tokens} tokens
+                  </div>
                 </div>
-              </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label className="text-right">输出:</Label>
-                <div className="col-span-3">
-                  {selectedLog.completion_tokens} tokens
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label className="text-right">输出:</Label>
+                  <div className="col-span-3">
+                    {selectedLog.completion_tokens} tokens
+                  </div>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label className="text-right">总计:</Label>
-                <div className="col-span-3">
-                  {selectedLog.total_tokens} tokens
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label className="text-right">总计:</Label>
+                  <div className="col-span-3">
+                    {selectedLog.total_tokens} tokens
+                  </div>
                 </div>
               </div>
-
             </div>
           </DialogContent>
         </Dialog>

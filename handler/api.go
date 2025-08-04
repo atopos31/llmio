@@ -245,6 +245,25 @@ func DeleteModel(c *gin.Context) {
 	common.Success(c, nil)
 }
 
+type ProviderTemplate struct {
+	Type     string `json:"type"`
+	Template string `json:"template"`
+}
+
+var template = []ProviderTemplate{
+	{
+		Type: "openai",
+		Template: `{
+			"api_key": "YOUR_API_KEY",
+			"base_url": "https://api.openai.com/v1"
+		}`,
+	},
+}
+
+func GetProviderTemplates(c *gin.Context) {
+	common.Success(c, template)
+}
+
 // GetModelProviders 获取模型的提供商关联列表
 func GetModelProviders(c *gin.Context) {
 	modelIDStr := c.Query("model_id")

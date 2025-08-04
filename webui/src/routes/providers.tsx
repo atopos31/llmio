@@ -45,9 +45,10 @@ import {
   getProviders, 
   createProvider, 
   updateProvider, 
-  deleteProvider
+  deleteProvider,
+  getProviderTemplates
 } from "@/lib/api";
-import type { Provider } from "@/lib/api";
+import type { Provider, ProviderTemplate } from "@/lib/api";
 
 // 定义表单验证模式
 const formSchema = z.object({
@@ -58,6 +59,7 @@ const formSchema = z.object({
 
 export default function ProvidersPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [providerTemplates, setProviderTemplates] = useState<ProviderTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -76,6 +78,7 @@ export default function ProvidersPage() {
 
   useEffect(() => {
     fetchProviders();
+    fetchProviderTemplates();
   }, []);
 
   const fetchProviders = async () => {
@@ -88,6 +91,15 @@ export default function ProvidersPage() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchProviderTemplates = async () => {
+    try {
+      const data = await getProviderTemplates();
+      setProviderTemplates(data);
+    } catch (err) {
+      console.error("获取提供商模板失败", err);
     }
   };
 
@@ -303,7 +315,25 @@ export default function ProvidersPage() {
                   <FormItem>
                     <FormLabel>类型</FormLabel>
                     <FormControl>
-                      <Input {...field} />
+                      <select 
+                        {...field} 
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        onChange={(e) => {
+                          field.onChange(e);
+                          // When type changes, populate config with template if available
+                          const selectedTemplate = providerTemplates.find(t => t.type === e.target.value);
+                          if (selectedTemplate) {
+                            form.setValue("config", selectedTemplate.template);
+                          }
+                        }}
+                      >
+                        <option value="">请选择提供商类型</option>
+                        {providerTemplates.map((template) => (
+                          <option key={template.type} value={template.type}>
+                            {template.type}
+                          </option>
+                        ))}
+                      </select>
                     </FormControl>
                     <FormMessage />
                   </FormItem>

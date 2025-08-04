@@ -49,7 +49,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(time.Second * 20):
+		case <-time.After(time.Second * 60):
 			return nil, errors.New("retry time out !")
 		default:
 			// 加权负载均衡

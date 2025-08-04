@@ -192,6 +192,16 @@ export async function testModelProvider(id: number): Promise<any> {
   return apiRequest<any>(`/test/${id}`);
 }
 
+// Provider Templates API functions
+export interface ProviderTemplate {
+  type: string;
+  template: string;
+}
+
+export async function getProviderTemplates(): Promise<ProviderTemplate[]> {
+  return apiRequest<ProviderTemplate[]>('/providers/template');
+}
+
 // Logs API functions
 export interface ChatLog {
   ID: number;

@@ -14,6 +14,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
+import type { ModelCount } from "@/lib/api"
 
 // 预定义颜色数组，按顺序生成颜色
 const predefinedColors = [
@@ -29,19 +30,8 @@ const predefinedColors = [
   "var(--chart-10)",
 ]
 
-// 模拟后端数据
-const mockModelData = [
-  { model: "GPT-4", calls: 1240 },
-  { model: "Claude-3", calls: 850 },
-  { model: "Geminidd", calls: 620 },
-  { model: "LLaMA-2", calls: 480 },
-  { model: "Mistral", calls: 320 },
-  { model: "Yi-34B", calls: 275 },
-  { model: "DeepSeek", calls: 200 },
-]
-
 // 根据模型数据生成图表配置
-const generateChartConfig = (data: typeof mockModelData) => {
+const generateChartConfig = (data: ModelCount[]) => {
   const config: ChartConfig = {
     calls: {
       label: "调用次数",
@@ -59,7 +49,7 @@ const generateChartConfig = (data: typeof mockModelData) => {
 }
 
 // 根据模型数据生成图表数据
-const generateChartData = (data: typeof mockModelData) => {
+const generateChartData = (data: ModelCount[]) => {
   return data.map((item, index) => ({
     model: item.model,
     calls: item.calls,
@@ -67,9 +57,13 @@ const generateChartData = (data: typeof mockModelData) => {
   }))
 }
 
-export function ModelRankingChart() {
-  const chartData = generateChartData(mockModelData)
-  const chartConfig = generateChartConfig(mockModelData)
+interface ModelRankingChartProps {
+  data: ModelCount[]
+}
+
+export function ModelRankingChart({ data }: ModelRankingChartProps) {
+  const chartData = generateChartData(data)
+  const chartConfig = generateChartConfig(data)
 
   return (
     <Card>

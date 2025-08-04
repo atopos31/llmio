@@ -50,7 +50,7 @@ type Count struct {
 
 func Counts(c *gin.Context) {
 	var results []Count
-	if err := models.DB.Raw("SELECT name as model,COUNT(*) as calls FROM `chat_logs` WHERE `chat_logs`.`deleted_at` IS NULL GROUP BY `name`").Scan(&results).Error; err != nil {
+	if err := models.DB.Raw("SELECT name as model,COUNT(*) as calls FROM `chat_logs` WHERE `chat_logs`.`deleted_at` IS NULL  GROUP BY `name` ORDER BY `calls` DESC").Scan(&results).Error; err != nil {
 		common.InternalServerError(c, err.Error())
 	}
 	common.Success(c, results)

@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button";
 import Loading from "@/components/loading";
 import { 
   getSystemStatus,
-  getProviderMetrics
+  getProviderMetrics,
+  getMetrics,
+  getModelCounts
 } from "@/lib/api";
-import type { SystemStatus, ProviderMetric } from "@/lib/api";
+import type { SystemStatus, ProviderMetric, MetricsData, ModelCount } from "@/lib/api";
 import { ChartPieDonutText } from "@/components/charts/pie-chart";
 import { ModelRankingChart } from "@/components/charts/bar-chart";
 
@@ -43,15 +45,14 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeChart, setActiveChart] = useState<"distribution" | "ranking">("distribution");
-
-  // Mock data for the new metrics
-  const [todayRequests] = useState(1250);
-  const [todayTokens] = useState(250000);
-  const [totalRequests] = useState(18560);
-  const [totalTokens] = useState(3875000);
+  
+  // Real data from APIs
+  const [todayMetrics, setTodayMetrics] = useState<MetricsData>({ reqs: 0, tokens: 0 });
+  const [totalMetrics, setTotalMetrics] = useState<MetricsData>({ reqs: 0, tokens: 0 });
+  const [modelCounts, setModelCounts] = useState<ModelCount[]>([]);
 
   useEffect(() => {
-    Promise.all([fetchStatus(), fetchMetrics()]);
+    Promise.all([fetchStatus(), fetchMetrics(), fetchTodayMetrics(), fetchTotalMetrics(), fetchModelCounts()]);
   }, []);
 
   const fetchStatus = async () => {
@@ -61,8 +62,6 @@ export default function Home() {
     } catch (err) {
       setError("获取系统状态失败");
       console.error(err);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -73,6 +72,38 @@ export default function Home() {
     } catch (err) {
       setError("获取提供商指标失败");
       console.error(err);
+    }
+  };
+  
+  const fetchTodayMetrics = async () => {
+    try {
+      const data = await getMetrics(1);
+      setTodayMetrics(data);
+    } catch (err) {
+      setError("获取今日指标失败");
+      console.error(err);
+    }
+  };
+  
+  const fetchTotalMetrics = async () => {
+    try {
+      const data = await getMetrics(30); // Get last 30 days for "total" metrics
+      setTotalMetrics(data);
+    } catch (err) {
+      setError("获取总计指标失败");
+      console.error(err);
+    }
+  };
+  
+  const fetchModelCounts = async () => {
+    try {
+      const data = await getModelCounts();
+      setModelCounts(data);
+    } catch (err) {
+      setError("获取模型调用统计失败");
+      console.error(err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -88,7 +119,7 @@ export default function Home() {
             <CardDescription>今日处理的请求总数</CardDescription>
           </CardHeader>
           <CardContent>
-            <AnimatedCounter value={todayRequests} />
+            <AnimatedCounter value={todayMetrics.reqs} />
           </CardContent>
         </Card>
         
@@ -98,27 +129,27 @@ export default function Home() {
             <CardDescription>今日处理的Tokens总数</CardDescription>
           </CardHeader>
           <CardContent>
-            <AnimatedCounter value={todayTokens} />
+            <AnimatedCounter value={todayMetrics.tokens} />
           </CardContent>
         </Card>
         
         <Card>
           <CardHeader>
-            <CardTitle>总计请求</CardTitle>
-            <CardDescription>历史处理的请求总数</CardDescription>
+            <CardTitle>本月请求</CardTitle>
+            <CardDescription>最近30天处理的请求总数</CardDescription>
           </CardHeader>
           <CardContent>
-            <AnimatedCounter value={totalRequests} />
+            <AnimatedCounter value={totalMetrics.reqs} />
           </CardContent>
         </Card>
         
         <Card>
           <CardHeader>
-            <CardTitle>总计Tokens</CardTitle>
-            <CardDescription>历史处理的Tokens总数</CardDescription>
+            <CardTitle>本月Tokens</CardTitle>
+            <CardDescription>最近30天处理的Tokens总数</CardDescription>
           </CardHeader>
           <CardContent>
-            <AnimatedCounter value={totalTokens} />
+            <AnimatedCounter value={totalMetrics.tokens} />
           </CardContent>
         </Card>
       </div>
@@ -144,7 +175,7 @@ export default function Home() {
             </Button>
           </div>
           <div className="mt-4">
-            {activeChart === "distribution" ? <ChartPieDonutText /> : <ModelRankingChart />}
+            {activeChart === "distribution" ? <ChartPieDonutText data={modelCounts} /> : <ModelRankingChart data={modelCounts} />}
           </div>
         </CardContent>
       </Card>

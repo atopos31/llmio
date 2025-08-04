@@ -187,6 +187,25 @@ export async function updateSystemConfig(config: SystemConfig): Promise<SystemCo
   });
 }
 
+// Metrics API functions
+export interface MetricsData {
+  reqs: number;
+  tokens: number;
+}
+
+export interface ModelCount {
+  model: string;
+  calls: number;
+}
+
+export async function getMetrics(days: number): Promise<MetricsData> {
+  return apiRequest<MetricsData>(`/metrics/use/${days}`);
+}
+
+export async function getModelCounts(): Promise<ModelCount[]> {
+  return apiRequest<ModelCount[]>('/metrics/counts');
+}
+
 // Test API functions
 export async function testModelProvider(id: number): Promise<any> {
   return apiRequest<any>(`/test/${id}`);

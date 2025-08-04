@@ -13,6 +13,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
+import type { ModelCount } from "@/lib/api"
 
 // 预定义颜色数组，按顺序生成颜色
 const predefinedColors = [
@@ -28,17 +29,8 @@ const predefinedColors = [
   "var(--chart-10)",
 ]
 
-// 模拟后端数据
-const mockModelData = [
-  { model: "gpt-4", calls: 1240 },
-  { model: "claude-3", calls: 850 },
-  { model: "gemini-pro", calls: 620 },
-  { model: "llama-2", calls: 480 },
-  { model: "mistral", calls: 320 },
-]
-
 // 根据模型数据生成图表配置
-const generateChartConfig = (data: typeof mockModelData) => {
+const generateChartConfig = (data: ModelCount[]) => {
   const config: ChartConfig = {
     calls: {
       label: "调用次数",
@@ -56,7 +48,7 @@ const generateChartConfig = (data: typeof mockModelData) => {
 }
 
 // 根据模型数据生成图表数据
-const generateChartData = (data: typeof mockModelData) => {
+const generateChartData = (data: ModelCount[]) => {
   return data.map((item, index) => ({
     model: item.model,
     calls: item.calls,
@@ -64,9 +56,13 @@ const generateChartData = (data: typeof mockModelData) => {
   }))
 }
 
-export function ChartPieDonutText() {
-  const chartData = generateChartData(mockModelData)
-  const chartConfig = generateChartConfig(mockModelData)
+interface ChartPieDonutTextProps {
+  data: ModelCount[]
+}
+
+export function ChartPieDonutText({ data }: ChartPieDonutTextProps) {
+  const chartData = generateChartData(data)
+  const chartConfig = generateChartConfig(data)
   
   return (
     <Card className="flex flex-col">

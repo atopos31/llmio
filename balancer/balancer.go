@@ -2,7 +2,7 @@ package balancer
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 )
 
 func WeightedRandom[T comparable](items map[T]int) (*T, error) {
@@ -16,7 +16,7 @@ func WeightedRandom[T comparable](items map[T]int) (*T, error) {
 	if total <= 0 {
 		return nil, fmt.Errorf("total provide weight must be greater than 0")
 	}
-	r := rand.Intn(total)
+	r := rand.IntN(total)
 	for k, v := range items {
 		if r < v {
 			return &k, nil

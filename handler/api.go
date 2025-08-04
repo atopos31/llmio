@@ -254,8 +254,8 @@ var template = []ProviderTemplate{
 	{
 		Type: "openai",
 		Template: `{
-			"api_key": "YOUR_API_KEY",
-			"base_url": "https://api.openai.com/v1"
+			"base_url": "https://api.openai.com/v1",
+			"api_key": "YOUR_API_KEY"
 		}`,
 	},
 }

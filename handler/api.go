@@ -134,6 +134,12 @@ func DeleteProvider(c *gin.Context) {
 		return
 	}
 
+	//删除关联
+	if _, err := gorm.G[models.ModelWithProvider](models.DB).Where("provider_id = ?", id).Delete(c.Request.Context()); err != nil {
+		common.InternalServerError(c, "Failed to delete provider: "+err.Error())
+		return
+	}
+
 	if result == 0 {
 		common.NotFound(c, "Provider not found")
 		return

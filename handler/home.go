@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"database/sql"
 	"strconv"
 	"time"
 
@@ -32,14 +33,14 @@ func Metrics(c *gin.Context) {
 		common.InternalServerError(c, "Failed to count requests: "+err.Error())
 		return
 	}
-	var tokens int64
+	var tokens sql.NullInt64
 	if err := chain.Select("sum(total_tokens) as tokens").Scan(c.Request.Context(), &tokens); err != nil {
 		common.InternalServerError(c, "Failed to sum tokens: "+err.Error())
 		return
 	}
 	common.Success(c, MetricsRes{
 		Reqs:   reqs,
-		Tokens: tokens,
+		Tokens: tokens.Int64,
 	})
 }
 
@@ -49,7 +50,7 @@ type Count struct {
 }
 
 func Counts(c *gin.Context) {
-	var results []Count
+	results := make([]Count, 0)
 	if err := models.DB.Raw("SELECT name as model,COUNT(*) as calls FROM `chat_logs` WHERE `chat_logs`.`deleted_at` IS NULL  GROUP BY `name` ORDER BY `calls` DESC").Scan(&results).Error; err != nil {
 		common.InternalServerError(c, err.Error())
 	}

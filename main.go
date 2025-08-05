@@ -10,10 +10,11 @@ import (
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
+	_ "golang.org/x/crypto/x509roots/fallback"
 )
 
 func main() {
-	models.Init("llmio.db")
+	models.Init("./db/llmio.db")
 	router := gin.Default()
 	Setwebui(router, "./webui/dist")
 

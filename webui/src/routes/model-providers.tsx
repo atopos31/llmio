@@ -84,7 +84,9 @@ export default function ModelProvidersPage() {
   });
 
   useEffect(() => {
-    Promise.all([fetchModels(), fetchProviders()]);
+    Promise.all([fetchModels(), fetchProviders()]).finally(() => {
+      setLoading(false);
+    });
   }, []);
 
   useEffect(() => {
@@ -229,7 +231,7 @@ export default function ModelProvidersPage() {
   };
 
 
-  if (loading && modelProviders.length === 0) return <Loading message="加载模型提供商关联" />;
+  if (loading && models.length === 0 && providers.length === 0) return <Loading message="加载模型和提供商" />;
   if (error) return <div className="text-red-500">{error}</div>;
 
   return (

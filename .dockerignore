@@ -1,0 +1,35 @@
+# Dependencies
+node_modules
+webui/node_modules
+webui/.vite
+webui/dist
+
+# Test files
+*_test.go
+**/*_test.go
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Temporary files
+tmp/
+temp/

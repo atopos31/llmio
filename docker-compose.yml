@@ -1,0 +1,9 @@
+services:
+  llmio:
+    build: .
+    ports:
+      - "7070:7070"
+    volumes:
+      - ./db:/app/db
+    environment:
+      - GIN_MODE=release

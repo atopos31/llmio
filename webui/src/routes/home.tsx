@@ -4,13 +4,11 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Loading from "@/components/loading";
-import { 
-  getSystemStatus,
-  getProviderMetrics,
+import {
   getMetrics,
   getModelCounts
 } from "@/lib/api";
-import type { SystemStatus, ProviderMetric, MetricsData, ModelCount } from "@/lib/api";
+import type { MetricsData, ModelCount } from "@/lib/api";
 import { ChartPieDonutText } from "@/components/charts/pie-chart";
 import { ModelRankingChart } from "@/components/charts/bar-chart";
 
@@ -40,8 +38,6 @@ const AnimatedCounter = ({ value, duration = 1000 }: { value: number; duration?:
 };
 
 export default function Home() {
-  const [, setStatus] = useState<SystemStatus | null>(null);
-  const [, setMetrics] = useState<ProviderMetric[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeChart, setActiveChart] = useState<"distribution" | "ranking">("distribution");
@@ -52,28 +48,8 @@ export default function Home() {
   const [modelCounts, setModelCounts] = useState<ModelCount[]>([]);
 
   useEffect(() => {
-    Promise.all([fetchStatus(), fetchMetrics(), fetchTodayMetrics(), fetchTotalMetrics(), fetchModelCounts()]);
+    Promise.all([fetchTodayMetrics(), fetchTotalMetrics(), fetchModelCounts()]);
   }, []);
-
-  const fetchStatus = async () => {
-    try {
-      const data = await getSystemStatus();
-      setStatus(data);
-    } catch (err) {
-      setError("获取系统状态失败");
-      console.error(err);
-    }
-  };
-
-  const fetchMetrics = async () => {
-    try {
-      const data = await getProviderMetrics();
-      setMetrics(data);
-    } catch (err) {
-      setError("获取提供商指标失败");
-      console.error(err);
-    }
-  };
   
   const fetchTodayMetrics = async () => {
     try {

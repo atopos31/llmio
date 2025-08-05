@@ -41,13 +41,6 @@ func setupTestRouter() *gin.Engine {
 	router.PUT("/model-providers/:id", UpdateModelProvider)
 	router.DELETE("/model-providers/:id", DeleteModelProvider)
 
-	// Register routes for system operations
-	router.GET("/system/status", GetSystemStatus)
-	router.GET("/system/metrics", GetProviderMetrics)
-	router.GET("/system/logs", GetRequestLogs)
-	router.GET("/system/config", GetSystemConfig)
-	router.PUT("/system/config", UpdateSystemConfig)
-
 	return router
 }
 

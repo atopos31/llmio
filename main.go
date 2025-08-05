@@ -44,8 +44,6 @@ func main() {
 	api.DELETE("/model-providers/:id", handler.DeleteModelProvider)
 
 	// System status and monitoring
-	api.GET("/status", handler.GetSystemStatus)
-	api.GET("/metrics/providers", handler.GetProviderMetrics)
 	api.GET("/logs", handler.GetRequestLogs)
 
 	// System configuration

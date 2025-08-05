@@ -389,59 +389,6 @@ func DeleteModelProvider(c *gin.Context) {
 	common.Success(c, nil)
 }
 
-// GetSystemStatus 获取系统状态概览
-func GetSystemStatus(c *gin.Context) {
-	// Get total providers count
-	providerCount, err := gorm.G[models.Provider](models.DB).Count(c.Request.Context(), "id")
-	if err != nil {
-		common.InternalServerError(c, "Failed to count providers: "+err.Error())
-		return
-	}
-
-	// Get total models count
-	modelCount, err := gorm.G[models.Model](models.DB).Count(c.Request.Context(), "id")
-	if err != nil {
-		common.InternalServerError(c, "Failed to count models: "+err.Error())
-		return
-	}
-
-	status := map[string]interface{}{
-		"total_providers": providerCount,
-		"total_models":    modelCount,
-		// For demo purposes, setting static values for other fields
-		"active_requests": 0,
-		"uptime":          "0h0m",
-		"version":         "v1.0.0",
-	}
-
-	common.Success(c, status)
-}
-
-// GetProviderMetrics 获取提供商性能指标
-func GetProviderMetrics(c *gin.Context) {
-	providers, err := gorm.G[models.Provider](models.DB).Find(c.Request.Context())
-	if err != nil {
-		common.InternalServerError(c, err.Error())
-		return
-	}
-
-	metrics := make([]map[string]interface{}, 0)
-	for _, provider := range providers {
-		metric := map[string]interface{}{
-			"provider_id":       provider.ID,
-			"provider_name":     provider.Name,
-			"success_rate":      0.95, // Placeholder value
-			"avg_response_time": 1200, // Placeholder value in milliseconds
-			"total_requests":    1000, // Placeholder value
-			"success_count":     950,  // Placeholder value
-			"failure_count":     50,   // Placeholder value
-		}
-		metrics = append(metrics, metric)
-	}
-
-	common.Success(c, metrics)
-}
-
 // GetRequestLogs 获取最近的请求日志（支持分页和筛选）
 func GetRequestLogs(c *gin.Context) {
 	// 分页参数

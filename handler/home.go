@@ -26,7 +26,7 @@ func Metrics(c *gin.Context) {
 		return
 	}
 
-	chain := gorm.G[models.ChatLog](models.DB).Where("created_at >= ?", time.Now().Add(-time.Duration(days)*24*time.Hour))
+	chain := gorm.G[models.ChatLog](models.DB).Where("created_at >= ?", time.Now().Truncate(time.Duration(days)*24*time.Hour))
 	reqs, err := chain.Count(c.Request.Context(), "id")
 	if err != nil {
 		common.InternalServerError(c, "Failed to count requests: "+err.Error())

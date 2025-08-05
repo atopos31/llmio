@@ -98,7 +98,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 					slog.Error("read body error", "error", err)
 				}
 				slog.Error("chat error", "status", status, "body", string(byteBody))
-				go SaveChatLog(ctx, log, fmt.Errorf("status: %d, body: %s", status, string(byteBody)))
+				SaveChatLog(ctx, log, fmt.Errorf("status: %d, body: %s", status, string(byteBody)))
 
 				// 非RPM限制 移除待选
 				if status != http.StatusTooManyRequests {

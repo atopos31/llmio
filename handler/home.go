@@ -53,5 +53,18 @@ func Counts(c *gin.Context) {
 	if err := models.DB.Raw("SELECT name as model,COUNT(*) as calls FROM `chat_logs` WHERE `chat_logs`.`deleted_at` IS NULL  GROUP BY `name` ORDER BY `calls` DESC").Scan(&results).Error; err != nil {
 		common.InternalServerError(c, err.Error())
 	}
+	const topN = 5
+	if len(results) > topN {
+		var othersCalls int64
+		for _, item := range results[topN:] {
+			othersCalls += item.Calls
+		}
+		othersCount := Count{
+			Model: "others",
+			Calls: othersCalls,
+		}
+		results = append(results[:topN], othersCount)
+	}
+
 	common.Success(c, results)
 }

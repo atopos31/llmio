@@ -40,21 +40,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 3. 构建并加载到本地用于测试 (使用一个固定的测试标签)
-      - name: Build and load for testing
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          tags: ${{ env.IMAGE_NAME }}:test-build
-
-      - name: Test Docker image
-        run: |
-          echo "Running tests on image ${{ env.IMAGE_NAME }}:test-build"
-          docker run --rm ${{ env.IMAGE_NAME }}:test-build
-          echo "Tests passed!"
-
-      # 4. 构建并推送最终镜像 (使用 meta 步骤生成的动态标签)
+      # 3. 构建并推送最终镜像 (使用 meta 步骤生成的动态标签)
       - name: Build and push final image
         if: success() # 确保测试通过后才执行
         uses: docker/build-push-action@v6

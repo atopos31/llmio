@@ -1,0 +1,67 @@
+name: CI on Git Tag
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+# 1. 设置动态的镜像名称
+env:
+  # 自动构建镜像名称，格式为：<dockerhub-username>/<repo-name>
+  # 例如：'my-docker-user/my-awesome-app'
+  IMAGE_NAME: ${{ github.repository }}/${{ github.event.repository.name }}
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. 动态生成 Docker 标签 (version 和 latest)
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }} # 使用我们动态生成的镜像名
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ github.repository }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 3. 构建并加载到本地用于测试 (使用一个固定的测试标签)
+      - name: Build and load for testing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:test-build
+
+      - name: Test Docker image
+        run: |
+          echo "Running tests on image ${{ env.IMAGE_NAME }}:test-build"
+          docker run --rm ${{ env.IMAGE_NAME }}:test-build
+          echo "Tests passed!"
+
+      # 4. 构建并推送最终镜像 (使用 meta 步骤生成的动态标签)
+      - name: Build and push final image
+        if: success() # 确保测试通过后才执行
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+

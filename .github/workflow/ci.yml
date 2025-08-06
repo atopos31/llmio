@@ -9,7 +9,7 @@ on:
 env:
   # 自动构建镜像名称，格式为：<dockerhub-username>/<repo-name>
   # 例如：'my-docker-user/my-awesome-app'
-  IMAGE_NAME: ${{ github.repository }}/${{ github.event.repository.name }}
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   docker:

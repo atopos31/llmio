@@ -52,13 +52,25 @@ export interface ProviderMetric {
 // Generic API request function
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
+  
+  // Get token from localStorage
+  const token = localStorage.getItem("authToken");
+  
   const response = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       ...options.headers,
     },
     ...options,
   });
+
+  // Handle 401 Unauthorized response
+  if (response.status === 401) {
+    // Redirect to login page
+    window.location.href = '/login';
+    throw new Error('Unauthorized');
+  }
 
   if (!response.ok) {
     throw new Error(`API request failed: ${response.status} ${response.statusText}`);

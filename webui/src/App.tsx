@@ -5,6 +5,7 @@ import ProvidersPage from './routes/providers';
 import ModelsPage from './routes/models';
 import ModelProvidersPage from './routes/model-providers';
 import LogsPage from './routes/logs';
+import LoginPage from './routes/login';
 
 import { ThemeProvider } from "@/components/theme-provider"
 
@@ -13,6 +14,7 @@ function App() {
     <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
       <Router>
         <Routes>
+          <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<Layout />}>
             <Route index element={<Home />} />
             <Route path="providers" element={<ProvidersPage />} />

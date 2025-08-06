@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/atopos31/llmio/handler"
+	"github.com/atopos31/llmio/middleware"
 	"github.com/atopos31/llmio/models"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-contrib/static"
@@ -19,10 +20,12 @@ func main() {
 	Setwebui(router, "./webui/dist")
 
 	v1 := router.Group("/v1")
+	v1.Use(middleware.Auth(os.Getenv("TOKEN")))
 	v1.POST("/chat/completions", handler.ChatCompletionsHandler)
 	v1.GET("/models", handler.ModelsHandler)
 
 	api := router.Group("/api")
+	api.Use(middleware.Auth(os.Getenv("TOKEN")))
 	api.GET("/metrics/use/:days", handler.Metrics)
 	api.GET("/metrics/counts", handler.Counts)
 	// Provider management

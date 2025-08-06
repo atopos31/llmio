@@ -1,6 +1,6 @@
 services:
   llmio:
-    build: .
+    image: atopos31/llmio:latest
     ports:
       - "7070:7070"
     volumes:

@@ -88,6 +88,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 			if err != nil {
 				slog.Error("chat error", "error", err)
 				go SaveChatLog(context.Background(), log, err)
+				// 请求失败 移除待选
 				delete(items, *item)
 				continue
 			}
@@ -100,14 +101,12 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 				slog.Error("chat error", "status", status, "body", string(byteBody))
 				go SaveChatLog(context.Background(), log, fmt.Errorf("status: %d, body: %s", status, string(byteBody)))
 
-				// 非RPM限制 移除待选
-				if status != http.StatusTooManyRequests {
-					delete(items, *item)
-				}
-
-				// 达到RPM限制 降低权重
 				if status == http.StatusTooManyRequests {
-					items[*item] -= 10
+					// 达到RPM限制 降低权重
+					items[*item] -= items[*item] / 3
+				} else {
+					// 非RPM限制 移除待选
+					delete(items, *item)
 				}
 				body.Close()
 				continue

@@ -1,20 +1,24 @@
 # LLMIO
 
-LLMIO 是一个基于 Go 的服务，提供统一的 API 来与各种大语言模型（LLM）进行交互。它支持在不同提供商之间进行负载均衡，并高效地处理请求。
+LLMIO 是一个基于 Go 的服务，提供统一的 API 来与各种大语言模型（LLM）进行交互。它支持在不同提供商之间进行智能负载均衡，并高效地处理请求。该服务还提供了一个现代化的 Web UI 界面，方便用户管理和监控系统。
 
 ## 功能特性
 
-- 统一 API 访问多种 LLM 提供商
-- 带有权重随机选择的负载均衡
-- 支持流式和非流式响应
-- 处理速率限制
-- 使用情况跟踪和日志记录
+- **统一 API 访问**：通过单一 API 接入多种 LLM 提供商（如 OpenAI）
+- **智能负载均衡**：支持带权重的随机选择和基于成功率/响应时间的智能路由
+- **流式和非流式响应**：同时支持流式和标准响应模式
+- **速率限制处理**：自动处理提供商的速率限制
+- **使用情况跟踪**：详细的日志记录和使用情况统计
+- **Web 管理界面**：直观的 Web UI 用于管理提供商、模型和监控系统
+- **系统监控**：实时查看请求统计、模型使用情况和请求日志
+- **提供商连通性测试**：内置测试功能验证提供商连接
 
 ## 快速开始
 
 ### 先决条件
 
 - Go 1.22+
+- Node.js 18+ (用于构建 Web UI)
 
 ### 安装
 
@@ -24,7 +28,7 @@ LLMIO 是一个基于 Go 的服务，提供统一的 API 来与各种大语言�
    cd llmio
    ```
 
-2. 安装依赖：
+2. 安装后端依赖：
    ```bash
    go mod tidy
    ```
@@ -33,18 +37,30 @@ LLMIO 是一个基于 Go 的服务，提供统一的 API 来与各种大语言�
    ```bash
    go run main.go
    ```
-   这将自动创建一个 SQLite 数据库文件（`llmio.db`）并初始化数据库结构。
+   这将自动创建一个 SQLite 数据库文件（`db/llmio.db`）并初始化数据库结构。
+
+4. 构建前端界面：
+   ```bash
+   cd webui
+   npm install
+   npm run build
+   cd ..
+   ```
 
 ### 配置
 
-该服务使用数据库来存储提供商和模型的配置。你需要通过直接操作数据库或构建管理界面来添加提供商和模型。
+该服务使用数据库来存储提供商和模型的配置。你可以通过 Web UI 或直接操作数据库来添加提供商和模型。
 
-OpenAI 提供商配置示例：
+#### 环境变量
+
+- `TOKEN`: API 访问令牌（可选，但推荐设置）
+
+#### OpenAI 提供商配置示例：
 - 名称: openai
 - 类型: openai
 - 配置: `{"base_url": "https://api.openai.com/v1", "api_key": "your-api-key"}`
 
-模型配置示例：
+#### 模型配置示例：
 - 名称: gpt-3.5-turbo
 - 备注: OpenAI 的 GPT-3.5 Turbo 模型
 
@@ -56,6 +72,20 @@ go run main.go
 ```
 
 服务将在 `http://localhost:7070` 可用。
+- API 端点: `http://localhost:7070/v1/`
+- 管理界面: `http://localhost:7070/`
+
+## Web 管理界面
+
+LLMIO 提供了一个现代化的 Web 管理界面，包含以下功能：
+
+1. **系统概览**：实时显示系统指标，如请求次数、Token 使用情况和模型调用统计
+2. **提供商管理**：添加、编辑和删除 LLM 提供商
+3. **模型管理**：管理可用的模型
+4. **模型提供商关联**：关联模型与提供商，并设置权重
+5. **请求日志**：查看详细请求日志，支持筛选和分页
+
+访问 `http://localhost:7070/` 来使用 Web 管理界面。
 
 ## API 端点
 
@@ -85,6 +115,29 @@ GET `/v1/models`
 
 返回可用模型的列表。
 
+### 管理 API
+
+所有以下端点都需要在请求头中包含 `Authorization: Bearer YOUR_TOKEN`：
+
+- GET `/api/providers` - 获取所有提供商
+- POST `/api/providers` - 创建提供商
+- PUT `/api/providers/:id` - 更新提供商
+- DELETE `/api/providers/:id` - 删除提供商
+
+- GET `/api/models` - 获取所有模型
+- POST `/api/models` - 创建模型
+- PUT `/api/models/:id` - 更新模型
+- DELETE `/api/models/:id` - 删除模型
+
+- GET `/api/model-providers` - 获取模型提供商关联
+- POST `/api/model-providers` - 创建模型提供商关联
+- PUT `/api/model-providers/:id` - 更新模型提供商关联
+- DELETE `/api/model-providers/:id` - 删除模型提供商关联
+
+- GET `/api/logs` - 获取请求日志
+- GET `/api/metrics/use/:days` - 获取使用指标
+- GET `/api/metrics/counts` - 获取模型计数统计
+
 ## 架构
 
 该服务由以下组件构成：
@@ -96,6 +149,39 @@ GET `/v1/models`
 - **models/**: 数据库模型和初始化
 - **balancer/**: 负载均衡算法
 - **common/**: 通用工具和响应助手
+- **webui/**: 前端管理界面（React + TypeScript + Vite）
+
+## 开发
+
+### 后端开发
+
+```bash
+go run main.go
+```
+
+### 前端开发
+
+```bash
+cd webui
+npm run dev
+```
+
+## 部署
+
+### Docker
+
+使用提供的 Dockerfile 构建镜像：
+
+```bash
+docker build -t llmio .
+docker run -p 7070:7070 -e TOKEN=your-token llmio
+```
+
+### Docker Compose
+
+```bash
+docker-compose up -d
+```
 
 ## 贡献
 

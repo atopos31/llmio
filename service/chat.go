@@ -220,7 +220,7 @@ func processTee(ctx context.Context, stream bool, logId uint, start time.Time, b
 				}
 
 				usageStr := gjson.Get(chunk, "usage")
-				if !usageStr.Exists() {
+				if !usageStr.Exists() || usageStr.Get("total_tokens").Int() == 0 {
 					return
 				}
 

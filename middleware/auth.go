@@ -10,6 +10,9 @@ import (
 
 func Auth(token string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if token == "" {
+			return
+		}
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			common.ErrorWithHttpStatus(c, http.StatusUnauthorized, http.StatusUnauthorized, "Authorization header is missing")

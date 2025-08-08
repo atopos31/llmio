@@ -53,7 +53,7 @@ export default function Home() {
   
   const fetchTodayMetrics = async () => {
     try {
-      const data = await getMetrics(1);
+      const data = await getMetrics(0);
       setTodayMetrics(data);
     } catch (err) {
       setError("获取今日指标失败");

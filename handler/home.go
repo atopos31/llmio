@@ -22,12 +22,12 @@ func Metrics(c *gin.Context) {
 		common.BadRequest(c, "Invalid days parameter")
 		return
 	}
-	if days < 1 {
+	if days < 0 {
 		common.BadRequest(c, "Invalid days parameter")
 		return
 	}
 
-	chain := gorm.G[models.ChatLog](models.DB).Where("created_at >= ?", time.Now().Truncate(time.Duration(days)*24*time.Hour))
+	chain := gorm.G[models.ChatLog](models.DB).Where("created_at >= ?", time.Now().AddDate(0, 0, -days).Truncate(24*time.Hour))
 	reqs, err := chain.Count(c.Request.Context(), "id")
 	if err != nil {
 		common.InternalServerError(c, "Failed to count requests: "+err.Error())

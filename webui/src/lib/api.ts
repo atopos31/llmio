@@ -52,10 +52,10 @@ export interface ProviderMetric {
 // Generic API request function
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
-  
+
   // Get token from localStorage
   const token = localStorage.getItem("authToken");
-  
+
   const response = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
@@ -242,6 +242,8 @@ export interface ChatLog {
   ProviderName: string;
   Status: string;
   Error: string;
+  Retry: number;
+  ProxyTime: number;
   FirstChunkTime: number;
   ChunkTime: number;
   Tps: number;

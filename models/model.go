@@ -39,9 +39,11 @@ type ChatLog struct {
 	ProviderName  string
 	Status        string // error or success
 
-	Error          string // if status is error, this field will be set
-	FirstChunkTime time.Duration
-	ChunkTime      time.Duration
+	Error          string        // if status is error, this field will be set
+	Retry          int           // 重试次数
+	ProxyTime      time.Duration // 代理耗时
+	FirstChunkTime time.Duration // 首个chunk耗时
+	ChunkTime      time.Duration // chunk耗时
 	Tps            float64
 	Usage
 }

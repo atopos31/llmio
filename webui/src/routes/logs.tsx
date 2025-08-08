@@ -327,6 +327,18 @@ export default function LogsPage() {
                   </div>
                 </div>
                 )}
+                {selectedLog.Retry !== undefined && (
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label className="text-right">重试次数:</Label>
+                    <div className="col-span-3">{selectedLog.Retry}</div>
+                  </div>
+                )}
+                {selectedLog.ProxyTime !== undefined && (
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label className="text-right">代理耗时:</Label>
+                    <div className="col-span-3">{formatTime(selectedLog.ProxyTime)}</div>
+                  </div>
+                )}
                 {selectedLog.FirstChunkTime !== undefined && (
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label className="text-right">首字耗时:</Label>

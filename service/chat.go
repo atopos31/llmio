@@ -23,7 +23,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
+func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.Reader, error) {
 	before, err := processBefore(rawData)
 	if err != nil {
 		return nil, err
@@ -45,7 +45,7 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 		items[provider.ProviderID] = provider.Weight
 	}
 
-	for {
+	for retry := 0; ; retry++ {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -81,8 +81,9 @@ func BalanceChat(ctx context.Context, rawData []byte) (io.Reader, error) {
 				ProviderModel: ProviderModel,
 				ProviderName:  provider.Name,
 				Status:        "success",
+				Retry:         retry,
+				ProxyTime:     time.Since(proxyStart),
 			}
-
 			reqStart := time.Now()
 			body, status, err := chatModel.Chat(ctx, before.raw)
 			if err != nil {

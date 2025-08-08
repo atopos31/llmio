@@ -3,6 +3,7 @@ package handler
 import (
 	"io"
 	"log/slog"
+	"time"
 
 	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/models"
@@ -13,11 +14,12 @@ import (
 )
 
 func ChatCompletionsHandler(c *gin.Context) {
+	proxyStart := time.Now()
 	data, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		return
 	}
-	reader, err := service.BalanceChat(c.Request.Context(), data)
+	reader, err := service.BalanceChat(c.Request.Context(), proxyStart, data)
 	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return

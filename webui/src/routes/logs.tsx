@@ -327,56 +327,60 @@ export default function LogsPage() {
                   </div>
                 </div>
                 )}
-                {selectedLog.Retry !== undefined && (
+                {selectedLog.Status === 'success' && selectedLog.Retry !== undefined && (
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label className="text-right">重试次数:</Label>
                     <div className="col-span-3">{selectedLog.Retry}</div>
                   </div>
                 )}
-                {selectedLog.ProxyTime !== undefined && (
+                {selectedLog.Status === 'success' && selectedLog.ProxyTime !== undefined && (
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label className="text-right">代理耗时:</Label>
                     <div className="col-span-3">{formatTime(selectedLog.ProxyTime)}</div>
                   </div>
                 )}
-                {selectedLog.FirstChunkTime !== undefined && (
+                {selectedLog.Status === 'success' && selectedLog.FirstChunkTime !== undefined && (
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label className="text-right">首字耗时:</Label>
                     <div className="col-span-3">{formatTime(selectedLog.FirstChunkTime)}</div>
                   </div>
                 )}
-                {selectedLog.ChunkTime !== undefined && (
+                {selectedLog.Status === 'success' && selectedLog.ChunkTime !== undefined && (
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label className="text-right">耗时:</Label>
                     <div className="col-span-3">{formatTime(selectedLog.ChunkTime)}</div>
                   </div>
                 )}
-                {selectedLog.Tps !== undefined && (
+                {selectedLog.Status === 'success' && selectedLog.Tps !== undefined && (
                   <div className="grid grid-cols-4 items-center gap-4">
                     <Label className="text-right">TPS:</Label>
                     <div className="col-span-3">{formatTPS(selectedLog.Tps)}</div>
                   </div>
                 )}
 
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right">输入:</Label>
-                  <div className="col-span-3">
-                    {selectedLog.prompt_tokens} tokens
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right">输出:</Label>
-                  <div className="col-span-3">
-                    {selectedLog.completion_tokens} tokens
-                  </div>
-                </div>
+                {selectedLog.Status === 'success' && (
+                  <>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label className="text-right">输入:</Label>
+                      <div className="col-span-3">
+                        {selectedLog.prompt_tokens} tokens
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label className="text-right">输出:</Label>
+                      <div className="col-span-3">
+                        {selectedLog.completion_tokens} tokens
+                      </div>
+                    </div>
 
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right">总计:</Label>
-                  <div className="col-span-3">
-                    {selectedLog.total_tokens} tokens
-                  </div>
-                </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label className="text-right">总计:</Label>
+                      <div className="col-span-3">
+                        {selectedLog.total_tokens} tokens
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </DialogContent>

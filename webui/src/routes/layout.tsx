@@ -31,7 +31,7 @@ export default function Layout() {
       {/* 侧边栏 - 固定定位 */}
       <div 
         className={`fixed h-full shadow-md transition-all duration-300 ${
-          sidebarOpen ? "w-45" : "w-15"
+          sidebarOpen ? "w-40" : "w-16"
         }`}
       >
         <div className="flex items-center justify-between p-4 border-b">
@@ -76,11 +76,11 @@ export default function Layout() {
       {/* 主内容区域 */}
       <div 
         className="flex-1 flex flex-col"
-        style={{ marginLeft: sidebarOpen ? "10rem" : "3rem" }}
+        style={{ marginLeft: sidebarOpen ? "10rem" : "4rem" }}
       >
         {/* 顶部栏 - 固定定位 */}
         <header className="fixed top-0 right-0 shadow-sm bg-background z-10"
-                style={{ left: sidebarOpen ? "10rem" : "3rem" }}>
+                style={{ left: sidebarOpen ? "10rem" : "4rem" }}>
           <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8 flex justify-between">
             <h1 className="text-2xl font-bold tracking-tight">管理面板</h1>
             <div className="flex space-x-2">

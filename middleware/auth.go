@@ -10,6 +10,7 @@ import (
 
 func Auth(token string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 不设置token，则不进行验证
 		if token == "" {
 			return
 		}

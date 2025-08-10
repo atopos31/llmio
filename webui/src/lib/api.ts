@@ -13,6 +13,8 @@ export interface Model {
   ID: number;
   Name: string;
   Remark: string;
+  MaxRetry: number;
+  TimeOut: number;
 }
 
 export interface ModelWithProvider {
@@ -121,6 +123,8 @@ export async function getModels(): Promise<Model[]> {
 export async function createModel(model: {
   name: string;
   remark: string;
+  max_retry: number;
+  time_out: number;
 }): Promise<Model> {
   return apiRequest<Model>('/models', {
     method: 'POST',
@@ -131,6 +135,8 @@ export async function createModel(model: {
 export async function updateModel(id: number, model: {
   name?: string;
   remark?: string;
+  max_retry?: number;
+  time_out?: number;
 }): Promise<Model> {
   return apiRequest<Model>(`/models/${id}`, {
     method: 'PUT',

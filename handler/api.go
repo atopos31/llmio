@@ -18,8 +18,10 @@ type ProviderRequest struct {
 
 // ModelRequest represents the request body for creating/updating a model
 type ModelRequest struct {
-	Name   string `json:"name"`
-	Remark string `json:"remark"`
+	Name     string `json:"name"`
+	Remark   string `json:"remark"`
+	MaxRetry int    `json:"max_retry"`
+	TimeOut  int    `json:"time_out"`
 }
 
 // ModelWithProviderRequest represents the request body for creating/updating a model-provider association
@@ -168,8 +170,10 @@ func CreateModel(c *gin.Context) {
 	}
 
 	model := models.Model{
-		Name:   req.Name,
-		Remark: req.Remark,
+		Name:     req.Name,
+		Remark:   req.Remark,
+		MaxRetry: req.MaxRetry,
+		TimeOut:  req.TimeOut,
 	}
 
 	err := gorm.G[models.Model](models.DB).Create(c.Request.Context(), &model)
@@ -209,8 +213,10 @@ func UpdateModel(c *gin.Context) {
 
 	// Update fields
 	updates := models.Model{
-		Name:   req.Name,
-		Remark: req.Remark,
+		Name:     req.Name,
+		Remark:   req.Remark,
+		MaxRetry: req.MaxRetry,
+		TimeOut:  req.TimeOut,
 	}
 
 	if _, err := gorm.G[models.Model](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {

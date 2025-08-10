@@ -53,6 +53,8 @@ import type { Model } from "@/lib/api";
 const formSchema = z.object({
   name: z.string().min(1, { message: "模型名称不能为空" }),
   remark: z.string(),
+  max_retry: z.number().min(0, { message: "重试次数限制不能为负数" }),
+  time_out: z.number().min(0, { message: "超时时间不能为负数" }),
 });
 
 export default function ModelsPage() {
@@ -69,6 +71,8 @@ export default function ModelsPage() {
     defaultValues: {
       name: "",
       remark: "",
+      max_retry: 10,
+      time_out: 60,
     },
   });
 
@@ -94,7 +98,7 @@ export default function ModelsPage() {
     try {
       await createModel(values);
       setOpen(false);
-      form.reset({ name: "", remark: "" });
+      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60 });
       fetchModels();
     } catch (err) {
       setError("创建模型失败");
@@ -108,7 +112,7 @@ export default function ModelsPage() {
       await updateModel(editingModel.ID, values);
       setOpen(false);
       setEditingModel(null);
-      form.reset({ name: "", remark: "" });
+      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60 });
       fetchModels();
     } catch (err) {
       setError("更新模型失败");
@@ -133,13 +137,15 @@ export default function ModelsPage() {
     form.reset({
       name: model.Name,
       remark: model.Remark,
+      max_retry: model.MaxRetry,
+      time_out: model.TimeOut,
     });
     setOpen(true);
   };
 
   const openCreateDialog = () => {
     setEditingModel(null);
-    form.reset({ name: "", remark: "" });
+    form.reset({ name: "", remark: "", max_retry: 10, time_out: 60 });
     setOpen(true);
   };
 
@@ -165,6 +171,8 @@ export default function ModelsPage() {
               <TableHead>ID</TableHead>
               <TableHead>名称</TableHead>
               <TableHead>备注</TableHead>
+              <TableHead>重试次数限制</TableHead>
+              <TableHead>超时时间(秒)</TableHead>
               <TableHead>操作</TableHead>
             </TableRow>
           </TableHeader>
@@ -174,6 +182,8 @@ export default function ModelsPage() {
                 <TableCell>{model.ID}</TableCell>
                 <TableCell>{model.Name}</TableCell>
                 <TableCell>{model.Remark}</TableCell>
+                <TableCell>{model.MaxRetry}</TableCell>
+                <TableCell>{model.TimeOut}</TableCell>
                 <TableCell className="space-x-2">
                   <Button 
                     variant="outline" 
@@ -256,6 +266,16 @@ export default function ModelsPage() {
             </div>
             <div>
               <p className="text-sm text-gray-600">{model.Remark}</p>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <div className="text-sm">
+                  <span className="text-gray-500">重试次数限制:</span>
+                  <span className="ml-1">{model.MaxRetry}</span>
+                </div>
+                <div className="text-sm">
+                  <span className="text-gray-500">超时时间:</span>
+                  <span className="ml-1">{model.TimeOut}秒</span>
+                </div>
+              </div>
             </div>
           </div>
         ))}
@@ -303,6 +323,44 @@ export default function ModelsPage() {
                   </FormItem>
                 )}
               />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="max_retry"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>重试次数限制</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="number" 
+                          {...field} 
+                          onChange={e => field.onChange(+e.target.value)} 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={form.control}
+                  name="time_out"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>超时时间(秒)</FormLabel>
+                      <FormControl>
+                        <Input 
+                          type="number" 
+                          {...field} 
+                          onChange={e => field.onChange(+e.target.value)} 
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
               
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>

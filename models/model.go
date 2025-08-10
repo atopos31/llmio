@@ -20,8 +20,10 @@ type OpenAIConfig struct {
 
 type Model struct {
 	gorm.Model
-	Name   string `gorm:"unique"`
-	Remark string
+	Name     string `gorm:"unique"`
+	Remark   string
+	MaxRetry int // 重试次数限制
+	TimeOut  int // 超时时间 单位秒
 }
 
 type ModelWithProvider struct {

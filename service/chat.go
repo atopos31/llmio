@@ -29,12 +29,13 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 		return nil, err
 	}
 
-	slog.Info("request", "model", before.model, "stream", before.stream)
-
-	llmproviders, err := ProvidersBymodelsName(ctx, before.model)
+	llmProvidersWithLimit, err := ProvidersBymodelsName(ctx, before.model)
 	if err != nil {
 		return nil, err
 	}
+	llmproviders := llmProvidersWithLimit.Providers
+
+	slog.Info("request", "model", before.model, "stream", before.stream, "max_retry", llmProvidersWithLimit.MaxRetry, "timeout", llmProvidersWithLimit.TimeOut)
 
 	if len(llmproviders) == 0 {
 		return nil, fmt.Errorf("no provider found for models %s", before.model)
@@ -45,11 +46,11 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 		items[provider.ProviderID] = provider.Weight
 	}
 
-	for retry := 0; ; retry++ {
+	for retry := 0; retry < llmProvidersWithLimit.MaxRetry; retry++ {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(time.Second * 60):
+		case <-time.After(time.Second * time.Duration(llmProvidersWithLimit.TimeOut)):
 			return nil, errors.New("retry time out !")
 		default:
 			// 加权负载均衡
@@ -121,6 +122,8 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 			return teeReader, nil
 		}
 	}
+
+	return nil, errors.New("maximum retry attempts reached !")
 }
 
 func SaveChatLog(ctx context.Context, log *models.ChatLog, err error) {
@@ -163,7 +166,13 @@ func processBefore(data []byte) (*before, error) {
 	}, nil
 }
 
-func ProvidersBymodelsName(ctx context.Context, modelsName string) ([]models.ModelWithProvider, error) {
+type ProvidersWithlimit struct {
+	Providers []models.ModelWithProvider
+	MaxRetry  int
+	TimeOut   int
+}
+
+func ProvidersBymodelsName(ctx context.Context, modelsName string) (*ProvidersWithlimit, error) {
 	llmmodels, err := gorm.G[models.Model](models.DB).Where("name = ?", modelsName).First(ctx)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -180,7 +189,11 @@ func ProvidersBymodelsName(ctx context.Context, modelsName string) ([]models.Mod
 	if len(llmproviders) == 0 {
 		return nil, errors.New("not provider for model " + modelsName)
 	}
-	return llmproviders, nil
+	return &ProvidersWithlimit{
+		Providers: llmproviders,
+		MaxRetry:  llmmodels.MaxRetry,
+		TimeOut:   llmmodels.TimeOut,
+	}, nil
 }
 
 func processTee(ctx context.Context, stream bool, logId uint, start time.Time, body io.ReadCloser) io.Reader {

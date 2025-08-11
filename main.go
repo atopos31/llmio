@@ -1,9 +1,12 @@
 package main
 
 import (
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
+	"time"
+	_ "time/tzdata"
 
 	"github.com/atopos31/llmio/handler"
 	"github.com/atopos31/llmio/middleware"
@@ -14,8 +17,17 @@ import (
 	_ "golang.org/x/crypto/x509roots/fallback"
 )
 
-func main() {
+func init() {
 	models.Init("./db/llmio.db")
+	location, err := time.LoadLocation(os.Getenv("TZ"))
+	if err != nil {
+		slog.Warn("failed to load timezone, location reset to UTC", "error", err)
+		location = time.UTC
+	}
+	_ = location
+}
+
+func main() {
 	router := gin.Default()
 	Setwebui(router, "./webui/dist")
 

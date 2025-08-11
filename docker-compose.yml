@@ -8,3 +8,4 @@ services:
     environment:
       - GIN_MODE=release
       - TOKEN=<YOUR_TOKEN>
+      - TZ=Asia/Shanghai

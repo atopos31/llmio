@@ -28,10 +28,12 @@ type Model struct {
 
 type ModelWithProvider struct {
 	gorm.Model
-	ModelID       uint
-	ProviderModel string
-	ProviderID    uint
-	Weight        int
+	ModelID          uint
+	ProviderModel    string
+	ProviderID       uint
+	ToolCall         *bool // 是否接受带有工具调用的请求
+	StructuredOutput *bool // 是否接受带有结构化输出的请求
+	Weight           int
 }
 
 type ChatLog struct {

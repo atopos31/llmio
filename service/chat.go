@@ -35,7 +35,7 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 	}
 	llmproviders := llmProvidersWithLimit.Providers
 
-	slog.Info("request", "model", before.model, "stream", before.stream, "max_retry", llmProvidersWithLimit.MaxRetry, "timeout", llmProvidersWithLimit.TimeOut)
+	slog.Info("request", "model", before.model, "stream", before.stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput)
 
 	if len(llmproviders) == 0 {
 		return nil, fmt.Errorf("no provider found for models %s", before.model)
@@ -43,7 +43,19 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 
 	items := make(map[uint]int)
 	for _, provider := range llmproviders {
+		// 过滤是否开启工具调用
+		if before.toolCall && !*provider.ToolCall {
+			continue
+		}
+		// 过滤是否开启结构化输出
+		if before.structuredOutput && !*provider.StructuredOutput {
+			continue
+		}
 		items[provider.ProviderID] = provider.Weight
+	}
+	
+	if len(items) == 0 {
+		return nil, errors.New("no provider with tool_call or structured_output found for models " + before.model)
 	}
 
 	for retry := 0; retry < llmProvidersWithLimit.MaxRetry; retry++ {
@@ -137,9 +149,11 @@ func SaveChatLog(ctx context.Context, log *models.ChatLog, err error) {
 }
 
 type before struct {
-	model  string
-	stream bool
-	raw    []byte
+	model            string
+	stream           bool
+	toolCall         bool
+	structuredOutput bool
+	raw              []byte
 }
 
 // 向provicer发送请求之前进行body处理
@@ -159,10 +173,21 @@ func processBefore(data []byte) (*before, error) {
 		}
 		data = newData
 	}
+	var toolCall bool
+	tools := gjson.GetBytes(data, "tools")
+	if tools.Exists() && len(tools.Array()) != 0 {
+		toolCall = true
+	}
+	var structuredOutput bool
+	if gjson.GetBytes(data, "response_format").Exists() {
+		structuredOutput = true
+	}
 	return &before{
-		model:  model,
-		stream: stream,
-		raw:    data,
+		model:            model,
+		stream:           stream,
+		toolCall:         toolCall,
+		structuredOutput: structuredOutput,
+		raw:              data,
 	}, nil
 }
 

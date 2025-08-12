@@ -10,6 +10,7 @@ import (
 type Response struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	Error   string `json:"error,omitempty"`
 	Data    any    `json:"data,omitempty"`
 }
 
@@ -56,6 +57,7 @@ func ErrorWithHttpStatus(c *gin.Context, httpStatus int, code int, message strin
 func InternalServerError(c *gin.Context, message string) {
 	c.JSON(http.StatusInternalServerError, Response{
 		Code:    500,
+		Error:   message,
 		Message: message,
 	})
 }

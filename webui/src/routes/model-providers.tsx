@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Form,
   FormControl,
@@ -57,6 +58,8 @@ const formSchema = z.object({
   model_id: z.number().positive({ message: "模型ID必须大于0" }),
   provider_name: z.string().min(1, { message: "提供商模型名称不能为空" }),
   provider_id: z.number().positive({ message: "提供商ID必须大于0" }),
+  tool_call: z.boolean(),
+  structured_output: z.boolean(),
   weight: z.number().positive({ message: "权重必须大于0" }),
 });
 
@@ -79,6 +82,8 @@ export default function ModelProvidersPage() {
       model_id: 0,
       provider_name: "",
       provider_id: 0,
+      tool_call: false,
+      structured_output: false,
       weight: 1,
     },
   });
@@ -136,7 +141,7 @@ export default function ModelProvidersPage() {
     try {
       await createModelProvider(values);
       setOpen(false);
-      form.reset({ model_id: selectedModelId || 0, provider_name: "", provider_id: 0, weight: 1 });
+      form.reset({ model_id: selectedModelId || 0, provider_name: "", provider_id: 0, tool_call: false, structured_output: false, weight: 1 });
       if (selectedModelId) {
         fetchModelProviders(selectedModelId);
       }
@@ -153,7 +158,7 @@ export default function ModelProvidersPage() {
       await updateModelProvider(editingAssociation.ID, values);
       setOpen(false);
       setEditingAssociation(null);
-      form.reset({ model_id: 0, provider_name: "", provider_id: 0, weight: 1 });
+      form.reset({ model_id: 0, provider_name: "", provider_id: 0, tool_call: false, structured_output: false, weight: 1 });
       if (selectedModelId) {
         fetchModelProviders(selectedModelId);
       }
@@ -204,6 +209,8 @@ export default function ModelProvidersPage() {
       model_id: association.ModelID,
       provider_name: association.ProviderModel,
       provider_id: association.ProviderID,
+      tool_call: association.ToolCall,
+      structured_output: association.StructuredOutput,
       weight: association.Weight,
     });
     setOpen(true);
@@ -215,6 +222,8 @@ export default function ModelProvidersPage() {
       model_id: selectedModelId || 0,
       provider_name: "",
       provider_id: 0,
+      tool_call: false,
+      structured_output: false,
       weight: 1
     });
     setOpen(true);
@@ -269,6 +278,8 @@ export default function ModelProvidersPage() {
                   <TableHead>ID</TableHead>
                   <TableHead>提供商模型</TableHead>
                   <TableHead>提供商</TableHead>
+                  <TableHead>工具调用</TableHead>
+                  <TableHead>结构化输出</TableHead>
                   <TableHead>权重</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
@@ -281,6 +292,16 @@ export default function ModelProvidersPage() {
                       <TableCell>{association.ID}</TableCell>
                       <TableCell>{association.ProviderModel}</TableCell>
                       <TableCell>{provider ? provider.Name : '未知'}</TableCell>
+                      <TableCell>
+                        <span className={association.ToolCall ? "text-green-500" : "text-red-500"}>
+                          {association.ToolCall ? '✓' : '✗'}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className={association.StructuredOutput ? "text-green-500" : "text-red-500"}>
+                          {association.StructuredOutput ? '✓' : '✗'}
+                        </span>
+                      </TableCell>
                       <TableCell>{association.Weight}</TableCell>
                       <TableCell className="space-x-2 text-right">
                         <Button
@@ -345,6 +366,18 @@ export default function ModelProvidersPage() {
                       <h3 className="font-bold text-lg">{provider ? provider.Name : '未知'}</h3>
                       <p className="text-sm text-gray-500">ID: {provider?.ID}</p>
                       <p className="text-sm text-gray-500">提供商模型: {association.ProviderModel}</p>
+                      <p className="text-sm text-gray-500">
+                        工具调用: 
+                        <span className={association.ToolCall ? "text-green-500" : "text-red-500"}>
+                          {association.ToolCall ? '✓' : '✗'}
+                        </span>
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        结构化输出: 
+                        <span className={association.StructuredOutput ? "text-green-500" : "text-red-500"}>
+                          {association.StructuredOutput ? '✓' : '✗'}
+                        </span>
+                      </p>
                       <p className="text-sm text-gray-500">权重: {association.Weight}</p>
                     </div>
                     <div className="flex flex-col space-y-2">
@@ -487,6 +520,46 @@ export default function ModelProvidersPage() {
                       />
                     </FormControl>
                     <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="tool_call"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <div className="space-y-1 leading-none">
+                      <FormLabel>
+                        工具调用
+                      </FormLabel>
+                    </div>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="structured_output"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <div className="space-y-1 leading-none">
+                      <FormLabel>
+                        结构化输出
+                      </FormLabel>
+                    </div>
                   </FormItem>
                 )}
               />

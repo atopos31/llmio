@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log/slog"
 	"strconv"
 
 	"github.com/atopos31/llmio/common"
@@ -26,10 +27,12 @@ type ModelRequest struct {
 
 // ModelWithProviderRequest represents the request body for creating/updating a model-provider association
 type ModelWithProviderRequest struct {
-	ModelID       uint   `json:"model_id"`
-	ProviderModel string `json:"provider_name"`
-	ProviderID    uint   `json:"provider_id"`
-	Weight        int    `json:"weight"`
+	ModelID          uint   `json:"model_id"`
+	ProviderModel    string `json:"provider_name"`
+	ProviderID       uint   `json:"provider_id"`
+	ToolCall         bool   `json:"tool_call"`
+	StructuredOutput bool   `json:"structured_output"`
+	Weight           int    `json:"weight"`
 }
 
 // SystemConfigRequest represents the request body for updating system configuration
@@ -308,10 +311,12 @@ func CreateModelProvider(c *gin.Context) {
 	}
 
 	modelProvider := models.ModelWithProvider{
-		ModelID:       req.ModelID,
-		ProviderModel: req.ProviderModel,
-		ProviderID:    req.ProviderID,
-		Weight:        req.Weight,
+		ModelID:          req.ModelID,
+		ProviderModel:    req.ProviderModel,
+		ProviderID:       req.ProviderID,
+		ToolCall:         &req.ToolCall,
+		StructuredOutput: &req.StructuredOutput,
+		Weight:           req.Weight,
 	}
 
 	err := gorm.G[models.ModelWithProvider](models.DB).Create(c.Request.Context(), &modelProvider)
@@ -337,6 +342,7 @@ func UpdateModelProvider(c *gin.Context) {
 		common.BadRequest(c, "Invalid request body: "+err.Error())
 		return
 	}
+	slog.Info("UpdateModelProvider", "req", req)
 
 	// Check if model-provider association exists
 	_, err = gorm.G[models.ModelWithProvider](models.DB).Where("id = ?", id).First(c.Request.Context())
@@ -351,10 +357,12 @@ func UpdateModelProvider(c *gin.Context) {
 
 	// Update fields
 	updates := models.ModelWithProvider{
-		ModelID:       req.ModelID,
-		ProviderID:    req.ProviderID,
-		ProviderModel: req.ProviderModel,
-		Weight:        req.Weight,
+		ModelID:          req.ModelID,
+		ProviderID:       req.ProviderID,
+		ProviderModel:    req.ProviderModel,
+		ToolCall:         &req.ToolCall,
+		StructuredOutput: &req.StructuredOutput,
+		Weight:           req.Weight,
 	}
 
 	if _, err := gorm.G[models.ModelWithProvider](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {

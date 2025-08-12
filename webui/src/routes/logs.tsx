@@ -329,7 +329,7 @@ export default function LogsPage() {
                 )}
                 {selectedLog.Status === 'success' && selectedLog.Retry !== undefined && (
                   <div className="grid grid-cols-4 items-center gap-4">
-                    <Label className="text-right">重试次数限制:</Label>
+                    <Label className="text-right">重试次数:</Label>
                     <div className="col-span-3">{selectedLog.Retry}</div>
                   </div>
                 )}

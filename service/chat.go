@@ -53,7 +53,7 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 		}
 		items[provider.ProviderID] = provider.Weight
 	}
-	
+
 	if len(items) == 0 {
 		return nil, errors.New("no provider with tool_call or structured_output found for models " + before.model)
 	}

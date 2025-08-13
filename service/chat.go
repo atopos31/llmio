@@ -248,9 +248,7 @@ func processTee(ctx context.Context, stream bool, logId uint, start time.Time, b
 			once.Do(func() {
 				firstChunkTime = time.Since(start)
 			})
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				if stream {
 					chunk := strings.TrimPrefix(chunk, "data: ")
 					if !gjson.Valid(chunk) {
@@ -268,7 +266,7 @@ func processTee(ctx context.Context, stream bool, logId uint, start time.Time, b
 					slog.Error("unmarshal usage error, raw:" + usageStr.Raw)
 				}
 				usagemu.Unlock()
-			}()
+			})
 		}
 		if err := logReader.Err(); err != nil {
 			slog.Error("log reader error", "error", err)

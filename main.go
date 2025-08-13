@@ -29,7 +29,7 @@ func init() {
 
 func main() {
 	router := gin.Default()
-	Setwebui(router, "./webui/dist")
+	setwebui(router, "./webui/dist")
 
 	v1 := router.Group("/v1")
 	v1.Use(middleware.Auth(os.Getenv("TOKEN")))
@@ -72,7 +72,7 @@ func main() {
 	router.Run(":7070")
 }
 
-func Setwebui(r *gin.Engine, path string) {
+func setwebui(r *gin.Engine, path string) {
 	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/v1/"})))
 	r.Use(static.Serve("/", static.LocalFile(path, false)))
 

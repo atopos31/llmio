@@ -233,49 +233,48 @@ func processTee(ctx context.Context, stream bool, logId uint, start time.Time, b
 
 	teeReader := io.TeeReader(body, pw)
 	go func(ctx context.Context) {
-		// token用量
-		var usage models.Usage
-		var usagemu sync.Mutex
-
 		// 首字时延
 		var firstChunkTime time.Duration
 		var once sync.Once
 
-		var wg sync.WaitGroup
+		var errLog string
+		var lastchunk string
 
 		logReader := bufio.NewScanner(pr)
 		for chunk := range ScannerToken(logReader) {
 			once.Do(func() {
 				firstChunkTime = time.Since(start)
 			})
-			wg.Go(func() {
-				if stream {
-					chunk := strings.TrimPrefix(chunk, "data: ")
-					if !gjson.Valid(chunk) {
-						return
-					}
-				}
-
-				usageStr := gjson.Get(chunk, "usage")
-				if !usageStr.Exists() || usageStr.Get("total_tokens").Int() == 0 {
-					return
-				}
-
-				usagemu.Lock()
-				if err := json.Unmarshal([]byte(usageStr.Raw), &usage); err != nil {
-					slog.Error("unmarshal usage error, raw:" + usageStr.Raw)
-				}
-				usagemu.Unlock()
-			})
+			if stream {
+				chunk = strings.TrimPrefix(chunk, "data: ")
+			}
+			if chunk == "[DONE]" {
+				break
+			}
+			// 流式过程中错误
+			errStr := gjson.Get(chunk, "error")
+			if errStr.Exists() {
+				errLog = errStr.String()
+				break
+			}
+			lastchunk = chunk
 		}
-		if err := logReader.Err(); err != nil {
-			slog.Error("log reader error", "error", err)
-			return
-		}
+		// 耗时
 		chunkTime := time.Since(start) - firstChunkTime
-		// 等待日志数据
-		wg.Wait()
+		// reader错误
+		if err := logReader.Err(); err != nil {
+			errLog = err.Error()
+		}
+		// token用量
+		var usage models.Usage
+		usageStr := gjson.Get(lastchunk, "usage")
+		if usageStr.Exists() && usageStr.Get("total_tokens").Int() != 0 {
+			if err := json.Unmarshal([]byte(usageStr.Raw), &usage); err != nil {
+				slog.Error("unmarshal usage error, raw:" + usageStr.Raw)
+			}
+		}
 
+		// tps
 		var tps float64
 		if stream {
 			tps = float64(usage.TotalTokens) / chunkTime.Seconds()
@@ -286,6 +285,11 @@ func processTee(ctx context.Context, stream bool, logId uint, start time.Time, b
 			ChunkTime:      chunkTime,
 			Tps:            tps,
 			FirstChunkTime: firstChunkTime,
+		}
+
+		if errLog != "" {
+			log.Status = "error"
+			log.Error = errLog
 		}
 
 		if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, log); err != nil {

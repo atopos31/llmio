@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -204,6 +204,7 @@ export default function ModelProvidersPage() {
   };
 
   const handleTest = (id: number) => {
+    currentControllerRef.current?.abort(); // 取消之前的请求
     setSelectedTestId(id);
     setTestType("connectivity");
     setTestDialogOpen(true);
@@ -237,7 +238,9 @@ export default function ModelProvidersPage() {
       return { error: "测试失败" };
     }
   };
-
+  
+  
+  const currentControllerRef = useRef<AbortController | null>(null);
   const handleReactTest = async (id: number) => {
     setReactTestResult(prev => ({
       ...prev,
@@ -245,9 +248,15 @@ export default function ModelProvidersPage() {
       loading: true,
     }));
     try {
-
+      const token = localStorage.getItem("authToken");
+      const controller = new AbortController();
+      currentControllerRef.current = controller;
       await fetchEventSource(`/api/test/react/${id}`, {
         method: "GET",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+        signal: controller.signal,
         onmessage(event) {
           setReactTestResult(prev => {
             if (event.event === "start") {
@@ -260,7 +269,7 @@ export default function ModelProvidersPage() {
                 ...prev,
                 messages: prev.messages + `\n[调用工具] ${event.data}\n`
               };
-            } else if (event.event === "start") {
+            } else if (event.event === "toolres") {
               return {
                 ...prev,
                 messages: prev.messages + `\n[工具输出] ${event.data}\n`
@@ -798,3 +807,4 @@ export default function ModelProvidersPage() {
     </div>
   );
 }
+

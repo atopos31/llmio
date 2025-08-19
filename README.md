@@ -13,7 +13,38 @@ LLMIO 是一个基于 Go 的服务，提供统一的 API 来与各种大语言�
 - **系统监控**：实时查看请求统计、模型使用情况和请求日志
 - **提供商连通性测试**：内置测试功能验证提供商连接
 
-## 快速开始
+## 部署
+
+### Docker
+
+使用提供的 Dockerfile 构建镜像：
+
+```bash
+docker build -t llmio .
+docker run -p 7070:7070 -e TOKEN=your-token llmio
+```
+
+### Docker Compose
+
+```yml
+services:
+  llmio:
+    image: atopos31/llmio:latest
+    ports:
+      - 7070:7070
+    volumes:
+      - ./db:/app/db
+    environment:
+      - GIN_MODE=release
+      - TOKEN=<YOUR_TOKEN>
+      - TZ=Asia/Shanghai
+```
+
+```bash
+docker compose up -d
+```
+
+## 开发
 
 ### 先决条件
 
@@ -165,23 +196,6 @@ go run main.go
 ```bash
 cd webui
 npm run dev
-```
-
-## 部署
-
-### Docker
-
-使用提供的 Dockerfile 构建镜像：
-
-```bash
-docker build -t llmio .
-docker run -p 7070:7070 -e TOKEN=your-token llmio
-```
-
-### Docker Compose
-
-```bash
-docker compose up -d
 ```
 
 ## 贡献

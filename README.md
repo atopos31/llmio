@@ -48,8 +48,8 @@ docker compose up -d
 
 ### 先决条件
 
-- Go 1.22+
-- Node.js 18+ (用于构建 Web UI)
+- Go 1.25+
+- Node.js 22+ (用于构建 Web UI)
 
 ### 安装
 

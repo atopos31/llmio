@@ -98,7 +98,7 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 				ProxyTime:     time.Since(proxyStart),
 			}
 			reqStart := time.Now()
-			body, status, err := chatModel.Chat(ctx, before.raw)
+			body, status, err := chatModel.Chat(ctx, time.Second*time.Duration(llmProvidersWithLimit.TimeOut)/3, before.raw)
 			if err != nil {
 				slog.Error("chat error", "error", err)
 				go SaveChatLog(context.Background(), log, err)

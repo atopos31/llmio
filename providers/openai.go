@@ -6,10 +6,29 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"time"
 
 	"github.com/tidwall/sjson"
 )
+
+var dialer = &net.Dialer{
+	Timeout:   30 * time.Second,
+	KeepAlive: 30 * time.Second,
+}
+
+var DefaultTransport = &http.Transport{
+	Proxy:                 http.ProxyFromEnvironment,
+	DialContext:           dialer.DialContext,
+	ForceAttemptHTTP2:     true,
+	MaxIdleConns:          100,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: 1 * time.Second,
+}
+
+var Client = http.DefaultClient
 
 type OpenAI struct {
 	BaseURL string `json:"base_url"`
@@ -25,7 +44,7 @@ func NewOpenAI(baseURL, apiKey, model string) *OpenAI {
 	}
 }
 
-func (o *OpenAI) Chat(ctx context.Context, rawBody []byte) (io.ReadCloser, int, error) {
+func (o *OpenAI) Chat(ctx context.Context, responseHeaderTimeout time.Duration, rawBody []byte) (io.ReadCloser, int, error) {
 	body, err := sjson.SetBytes(rawBody, "model", o.Model)
 	if err != nil {
 		return nil, 0, err
@@ -36,7 +55,10 @@ func (o *OpenAI) Chat(ctx context.Context, rawBody []byte) (io.ReadCloser, int, 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", o.APIKey))
-	res, err := http.DefaultClient.Do(req)
+
+	DefaultTransport.ResponseHeaderTimeout = responseHeaderTimeout
+	Client.Transport = DefaultTransport
+	res, err := Client.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}

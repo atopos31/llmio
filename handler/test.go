@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/models"
@@ -55,7 +56,7 @@ func ProviderTestHandler(c *gin.Context) {
 	}
 
 	// Test connectivity by fetching models
-	body, status, err := providerInstance.Chat(c.Request.Context(), []byte(testBody))
+	body, status, err := providerInstance.Chat(c.Request.Context(), time.Second*time.Duration(30), []byte(testBody))
 	if err != nil {
 		common.ErrorWithHttpStatus(c, 502, 502, "Failed to connect to provider: "+err.Error())
 		return

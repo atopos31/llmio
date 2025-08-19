@@ -181,7 +181,7 @@ docker run -p 7070:7070 -e TOKEN=your-token llmio
 ### Docker Compose
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ## 贡献

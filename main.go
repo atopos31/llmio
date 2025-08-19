@@ -68,6 +68,7 @@ func main() {
 
 	// Provider connectivity test
 	api.GET("/test/:id", handler.ProviderTestHandler)
+	api.GET("/test/react/:id", handler.TestReactHandler)
 
 	router.Run(":7070")
 }

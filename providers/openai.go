@@ -12,9 +12,9 @@ import (
 )
 
 type OpenAI struct {
-	BaseURL string
-	APIKey  string
-	Model   string
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
+	Model   string `json:"model"`
 }
 
 func NewOpenAI(baseURL, apiKey, model string) *OpenAI {

@@ -19,17 +19,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,8 +28,20 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import Loading from "@/components/loading";
 import {
   getModelProviders,
@@ -52,6 +53,8 @@ import {
   testModelProvider
 } from "@/lib/api";
 import type { ModelWithProvider, Model, Provider } from "@/lib/api";
+import { fetchEventSource } from "@microsoft/fetch-event-source";
+import { Textarea } from "@/components/ui/textarea";
 
 // 定义表单验证模式
 const formSchema = z.object({
@@ -74,6 +77,24 @@ export default function ModelProvidersPage() {
   const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [testResults, setTestResults] = useState<Record<number, { loading: boolean; result: any }>>({});
+  const [testDialogOpen, setTestDialogOpen] = useState(false);
+  const [selectedTestId, setSelectedTestId] = useState<number | null>(null);
+  const [testType, setTestType] = useState<"connectivity" | "react">("connectivity");
+  const [reactTestResult, setReactTestResult] = useState<{
+    loading: boolean;
+    messages: string;
+    success: boolean | null;
+    error: string | null;
+  }>({
+    loading: false,
+    messages: "",
+    success: null,
+    error: null
+  });
+
+  const dialogClose = () => {
+    setTestDialogOpen(false)
+  };
 
   // 初始化表单
   const form = useForm<z.infer<typeof formSchema>>({
@@ -182,7 +203,19 @@ export default function ModelProvidersPage() {
     }
   };
 
-  const handleTest = async (id: number) => {
+  const handleTest = (id: number) => {
+    setSelectedTestId(id);
+    setTestType("connectivity");
+    setTestDialogOpen(true);
+    setReactTestResult({
+      loading: false,
+      messages: "",
+      success: null,
+      error: null
+    });
+  };
+
+  const handleConnectivityTest = async (id: number) => {
     try {
       setTestResults(prev => ({
         ...prev,
@@ -194,12 +227,106 @@ export default function ModelProvidersPage() {
         ...prev,
         [id]: { loading: false, result }
       }));
+      return result;
     } catch (err) {
       setTestResults(prev => ({
         ...prev,
         [id]: { loading: false, result: { error: "测试失败" } }
       }));
       console.error(err);
+      return { error: "测试失败" };
+    }
+  };
+
+  const handleReactTest = async (id: number) => {
+    setReactTestResult(prev => ({
+      ...prev,
+      messages: "",
+      loading: true,
+    }));
+    try {
+
+      await fetchEventSource(`/api/test/react/${id}`, {
+        method: "GET",
+        onmessage(event) {
+          setReactTestResult(prev => {
+            if (event.event === "start") {
+              return {
+                ...prev,
+                messages: prev.messages + `[开始测试] ${event.data}\n`
+              };
+            } else if (event.event === "toolcall") {
+              return {
+                ...prev,
+                messages: prev.messages + `\n[调用工具] ${event.data}\n`
+              };
+            } else if (event.event === "start") {
+              return {
+                ...prev,
+                messages: prev.messages + `\n[工具输出] ${event.data}\n`
+              };
+            }
+            else if (event.event === "message") {
+              if (event.data.trim()) {
+                return {
+                  ...prev,
+                  messages: prev.messages + `${event.data}`
+                };
+              }
+            } else if (event.event === "error") {
+              return {
+                ...prev,
+                success: false,
+                messages: prev.messages + `\n[错误] ${event.data}\n`
+              };
+            } else if (event.event === "success") {
+              return {
+                ...prev,
+                success: true,
+                messages: prev.messages + `\n[成功] ${event.data}`
+              };
+            }
+            return prev;
+          });
+        },
+        onclose() {
+          setReactTestResult(prev => {
+            return {
+              ...prev,
+              loading: false,
+            };
+          });
+        },
+        onerror(err) {
+          setReactTestResult(prev => {
+            return {
+              ...prev,
+              loading: false,
+              error: err.message || "测试过程中发生错误",
+              success: false
+            };
+          });
+          throw err;
+        }
+      });
+    } catch (err) {
+      setReactTestResult(prev => ({
+        ...prev,
+        loading: false,
+        error: "测试失败",
+        success: false
+      }));
+      console.error(err);
+    }
+  };
+
+  const executeTest = async () => {
+    if (!selectedTestId) return;
+
+    if (testType === "connectivity") {
+      await handleConnectivityTest(selectedTestId);
+    } else {
+      await handleReactTest(selectedTestId);
     }
   };
 
@@ -238,6 +365,8 @@ export default function ModelProvidersPage() {
     setSelectedModelId(id);
     form.setValue("model_id", id);
   };
+
+
 
 
   if (loading && models.length === 0 && providers.length === 0) return <Loading message="加载模型和提供商" />;
@@ -311,16 +440,14 @@ export default function ModelProvidersPage() {
                         >
                           编辑
                         </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => openDeleteDialog(association.ID)}
-                            >
-                              删除
-                            </Button>
-                          </AlertDialogTrigger>
+                        <AlertDialog open={deleteId === association.ID} onOpenChange={(open) => !open && setDeleteId(null)}>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => openDeleteDialog(association.ID)}
+                          >
+                            删除
+                          </Button>
                           <AlertDialogContent>
                             <AlertDialogHeader>
                               <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
@@ -338,15 +465,9 @@ export default function ModelProvidersPage() {
                           variant="outline"
                           size="sm"
                           onClick={() => handleTest(association.ID)}
-                          disabled={testResults[association.ID]?.loading}
                         >
-                          {testResults[association.ID]?.loading ? "测试中..." : "测试"}
+                          测试
                         </Button>
-                        {testResults[association.ID] && !testResults[association.ID].loading && (
-                          <span className={testResults[association.ID].result?.error ? "text-red-500" : "text-green-500"}>
-                            {testResults[association.ID].result?.error ? "失败" : "成功"}
-                          </span>
-                        )}
                       </TableCell>
                     </TableRow>
                   );
@@ -367,13 +488,13 @@ export default function ModelProvidersPage() {
                       <p className="text-sm text-gray-500">ID: {provider?.ID}</p>
                       <p className="text-sm text-gray-500">提供商模型: {association.ProviderModel}</p>
                       <p className="text-sm text-gray-500">
-                        工具调用: 
+                        工具调用:
                         <span className={association.ToolCall ? "text-green-500" : "text-red-500"}>
                           {association.ToolCall ? '✓' : '✗'}
                         </span>
                       </p>
                       <p className="text-sm text-gray-500">
-                        结构化输出: 
+                        结构化输出:
                         <span className={association.StructuredOutput ? "text-green-500" : "text-red-500"}>
                           {association.StructuredOutput ? '✓' : '✗'}
                         </span>
@@ -388,16 +509,14 @@ export default function ModelProvidersPage() {
                       >
                         编辑
                       </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => openDeleteDialog(association.ID)}
-                          >
-                            删除
-                          </Button>
-                        </AlertDialogTrigger>
+                      <AlertDialog open={deleteId === association.ID} onOpenChange={(open) => !open && setDeleteId(null)}>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => openDeleteDialog(association.ID)}
+                        >
+                          删除
+                        </Button>
                         <AlertDialogContent>
                           <AlertDialogHeader>
                             <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
@@ -418,15 +537,9 @@ export default function ModelProvidersPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => handleTest(association.ID)}
-                      disabled={testResults[association.ID]?.loading}
                     >
-                      {testResults[association.ID]?.loading ? "测试中..." : "测试"}
+                      测试
                     </Button>
-                    {testResults[association.ID] && !testResults[association.ID].loading && (
-                      <span className={testResults[association.ID].result?.error ? "text-red-500" : "text-green-500"}>
-                        {testResults[association.ID].result?.error ? "失败" : "成功"}
-                      </span>
-                    )}
                   </div>
                 </div>
               );
@@ -593,6 +706,93 @@ export default function ModelProvidersPage() {
               </DialogFooter>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Test Dialog */}
+      <Dialog open={testDialogOpen} onOpenChange={setTestDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>模型测试</DialogTitle>
+            <DialogDescription>
+              选择要执行的测试类型
+            </DialogDescription>
+          </DialogHeader>
+
+          <RadioGroup value={testType} onValueChange={(value: string) => setTestType(value as "connectivity" | "react")} className="space-y-4">
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="connectivity" id="connectivity" />
+              <Label htmlFor="connectivity">连通性测试</Label>
+            </div>
+            <p className="text-sm text-gray-500 ml-6">测试模型提供商的基本连通性</p>
+
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="react" id="react" />
+              <Label htmlFor="react">React Agent 能力测试</Label>
+            </div>
+            <p className="text-sm text-gray-500 ml-6">测试模型的工具调用和反应能力</p>
+          </RadioGroup>
+
+          {testType === "connectivity" && (
+            <div className="mt-4">
+              {selectedTestId && testResults[selectedTestId]?.loading ? (
+                <div className="flex items-center justify-center py-4">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                  <span className="ml-2">测试中...</span>
+                </div>
+              ) : selectedTestId && testResults[selectedTestId] ? (
+                <div className={`p-4 rounded-md ${testResults[selectedTestId].result?.error ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"}`}>
+                  <p>{testResults[selectedTestId].result?.error ? "测试失败" : "测试成功"}</p>
+                  {testResults[selectedTestId].result?.message && (
+                    <p className="mt-2">{testResults[selectedTestId].result.message}</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-gray-500">点击"执行测试"开始测试</p>
+              )}
+            </div>
+          )}
+
+          {testType === "react" && (
+            <div className="mt-4 max-h-96 min-w-0">
+              {reactTestResult.loading ? (
+                <div className="flex items-center justify-center py-4">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                  <span className="ml-2">测试中...</span>
+                </div>
+              ) : (
+                <>
+                  {reactTestResult.error ? (
+                    <div className="p-4 rounded-md bg-red-100 text-red-800">
+                      <p>测试失败: {reactTestResult.error}</p>
+                    </div>
+                  ) : reactTestResult.success !== null ? (
+                    <div className={`p-4 rounded-md ${reactTestResult.success ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+                      <p>{reactTestResult.success ? "测试成功！" : "测试失败"}</p>
+                    </div>
+                  ) : null}
+
+
+                </>
+              )}
+
+              {reactTestResult.messages && <Textarea name="logs" className="mt-4 max-h-50 resize-none whitespace-pre overflow-x-auto" readOnly value={reactTestResult.messages}>
+              </Textarea>}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={dialogClose}>
+              关闭
+            </Button>
+            <Button onClick={executeTest} disabled={testType === "connectivity" ?
+              (selectedTestId ? testResults[selectedTestId]?.loading : false) :
+              reactTestResult.loading}>
+              {testType === "connectivity" ?
+                (selectedTestId && testResults[selectedTestId]?.loading ? "测试中..." : "执行测试") :
+                (reactTestResult.loading ? "测试中..." : "执行测试")}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

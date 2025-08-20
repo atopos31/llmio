@@ -8,9 +8,10 @@ import (
 
 type Provider struct {
 	gorm.Model
-	Name   string `gorm:"unique"`
-	Type   string
-	Config string
+	Name    string `gorm:"unique"`
+	Type    string
+	Config  string
+	Console string // 控制台地址
 }
 
 type OpenAIConfig struct {

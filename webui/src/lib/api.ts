@@ -7,6 +7,7 @@ export interface Provider {
   Name: string;
   Type: string;
   Config: string;
+  Console: string;
 }
 
 export interface Model {
@@ -93,6 +94,7 @@ export async function createProvider(provider: {
   name: string;
   type: string;
   config: string;
+  console: string;
 }): Promise<Provider> {
   return apiRequest<Provider>('/providers', {
     method: 'POST',
@@ -104,6 +106,7 @@ export async function updateProvider(id: number, provider: {
   name?: string;
   type?: string;
   config?: string;
+  console?: string;
 }): Promise<Provider> {
   return apiRequest<Provider>(`/providers/${id}`, {
     method: 'PUT',

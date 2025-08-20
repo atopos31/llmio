@@ -55,6 +55,7 @@ const formSchema = z.object({
   name: z.string().min(1, { message: "提供商名称不能为空" }),
   type: z.string().min(1, { message: "提供商类型不能为空" }),
   config: z.string().min(1, { message: "配置不能为空" }),
+  console: z.string().optional(),
 });
 
 export default function ProvidersPage() {
@@ -73,6 +74,7 @@ export default function ProvidersPage() {
       name: "",
       type: "",
       config: "",
+      console: "",
     },
   });
 
@@ -105,9 +107,14 @@ export default function ProvidersPage() {
 
   const handleCreate = async (values: z.infer<typeof formSchema>) => {
     try {
-      await createProvider(values);
+      await createProvider({
+        name: values.name,
+        type: values.type,
+        config: values.config,
+        console: values.console || ""
+      });
       setOpen(false);
-      form.reset({ name: "", type: "", config: "" });
+      form.reset({ name: "", type: "", config: "", console: "" });
       fetchProviders();
     } catch (err) {
       setError("创建提供商失败");
@@ -118,10 +125,15 @@ export default function ProvidersPage() {
   const handleUpdate = async (values: z.infer<typeof formSchema>) => {
     if (!editingProvider) return;
     try {
-      await updateProvider(editingProvider.ID, values);
+      await updateProvider(editingProvider.ID, {
+        name: values.name,
+        type: values.type,
+        config: values.config,
+        console: values.console || ""
+      });
       setOpen(false);
       setEditingProvider(null);
-      form.reset({ name: "", type: "", config: "" });
+      form.reset({ name: "", type: "", config: "", console: "" });
       fetchProviders();
     } catch (err) {
       setError("更新提供商失败");
@@ -147,13 +159,14 @@ export default function ProvidersPage() {
       name: provider.Name,
       type: provider.Type,
       config: provider.Config,
+      console: provider.Console || "",
     });
     setOpen(true);
   };
 
   const openCreateDialog = () => {
     setEditingProvider(null);
-    form.reset({ name: "", type: "", config: "" });
+    form.reset({ name: "", type: "", config: "", console: "" });
     setOpen(true);
   };
 
@@ -180,6 +193,7 @@ export default function ProvidersPage() {
               <TableHead>名称</TableHead>
               <TableHead>类型</TableHead>
               <TableHead>配置</TableHead>
+              <TableHead>控制台</TableHead>
               <TableHead>操作</TableHead>
             </TableRow>
           </TableHeader>
@@ -194,8 +208,22 @@ export default function ProvidersPage() {
                     {provider.Config}
                   </pre>
                 </TableCell>
+                <TableCell>
+                  {provider.Console ? (
+                    <Button 
+                      title={provider.Console}
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => window.open(provider.Console, '_blank')}
+                    >
+                      前往
+                    </Button>
+                  ) : (
+                    "暂未设置"
+                  )}
+                </TableCell>
                 <TableCell className="space-x-2">
-                  <Button 
+                  <Button
                     variant="outline" 
                     size="sm" 
                     onClick={() => openEditDialog(provider)}
@@ -241,6 +269,18 @@ export default function ProvidersPage() {
                 <h3 className="font-bold text-lg">{provider.Name}</h3>
                 <p className="text-sm text-gray-500">ID: {provider.ID}</p>
                 <p className="text-sm text-gray-500">类型: {provider.Type}</p>
+                {provider.Console && (
+                  <p className="text-sm">
+                    <Button 
+                      variant="link" 
+                      size="sm" 
+                      onClick={() => window.open(provider.Console, '_blank')}
+                      className="p-0 h-auto"
+                    >
+                      前往
+                    </Button>
+                  </p>
+                )}
               </div>
               <div className="flex space-x-2">
                 <Button 
@@ -351,6 +391,20 @@ export default function ProvidersPage() {
                         {...field} 
                         className="resize-none whitespace-pre overflow-x-auto" 
                       />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              <FormField
+                control={form.control}
+                name="console"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>控制台地址</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="https://example.com/console" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

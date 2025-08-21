@@ -57,6 +57,17 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 	if len(items) == 0 {
 		return nil, errors.New("no provider with tool_call or structured_output found for models " + before.model)
 	}
+	// 收集重试过程中的err日志
+	retryErrLog := make(chan models.ChatLog, llmProvidersWithLimit.MaxRetry)
+	defer close(retryErrLog)
+	go func() {
+		for log := range retryErrLog {
+			_, err := SaveChatLog(context.Background(), log)
+			if err != nil {
+				slog.Error("save chat log error", "error", err)
+			}
+		}
+	}()
 
 	for retry := 0; retry < llmProvidersWithLimit.MaxRetry; retry++ {
 		select {
@@ -89,7 +100,7 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 
 			slog.Info("using provider", "provider", provider.Name, "model", ProviderModel)
 
-			log := &models.ChatLog{
+			log := models.ChatLog{
 				Name:          before.model,
 				ProviderModel: ProviderModel,
 				ProviderName:  provider.Name,
@@ -100,8 +111,7 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 			reqStart := time.Now()
 			body, status, err := chatModel.Chat(ctx, time.Second*time.Duration(llmProvidersWithLimit.TimeOut)/3, before.raw)
 			if err != nil {
-				slog.Error("chat error", "error", err)
-				go SaveChatLog(context.Background(), log, err)
+				retryErrLog <- log.WithError(err)
 				// 请求失败 移除待选
 				delete(items, *item)
 				continue
@@ -112,8 +122,7 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 				if err != nil {
 					slog.Error("read body error", "error", err)
 				}
-				slog.Error("chat error", "status", status, "body", string(byteBody))
-				go SaveChatLog(context.Background(), log, fmt.Errorf("status: %d, body: %s", status, string(byteBody)))
+				retryErrLog <- log.WithError(fmt.Errorf("status: %d, body: %s", status, string(byteBody)))
 
 				if status == http.StatusTooManyRequests {
 					// 达到RPM限制 降低权重
@@ -126,10 +135,13 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 				continue
 			}
 
-			SaveChatLog(ctx, log, nil)
+			logId, err := SaveChatLog(ctx, log)
+			if err != nil {
+				slog.Error("save chat log error", "error", err)
+			}
 
 			// 与客户端并行处理响应数据流 同时记录日志
-			teeReader := processTee(ctx, before.stream, log.ID, reqStart, body)
+			teeReader := processTee(ctx, before.stream, logId, reqStart, body)
 
 			return teeReader, nil
 		}
@@ -138,14 +150,11 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 	return nil, errors.New("maximum retry attempts reached !")
 }
 
-func SaveChatLog(ctx context.Context, log *models.ChatLog, err error) {
-	if err != nil {
-		log.Error = err.Error()
-		log.Status = "error"
+func SaveChatLog(ctx context.Context, log models.ChatLog) (uint, error) {
+	if err := gorm.G[models.ChatLog](models.DB).Create(ctx, &log); err != nil {
+		return 0, err
 	}
-	if err := gorm.G[models.ChatLog](models.DB).Create(ctx, log); err != nil {
-		slog.Error("Failed to create log: ", "err", err)
-	}
+	return log.ID, nil
 }
 
 type before struct {
@@ -237,7 +246,7 @@ func processTee(ctx context.Context, stream bool, logId uint, start time.Time, b
 		var firstChunkTime time.Duration
 		var once sync.Once
 
-		var errLog string
+		var chunkErr error
 		var lastchunk string
 
 		logReader := bufio.NewScanner(pr)
@@ -254,7 +263,7 @@ func processTee(ctx context.Context, stream bool, logId uint, start time.Time, b
 			// 流式过程中错误
 			errStr := gjson.Get(chunk, "error")
 			if errStr.Exists() {
-				errLog = errStr.String()
+				chunkErr = errors.New(errStr.String())
 				break
 			}
 			lastchunk = chunk
@@ -263,7 +272,7 @@ func processTee(ctx context.Context, stream bool, logId uint, start time.Time, b
 		chunkTime := time.Since(start) - firstChunkTime
 		// reader错误
 		if err := logReader.Err(); err != nil {
-			errLog = err.Error()
+			chunkErr = err
 		}
 		// token用量
 		var usage models.Usage
@@ -286,10 +295,8 @@ func processTee(ctx context.Context, stream bool, logId uint, start time.Time, b
 			Tps:            tps,
 			FirstChunkTime: firstChunkTime,
 		}
-
-		if errLog != "" {
-			log.Status = "error"
-			log.Error = errLog
+		if chunkErr != nil {
+			log = log.WithError(chunkErr)
 		}
 
 		if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, log); err != nil {

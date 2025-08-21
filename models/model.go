@@ -53,6 +53,12 @@ type ChatLog struct {
 	Usage
 }
 
+func (l ChatLog) WithError(err error) ChatLog {
+	l.Error = err.Error()
+	l.Status = "error"
+	return l
+}
+
 type Usage struct {
 	PromptTokens     int64 `json:"prompt_tokens"`
 	CompletionTokens int64 `json:"completion_tokens"`

@@ -4,8 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
-	"time"
+	"net/http"
 
 	"github.com/atopos31/llmio/models"
 )
@@ -23,8 +22,8 @@ type Model struct {
 }
 
 type Provider interface {
-	// responseHeaderTimeout 首字节/响应头到达时间限制
-	Chat(ctx context.Context, responseHeaderTimeout time.Duration, rawData []byte) (body io.ReadCloser, status int, err error)
+	// client 用于HTTP请求的客户端
+	Chat(ctx context.Context, client *http.Client, rawData []byte) (*http.Response, error)
 	Models(ctx context.Context) ([]Model, error)
 }
 

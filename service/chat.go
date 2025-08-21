@@ -109,7 +109,8 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 				ProxyTime:     time.Since(proxyStart),
 			}
 			reqStart := time.Now()
-			body, status, err := chatModel.Chat(ctx, time.Second*time.Duration(llmProvidersWithLimit.TimeOut)/3, before.raw)
+			client := providers.GetClient(time.Second * time.Duration(llmProvidersWithLimit.TimeOut) / 3)
+			res, err := chatModel.Chat(ctx, client, before.raw)
 			if err != nil {
 				retryErrLog <- log.WithError(err)
 				// 请求失败 移除待选
@@ -117,21 +118,21 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 				continue
 			}
 
-			if status != http.StatusOK {
-				byteBody, err := io.ReadAll(body)
+			if res.StatusCode != http.StatusOK {
+				byteBody, err := io.ReadAll(res.Body)
 				if err != nil {
 					slog.Error("read body error", "error", err)
 				}
-				retryErrLog <- log.WithError(fmt.Errorf("status: %d, body: %s", status, string(byteBody)))
+				retryErrLog <- log.WithError(fmt.Errorf("status: %d, body: %s", res.StatusCode, string(byteBody)))
 
-				if status == http.StatusTooManyRequests {
+				if res.StatusCode == http.StatusTooManyRequests {
 					// 达到RPM限制 降低权重
 					items[*item] -= items[*item] / 3
 				} else {
 					// 非RPM限制 移除待选
 					delete(items, *item)
 				}
-				body.Close()
+				res.Body.Close()
 				continue
 			}
 
@@ -141,7 +142,7 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 			}
 
 			// 与客户端并行处理响应数据流 同时记录日志
-			teeReader := processTee(ctx, before.stream, logId, reqStart, body)
+			teeReader := processTee(ctx, before.stream, logId, reqStart, res.Body)
 
 			return teeReader, nil
 		}

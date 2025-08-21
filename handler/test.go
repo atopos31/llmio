@@ -56,15 +56,16 @@ func ProviderTestHandler(c *gin.Context) {
 	}
 
 	// Test connectivity by fetching models
-	body, status, err := providerInstance.Chat(c.Request.Context(), time.Second*time.Duration(30), []byte(testBody))
+	client := providers.GetClient(time.Second * time.Duration(30))
+	res, err := providerInstance.Chat(c.Request.Context(), client, []byte(testBody))
 	if err != nil {
 		common.ErrorWithHttpStatus(c, 502, 502, "Failed to connect to provider: "+err.Error())
 		return
 	}
-	defer body.Close()
+	defer res.Body.Close()
 
-	if status != http.StatusOK {
-		common.ErrorWithHttpStatus(c, status, status, "Provider returned non-200 status code: "+strconv.Itoa(status))
+	if res.StatusCode != http.StatusOK {
+		common.ErrorWithHttpStatus(c, res.StatusCode, res.StatusCode, "Provider returned non-200 status code: "+strconv.Itoa(res.StatusCode))
 		return
 	}
 

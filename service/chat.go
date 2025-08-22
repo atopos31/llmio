@@ -18,27 +18,29 @@ import (
 	"github.com/atopos31/llmio/balancer"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"gorm.io/gorm"
 )
 
-func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.Reader, error) {
+func BalanceChat(c *gin.Context, proxyStart time.Time, rawData []byte) error {
+	ctx := c.Request.Context()
 	before, err := processBefore(rawData)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	llmProvidersWithLimit, err := ProvidersBymodelsName(ctx, before.model)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	llmproviders := llmProvidersWithLimit.Providers
 
 	slog.Info("request", "model", before.model, "stream", before.stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput)
 
 	if len(llmproviders) == 0 {
-		return nil, fmt.Errorf("no provider found for models %s", before.model)
+		return fmt.Errorf("no provider found for models %s", before.model)
 	}
 
 	items := make(map[uint]int)
@@ -55,7 +57,7 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 	}
 
 	if len(items) == 0 {
-		return nil, errors.New("no provider with tool_call or structured_output found for models " + before.model)
+		return errors.New("no provider with tool_call or structured_output found for models " + before.model)
 	}
 	// 收集重试过程中的err日志
 	retryErrLog := make(chan models.ChatLog, llmProvidersWithLimit.MaxRetry)
@@ -72,14 +74,14 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 	for retry := 0; retry < llmProvidersWithLimit.MaxRetry; retry++ {
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return ctx.Err()
 		case <-time.After(time.Second * time.Duration(llmProvidersWithLimit.TimeOut)):
-			return nil, errors.New("retry time out !")
+			return errors.New("retry time out !")
 		default:
 			// 加权负载均衡
 			item, err := balancer.WeightedRandom(items)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			provider, err := gorm.G[models.Provider](models.DB).Where("id = ?", *item).First(ctx)
 			if err != nil {
@@ -95,7 +97,7 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 
 			chatModel, err := providers.New(provider.Type, ProviderModel, provider.Config)
 			if err != nil {
-				return nil, err
+				return err
 			}
 
 			slog.Info("using provider", "provider", provider.Name, "model", ProviderModel)
@@ -135,20 +137,34 @@ func BalanceChat(ctx context.Context, proxyStart time.Time, rawData []byte) (io.
 				res.Body.Close()
 				continue
 			}
+			defer res.Body.Close()
 
 			logId, err := SaveChatLog(ctx, log)
 			if err != nil {
-				slog.Error("save chat log error", "error", err)
+				return err
 			}
 
-			// 与客户端并行处理响应数据流 同时记录日志
-			teeReader := processTee(ctx, before.stream, logId, reqStart, res.Body)
+			pr, pw := io.Pipe()
+			tee := io.TeeReader(res.Body, pw)
 
-			return teeReader, nil
+			// 与客户端并行处理响应数据流 同时记录日志
+			go func(ctx context.Context) {
+				defer pr.Close()
+				processTee(ctx, pr, before.stream, logId, reqStart)
+			}(context.Background())
+
+			if _, err := io.Copy(c.Writer, tee); err != nil {
+				pw.CloseWithError(err)
+				return err
+			}
+
+			pw.Close()
+
+			return nil
 		}
 	}
 
-	return nil, errors.New("maximum retry attempts reached !")
+	return errors.New("maximum retry attempts reached !")
 }
 
 func SaveChatLog(ctx context.Context, log models.ChatLog) (uint, error) {
@@ -231,82 +247,68 @@ func ProvidersBymodelsName(ctx context.Context, modelsName string) (*ProvidersWi
 	}, nil
 }
 
-func processTee(ctx context.Context, stream bool, logId uint, start time.Time, body io.ReadCloser) io.Reader {
-	pr, pw := io.Pipe()
-	go func() {
-		defer body.Close()
-		defer pw.Close()
+func processTee(ctx context.Context, pr io.ReadCloser, stream bool, logId uint, start time.Time) {
+	// 首字时延
+	var firstChunkTime time.Duration
+	var once sync.Once
 
-		// 等待请求结束
-		<-ctx.Done()
-	}()
+	var chunkErr error
+	var lastchunk string
 
-	teeReader := io.TeeReader(body, pw)
-	go func(ctx context.Context) {
-		// 首字时延
-		var firstChunkTime time.Duration
-		var once sync.Once
-
-		var chunkErr error
-		var lastchunk string
-
-		logReader := bufio.NewScanner(pr)
-		for chunk := range ScannerToken(logReader) {
-			once.Do(func() {
-				firstChunkTime = time.Since(start)
-			})
-			if stream {
-				chunk = strings.TrimPrefix(chunk, "data: ")
-			}
-			if chunk == "[DONE]" {
-				break
-			}
-			// 流式过程中错误
-			errStr := gjson.Get(chunk, "error")
-			if errStr.Exists() {
-				chunkErr = errors.New(errStr.String())
-				break
-			}
-			lastchunk = chunk
-		}
-		// 耗时
-		chunkTime := time.Since(start) - firstChunkTime
-		// reader错误
-		if err := logReader.Err(); err != nil {
-			chunkErr = err
-		}
-		// token用量
-		var usage models.Usage
-		usageStr := gjson.Get(lastchunk, "usage")
-		if usageStr.Exists() && usageStr.Get("total_tokens").Int() != 0 {
-			if err := json.Unmarshal([]byte(usageStr.Raw), &usage); err != nil {
-				slog.Error("unmarshal usage error, raw:" + usageStr.Raw)
-			}
-		}
-
-		// tps
-		var tps float64
+	logReader := bufio.NewScanner(pr)
+	for chunk := range ScannerToken(logReader) {
+		once.Do(func() {
+			firstChunkTime = time.Since(start)
+		})
 		if stream {
-			tps = float64(usage.TotalTokens) / chunkTime.Seconds()
+			chunk = strings.TrimPrefix(chunk, "data: ")
 		}
+		if chunk == "[DONE]" {
+			break
+		}
+		// 流式过程中错误
+		errStr := gjson.Get(chunk, "error")
+		if errStr.Exists() {
+			chunkErr = errors.New(errStr.String())
+			break
+		}
+		lastchunk = chunk
+	}
+	// 耗时
+	chunkTime := time.Since(start) - firstChunkTime
+	// reader错误
+	if err := logReader.Err(); err != nil {
+		chunkErr = err
+	}
+	// token用量
+	var usage models.Usage
+	usageStr := gjson.Get(lastchunk, "usage")
+	if usageStr.Exists() && usageStr.Get("total_tokens").Int() != 0 {
+		if err := json.Unmarshal([]byte(usageStr.Raw), &usage); err != nil {
+			slog.Error("unmarshal usage error, raw:" + usageStr.Raw)
+		}
+	}
 
-		log := models.ChatLog{
-			Usage:          usage,
-			ChunkTime:      chunkTime,
-			Tps:            tps,
-			FirstChunkTime: firstChunkTime,
-		}
-		if chunkErr != nil {
-			log = log.WithError(chunkErr)
-		}
+	// tps
+	var tps float64
+	if stream {
+		tps = float64(usage.TotalTokens) / chunkTime.Seconds()
+	}
 
-		if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, log); err != nil {
-			slog.Error("update chat log error", "error", err)
-		}
-		slog.Info("response", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens, "firstChunkTime", firstChunkTime, "chunkTime", chunkTime, "tps", tps)
-	}(context.Background())
+	log := models.ChatLog{
+		Usage:          usage,
+		ChunkTime:      chunkTime,
+		Tps:            tps,
+		FirstChunkTime: firstChunkTime,
+	}
+	if chunkErr != nil {
+		log = log.WithError(chunkErr)
+	}
 
-	return teeReader
+	if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, log); err != nil {
+		slog.Error("update chat log error", "error", err)
+	}
+	slog.Info("response", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens, "firstChunkTime", firstChunkTime, "chunkTime", chunkTime, "tps", tps)
 }
 
 func ScannerToken(reader *bufio.Scanner) iter.Seq[string] {

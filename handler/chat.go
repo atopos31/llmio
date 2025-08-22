@@ -19,18 +19,11 @@ func ChatCompletionsHandler(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	reader, err := service.BalanceChat(c.Request.Context(), proxyStart, data)
-	if err != nil {
+
+	if err := service.BalanceChat(c, proxyStart, data); err != nil {
 		common.InternalServerError(c, err.Error())
 		return
 	}
-	n, err := io.Copy(c.Writer, reader)
-	if err != nil {
-		slog.Error("copy error", "error", err)
-		return
-	}
-
-	slog.Info("response", "size", n)
 }
 
 func ModelsHandler(c *gin.Context) {

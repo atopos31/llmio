@@ -152,7 +152,7 @@ func BalanceChat(c *gin.Context, proxyStart time.Time, rawData []byte) error {
 				defer pr.Close()
 				processTee(ctx, pr, before.stream, logId, reqStart)
 			}(context.Background())
-
+			// 转发给客户端
 			if _, err := io.Copy(c.Writer, tee); err != nil {
 				pw.CloseWithError(err)
 				return err

@@ -433,6 +433,7 @@ func GetRequestLogs(c *gin.Context) {
 
 	// 筛选参数
 	providerName := c.Query("provider_name")
+	name := c.Query("name")
 	status := c.Query("status")
 
 	// 构建查询条件
@@ -440,6 +441,10 @@ func GetRequestLogs(c *gin.Context) {
 
 	if providerName != "" {
 		query = query.Where("provider_name = ?", providerName)
+	}
+
+	if name != "" {
+		query = query.Where("name = ?", name)
 	}
 
 	if status != "" {

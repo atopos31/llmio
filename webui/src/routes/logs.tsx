@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
-  TableCell,
+ TableCell,
   TableHead,
   TableHeader,
   TableRow
@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Loading from "@/components/loading";
-import { getLogs, getProviders, type ChatLog, type Provider } from "@/lib/api";
+import { getLogs, getProviders, getModels, type ChatLog, type Provider, type Model } from "@/lib/api";
 
 // 格式化时间显示，自动选择合适的单位
 // 假设后端返回的时间单位是纳秒
@@ -46,9 +46,11 @@ export default function LogsPage() {
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(0);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [models, setModels] = useState<Model[]>([]);
 
   // 筛选条件
   const [providerNameFilter, setProviderNameFilter] = useState<string>("all");
+  const [modelFilter, setModelFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
   // 详情弹窗
@@ -65,16 +67,28 @@ export default function LogsPage() {
     }
   };
 
+  // 获取模型列表
+  const fetchModels = async () => {
+    try {
+      const modelList = await getModels();
+      setModels(modelList);
+    } catch (error) {
+      console.error("Error fetching models:", error);
+    }
+  };
+
   // 获取日志数据
   const fetchLogs = async () => {
     setLoading(true);
     try {
       // 处理筛选条件，"all"表示不过滤
       const providerName = providerNameFilter === "all" ? undefined : providerNameFilter;
+      const name = modelFilter === "all" ? undefined : modelFilter;
       const status = statusFilter === "all" ? undefined : statusFilter;
 
       const result = await getLogs(page, pageSize, {
         providerName: providerName,
+        name: name,
         status: status
       });
 
@@ -91,8 +105,9 @@ export default function LogsPage() {
   // 初始加载
   useEffect(() => {
     fetchProviders();
+    fetchModels();
     fetchLogs();
-  }, [page, pageSize, providerNameFilter, statusFilter]);
+  }, [page, pageSize, providerNameFilter, modelFilter, statusFilter]);
 
   // 处理筛选条件变化
   const handleFilterChange = () => {
@@ -100,7 +115,7 @@ export default function LogsPage() {
   };
   useEffect(() => {
     handleFilterChange();
-  }, [providerNameFilter, statusFilter]);
+  }, [providerNameFilter, modelFilter, statusFilter]);
 
   // 处理分页变化
   const handlePageChange = (newPage: number) => {
@@ -138,6 +153,22 @@ export default function LogsPage() {
           {/* 筛选区域 */}
           <div className="flex flex-col sm:flex-row gap-4 mb-6 justify-between">
             <div className="flex flex-col sm:flex-row gap-4">
+                            <div className="flex flex-col gap-2">
+                <Label htmlFor="model-filter" className="whitespace-nowrap">模型名称</Label>
+                <Select value={modelFilter} onValueChange={setModelFilter}>
+                  <SelectTrigger className="w-full sm:w-[180px]">
+                    <SelectValue placeholder="选择模型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部</SelectItem>
+                    {models.map((model) => (
+                      <SelectItem key={model.ID} value={model.Name}>
+                        {model.Name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="provider-name-filter" className="whitespace-nowrap">提供商名称</Label>
                 <Select value={providerNameFilter} onValueChange={setProviderNameFilter}>

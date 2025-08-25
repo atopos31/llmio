@@ -248,6 +248,18 @@ export async function getProviderTemplates(): Promise<ProviderTemplate[]> {
   return apiRequest<ProviderTemplate[]>('/providers/template');
 }
 
+// Provider Models API functions
+export interface ProviderModel {
+  id: string;
+  object: string;
+  created: number;
+  owned_by: string;
+}
+
+export async function getProviderModels(providerId: number): Promise<ProviderModel[]> {
+  return apiRequest<ProviderModel[]>(`/providers/models/${providerId}`);
+}
+
 // Logs API functions
 export interface ChatLog {
   ID: number;

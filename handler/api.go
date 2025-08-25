@@ -6,6 +6,7 @@ import (
 
 	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/models"
+	"github.com/atopos31/llmio/providers"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -54,6 +55,26 @@ func GetProviders(c *gin.Context) {
 	}
 
 	common.Success(c, providers)
+}
+
+func GetProviderModels(c *gin.Context) {
+	id := c.Param("id")
+	provider, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).First(c.Request.Context())
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+	chatModel, err := providers.New(provider.Type, provider.Config)
+	if err != nil {
+		common.InternalServerError(c, "Failed to get models: "+err.Error())
+		return
+	}
+	models, err := chatModel.Models(c.Request.Context())
+	if err != nil {
+		common.InternalServerError(c, "Failed to get models: "+err.Error())
+		return
+	}
+	common.Success(c, models)
 }
 
 // CreateProvider 创建提供商

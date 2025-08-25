@@ -19,6 +19,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -46,9 +51,10 @@ import {
   createProvider, 
   updateProvider, 
   deleteProvider,
-  getProviderTemplates
+  getProviderTemplates,
+  getProviderModels
 } from "@/lib/api";
-import type { Provider, ProviderTemplate } from "@/lib/api";
+import type { Provider, ProviderTemplate, ProviderModel } from "@/lib/api";
 
 // 定义表单验证模式
 const formSchema = z.object({
@@ -66,6 +72,11 @@ export default function ProvidersPage() {
   const [open, setOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [modelsOpen, setModelsOpen] = useState(false);
+  const [modelsOpenId, setModelsOpenId] = useState<number | null>(null);
+  const [providerModels, setProviderModels] = useState<ProviderModel[]>([]);
+  const [filteredProviderModels, setFilteredProviderModels] = useState<ProviderModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
   
   // 初始化表单
   const form = useForm<z.infer<typeof formSchema>>({
@@ -103,6 +114,29 @@ export default function ProvidersPage() {
     } catch (err) {
       console.error("获取提供商模板失败", err);
     }
+  };
+
+  const fetchProviderModels = async (providerId: number) => {
+    try {
+      setModelsLoading(true);
+      const data = await getProviderModels(providerId);
+      setProviderModels(data);
+      setFilteredProviderModels(data);
+    } catch (err) {
+      console.error("获取提供商模型失败", err);
+    } finally {
+      setModelsLoading(false);
+    }
+  };
+
+  const openModelsDialog = async (providerId: number) => {
+    setModelsOpen(true);
+    setModelsOpenId(providerId);
+    await fetchProviderModels(providerId);
+  };
+
+  const copyModelName = (modelName: string) => {
+    navigator.clipboard.writeText(modelName);
   };
 
   const handleCreate = async (values: z.infer<typeof formSchema>) => {
@@ -230,6 +264,13 @@ export default function ProvidersPage() {
                   >
                     编辑
                   </Button>
+                  <Button
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => openModelsDialog(provider.ID)}
+                  >
+                    模型列表
+                  </Button>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button 
@@ -289,6 +330,13 @@ export default function ProvidersPage() {
                   onClick={() => openEditDialog(provider)}
                 >
                   编辑
+                </Button>
+                <Button
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => openModelsDialog(provider.ID)}
+                >
+                  模型列表
                 </Button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -421,6 +469,82 @@ export default function ProvidersPage() {
               </DialogFooter>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* 模型列表对话框 */}
+      <Dialog open={modelsOpen} onOpenChange={setModelsOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{providers.find(v => v.ID === modelsOpenId)?.Name}模型列表</DialogTitle>
+            <DialogDescription>
+              当前提供商的所有可用模型
+            </DialogDescription>
+          </DialogHeader>
+          
+          {/* 搜索框 */}
+          {!modelsLoading && providerModels.length > 0 && (
+            <div className="mb-4">
+              <Input
+                placeholder="搜索模型 ID"
+                onChange={(e) => {
+                  const searchTerm = e.target.value.toLowerCase();
+                  if (searchTerm === '') {
+                    setFilteredProviderModels(providerModels);
+                  } else {
+                    const filteredModels = providerModels.filter(model => 
+                      model.id.toLowerCase().includes(searchTerm)
+                    );
+                    setFilteredProviderModels(filteredModels);
+                  }
+                }}
+                className="w-full"
+              />
+            </div>
+          )}
+          
+          {modelsLoading ? (
+            <Loading message="加载模型列表" />
+          ) : (
+            <div className="max-h-96 overflow-y-auto">
+              {filteredProviderModels.length === 0 ? (
+                <div className="text-center text-gray-500 py-8">
+                  {providerModels.length === 0 ? '暂无模型数据' : '未找到匹配的模型'}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {filteredProviderModels.map((model,index) => (
+                    <div 
+                      key={index} 
+                      className="flex items-center justify-between p-3 border rounded-lg"
+                    >
+                      <div className="flex-1">
+                        <div className="font-medium">{model.id}</div>
+                      </div>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => copyModelName(model.id)}
+                              className="ml-2"
+                            >
+                              复制
+                            </Button>
+                          </TooltipTrigger>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button onClick={() => setModelsOpen(false)}>关闭</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

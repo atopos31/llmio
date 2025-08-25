@@ -13,19 +13,17 @@ import (
 type OpenAI struct {
 	BaseURL string `json:"base_url"`
 	APIKey  string `json:"api_key"`
-	Model   string `json:"model"`
 }
 
-func NewOpenAI(baseURL, apiKey, model string) *OpenAI {
+func NewOpenAI(baseURL, apiKey string) *OpenAI {
 	return &OpenAI{
 		BaseURL: baseURL,
 		APIKey:  apiKey,
-		Model:   model,
 	}
 }
 
-func (o *OpenAI) Chat(ctx context.Context, client *http.Client, rawBody []byte) (*http.Response, error) {
-	body, err := sjson.SetBytes(rawBody, "model", o.Model)
+func (o *OpenAI) Chat(ctx context.Context, client *http.Client, model string, rawBody []byte) (*http.Response, error) {
+	body, err := sjson.SetBytes(rawBody, "model", model)
 	if err != nil {
 		return nil, err
 	}

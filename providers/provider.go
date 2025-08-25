@@ -23,11 +23,11 @@ type Model struct {
 
 type Provider interface {
 	// client 用于HTTP请求的客户端
-	Chat(ctx context.Context, client *http.Client, rawData []byte) (*http.Response, error)
+	Chat(ctx context.Context, client *http.Client, model string, rawData []byte) (*http.Response, error)
 	Models(ctx context.Context) ([]Model, error)
 }
 
-func New(Type, model, providerConfig string) (Provider, error) {
+func New(Type, providerConfig string) (Provider, error) {
 	switch Type {
 	case "openai":
 		var config models.OpenAIConfig
@@ -35,7 +35,7 @@ func New(Type, model, providerConfig string) (Provider, error) {
 			return nil, errors.New("invalid openai config")
 		}
 
-		return NewOpenAI(config.BaseUrl, config.ApiKey, model), nil
+		return NewOpenAI(config.BaseUrl, config.ApiKey), nil
 	default:
 		return nil, errors.New("unknown provider")
 	}

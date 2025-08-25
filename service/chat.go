@@ -95,7 +95,7 @@ func BalanceChat(c *gin.Context, proxyStart time.Time, rawData []byte) error {
 			})
 			ProviderModel := llmproviders[index].ProviderModel
 
-			chatModel, err := providers.New(provider.Type, ProviderModel, provider.Config)
+			chatModel, err := providers.New(provider.Type, provider.Config)
 			if err != nil {
 				return err
 			}
@@ -112,7 +112,7 @@ func BalanceChat(c *gin.Context, proxyStart time.Time, rawData []byte) error {
 			}
 			reqStart := time.Now()
 			client := providers.GetClient(time.Second * time.Duration(llmProvidersWithLimit.TimeOut) / 3)
-			res, err := chatModel.Chat(ctx, client, before.raw)
+			res, err := chatModel.Chat(ctx, client, ProviderModel, before.raw)
 			if err != nil {
 				retryErrLog <- log.WithError(err)
 				// 请求失败 移除待选
@@ -283,6 +283,7 @@ func processTee(ctx context.Context, pr io.ReadCloser, stream bool, logId uint, 
 	// token用量
 	var usage models.Usage
 	usageStr := gjson.Get(lastchunk, "usage")
+	slog.Info("usage", "usage", usageStr.String())
 	if usageStr.Exists() && usageStr.Get("total_tokens").Int() != 0 {
 		if err := json.Unmarshal([]byte(usageStr.Raw), &usage); err != nil {
 			slog.Error("unmarshal usage error, raw:" + usageStr.Raw)

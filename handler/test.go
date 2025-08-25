@@ -49,7 +49,7 @@ func ProviderTestHandler(c *gin.Context) {
 	}
 
 	// Create the provider instance
-	providerInstance, err := providers.New(chatModel.Type, chatModel.Model, chatModel.Config)
+	providerInstance, err := providers.New(chatModel.Type, chatModel.Config)
 	if err != nil {
 		common.BadRequest(c, "Failed to create provider: "+err.Error())
 		return
@@ -57,7 +57,7 @@ func ProviderTestHandler(c *gin.Context) {
 
 	// Test connectivity by fetching models
 	client := providers.GetClient(time.Second * time.Duration(30))
-	res, err := providerInstance.Chat(c.Request.Context(), client, []byte(testBody))
+	res, err := providerInstance.Chat(c.Request.Context(), client, chatModel.Model, []byte(testBody))
 	if err != nil {
 		common.ErrorWithHttpStatus(c, 502, 502, "Failed to connect to provider: "+err.Error())
 		return

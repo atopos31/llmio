@@ -12,7 +12,6 @@ import (
 )
 
 func ChatCompletionsHandler(c *gin.Context) {
-
 	if err := service.BalanceChat(c, service.ProcesserOpenAI); err != nil {
 		common.InternalServerError(c, err.Error())
 		return

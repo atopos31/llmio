@@ -31,10 +31,11 @@ func main() {
 	router := gin.Default()
 	setwebui(router, "./webui/dist")
 
+	openAiAuth := middleware.Auth(os.Getenv("TOKEN"))
+
 	v1 := router.Group("/v1")
-	v1.Use(middleware.Auth(os.Getenv("TOKEN")))
-	v1.POST("/chat/completions", handler.ChatCompletionsHandler)
-	v1.GET("/models", handler.ModelsHandler)
+	v1.GET("/models", openAiAuth, handler.ModelsHandler)
+	v1.POST("/chat/completions", openAiAuth, handler.ChatCompletionsHandler)
 
 	api := router.Group("/api")
 	api.Use(middleware.Auth(os.Getenv("TOKEN")))

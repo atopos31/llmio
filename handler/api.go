@@ -85,6 +85,18 @@ func CreateProvider(c *gin.Context) {
 		return
 	}
 
+	// Check if provider exists
+	count, err := gorm.G[models.Provider](models.DB).Where("name = ?", req.Name).Count(c.Request.Context(), "id")
+	if err != nil {
+		common.InternalServerError(c, "Database error: "+err.Error())
+		return
+	}
+
+	if count > 0 {
+		common.BadRequest(c, "Provider already exists")
+		return
+	}
+
 	provider := models.Provider{
 		Name:    req.Name,
 		Type:    req.Type,
@@ -196,6 +208,17 @@ func CreateModel(c *gin.Context) {
 		return
 	}
 
+	// Check if model exists
+	count, err := gorm.G[models.Model](models.DB).Where("name = ?", req.Name).Count(c.Request.Context(), "id")
+	if err != nil {
+		common.InternalServerError(c, "Database error: "+err.Error())
+		return
+	}
+	if count > 0 {
+		common.BadRequest(c, "Model already exists")
+		return
+	}
+
 	model := models.Model{
 		Name:     req.Name,
 		Remark:   req.Remark,
@@ -203,8 +226,7 @@ func CreateModel(c *gin.Context) {
 		TimeOut:  req.TimeOut,
 	}
 
-	err := gorm.G[models.Model](models.DB).Create(c.Request.Context(), &model)
-	if err != nil {
+	if err := gorm.G[models.Model](models.DB).Create(c.Request.Context(), &model); err != nil {
 		common.InternalServerError(c, "Failed to create model: "+err.Error())
 		return
 	}

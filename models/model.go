@@ -8,7 +8,7 @@ import (
 
 type Provider struct {
 	gorm.Model
-	Name    string `gorm:"unique"`
+	Name    string
 	Type    string
 	Config  string
 	Console string // 控制台地址
@@ -21,7 +21,7 @@ type OpenAIConfig struct {
 
 type Model struct {
 	gorm.Model
-	Name     string `gorm:"unique"`
+	Name     string
 	Remark   string
 	MaxRetry int // 重试次数限制
 	TimeOut  int // 超时时间 单位秒

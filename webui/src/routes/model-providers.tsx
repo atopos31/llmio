@@ -497,6 +497,7 @@ export default function ModelProvidersPage() {
                     <div>
                       <h3 className="font-bold text-lg">{provider ? provider.Name : '未知'}</h3>
                       <p className="text-sm text-gray-500">ID: {provider?.ID}</p>
+                      <p className="text-sm text-gray-500">类型: {provider?.Type}</p>
                       <p className="text-sm text-gray-500">提供商模型: {association.ProviderModel}</p>
                       <p className="text-sm text-gray-500">
                         工具调用:

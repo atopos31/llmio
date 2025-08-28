@@ -88,6 +88,11 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 		return nil
 	}
 
+	weightItems := make(map[uint]int, 0)
+	for _, item := range provideritems {
+		weightItems[item.ID] = items[item.ID]
+	}
+
 	for retry := 0; retry < llmProvidersWithLimit.MaxRetry; retry++ {
 		select {
 		case <-ctx.Done():
@@ -96,13 +101,13 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 			return errors.New("retry time out !")
 		default:
 			// 加权负载均衡
-			item, err := balancer.WeightedRandom(items)
+			item, err := balancer.WeightedRandom(weightItems)
 			if err != nil {
 				return err
 			}
 			provider := FirstProvider(*item)
 			if provider == nil {
-				delete(items, *item)
+				delete(weightItems, *item)
 				continue
 			}
 
@@ -134,7 +139,7 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 			if err != nil {
 				retryErrLog <- log.WithError(err)
 				// 请求失败 移除待选
-				delete(items, *item)
+				delete(weightItems, *item)
 				continue
 			}
 
@@ -147,10 +152,10 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 
 				if res.StatusCode == http.StatusTooManyRequests {
 					// 达到RPM限制 降低权重
-					items[*item] -= items[*item] / 3
+					weightItems[*item] -= weightItems[*item] / 3
 				} else {
 					// 非RPM限制 移除待选
-					delete(items, *item)
+					delete(weightItems, *item)
 				}
 				res.Body.Close()
 				continue

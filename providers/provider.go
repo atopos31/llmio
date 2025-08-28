@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-
-	"github.com/atopos31/llmio/models"
 )
 
 type ModelList struct {
@@ -30,12 +28,18 @@ type Provider interface {
 func New(Type, providerConfig string) (Provider, error) {
 	switch Type {
 	case "openai":
-		var config models.OpenAIConfig
-		if err := json.Unmarshal([]byte(providerConfig), &config); err != nil {
+		var openai OpenAI
+		if err := json.Unmarshal([]byte(providerConfig), &openai); err != nil {
 			return nil, errors.New("invalid openai config")
 		}
 
-		return NewOpenAI(config.BaseUrl, config.ApiKey), nil
+		return &openai, nil
+	case "anthropic":
+		var anthropic Anthropic
+		if err := json.Unmarshal([]byte(providerConfig), &anthropic); err != nil {
+			return nil, errors.New("invalid anthropic config")
+		}
+		return &anthropic, nil
 	default:
 		return nil, errors.New("unknown provider")
 	}

@@ -15,13 +15,6 @@ type OpenAI struct {
 	APIKey  string `json:"api_key"`
 }
 
-func NewOpenAI(baseURL, apiKey string) *OpenAI {
-	return &OpenAI{
-		BaseURL: baseURL,
-		APIKey:  apiKey,
-	}
-}
-
 func (o *OpenAI) Chat(ctx context.Context, client *http.Client, model string, rawBody []byte) (*http.Response, error) {
 	body, err := sjson.SetBytes(rawBody, "model", model)
 	if err != nil {

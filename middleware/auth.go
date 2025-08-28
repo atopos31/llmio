@@ -36,3 +36,21 @@ func Auth(token string) gin.HandlerFunc {
 		}
 	}
 }
+
+func AuthAnthropic(koken string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 不设置token，则不进行验证
+		if koken == "" {
+			return
+		}
+		authHeader := c.GetHeader("x-api-key")
+		if authHeader == "" {
+			common.ErrorWithHttpStatus(c, http.StatusUnauthorized, http.StatusUnauthorized, "x-api-key header is missing")
+			c.Abort()
+		}
+		if authHeader != koken {
+			common.ErrorWithHttpStatus(c, http.StatusUnauthorized, http.StatusUnauthorized, "Invalid token")
+			c.Abort()
+		}
+	}
+}

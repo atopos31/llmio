@@ -14,9 +14,10 @@ type Provider struct {
 	Console string // 控制台地址
 }
 
-type OpenAIConfig struct {
+type AnthropicConfig struct {
 	BaseUrl string `json:"base_url"`
 	ApiKey  string `json:"api_key"`
+	Version string `json:"version"`
 }
 
 type Model struct {

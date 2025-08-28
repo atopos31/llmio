@@ -1,13 +1,12 @@
 package service
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"iter"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"time"
@@ -16,19 +15,17 @@ import (
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 	"gorm.io/gorm"
 )
 
-func BalanceChat(c *gin.Context, processer TeeProcesser) error {
+func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Processer) error {
 	proxyStart := time.Now()
 	rawData, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		return err
 	}
 	ctx := c.Request.Context()
-	before, err := processBefore(rawData)
+	before, err := Beforer(rawData)
 	if err != nil {
 		return err
 	}
@@ -73,6 +70,24 @@ func BalanceChat(c *gin.Context, processer TeeProcesser) error {
 		}
 	}()
 
+	provideritems, err := gorm.G[models.Provider](models.DB).Where("id IN ?", slices.Collect(maps.Keys(items))).Where("type = ?", style).Find(ctx)
+	if err != nil {
+		return err
+	}
+
+	if len(provideritems) == 0 {
+		return fmt.Errorf("no %s provider found for %s", style, before.model)
+	}
+
+	FirstProvider := func(providerID uint) *models.Provider {
+		for _, provider := range provideritems {
+			if provider.ID == providerID {
+				return &provider
+			}
+		}
+		return nil
+	}
+
 	for retry := 0; retry < llmProvidersWithLimit.MaxRetry; retry++ {
 		select {
 		case <-ctx.Done():
@@ -85,8 +100,8 @@ func BalanceChat(c *gin.Context, processer TeeProcesser) error {
 			if err != nil {
 				return err
 			}
-			provider, err := gorm.G[models.Provider](models.DB).Where("id = ?", *item).First(ctx)
-			if err != nil {
+			provider := FirstProvider(*item)
+			if provider == nil {
 				delete(items, *item)
 				continue
 			}
@@ -97,7 +112,7 @@ func BalanceChat(c *gin.Context, processer TeeProcesser) error {
 			})
 			ProviderModel := llmproviders[index].ProviderModel
 
-			chatModel, err := providers.New(provider.Type, provider.Config)
+			chatModel, err := providers.New(style, provider.Config)
 			if err != nil {
 				return err
 			}
@@ -176,49 +191,6 @@ func SaveChatLog(ctx context.Context, log models.ChatLog) (uint, error) {
 	return log.ID, nil
 }
 
-type before struct {
-	model            string
-	stream           bool
-	toolCall         bool
-	structuredOutput bool
-	raw              []byte
-}
-
-// 向provicer发送请求之前进行body处理
-func processBefore(data []byte) (*before, error) {
-	model := gjson.GetBytes(data, "model").String()
-	if model == "" {
-		return nil, errors.New("model is empty")
-	}
-	stream := gjson.GetBytes(data, "stream").Bool()
-	if stream {
-		// 为processTee记录usage添加选项 PS:很多客户端只会开启stream 而不会开启include_usage
-		newData, err := sjson.SetBytes(data, "stream_options", struct {
-			IncludeUsage bool `json:"include_usage"`
-		}{IncludeUsage: true})
-		if err != nil {
-			return nil, err
-		}
-		data = newData
-	}
-	var toolCall bool
-	tools := gjson.GetBytes(data, "tools")
-	if tools.Exists() && len(tools.Array()) != 0 {
-		toolCall = true
-	}
-	var structuredOutput bool
-	if gjson.GetBytes(data, "response_format").Exists() {
-		structuredOutput = true
-	}
-	return &before{
-		model:            model,
-		stream:           stream,
-		toolCall:         toolCall,
-		structuredOutput: structuredOutput,
-		raw:              data,
-	}, nil
-}
-
 type ProvidersWithlimit struct {
 	Providers []models.ModelWithProvider
 	MaxRetry  int
@@ -247,18 +219,4 @@ func ProvidersBymodelsName(ctx context.Context, modelsName string) (*ProvidersWi
 		MaxRetry:  llmmodels.MaxRetry,
 		TimeOut:   llmmodels.TimeOut,
 	}, nil
-}
-
-func ScannerToken(reader *bufio.Scanner) iter.Seq[string] {
-	return func(yield func(string) bool) {
-		for reader.Scan() {
-			chunk := reader.Text()
-			if chunk == "" {
-				continue
-			}
-			if !yield(chunk) {
-				return
-			}
-		}
-	}
 }

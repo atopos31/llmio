@@ -90,15 +90,15 @@ func TestReactHandler(c *gin.Context) {
 		return
 	}
 
-	var config models.OpenAIConfig
+	var config providers.OpenAI
 	if err := json.Unmarshal([]byte(chatModel.Config), &config); err != nil {
 		common.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "Invalid config format")
 		return
 	}
 
 	client := openai.NewClient(
-		option.WithBaseURL(config.BaseUrl),
-		option.WithAPIKey(config.ApiKey),
+		option.WithBaseURL(config.BaseURL),
+		option.WithAPIKey(config.APIKey),
 	)
 
 	agent := react.New(client, 20)

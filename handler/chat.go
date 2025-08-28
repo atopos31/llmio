@@ -11,13 +11,6 @@ import (
 	"gorm.io/gorm"
 )
 
-func ChatCompletionsHandler(c *gin.Context) {
-	if err := service.BalanceChat(c, service.ProcesserOpenAI); err != nil {
-		common.InternalServerError(c, err.Error())
-		return
-	}
-}
-
 func ModelsHandler(c *gin.Context) {
 	llmModels, err := gorm.G[models.Model](models.DB).Find(c.Request.Context())
 	if err != nil {
@@ -39,4 +32,18 @@ func ModelsHandler(c *gin.Context) {
 		Object: "list",
 		Data:   models,
 	})
+}
+
+func ChatCompletionsHandler(c *gin.Context) {
+	if err := service.BalanceChat(c, "openai", service.BeforerOpenAI, service.ProcesserOpenAI); err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+}
+
+func Messages(c *gin.Context) {
+	if err := service.BalanceChat(c, "anthropic", service.BeforerAnthropic, service.ProcesserAnthropic); err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
 }

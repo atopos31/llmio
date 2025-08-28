@@ -4,7 +4,7 @@ LLMIO 是一个基于 Go 的服务，提供统一的 API 来与各种大语言�
 
 ## 功能特性
 
-- **统一 API 访问**：通过单一 API 接入多种 LLM 提供商（如 OpenAI）
+- **统一 API 访问**：通过单一 API 接入多种 LLM 提供商（如 OpenAI、Anthropic）
 - **智能负载均衡**：支持带权重的随机选择和基于工具调用/结构化输出/成功率/响应时间的智能路由
 - **流式和非流式响应**：同时支持流式和标准响应模式
 - **速率限制处理**：自动处理提供商的速率限制
@@ -48,8 +48,8 @@ docker compose up -d
 
 ### 先决条件
 
-- Go 1.25+
-- Node.js 22+ (用于构建 Web UI)
+- Go 1.25.0+
+- Node.js 20+ (用于构建 Web UI)
 
 ### 安装
 
@@ -77,6 +77,8 @@ docker compose up -d
    npm run build
    cd ..
    ```
+   
+   前端使用 React 19 + TypeScript + Vite + Tailwind CSS 构建，支持现代化的响应式设计。
 
 ### 配置
 
@@ -87,14 +89,23 @@ docker compose up -d
 - `TOKEN`: API 访问令牌（可选，但推荐设置）
 - `TZ`: 时区设置（可选，默认为 UTC）
 
-#### OpenAI 提供商配置示例：
+#### 提供商配置示例：
+
+**OpenAI 提供商：**
 - 名称: openai
 - 类型: openai
 - 配置: `{"base_url": "https://api.openai.com/v1", "api_key": "your-api-key"}`
 
+**Anthropic 提供商：**
+- 名称: anthropic
+- 类型: anthropic
+- 配置: `{"base_url": "https://api.anthropic.com", "api_key": "your-api-key", "version": "2023-06-01"}`
+
 #### 模型配置示例：
 - 名称: gpt-3.5-turbo
 - 备注: OpenAI 的 GPT-3.5 Turbo 模型
+- 名称: claude-3-haiku-20240307
+- 备注: Anthropic 的 Claude 3 Haiku 模型
 
 ### 运行服务
 
@@ -141,6 +152,26 @@ POST `/v1/chat/completions`
 }
 ```
 
+### Anthropic Messages
+
+POST `/v1/messages`
+
+请求体遵循 Anthropic Messages API 格式，用于与 Claude 模型交互。
+
+示例：
+```json
+{
+  "model": "claude-3-haiku-20240307",
+  "max_tokens": 1024,
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello!"
+    }
+  ]
+}
+```
+
 ### 模型列表
 
 GET `/v1/models`
@@ -177,11 +208,12 @@ GET `/v1/models`
 - **main.go**: 应用程序入口点
 - **handler/**: API 端点的 HTTP 处理器
 - **service/**: 聊天补全和负载均衡的业务逻辑
-- **providers/**: 不同 LLM 提供商的实现
+- **providers/**: 不同 LLM 提供商的实现（OpenAI、Anthropic）
 - **models/**: 数据库模型和初始化
 - **balancer/**: 负载均衡算法
 - **common/**: 通用工具和响应助手
-- **webui/**: 前端管理界面（React + TypeScript + Vite）
+- **webui/**: 前端管理界面（React 19 + TypeScript + Vite + Tailwind CSS）
+- **middleware/**: 中间件（身份验证等）
 
 ## 开发
 

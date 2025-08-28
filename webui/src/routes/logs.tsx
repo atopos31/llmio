@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
- TableCell,
+  TableCell,
   TableHead,
   TableHeader,
   TableRow
@@ -153,7 +153,7 @@ export default function LogsPage() {
           {/* 筛选区域 */}
           <div className="flex flex-col sm:flex-row gap-4 mb-6 justify-between">
             <div className="flex flex-col sm:flex-row gap-4">
-                            <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2">
                 <Label htmlFor="model-filter" className="whitespace-nowrap">模型名称</Label>
                 <Select value={modelFilter} onValueChange={setModelFilter}>
                   <SelectTrigger className="w-full sm:w-[180px]">
@@ -217,6 +217,7 @@ export default function LogsPage() {
                     <TableHead>Tokens</TableHead>
                     <TableHead>耗时</TableHead>
                     <TableHead>提供商模型</TableHead>
+                    <TableHead>类型</TableHead>
                     <TableHead>提供商名称</TableHead>
                     <TableHead>操作</TableHead>
                   </TableRow>
@@ -234,6 +235,7 @@ export default function LogsPage() {
                       <TableCell>{log.total_tokens}</TableCell>
                       <TableCell><div className="col-span-3">{formatTime(log.ChunkTime)}</div></TableCell>
                       <TableCell>{log.ProviderModel}</TableCell>
+                      <TableCell>{log.Style}</TableCell>
                       <TableCell>{log.ProviderName}</TableCell>
                       <TableCell>
                         <Button variant="outline" size="sm" onClick={() => openDetailDialog(log)}>
@@ -270,12 +272,6 @@ export default function LogsPage() {
                     </div>
                     <div className="text-gray-500">Tokens:</div>
                     <div>{log.total_tokens}</div>
-                    <div className="text-gray-500">耗时:</div>
-                    <div>{formatTime(log.ChunkTime)}</div>
-                    <div className="text-gray-500">提供商:</div>
-                    <div>{log.ProviderName}</div>
-                    <div className="text-gray-500">模型:</div>
-                    <div>{log.ProviderModel}</div>
                   </div>
                 </div>
               ))}
@@ -343,6 +339,10 @@ export default function LogsPage() {
                   <div className="col-span-3">{selectedLog.ProviderName}</div>
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
+                  <Label className="text-right">类型:</Label>
+                  <div className="col-span-3">{selectedLog.Style}</div>
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
                   <Label className="text-right">状态:</Label>
                   <div className="col-span-3">
                     <span className={selectedLog.Status === 'success' ? 'text-green-600' : 'text-red-600'}>
@@ -355,8 +355,8 @@ export default function LogsPage() {
                     <Label className="text-right pt-1">错误信息:</Label>
                     <div className="col-span-3 text-red-600 whitespace-pre-wrap break-words max-h-30 overflow-y-auto">
                       {selectedLog.Error}
+                    </div>
                   </div>
-                </div>
                 )}
                 {selectedLog.Status === 'success' && selectedLog.Retry !== undefined && (
                   <div className="grid grid-cols-4 items-center gap-4">

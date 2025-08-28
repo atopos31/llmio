@@ -268,6 +268,7 @@ export interface ChatLog {
   ProviderModel: string;
   ProviderName: string;
   Status: string;
+  Style: string;
   Error: string;
   Retry: number;
   ProxyTime: number;

@@ -415,6 +415,7 @@ export default function ModelProvidersPage() {
                 <TableRow>
                   <TableHead>ID</TableHead>
                   <TableHead>提供商模型</TableHead>
+                  <TableHead>类型</TableHead>
                   <TableHead>提供商</TableHead>
                   <TableHead>工具调用</TableHead>
                   <TableHead>结构化输出</TableHead>
@@ -429,6 +430,7 @@ export default function ModelProvidersPage() {
                     <TableRow key={association.ID}>
                       <TableCell>{association.ID}</TableCell>
                       <TableCell>{association.ProviderModel}</TableCell>
+                      <TableCell>{provider?.Type}</TableCell>
                       <TableCell>{provider ? provider.Name : '未知'}</TableCell>
                       <TableCell>
                         <span className={association.ToolCall ? "text-green-500" : "text-red-500"}>

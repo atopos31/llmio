@@ -47,10 +47,12 @@ func AuthAnthropic(koken string) gin.HandlerFunc {
 		if authHeader == "" {
 			common.ErrorWithHttpStatus(c, http.StatusUnauthorized, http.StatusUnauthorized, "x-api-key header is missing")
 			c.Abort()
+			return
 		}
 		if authHeader != koken {
 			common.ErrorWithHttpStatus(c, http.StatusUnauthorized, http.StatusUnauthorized, "Invalid token")
 			c.Abort()
+			return
 		}
 	}
 }

@@ -296,6 +296,7 @@ export async function getLogs(
     providerModel?: string;
     providerName?: string;
     status?: string;
+    style?: string;
   } = {}
 ): Promise<LogsResponse> {
   const params = new URLSearchParams();
@@ -306,6 +307,7 @@ export async function getLogs(
   if (filters.providerModel) params.append("provider_model", filters.providerModel);
   if (filters.providerName) params.append("provider_name", filters.providerName);
   if (filters.status) params.append("status", filters.status);
+  if (filters.style) params.append("style", filters.style);
 
   return apiRequest<LogsResponse>(`/logs?${params.toString()}`);
 }

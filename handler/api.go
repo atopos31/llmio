@@ -487,6 +487,7 @@ func GetRequestLogs(c *gin.Context) {
 	providerName := c.Query("provider_name")
 	name := c.Query("name")
 	status := c.Query("status")
+	style := c.Query("style")
 
 	// 构建查询条件
 	query := models.DB.Model(&models.ChatLog{})
@@ -501,6 +502,10 @@ func GetRequestLogs(c *gin.Context) {
 
 	if status != "" {
 		query = query.Where("status = ?", status)
+	}
+
+	if style != "" {
+		query = query.Where("style = ?", style)
 	}
 
 	// 获取总数

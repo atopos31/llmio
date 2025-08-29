@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Loading from "@/components/loading";
-import { getLogs, getProviders, getModels, type ChatLog, type Provider, type Model } from "@/lib/api";
+import { getLogs, getProviders, getModels, type ChatLog, type Provider, type Model, getProviderTemplates } from "@/lib/api";
 
 // 格式化时间显示，自动选择合适的单位
 // 假设后端返回的时间单位是纳秒
@@ -52,16 +52,23 @@ export default function LogsPage() {
   const [providerNameFilter, setProviderNameFilter] = useState<string>("all");
   const [modelFilter, setModelFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [styleFilter, setStyleFilter] = useState<string>("all");
+  const [availableStyles, setAvailableStyles] = useState<string[]>([]);
 
   // 详情弹窗
   const [selectedLog, setSelectedLog] = useState<ChatLog | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-  // 获取提供商列表
+  // 获取提供商列表和Style类型
   const fetchProviders = async () => {
     try {
       const providerList = await getProviders();
       setProviders(providerList);
+      
+      // 从providers/template获取Style类型（provider types）
+      const templates = await getProviderTemplates();
+      const styleTypes = templates.map(template => template.type);
+      setAvailableStyles(styleTypes);
     } catch (error) {
       console.error("Error fetching providers:", error);
     }
@@ -85,11 +92,13 @@ export default function LogsPage() {
       const providerName = providerNameFilter === "all" ? undefined : providerNameFilter;
       const name = modelFilter === "all" ? undefined : modelFilter;
       const status = statusFilter === "all" ? undefined : statusFilter;
+      const style = styleFilter === "all" ? undefined : styleFilter;
 
       const result = await getLogs(page, pageSize, {
         providerName: providerName,
         name: name,
-        status: status
+        status: status,
+        style: style
       });
 
       setLogs(result.data);
@@ -107,7 +116,7 @@ export default function LogsPage() {
     fetchProviders();
     fetchModels();
     fetchLogs();
-  }, [page, pageSize, providerNameFilter, modelFilter, statusFilter]);
+  }, [page, pageSize, providerNameFilter, modelFilter, statusFilter, styleFilter]);
 
   // 处理筛选条件变化
   const handleFilterChange = () => {
@@ -115,7 +124,7 @@ export default function LogsPage() {
   };
   useEffect(() => {
     handleFilterChange();
-  }, [providerNameFilter, modelFilter, statusFilter]);
+  }, [providerNameFilter, modelFilter, statusFilter, styleFilter]);
 
   // 处理分页变化
   const handlePageChange = (newPage: number) => {
@@ -195,6 +204,22 @@ export default function LogsPage() {
                     <SelectItem value="all">全部</SelectItem>
                     <SelectItem value="success">成功</SelectItem>
                     <SelectItem value="error">错误</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="style-filter" className="whitespace-nowrap">类型</Label>
+                <Select value={styleFilter} onValueChange={setStyleFilter}>
+                  <SelectTrigger className="w-full sm:w-[180px]">
+                    <SelectValue placeholder="选择类型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部</SelectItem>
+                    {availableStyles.map((style) => (
+                      <SelectItem key={style} value={style}>
+                        {style}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

@@ -1,4 +1,5 @@
 .openmcp
+.claude
 llmio.db
 llmio
 api.md

@@ -176,6 +176,13 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 				processer(ctx, pr, before.stream, logId, reqStart)
 			}(context.Background())
 			// 转发给客户端
+			if before.stream {
+				c.Header("Content-Type", "text/event-stream")
+				c.Header("Cache-Control", "no-cache")
+			} else {
+				c.Header("Content-Type", "application/json")
+			}
+			c.Writer.Flush()
 			if _, err := io.Copy(c.Writer, tee); err != nil {
 				pw.CloseWithError(err)
 				return err

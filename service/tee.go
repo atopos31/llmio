@@ -33,7 +33,7 @@ func ProcesserOpenAI(ctx context.Context, pr io.ReadCloser, stream bool, logId u
 	var lastchunk string
 
 	scanner := bufio.NewScanner(pr)
-	scanner.Buffer(make([]byte, InitScannerBufferSize), MaxScannerBufferSize)
+	scanner.Buffer(make([]byte, 0, InitScannerBufferSize), MaxScannerBufferSize)
 	for chunk := range ScannerToken(scanner) {
 		once.Do(func() {
 			firstChunkTime = time.Since(start)
@@ -108,7 +108,7 @@ func ProcesserAnthropic(ctx context.Context, pr io.ReadCloser, stream bool, logI
 	var usageStr string
 
 	scanner := bufio.NewScanner(pr)
-	scanner.Buffer(make([]byte, InitScannerBufferSize), MaxScannerBufferSize)
+	scanner.Buffer(make([]byte, 0, InitScannerBufferSize), MaxScannerBufferSize)
 	for chunk := range ScannerToken(scanner) {
 		once.Do(func() {
 			firstChunkTime = time.Since(start)

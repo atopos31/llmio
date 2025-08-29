@@ -17,6 +17,11 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	InitScannerBufferSize = 1024 * 8         // 8KB
+	MaxScannerBufferSize  = 1024 * 1024 * 15 // 15MB
+)
+
 type Processer func(ctx context.Context, pr io.ReadCloser, stream bool, logId uint, start time.Time)
 
 func ProcesserOpenAI(ctx context.Context, pr io.ReadCloser, stream bool, logId uint, start time.Time) {
@@ -27,8 +32,9 @@ func ProcesserOpenAI(ctx context.Context, pr io.ReadCloser, stream bool, logId u
 	var chunkErr error
 	var lastchunk string
 
-	logReader := bufio.NewScanner(pr)
-	for chunk := range ScannerToken(logReader) {
+	scanner := bufio.NewScanner(pr)
+	scanner.Buffer(make([]byte, InitScannerBufferSize), MaxScannerBufferSize)
+	for chunk := range ScannerToken(scanner) {
 		once.Do(func() {
 			firstChunkTime = time.Since(start)
 		})
@@ -49,7 +55,7 @@ func ProcesserOpenAI(ctx context.Context, pr io.ReadCloser, stream bool, logId u
 	// 耗时
 	chunkTime := time.Since(start) - firstChunkTime
 	// reader错误
-	if err := logReader.Err(); err != nil {
+	if err := scanner.Err(); err != nil {
 		chunkErr = err
 	}
 	// token用量
@@ -98,10 +104,12 @@ func ProcesserAnthropic(ctx context.Context, pr io.ReadCloser, stream bool, logI
 	var once sync.Once
 	var chunkErr error
 
-	logReader := bufio.NewScanner(pr)
 	var event string
 	var usageStr string
-	for chunk := range ScannerToken(logReader) {
+
+	scanner := bufio.NewScanner(pr)
+	scanner.Buffer(make([]byte, InitScannerBufferSize), MaxScannerBufferSize)
+	for chunk := range ScannerToken(scanner) {
 		once.Do(func() {
 			firstChunkTime = time.Since(start)
 		})
@@ -138,7 +146,7 @@ func ProcesserAnthropic(ctx context.Context, pr io.ReadCloser, stream bool, logI
 		Tps:            tps,
 		FirstChunkTime: firstChunkTime,
 	}
-	if err := logReader.Err(); err != nil {
+	if err := scanner.Err(); err != nil {
 		chunkErr = err
 	}
 	if chunkErr != nil {

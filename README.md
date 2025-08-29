@@ -99,7 +99,7 @@ docker compose up -d
 **Anthropic 提供商：**
 - 名称: anthropic
 - 类型: anthropic
-- 配置: `{"base_url": "https://api.anthropic.com", "api_key": "your-api-key", "version": "2023-06-01"}`
+- 配置: `{"base_url": "https://api.anthropic.com/v1", "api_key": "your-api-key", "version": "2023-06-01"}`
 
 #### 模型配置示例：
 - 名称: gpt-3.5-turbo

@@ -167,7 +167,7 @@ export default function ModelProvidersPage() {
     if (!selectedModel) return;
 
     const newStatus: Record<number, boolean[]> = {};
-    
+
     // 并行加载所有状态数据
     await Promise.all(
       providers.map(async (provider) => {
@@ -184,7 +184,7 @@ export default function ModelProvidersPage() {
         }
       })
     );
-    
+
     setProviderStatus(newStatus);
   };
 
@@ -268,8 +268,8 @@ export default function ModelProvidersPage() {
       return { error: "测试失败" };
     }
   };
-  
-  
+
+
   const currentControllerRef = useRef<AbortController | null>(null);
   const handleReactTest = async (id: number) => {
     setReactTestResult(prev => ({
@@ -475,16 +475,15 @@ export default function ModelProvidersPage() {
                       </TableCell>
                       <TableCell>{association.Weight}</TableCell>
                       <TableCell>
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-4">
                           {providerStatus[association.ID] ? (
                             providerStatus[association.ID].length > 0 ? (
-                              <div className="flex space-x-0.5 items-end h-5">
+                              <div className="flex space-x-1 items-end h-6">
                                 {providerStatus[association.ID].map((isSuccess, index) => (
                                   <div
                                     key={index}
-                                    className={`w-1.5 h-5 rounded-sm ${
-                                      isSuccess ? 'bg-green-500' : 'bg-red-500'
-                                    }`}
+                                    className={`w-1 h-6  ${isSuccess ? 'bg-green-500' : 'bg-red-500'
+                                      }`}
                                     title={isSuccess ? '成功' : '失败'}
                                   />
                                 ))}
@@ -568,15 +567,14 @@ export default function ModelProvidersPage() {
                       <p className="text-sm text-gray-500">权重: {association.Weight}</p>
                       <div className="text-sm text-gray-500 flex items-center gap-2">
                         <span>状态:</span>
-                        <div className="flex space-x-0.5 items-end h-4">
+                        <div className="flex space-x-1 items-end h-4">
                           {providerStatus[association.ID] ? (
                             providerStatus[association.ID].length > 0 ? (
                               providerStatus[association.ID].map((isSuccess, index) => (
                                 <div
                                   key={index}
-                                  className={`w-1 h-4 rounded-sm ${
-                                    isSuccess ? 'bg-green-500' : 'bg-red-500'
-                                  }`}
+                                  className={`w-0.75 h-4  ${isSuccess ? 'bg-green-500' : 'bg-red-500'
+                                    }`}
                                   title={isSuccess ? '成功' : '失败'}
                                 />
                               ))

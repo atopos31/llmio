@@ -2,6 +2,7 @@ package handler
 
 import (
 	"log/slog"
+	"slices"
 	"strconv"
 
 	"github.com/atopos31/llmio/common"
@@ -355,6 +356,51 @@ func GetModelProviders(c *gin.Context) {
 	}
 
 	common.Success(c, modelProviders)
+}
+
+// GetModelProviderStatus 获取提供商状态信息
+func GetModelProviderStatus(c *gin.Context) {
+	providerIDStr := c.Query("provider_id")
+	modelName := c.Query("model_name")
+	providerModel := c.Query("provider_model")
+
+	if providerIDStr == "" || modelName == "" || providerModel == "" {
+		common.BadRequest(c, "provider_id, model_name and provider_model query parameters are required")
+		return
+	}
+
+	providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
+	if err != nil {
+		common.BadRequest(c, "Invalid provider_id format")
+		return
+	}
+
+	// 获取提供商信息
+	provider, err := gorm.G[models.Provider](models.DB).Where("id = ?", providerID).First(c.Request.Context())
+	if err != nil {
+		common.InternalServerError(c, "Failed to retrieve provider: "+err.Error())
+		return
+	}
+
+	// 获取最近10次请求状态
+	logs, err := gorm.G[models.ChatLog](models.DB).
+		Where("provider_name = ?", provider.Name).
+		Where("provider_model = ?", providerModel).
+		Where("name = ?", modelName).
+		Limit(10).
+		Order("created_at DESC").
+		Find(c.Request.Context())
+	if err != nil {
+		common.InternalServerError(c, "Failed to retrieve chat log: "+err.Error())
+		return
+	}
+
+	var status []bool
+	for _, log := range logs {
+		status = append(status, log.Status == "success")
+	}
+	slices.Reverse(status)
+	common.Success(c, status)
 }
 
 // CreateModelProvider 创建模型提供商关联

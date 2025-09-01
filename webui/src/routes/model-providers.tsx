@@ -45,6 +45,7 @@ import {
 import Loading from "@/components/loading";
 import {
   getModelProviders,
+  getModelProviderStatus,
   createModelProvider,
   updateModelProvider,
   deleteModelProvider,
@@ -70,6 +71,7 @@ export default function ModelProvidersPage() {
   const [modelProviders, setModelProviders] = useState<ModelWithProvider[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [providerStatus, setProviderStatus] = useState<Record<number, boolean[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -150,12 +152,40 @@ export default function ModelProvidersPage() {
       setLoading(true);
       const data = await getModelProviders(modelId);
       setModelProviders(data);
+      // 异步加载状态数据
+      loadProviderStatus(data, modelId);
     } catch (err) {
       setError("获取模型提供商关联列表失败");
       console.error(err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadProviderStatus = async (providers: ModelWithProvider[], modelId: number) => {
+    const selectedModel = models.find(m => m.ID === modelId);
+    if (!selectedModel) return;
+
+    const newStatus: Record<number, boolean[]> = {};
+    
+    // 并行加载所有状态数据
+    await Promise.all(
+      providers.map(async (provider) => {
+        try {
+          const status = await getModelProviderStatus(
+            provider.ProviderID,
+            selectedModel.Name,
+            provider.ProviderModel
+          );
+          newStatus[provider.ID] = status;
+        } catch (error) {
+          console.error(`Failed to load status for provider ${provider.ID}:`, error);
+          newStatus[provider.ID] = [];
+        }
+      })
+    );
+    
+    setProviderStatus(newStatus);
   };
 
   const handleCreate = async (values: z.infer<typeof formSchema>) => {
@@ -420,6 +450,7 @@ export default function ModelProvidersPage() {
                   <TableHead>工具调用</TableHead>
                   <TableHead>结构化输出</TableHead>
                   <TableHead>权重</TableHead>
+                  <TableHead>状态</TableHead>
                   <TableHead className="text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
@@ -443,6 +474,29 @@ export default function ModelProvidersPage() {
                         </span>
                       </TableCell>
                       <TableCell>{association.Weight}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center space-x-2">
+                          {providerStatus[association.ID] ? (
+                            providerStatus[association.ID].length > 0 ? (
+                              <div className="flex space-x-0.5 items-end h-5">
+                                {providerStatus[association.ID].map((isSuccess, index) => (
+                                  <div
+                                    key={index}
+                                    className={`w-1.5 h-5 rounded-sm ${
+                                      isSuccess ? 'bg-green-500' : 'bg-red-500'
+                                    }`}
+                                    title={isSuccess ? '成功' : '失败'}
+                                  />
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-xs text-gray-400">无数据</div>
+                            )
+                          ) : (
+                            <div className="text-xs text-gray-400">加载中...</div>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="space-x-2 text-right">
                         <Button
                           variant="outline"
@@ -512,6 +566,28 @@ export default function ModelProvidersPage() {
                         </span>
                       </p>
                       <p className="text-sm text-gray-500">权重: {association.Weight}</p>
+                      <div className="text-sm text-gray-500 flex items-center gap-2">
+                        <span>状态:</span>
+                        <div className="flex space-x-0.5 items-end h-4">
+                          {providerStatus[association.ID] ? (
+                            providerStatus[association.ID].length > 0 ? (
+                              providerStatus[association.ID].map((isSuccess, index) => (
+                                <div
+                                  key={index}
+                                  className={`w-1 h-4 rounded-sm ${
+                                    isSuccess ? 'bg-green-500' : 'bg-red-500'
+                                  }`}
+                                  title={isSuccess ? '成功' : '失败'}
+                                />
+                              ))
+                            ) : (
+                              <span className="text-xs">无数据</span>
+                            )
+                          ) : (
+                            <span className="text-xs">加载中...</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                     <div className="flex flex-col space-y-2">
                       <Button

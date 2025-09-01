@@ -60,6 +60,7 @@ func main() {
 
 	// Model-provider association management
 	api.GET("/model-providers", handler.GetModelProviders)
+	api.GET("/model-providers/status", handler.GetModelProviderStatus)
 	api.POST("/model-providers", handler.CreateModelProvider)
 	api.PUT("/model-providers/:id", handler.UpdateModelProvider)
 	api.DELETE("/model-providers/:id", handler.DeleteModelProvider)

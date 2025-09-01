@@ -160,6 +160,15 @@ export async function getModelProviders(modelId: number): Promise<ModelWithProvi
   return apiRequest<ModelWithProvider[]>(`/model-providers?model_id=${modelId}`);
 }
 
+export async function getModelProviderStatus(providerId: number, modelName: string, providerModel: string): Promise<boolean[]> {
+  const params = new URLSearchParams({
+    provider_id: providerId.toString(),
+    model_name: modelName,
+    provider_model: providerModel
+  });
+  return apiRequest<boolean[]>(`/model-providers/status?${params.toString()}`);
+}
+
 export async function createModelProvider(association: {
   model_id: number;
   provider_name: string;

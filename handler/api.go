@@ -395,7 +395,7 @@ func GetModelProviderStatus(c *gin.Context) {
 		return
 	}
 
-	var status []bool
+	status := make([]bool, 0)
 	for _, log := range logs {
 		status = append(status, log.Status == "success")
 	}

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"net/http"
 	"slices"
 	"time"
@@ -34,6 +33,7 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 	if err != nil {
 		return err
 	}
+	// 所有模型提供商关联
 	llmproviders := llmProvidersWithLimit.Providers
 
 	slog.Info("request", "model", before.model, "stream", before.stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput)
@@ -42,17 +42,43 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 		return fmt.Errorf("no provider found for models %s", before.model)
 	}
 
+	// 预分配切片容量
+	providerIds := make([]uint, 0, len(llmproviders))
+	for _, modelWithProvider := range llmproviders {
+		providerIds = append(providerIds, modelWithProvider.ProviderID)
+	}
+
+	provideritems, err := gorm.G[models.Provider](models.DB).Where("id IN ?", providerIds).Where("type = ?", style).Find(ctx)
+	if err != nil {
+		return err
+	}
+	if len(provideritems) == 0 {
+		return fmt.Errorf("no %s provider found for %s", style, before.model)
+	}
+
+	// 构建providerID到provider的映射，避免重复查找
+	providerMap := make(map[uint]*models.Provider, len(provideritems))
+	for i := range provideritems {
+		provider := &provideritems[i]
+		providerMap[provider.ID] = provider
+	}
+
 	items := make(map[uint]int)
-	for _, provider := range llmproviders {
+	for _, modelWithProvider := range llmproviders {
 		// 过滤是否开启工具调用
-		if before.toolCall && !*provider.ToolCall {
+		if before.toolCall && !*modelWithProvider.ToolCall {
 			continue
 		}
 		// 过滤是否开启结构化输出
-		if before.structuredOutput && !*provider.StructuredOutput {
+		if before.structuredOutput && !*modelWithProvider.StructuredOutput {
 			continue
 		}
-		items[provider.ProviderID] = provider.Weight
+		provider := providerMap[modelWithProvider.ProviderID]
+		// 过滤提供商类型
+		if provider == nil || provider.Type != style {
+			continue
+		}
+		items[modelWithProvider.ID] = modelWithProvider.Weight
 	}
 
 	if len(items) == 0 {
@@ -70,29 +96,6 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 		}
 	}()
 
-	provideritems, err := gorm.G[models.Provider](models.DB).Where("id IN ?", slices.Collect(maps.Keys(items))).Where("type = ?", style).Find(ctx)
-	if err != nil {
-		return err
-	}
-
-	if len(provideritems) == 0 {
-		return fmt.Errorf("no %s provider found for %s", style, before.model)
-	}
-
-	FirstProvider := func(providerID uint) *models.Provider {
-		for _, provider := range provideritems {
-			if provider.ID == providerID {
-				return &provider
-			}
-		}
-		return nil
-	}
-
-	weightItems := make(map[uint]int, 0)
-	for _, item := range provideritems {
-		weightItems[item.ID] = items[item.ID]
-	}
-
 	for retry := 0; retry < llmProvidersWithLimit.MaxRetry; retry++ {
 		select {
 		case <-ctx.Done():
@@ -101,32 +104,27 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 			return errors.New("retry time out !")
 		default:
 			// 加权负载均衡
-			item, err := balancer.WeightedRandom(weightItems)
+			item, err := balancer.WeightedRandom(items)
 			if err != nil {
 				return err
 			}
-			provider := FirstProvider(*item)
-			if provider == nil {
-				delete(weightItems, *item)
-				continue
-			}
-
-			// 获取对应提供商的原始model名
-			index := slices.IndexFunc(llmproviders, func(mp models.ModelWithProvider) bool {
-				return mp.ProviderID == provider.ID
+			modelWithProviderIndex := slices.IndexFunc(llmproviders, func(mp models.ModelWithProvider) bool {
+				return mp.ID == *item
 			})
-			ProviderModel := llmproviders[index].ProviderModel
+			modelWithProvider := llmproviders[modelWithProviderIndex]
+
+			provider := providerMap[modelWithProvider.ProviderID]
 
 			chatModel, err := providers.New(style, provider.Config)
 			if err != nil {
 				return err
 			}
 
-			slog.Info("using provider", "provider", provider.Name, "model", ProviderModel)
+			slog.Info("using provider", "provider", provider.Name, "model", modelWithProvider.ProviderModel)
 
 			log := models.ChatLog{
 				Name:          before.model,
-				ProviderModel: ProviderModel,
+				ProviderModel: modelWithProvider.ProviderModel,
 				ProviderName:  provider.Name,
 				Status:        "success",
 				Style:         style,
@@ -135,11 +133,11 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 			}
 			reqStart := time.Now()
 			client := providers.GetClient(time.Second * time.Duration(llmProvidersWithLimit.TimeOut) / 3)
-			res, err := chatModel.Chat(ctx, client, ProviderModel, before.raw)
+			res, err := chatModel.Chat(ctx, client, modelWithProvider.ProviderModel, before.raw)
 			if err != nil {
 				retryErrLog <- log.WithError(err)
 				// 请求失败 移除待选
-				delete(weightItems, *item)
+				delete(items, *item)
 				continue
 			}
 
@@ -152,10 +150,10 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 
 				if res.StatusCode == http.StatusTooManyRequests {
 					// 达到RPM限制 降低权重
-					weightItems[*item] -= weightItems[*item] / 3
+					items[*item] -= items[*item] / 3
 				} else {
 					// 非RPM限制 移除待选
-					delete(weightItems, *item)
+					delete(items, *item)
 				}
 				res.Body.Close()
 				continue

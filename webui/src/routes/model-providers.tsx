@@ -64,6 +64,7 @@ const formSchema = z.object({
   provider_id: z.number().positive({ message: "提供商ID必须大于0" }),
   tool_call: z.boolean(),
   structured_output: z.boolean(),
+  image: z.boolean(),
   weight: z.number().positive({ message: "权重必须大于0" }),
 });
 
@@ -107,6 +108,7 @@ export default function ModelProvidersPage() {
       provider_id: 0,
       tool_call: false,
       structured_output: false,
+      image: false,
       weight: 1,
     },
   });
@@ -192,7 +194,7 @@ export default function ModelProvidersPage() {
     try {
       await createModelProvider(values);
       setOpen(false);
-      form.reset({ model_id: selectedModelId || 0, provider_name: "", provider_id: 0, tool_call: false, structured_output: false, weight: 1 });
+      form.reset({ model_id: selectedModelId || 0, provider_name: "", provider_id: 0, tool_call: false, structured_output: false, image: false, weight: 1 });
       if (selectedModelId) {
         fetchModelProviders(selectedModelId);
       }
@@ -377,6 +379,7 @@ export default function ModelProvidersPage() {
       provider_id: association.ProviderID,
       tool_call: association.ToolCall,
       structured_output: association.StructuredOutput,
+      image: association.Image,
       weight: association.Weight,
     });
     setOpen(true);
@@ -390,6 +393,7 @@ export default function ModelProvidersPage() {
       provider_id: 0,
       tool_call: false,
       structured_output: false,
+      image: false,
       weight: 1
     });
     setOpen(true);
@@ -449,6 +453,7 @@ export default function ModelProvidersPage() {
                   <TableHead>提供商</TableHead>
                   <TableHead>工具调用</TableHead>
                   <TableHead>结构化输出</TableHead>
+                  <TableHead>视觉</TableHead>
                   <TableHead>权重</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead className="text-right">操作</TableHead>
@@ -471,6 +476,11 @@ export default function ModelProvidersPage() {
                       <TableCell>
                         <span className={association.StructuredOutput ? "text-green-500" : "text-red-500"}>
                           {association.StructuredOutput ? '✓' : '✗'}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className={association.Image ? "text-green-500" : "text-red-500"}>
+                          {association.Image ? '✓' : '✗'}
                         </span>
                       </TableCell>
                       <TableCell>{association.Weight}</TableCell>
@@ -562,6 +572,12 @@ export default function ModelProvidersPage() {
                         结构化输出:
                         <span className={association.StructuredOutput ? "text-green-500" : "text-red-500"}>
                           {association.StructuredOutput ? '✓' : '✗'}
+                        </span>
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        视觉:
+                        <span className={association.Image ? "text-green-500" : "text-red-500"}>
+                          {association.Image ? '✓' : '✗'}
                         </span>
                       </p>
                       <p className="text-sm text-gray-500">权重: {association.Weight}</p>
@@ -757,6 +773,26 @@ export default function ModelProvidersPage() {
                     <div className="space-y-1 leading-none">
                       <FormLabel>
                         结构化输出
+                      </FormLabel>
+                    </div>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="image"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <div className="space-y-1 leading-none">
+                      <FormLabel>
+                        视觉
                       </FormLabel>
                     </div>
                   </FormItem>

@@ -12,6 +12,7 @@ type before struct {
 	stream           bool
 	toolCall         bool
 	structuredOutput bool
+	image            bool
 	raw              []byte
 }
 
@@ -42,11 +43,28 @@ func BeforerOpenAI(data []byte) (*before, error) {
 	if gjson.GetBytes(data, "response_format").Exists() {
 		structuredOutput = true
 	}
+	var image bool
+	gjson.GetBytes(data, "messages").ForEach(func(_, value gjson.Result) bool {
+		if image {
+			return false
+		}
+		if value.Get("role").String() == "user" {
+			value.Get("content").ForEach(func(_, value gjson.Result) bool {
+				if value.Get("type").String() == "image_url" {
+					image = true
+					return false
+				}
+				return true
+			})
+		}
+		return true
+	})
 	return &before{
 		model:            model,
 		stream:           stream,
 		toolCall:         toolCall,
 		structuredOutput: structuredOutput,
+		image:            image,
 		raw:              data,
 	}, nil
 }
@@ -62,11 +80,28 @@ func BeforerAnthropic(data []byte) (*before, error) {
 	if tools.Exists() && len(tools.Array()) != 0 {
 		toolCall = true
 	}
+	var image bool
+	gjson.GetBytes(data, "messages").ForEach(func(_, value gjson.Result) bool {
+		if image {
+			return false
+		}
+		if value.Get("role").String() == "user" {
+			value.Get("content").ForEach(func(_, value gjson.Result) bool {
+				if value.Get("type").String() == "image" {
+					image = true
+					return false
+				}
+				return true
+			})
+		}
+		return true
+	})
 	return &before{
 		model:            model,
 		stream:           stream,
 		toolCall:         toolCall,
 		structuredOutput: toolCall,
+		image:            image,
 		raw:              data,
 	}, nil
 }

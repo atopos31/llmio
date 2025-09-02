@@ -25,6 +25,7 @@ export interface ModelWithProvider {
   ProviderID: number;
   ToolCall: boolean;
   StructuredOutput: boolean;
+  Image: boolean;
   Weight: number;
 }
 
@@ -175,6 +176,7 @@ export async function createModelProvider(association: {
   provider_id: number;
   tool_call: boolean;
   structured_output: boolean;
+  image: boolean;
   weight: number;
 }): Promise<ModelWithProvider> {
   return apiRequest<ModelWithProvider>('/model-providers', {
@@ -189,6 +191,7 @@ export async function updateModelProvider(id: number, association: {
   provider_id?: number;
   tool_call?: boolean;
   structured_output?: boolean;
+  image?: boolean;
   weight?: number;
 }): Promise<ModelWithProvider> {
   return apiRequest<ModelWithProvider>(`/model-providers/${id}`, {

@@ -35,6 +35,7 @@ type ModelWithProviderRequest struct {
 	ProviderID       uint   `json:"provider_id"`
 	ToolCall         bool   `json:"tool_call"`
 	StructuredOutput bool   `json:"structured_output"`
+	Image            bool   `json:"image"`
 	Weight           int    `json:"weight"`
 }
 
@@ -417,6 +418,7 @@ func CreateModelProvider(c *gin.Context) {
 		ProviderID:       req.ProviderID,
 		ToolCall:         &req.ToolCall,
 		StructuredOutput: &req.StructuredOutput,
+		Image:            &req.Image,
 		Weight:           req.Weight,
 	}
 
@@ -463,6 +465,7 @@ func UpdateModelProvider(c *gin.Context) {
 		ProviderModel:    req.ProviderModel,
 		ToolCall:         &req.ToolCall,
 		StructuredOutput: &req.StructuredOutput,
+		Image:            &req.Image,
 		Weight:           req.Weight,
 	}
 

@@ -33,8 +33,9 @@ type ModelWithProvider struct {
 	ModelID          uint
 	ProviderModel    string
 	ProviderID       uint
-	ToolCall         *bool // 是否接受带有工具调用的请求
-	StructuredOutput *bool // 是否接受带有结构化输出的请求
+	ToolCall         *bool // 能否接受带有工具调用的请求
+	StructuredOutput *bool // 能否接受带有结构化输出的请求
+	Image            *bool // 能否接受带有图片的请求(视觉)
 	Weight           int
 }
 

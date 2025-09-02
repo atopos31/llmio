@@ -36,7 +36,7 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 	// 所有模型提供商关联
 	llmproviders := llmProvidersWithLimit.Providers
 
-	slog.Info("request", "model", before.model, "stream", before.stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput)
+	slog.Info("request", "model", before.model, "stream", before.stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
 
 	if len(llmproviders) == 0 {
 		return fmt.Errorf("no provider found for models %s", before.model)
@@ -66,11 +66,15 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 	items := make(map[uint]int)
 	for _, modelWithProvider := range llmproviders {
 		// 过滤是否开启工具调用
-		if before.toolCall && !*modelWithProvider.ToolCall {
+		if modelWithProvider.ToolCall != nil && before.toolCall && !*modelWithProvider.ToolCall {
 			continue
 		}
 		// 过滤是否开启结构化输出
-		if before.structuredOutput && !*modelWithProvider.StructuredOutput {
+		if modelWithProvider.StructuredOutput != nil && before.structuredOutput && !*modelWithProvider.StructuredOutput {
+			continue
+		}
+		// 过滤是否拥有视觉能力
+		if modelWithProvider.Image != nil && before.image && !*modelWithProvider.Image {
 			continue
 		}
 		provider := providerMap[modelWithProvider.ProviderID]
@@ -82,7 +86,7 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 	}
 
 	if len(items) == 0 {
-		return errors.New("no provider with tool_call or structured_output found for models " + before.model)
+		return errors.New("no provider with tool_call or structured_output or image found for models " + before.model)
 	}
 	// 收集重试过程中的err日志
 	retryErrLog := make(chan models.ChatLog, llmProvidersWithLimit.MaxRetry)

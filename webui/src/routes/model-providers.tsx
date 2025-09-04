@@ -83,6 +83,7 @@ export default function ModelProvidersPage() {
   const [testDialogOpen, setTestDialogOpen] = useState(false);
   const [selectedTestId, setSelectedTestId] = useState<number | null>(null);
   const [testType, setTestType] = useState<"connectivity" | "react">("connectivity");
+  const [selectedProviderType, setSelectedProviderType] = useState<string>("all");
   const [reactTestResult, setReactTestResult] = useState<{
     loading: boolean;
     messages: string;
@@ -409,6 +410,17 @@ export default function ModelProvidersPage() {
     form.setValue("model_id", id);
   };
 
+  // 获取唯一的提供商类型列表
+  const providerTypes = Array.from(new Set(providers.map(p => p.Type).filter(Boolean)));
+
+  // 根据选择的提供商类型过滤模型提供商关联
+  const filteredModelProviders = selectedProviderType && selectedProviderType !== "all"
+    ? modelProviders.filter(association => {
+        const provider = providers.find(p => p.ID === association.ProviderID);
+        return provider?.Type === selectedProviderType;
+      })
+    : modelProviders;
+
 
 
 
@@ -420,6 +432,19 @@ export default function ModelProvidersPage() {
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <h2 className="text-2xl font-bold">模型提供商关联</h2>
         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Select value={selectedProviderType} onValueChange={setSelectedProviderType}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="按类型筛选" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部类型</SelectItem>
+              {providerTypes.map((type) => (
+                <SelectItem key={type} value={type}>
+                  {type}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select value={selectedModelId?.toString() || ""} onValueChange={handleModelChange}>
             <SelectTrigger className="w-full sm:w-64">
               <SelectValue placeholder="选择模型" />
@@ -460,7 +485,7 @@ export default function ModelProvidersPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {modelProviders.map((association) => {
+                {filteredModelProviders.map((association) => {
                   const provider = providers.find(p => p.ID === association.ProviderID);
                   return (
                     <TableRow key={association.ID}>
@@ -552,7 +577,7 @@ export default function ModelProvidersPage() {
 
           {/* 移动端卡片布局 */}
           <div className="sm:hidden space-y-4">
-            {modelProviders.map((association) => {
+            {filteredModelProviders.map((association) => {
               const provider = providers.find(p => p.ID === association.ProviderID);
               return (
                 <div key={association.ID} className="border rounded-lg p-4 space-y-3">

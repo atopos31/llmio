@@ -66,6 +66,7 @@ docker compose up -d
 
 3. 初始化数据库：
    ```bash
+   mkdir db
    go run main.go
    ```
    这将自动创建一个 SQLite 数据库文件（`db/llmio.db`）并初始化数据库结构。

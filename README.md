@@ -220,6 +220,8 @@ GET `/v1/models`
 ### 后端开发
 
 ```bash
+# 创建db目录
+mkdir db
 go run main.go
 ```
 

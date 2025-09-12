@@ -31,7 +31,7 @@ func SuccessRaw(c *gin.Context, data any) {
 // SuccessWithMessage 带消息的成功响应
 func SuccessWithMessage(c *gin.Context, message string, data any) {
 	c.JSON(http.StatusOK, Response{
-		Code:    http.StatusAccepted,
+		Code:    http.StatusOK,
 		Message: message,
 		Data:    data,
 	})

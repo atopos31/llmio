@@ -59,13 +59,13 @@ func ProviderTestHandler(c *gin.Context) {
 	client := providers.GetClient(time.Second * time.Duration(30))
 	res, err := providerInstance.Chat(c.Request.Context(), client, chatModel.Model, []byte(testBody))
 	if err != nil {
-		common.ErrorWithHttpStatus(c, 502, 502, "Failed to connect to provider: "+err.Error())
+		common.ErrorWithHttpStatus(c, http.StatusOK, 502, "Failed to connect to provider: "+err.Error())
 		return
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		common.ErrorWithHttpStatus(c, res.StatusCode, res.StatusCode, "Provider returned non-200 status code: "+strconv.Itoa(res.StatusCode))
+		common.ErrorWithHttpStatus(c, http.StatusOK, res.StatusCode, "Provider returned non-200 status code: "+strconv.Itoa(res.StatusCode))
 		return
 	}
 

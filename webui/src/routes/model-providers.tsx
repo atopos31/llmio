@@ -265,10 +265,10 @@ export default function ModelProvidersPage() {
     } catch (err) {
       setTestResults(prev => ({
         ...prev,
-        [id]: { loading: false, result: { error: "测试失败" } }
+        [id]: { loading: false, result: { error: "测试失败" + err } }
       }));
       console.error(err);
-      return { error: "测试失败" };
+      return { error: "测试失败" + err };
     }
   };
 
@@ -889,7 +889,7 @@ export default function ModelProvidersPage() {
                 </div>
               ) : selectedTestId && testResults[selectedTestId] ? (
                 <div className={`p-4 rounded-md ${testResults[selectedTestId].result?.error ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"}`}>
-                  <p>{testResults[selectedTestId].result?.error ? "测试失败" : "测试成功"}</p>
+                  <p>{testResults[selectedTestId].result?.error ? testResults[selectedTestId].result?.error : "测试成功"}</p>
                   {testResults[selectedTestId].result?.message && (
                     <p className="mt-2">{testResults[selectedTestId].result.message}</p>
                   )}

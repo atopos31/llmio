@@ -19,12 +19,7 @@ import (
 
 func init() {
 	models.Init("./db/llmio.db")
-	location, err := time.LoadLocation(os.Getenv("TZ"))
-	if err != nil {
-		slog.Warn("failed to load timezone, location reset to UTC", "error", err)
-		location = time.UTC
-	}
-	_ = location
+	slog.Info("TZ", "time.Local", time.Local.String())
 }
 
 func main() {

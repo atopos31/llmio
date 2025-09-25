@@ -127,6 +127,7 @@ func TestReactHandler(c *gin.Context) {
 	var pekingCount int
 
 	c.SSEvent("start", fmt.Sprintf("提供商:%s 模型:%s 问题:%s", chatModel.Name, chatModel.Model, question))
+	start := time.Now()
 	for content, err := range agent.RunStream(ctx, openai.ChatCompletionNewParams{
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage(question),
@@ -185,7 +186,7 @@ func TestReactHandler(c *gin.Context) {
 		c.Writer.Flush()
 		return
 	}
-	c.SSEvent("success", "成功通过测试")
+	c.SSEvent("success", fmt.Sprintf("成功通过测试, 耗时: %.2fs", time.Since(start).Seconds()))
 }
 
 func GetWeather(ctx context.Context, call openai.ChatCompletionChunkChoiceDeltaToolCallFunction) (*openai.ChatCompletionToolMessageParamContentUnion, error) {

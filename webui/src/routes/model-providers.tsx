@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -72,6 +73,7 @@ export default function ModelProvidersPage() {
   const [modelProviders, setModelProviders] = useState<ModelWithProvider[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [providerStatus, setProviderStatus] = useState<Record<number, boolean[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +123,38 @@ export default function ModelProvidersPage() {
   }, []);
 
   useEffect(() => {
+    if (models.length === 0) {
+      if (selectedModelId !== null) {
+        setSelectedModelId(null);
+        form.setValue("model_id", 0);
+      }
+      return;
+    }
+
+    const modelIdParam = searchParams.get("modelId");
+    const parsedParam = modelIdParam ? Number(modelIdParam) : NaN;
+
+    if (!Number.isNaN(parsedParam) && models.some(model => model.ID === parsedParam)) {
+      if (selectedModelId !== parsedParam) {
+        setSelectedModelId(parsedParam);
+        form.setValue("model_id", parsedParam);
+      }
+      return;
+    }
+
+    const fallbackId = models[0].ID;
+    if (selectedModelId !== fallbackId) {
+      setSelectedModelId(fallbackId);
+      form.setValue("model_id", fallbackId);
+    }
+    if (modelIdParam !== fallbackId.toString()) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set("modelId", fallbackId.toString());
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [models, searchParams, selectedModelId, form, setSearchParams]);
+
+  useEffect(() => {
     if (selectedModelId) {
       fetchModelProviders(selectedModelId);
     }
@@ -130,10 +164,6 @@ export default function ModelProvidersPage() {
     try {
       const data = await getModels();
       setModels(data);
-      if (data.length > 0 && !selectedModelId) {
-        setSelectedModelId(data[0].ID);
-        form.setValue("model_id", data[0].ID); // 设置默认model_id
-      }
     } catch (err) {
       setError("获取模型列表失败");
       console.error(err);
@@ -407,6 +437,9 @@ export default function ModelProvidersPage() {
   const handleModelChange = (modelId: string) => {
     const id = parseInt(modelId);
     setSelectedModelId(id);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set("modelId", id.toString());
+    setSearchParams(nextParams);
     form.setValue("model_id", id);
   };
 
@@ -945,4 +978,3 @@ export default function ModelProvidersPage() {
     </div>
   );
 }
-

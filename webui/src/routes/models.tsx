@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -58,6 +59,7 @@ const formSchema = z.object({
 });
 
 export default function ModelsPage() {
+  const navigate = useNavigate();
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -185,6 +187,14 @@ export default function ModelsPage() {
                 <TableCell>{model.MaxRetry}</TableCell>
                 <TableCell>{model.TimeOut}</TableCell>
                 <TableCell className="space-x-2">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="bg-blue-600 hover:bg-blue-500 text-white dark:bg-blue-500 dark:hover:bg-blue-400"
+                    onClick={() => navigate(`/model-providers?modelId=${model.ID}`)}
+                  >
+                    关联
+                  </Button>
                   <Button 
                     variant="outline" 
                     size="sm" 
@@ -232,6 +242,14 @@ export default function ModelsPage() {
                 <p className="text-sm text-gray-500">ID: {model.ID}</p>
               </div>
               <div className="flex space-x-2">
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="bg-blue-600 hover:bg-blue-500 text-white dark:bg-blue-500 dark:hover:bg-blue-400"
+                  onClick={() => navigate(`/model-providers?modelId=${model.ID}`)}
+                >
+                  关联
+                </Button>
                 <Button 
                   variant="outline" 
                   size="sm" 

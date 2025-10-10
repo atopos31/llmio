@@ -26,13 +26,13 @@ func main() {
 	router := gin.Default()
 	setwebui(router, "./webui/dist")
 
-	authOpenAi := middleware.Auth(os.Getenv("TOKEN"))
+	authOpenAI := middleware.Auth(os.Getenv("TOKEN"))
 	authAnthropic := middleware.AuthAnthropic(os.Getenv("TOKEN"))
 
 	v1 := router.Group("/v1")
-	v1.GET("/models", authOpenAi, handler.ModelsHandler)
+	v1.GET("/models", authOpenAI, handler.ModelsHandler)
 
-	v1.POST("/chat/completions", authOpenAi, handler.ChatCompletionsHandler)
+	v1.POST("/chat/completions", authOpenAI, handler.ChatCompletionsHandler)
 	v1.POST("/messages", authAnthropic, handler.Messages)
 
 	api := router.Group("/api")

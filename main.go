@@ -33,6 +33,7 @@ func main() {
 	v1.GET("/models", authOpenAI, handler.ModelsHandler)
 
 	v1.POST("/chat/completions", authOpenAI, handler.ChatCompletionsHandler)
+	v1.POST("/responses", authOpenAI, handler.ResponsesHandler)
 	v1.POST("/messages", authAnthropic, handler.Messages)
 
 	api := router.Group("/api")

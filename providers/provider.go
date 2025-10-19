@@ -34,6 +34,13 @@ func New(Type, providerConfig string) (Provider, error) {
 		}
 
 		return &openai, nil
+	case "openai-res":
+		var openaiRes OpenAIRes
+		if err := json.Unmarshal([]byte(providerConfig), &openaiRes); err != nil {
+			return nil, errors.New("invalid openai-res config")
+		}
+
+		return &openaiRes, nil
 	case "anthropic":
 		var anthropic Anthropic
 		if err := json.Unmarshal([]byte(providerConfig), &anthropic); err != nil {

@@ -41,6 +41,13 @@ func ChatCompletionsHandler(c *gin.Context) {
 	}
 }
 
+func ResponsesHandler(c *gin.Context) {
+	if err := service.BalanceChat(c, "openai-res", service.BeforerOpenAIRes, service.ProcesserOpenAiRes); err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+}
+
 func Messages(c *gin.Context) {
 	if err := service.BalanceChat(c, "anthropic", service.BeforerAnthropic, service.ProcesserAnthropic); err != nil {
 		common.InternalServerError(c, err.Error())

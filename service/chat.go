@@ -105,7 +105,7 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(time.Second * time.Duration(llmProvidersWithLimit.TimeOut)):
-			return errors.New("retry time out !")
+			return errors.New("retry time out")
 		default:
 			// 加权负载均衡
 			item, err := balancer.WeightedRandom(items)
@@ -196,7 +196,7 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 		}
 	}
 
-	return errors.New("maximum retry attempts reached !")
+	return errors.New("maximum retry attempts reached")
 }
 
 func SaveChatLog(ctx context.Context, log models.ChatLog) (uint, error) {

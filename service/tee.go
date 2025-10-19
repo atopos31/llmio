@@ -90,12 +90,80 @@ func ProcesserOpenAI(ctx context.Context, pr io.ReadCloser, stream bool, logId u
 	slog.Info("response", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens, "firstChunkTime", firstChunkTime, "chunkTime", chunkTime, "tps", tps)
 }
 
+type OpenAIResUsage struct {
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+	TotalTokens  int64 `json:"total_tokens"`
+}
+
 type AnthropicUsage struct {
 	InputTokens              int64  `json:"input_tokens"`
 	CacheCreationInputTokens int64  `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     int64  `json:"cache_read_input_tokens"`
 	OutputTokens             int64  `json:"output_tokens"`
 	ServiceTier              string `json:"service_tier"`
+}
+
+func ProcesserOpenAiRes(ctx context.Context, pr io.ReadCloser, stream bool, logId uint, start time.Time) {
+	// 首字时延
+	var firstChunkTime time.Duration
+	var once sync.Once
+	var chunkErr error
+
+	var event string
+	var usageStr string
+
+	scanner := bufio.NewScanner(pr)
+	scanner.Buffer(make([]byte, 0, InitScannerBufferSize), MaxScannerBufferSize)
+	for chunk := range ScannerToken(scanner) {
+		once.Do(func() {
+			firstChunkTime = time.Since(start)
+		})
+		if stream {
+			content := strings.TrimPrefix(chunk, "data: ")
+			if event == "response.completed" {
+				usageStr = gjson.Get(content, "response.usage").String()
+			}
+			if after, ok := strings.CutPrefix(chunk, "event: "); ok {
+				event = after
+			}
+		} else {
+			usageStr = gjson.Get(chunk, "usage").String()
+		}
+	}
+	var openAIResUsage OpenAIResUsage
+	json.Unmarshal([]byte(usageStr), &openAIResUsage)
+	totalTokens := openAIResUsage.TotalTokens
+	// 耗时
+	chunkTime := time.Since(start) - firstChunkTime
+	// tps
+	var tps float64
+	if stream {
+		tps = float64(totalTokens) / chunkTime.Seconds()
+	}
+
+	usage := models.Usage{
+		PromptTokens:     openAIResUsage.InputTokens,
+		CompletionTokens: openAIResUsage.OutputTokens,
+		TotalTokens:      totalTokens,
+	}
+
+	log := models.ChatLog{
+		Usage:          usage,
+		ChunkTime:      chunkTime,
+		Tps:            tps,
+		FirstChunkTime: firstChunkTime,
+	}
+	if err := scanner.Err(); err != nil {
+		chunkErr = err
+	}
+	if chunkErr != nil {
+		log = log.WithError(chunkErr)
+	}
+	if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, log); err != nil {
+		slog.Error("update chat log error", "error", err)
+	}
+	slog.Info("response", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens, "firstChunkTime", firstChunkTime, "chunkTime", chunkTime, "tps", tps)
 }
 
 func ProcesserAnthropic(ctx context.Context, pr io.ReadCloser, stream bool, logId uint, start time.Time) {

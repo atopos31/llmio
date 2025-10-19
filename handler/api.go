@@ -322,6 +322,13 @@ var template = []ProviderTemplate{
 		}`,
 	},
 	{
+		Type: "openai-res",
+		Template: `{
+			"base_url": "https://api.openai.com/v1",
+			"api_key": "YOUR_API_KEY"
+		}`,
+	},
+	{
 		Type: "anthropic",
 		Template: `{
 			"base_url": "https://api.anthropic.com/v1",

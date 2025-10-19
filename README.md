@@ -1,38 +1,24 @@
 # LLMIO
 
-LLMIO 是一个基于 Golang 的项目，提供统一的 API 来与各种大语言模型（LLM）进行交互。它支持在不同提供商之间进行智能负载均衡，并高效地处理请求。该服务还提供了一个现代化的 Web UI 界面，方便用户管理和监控系统。
+LLMIO 是一个基于 Go 的多供应商大语言模型网关，提供统一的 REST API、权重调度与现代化管理界面，帮助你在一个服务中整合 OpenAI、Anthropic 等不同模型能力。
 
 ## 功能特性
-
-- **统一 API 访问**：通过单一 API 接入多种 LLM 提供商（如 OpenAI、Anthropic）
-- **智能负载均衡**：支持带权重的随机选择和基于工具调用/结构化输出/多模态/权重/限流的智能路由
-- **流式和非流式响应**：同时支持流式和标准响应模式
-- **速率限制处理**：自动处理提供商的速率限制
-- **使用情况跟踪**：详细的日志记录和使用情况统计
-- **Web 管理界面**：直观的 Web UI 用于管理提供商、模型和监控系统
-- **系统监控**：实时查看请求统计、模型使用情况和请求日志
-- **提供商连通性测试**：内置测试功能验证提供商连接
-
-## 主页
-![](./docs/image1.png)
-
-## 多对一关联
-![](./docs/image.png)
+- **统一 API**：兼容 OpenAI Chat Completions、OpenAI Responses 与 Anthropic Messages 语义，支持流式与非流式响应。
+- **权重调度**：`balancer/` 提供多种调度策略，可按工具调用、结构化输出、多模态能力与权重做智能分发。
+- **可视化管理后台**：Web UI（React + TypeScript + Tailwind + Vite）覆盖提供商、模型、关联、日志与指标。
+- **速率与失败处理**：内建速率限制兜底与提供商连通性检测，保证故障隔离。
+- **本地持久化**：通过 SQLite (`db/llmio.db`) 保存配置和调用记录，开箱即用。
 
 ## 部署
 
 ### Docker
-
-使用提供的 Dockerfile 构建镜像：
-
 ```bash
 docker build -t llmio .
 docker run -p 7070:7070 -e TOKEN=your-token llmio
 ```
 
 ### Docker Compose
-
-```yml
+```yaml
 services:
   llmio:
     image: atopos31/llmio:latest
@@ -45,204 +31,105 @@ services:
       - TOKEN=<YOUR_TOKEN>
       - TZ=Asia/Shanghai
 ```
-
 ```bash
 docker compose up -d
 ```
 
-## 开发
+## 快速开始
 
-### 先决条件
-
-- Go 1.25.0+
-- Node.js 20+ (用于构建 Web UI)
-
-### 安装
-
-1. 克隆仓库：
+1. **克隆项目**
    ```bash
    git clone https://github.com/atopos31/llmio.git
    cd llmio
    ```
-
-2. 安装后端依赖：
+2. **本地快速启动**（推荐）
    ```bash
-   go mod tidy
+   make run
    ```
+   `make run` 会自动执行 `go fmt`、`go mod tidy` 并启动后端服务。首次启动会在 `db/` 目录生成 SQLite 数据库。
+3. **访问入口**
+   - 管理界面：`http://localhost:7070/`
+   - OpenAI 兼容接口：`http://localhost:7070/v1/chat/completions`
+   - Anthropic 兼容接口：`http://localhost:7070/v1/messages`
 
-3. 初始化数据库：
-   ```bash
-   mkdir db
-   go run main.go
-   ```
-   这将自动创建一个 SQLite 数据库文件（`db/llmio.db`）并初始化数据库结构。
+> 提示：如需开启鉴权，设置环境变量 `TOKEN=your-token`，随后在管理端或 API 请求头中加入 `Authorization: Bearer your-token`。
 
-4. 构建前端界面：
-   ```bash
-   cd webui
-   npm install
-   npm run build
-   cd ..
-   ```
-   
-   前端使用 React 19 + TypeScript + Vite + Tailwind CSS 构建，支持现代化的响应式设计。
+## 开发环境准备
 
-### 配置
-
-该服务使用数据库来存储提供商和模型的配置。你可以通过 Web UI 或直接操作数据库来添加提供商和模型。
-
-#### 环境变量
-
-- `TOKEN`: API 访问令牌（可选，但推荐设置）
-- `TZ`: 时区设置（可选，默认为 UTC）
-
-#### 提供商配置示例：
-
-**OpenAI 提供商：**
-- 名称: openai
-- 类型: openai
-- 配置: `{"base_url": "https://api.openai.com/v1", "api_key": "your-api-key"}`
-
-**Anthropic 提供商：**
-- 名称: anthropic
-- 类型: anthropic
-- 配置: `{"base_url": "https://api.anthropic.com/v1", "api_key": "your-api-key", "version": "2023-06-01"}`
-
-#### 模型配置示例：
-- 名称: gpt-3.5-turbo
-- 备注: OpenAI 的 GPT-3.5 Turbo 模型
-- 名称: claude-3-haiku-20240307
-- 备注: Anthropic 的 Claude 3 Haiku 模型
-
-### 运行服务
-
-启动服务：
-```bash
-go run main.go
-```
-
-服务将在 `http://localhost:7070` 可用。
-- API 端点: `http://localhost:7070/v1/`
-- 管理界面: `http://localhost:7070/`
-
-## Web 管理界面
-
-LLMIO 提供了一个现代化的 Web 管理界面，包含以下功能：
-
-1. **系统概览**：实时显示系统指标，如请求次数、Token 使用情况和模型调用统计
-2. **提供商管理**：添加、编辑和删除 LLM 提供商
-3. **模型管理**：管理可用的模型
-4. **模型提供商关联**：关联模型与提供商，并设置权重
-5. **请求日志**：查看详细请求日志，支持筛选和分页
-
-访问 `http://localhost:7070/` 来使用 Web 管理界面。
-
-## API 端点
-
-### 聊天补全
-
-POST `/v1/chat/completions`
-
-请求体遵循 OpenAI 聊天补全 API 格式。
-
-示例：
-```json
-{
-  "model": "gpt-3.5-turbo",
-  "messages": [
-    {
-      "role": "user",
-      "content": "Hello!"
-    }
-  ],
-  "stream": true
-}
-```
-
-### Anthropic Messages
-
-POST `/v1/messages`
-
-请求体遵循 Anthropic Messages API 格式，用于与 Claude 模型交互。
-
-示例：
-```json
-{
-  "model": "claude-3-haiku-20240307",
-  "max_tokens": 1024,
-  "messages": [
-    {
-      "role": "user",
-      "content": "Hello!"
-    }
-  ]
-}
-```
-
-### 模型列表
-
-GET `/v1/models`
-
-返回可用模型的列表。
-
-### 管理 API
-
-所有以下端点都需要在请求头中包含 `Authorization: Bearer YOUR_TOKEN`：
-
-- GET `/api/providers` - 获取所有提供商
-- POST `/api/providers` - 创建提供商
-- PUT `/api/providers/:id` - 更新提供商
-- DELETE `/api/providers/:id` - 删除提供商
-
-- GET `/api/models` - 获取所有模型
-- POST `/api/models` - 创建模型
-- PUT `/api/models/:id` - 更新模型
-- DELETE `/api/models/:id` - 删除模型
-
-- GET `/api/model-providers` - 获取模型提供商关联
-- POST `/api/model-providers` - 创建模型提供商关联
-- PUT `/api/model-providers/:id` - 更新模型提供商关联
-- DELETE `/api/model-providers/:id` - 删除模型提供商关联
-
-- GET `/api/logs` - 获取请求日志
-- GET `/api/metrics/use/:days` - 获取使用指标
-- GET `/api/metrics/counts` - 获取模型计数统计
-
-## 架构
-
-该服务由以下组件构成：
-
-- **main.go**: 应用程序入口点
-- **handler/**: API 端点的 HTTP 处理器
-- **service/**: 聊天补全和负载均衡的业务逻辑
-- **providers/**: 不同 LLM 提供商的实现（OpenAI、Anthropic）
-- **models/**: 数据库模型和初始化
-- **balancer/**: 负载均衡算法
-- **common/**: 通用工具和响应助手
-- **webui/**: 前端管理界面（React 19 + TypeScript + Vite + Tailwind CSS）
-- **middleware/**: 中间件（身份验证等）
-
-## 开发
+### 先决条件
+- Go 1.25+
+- Node.js 20+
+- pnpm 9+（`npm install -g pnpm`）
 
 ### 后端开发
-
 ```bash
-# 创建db目录
-mkdir db
-go run main.go
+go run main.go        # 启动 REST API 与静态资源托管
+go test ./...         # 运行所有 Go 单元测试（提交前务必通过）
 ```
 
 ### 前端开发
-
 ```bash
 cd webui
-npm run dev
+pnpm install          # 安装前端依赖
+pnpm run dev          # 启动 Vite 开发服务器（默认 http://localhost:5173）
+pnpm run build        # 产出静态资源，构建结果托管于 Go 服务
+pnpm run lint         # 执行 ESLint + TypeScript 校验
 ```
 
-## 贡献
+## 配置与数据
 
-欢迎贡献！请提交 issue 或 pull request。
+- **环境变量**
+  - `TOKEN`：可选，开启管理端与管理 API 的 Bearer Token 鉴权。
+  - `TZ`：可选，指定时区（默认 UTC）。
+- **数据库**：SQLite 文件存放于 `db/llmio.db`，模型、提供商、关联与日志均保存在此。
+- **模型与提供商**：可通过 Web UI 配置，也可直接写入数据库。示例：
+  - OpenAI Chat 提供商（`type=openai`）：`{"base_url": "https://api.openai.com/v1", "api_key": "your-api-key"}`
+  - OpenAI Responses 提供商（`type=openai-res`）：`{"base_url": "https://api.openai.com/v1", "api_key": "your-api-key"}`，请求将发送至 `/responses` 端点。
+  - Anthropic 提供商（`type=anthropic`）：`{"base_url": "https://api.anthropic.com/v1", "api_key": "your-api-key", "version": "2023-06-01"}`
+
+## API 概览
+
+- `POST /v1/chat/completions`：兼容 OpenAI Chat Completions，请求体遵循官方格式，支持 `stream`。
+- `POST /v1/messages`：兼容 Anthropic Messages，用于 Claude 调用。
+- `POST /v1/responses`：转发至 `type=openai-res` 的供应商，实现 OpenAI Responses API 适配。
+- `GET /v1/models`：返回可用模型列表。
+- 管理 API 位于 `/api/*`，需要 `Authorization: Bearer <TOKEN>`：
+  - `/api/providers`、`/api/models`、`/api/model-providers` 支持 CRUD。
+  - `/api/logs`、`/api/metrics/use/:days`、`/api/metrics/counts` 提供日志与统计。
+
+## Web 管理界面
+
+管理后台支持系统概览、提供商与模型管理、权重关联、请求日志、连通性测试等。运行后访问 `http://localhost:7070/` 即可使用。
+
+## 目录结构
+
+```
+.
+├─ main.go              # HTTP 服务入口与路由注册
+├─ handler/             # REST 接口层
+├─ service/             # 业务逻辑与负载均衡调用
+├─ middleware/          # 鉴权、速率限制与流式响应中间件
+├─ providers/           # 多模型供应商适配实现
+├─ balancer/            # 权重与调度策略
+├─ models/              # GORM 实体定义与数据库初始化
+├─ common/              # 通用工具与响应辅助方法
+├─ webui/               # React + TypeScript 管理前端
+└─ docs/                # 运维与使用说明
+```
+
+## 截图
+
+![系统主页](./docs/image1.png)
+
+![多对一关联](./docs/image.png)
+
+## 贡献指南
+
+欢迎通过 Issue 或 Pull Request 贡献代码。提交前请确保：
+- `go test ./...`、`pnpm run lint` 通过。
+- 代码经过 `go fmt`，提交信息遵循 Conventional Commits（例如 `feat: ...`、`fix(handler): ...`）。
+- 未包含敏感凭证，可通过环境变量或未纳管的 `.env` 管理。
 
 ## 许可证
 
-该项目基于 MIT 许可证。
+本项目基于 MIT License 发布。

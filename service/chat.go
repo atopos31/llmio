@@ -132,6 +132,7 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 				ProviderName:  provider.Name,
 				Status:        "success",
 				Style:         style,
+				UserAgent:     c.Request.UserAgent(),
 				Retry:         retry,
 				ProxyTime:     time.Since(proxyStart),
 			}

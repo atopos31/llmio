@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Loading from "@/components/loading";
-import { getLogs, getProviders, getModels, type ChatLog, type Provider, type Model, getProviderTemplates } from "@/lib/api";
+import { getLogs, getProviders, getModels, getUserAgents, type ChatLog, type Provider, type Model, getProviderTemplates } from "@/lib/api";
 
 // 格式化时间显示，自动选择合适的单位
 // 假设后端返回的时间单位是纳秒
@@ -47,12 +47,14 @@ export default function LogsPage() {
   const [pages, setPages] = useState(0);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [models, setModels] = useState<Model[]>([]);
+  const [userAgents, setUserAgents] = useState<string[]>([]);
 
   // 筛选条件
   const [providerNameFilter, setProviderNameFilter] = useState<string>("all");
   const [modelFilter, setModelFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [styleFilter, setStyleFilter] = useState<string>("all");
+  const [userAgentFilter, setUserAgentFilter] = useState<string>("all");
   const [availableStyles, setAvailableStyles] = useState<string[]>([]);
 
   // 详情弹窗
@@ -84,6 +86,16 @@ export default function LogsPage() {
     }
   };
 
+  // 获取用户代理列表
+  const fetchUserAgents = async () => {
+    try {
+      const userAgentList = await getUserAgents();
+      setUserAgents(userAgentList);
+    } catch (error) {
+      console.error("Error fetching user agents:", error);
+    }
+  };
+
   // 获取日志数据
   const fetchLogs = async () => {
     setLoading(true);
@@ -93,12 +105,14 @@ export default function LogsPage() {
       const name = modelFilter === "all" ? undefined : modelFilter;
       const status = statusFilter === "all" ? undefined : statusFilter;
       const style = styleFilter === "all" ? undefined : styleFilter;
+      const userAgent = userAgentFilter === "all" ? undefined : userAgentFilter;
 
       const result = await getLogs(page, pageSize, {
         providerName: providerName,
         name: name,
         status: status,
-        style: style
+        style: style,
+        userAgent: userAgent
       });
 
       setLogs(result.data);
@@ -115,8 +129,9 @@ export default function LogsPage() {
   useEffect(() => {
     fetchProviders();
     fetchModels();
+    fetchUserAgents();
     fetchLogs();
-  }, [page, pageSize, providerNameFilter, modelFilter, statusFilter, styleFilter]);
+  }, [page, pageSize, providerNameFilter, modelFilter, statusFilter, styleFilter, userAgentFilter]);
 
   // 处理筛选条件变化
   const handleFilterChange = () => {
@@ -124,7 +139,7 @@ export default function LogsPage() {
   };
   useEffect(() => {
     handleFilterChange();
-  }, [providerNameFilter, modelFilter, statusFilter, styleFilter]);
+  }, [providerNameFilter, modelFilter, statusFilter, styleFilter, userAgentFilter]);
 
   // 处理分页变化
   const handlePageChange = (newPage: number) => {
@@ -223,6 +238,24 @@ export default function LogsPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="user-agent-filter" className="whitespace-nowrap">用户代理</Label>
+                <Select value={userAgentFilter} onValueChange={setUserAgentFilter}>
+                  <SelectTrigger className="w-full sm:w-[180px]">
+                    <SelectValue placeholder="选择用户代理" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部</SelectItem>
+                    {userAgents.map((userAgent) => (
+                      <SelectItem key={userAgent} value={userAgent}>
+                        <span className="truncate max-w-[140px] block" title={userAgent}>
+                          {userAgent.length > 20 ? `${userAgent.substring(0, 20)}...` : userAgent}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
 
@@ -244,6 +277,7 @@ export default function LogsPage() {
                     <TableHead>提供商模型</TableHead>
                     <TableHead>类型</TableHead>
                     <TableHead>提供商名称</TableHead>
+                    <TableHead>用户代理</TableHead>
                     <TableHead>操作</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -262,6 +296,9 @@ export default function LogsPage() {
                       <TableCell>{log.ProviderModel}</TableCell>
                       <TableCell>{log.Style}</TableCell>
                       <TableCell>{log.ProviderName}</TableCell>
+                      <TableCell className="max-w-[200px] truncate" title={log.UserAgent}>
+                        {log.UserAgent || '-'}
+                      </TableCell>
                       <TableCell>
                         <Button variant="outline" size="sm" onClick={() => openDetailDialog(log)}>
                           详情
@@ -297,6 +334,10 @@ export default function LogsPage() {
                     </div>
                     <div className="text-gray-500">Tokens:</div>
                     <div>{log.total_tokens}</div>
+                    <div className="text-gray-500">用户代理:</div>
+                    <div className="truncate" title={log.UserAgent}>
+                      {log.UserAgent || '-'}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -366,6 +407,10 @@ export default function LogsPage() {
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label className="text-right">类型:</Label>
                   <div className="col-span-3">{selectedLog.Style}</div>
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label className="text-right">用户代理:</Label>
+                  <div className="col-span-3 break-all">{selectedLog.UserAgent || '-'}</div>
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label className="text-right">状态:</Label>

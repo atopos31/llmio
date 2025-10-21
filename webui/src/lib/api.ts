@@ -284,6 +284,7 @@ export interface ChatLog {
   ProviderName: string;
   Status: string;
   Style: string;
+  UserAgent: string;
   Error: string;
   Retry: number;
   ProxyTime: number;
@@ -303,6 +304,10 @@ export interface LogsResponse {
   pages: number;
 }
 
+export async function getUserAgents(): Promise<string[]> {
+  return apiRequest<string[]>('/user-agents');
+}
+
 export async function getLogs(
   page: number = 1,
   pageSize: number = 20,
@@ -312,6 +317,7 @@ export async function getLogs(
     providerName?: string;
     status?: string;
     style?: string;
+    userAgent?: string;
   } = {}
 ): Promise<LogsResponse> {
   const params = new URLSearchParams();
@@ -323,6 +329,7 @@ export async function getLogs(
   if (filters.providerName) params.append("provider_name", filters.providerName);
   if (filters.status) params.append("status", filters.status);
   if (filters.style) params.append("style", filters.style);
+  if (filters.userAgent) params.append("user_agent", filters.userAgent);
 
   return apiRequest<LogsResponse>(`/logs?${params.toString()}`);
 }

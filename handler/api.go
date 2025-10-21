@@ -544,6 +544,7 @@ func GetRequestLogs(c *gin.Context) {
 	name := c.Query("name")
 	status := c.Query("status")
 	style := c.Query("style")
+	userAgent := c.Query("user_agent")
 
 	// 构建查询条件
 	query := models.DB.Model(&models.ChatLog{})
@@ -564,6 +565,10 @@ func GetRequestLogs(c *gin.Context) {
 		query = query.Where("style = ?", style)
 	}
 
+	if userAgent != "" {
+		query = query.Where("user_agent = ?", userAgent)
+	}
+
 	// 获取总数
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -579,7 +584,7 @@ func GetRequestLogs(c *gin.Context) {
 		return
 	}
 
-	result := map[string]interface{}{
+	result := map[string]any{
 		"data":      logs,
 		"total":     total,
 		"page":      page,
@@ -620,4 +625,21 @@ func UpdateSystemConfig(c *gin.Context) {
 	}
 
 	common.Success(c, config)
+}
+
+// GetUserAgents 获取所有不重复的用户代理种类
+func GetUserAgents(c *gin.Context) {
+	var userAgents []string
+
+	// 查询所有不重复的非空用户代理
+	if err := models.DB.Model(&models.ChatLog{}).
+		Where("user_agent IS NOT NULL AND user_agent != ''").
+		Distinct("user_agent").
+		Pluck("user_agent", &userAgents).
+		Error; err != nil {
+		common.InternalServerError(c, "Failed to query user agents: "+err.Error())
+		return
+	}
+
+	common.Success(c, userAgents)
 }

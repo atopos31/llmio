@@ -63,6 +63,7 @@ func main() {
 
 	// System status and monitoring
 	api.GET("/logs", handler.GetRequestLogs)
+	api.GET("/user-agents", handler.GetUserAgents)
 
 	// System configuration
 	api.GET("/config", handler.GetSystemConfig)

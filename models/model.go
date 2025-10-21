@@ -46,6 +46,7 @@ type ChatLog struct {
 	ProviderName  string
 	Status        string // error or success
 	Style         string // 类型
+	UserAgent     string // 用户代理
 
 	Error          string        // if status is error, this field will be set
 	Retry          int           // 重试次数

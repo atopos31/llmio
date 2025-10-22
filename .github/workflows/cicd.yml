@@ -51,7 +51,7 @@ jobs:
   deploy:
     needs: build-image
     runs-on: ubuntu-latest
-    if: github.repository == 'apopos31/llmio'
+    if: github.repository == 'atopos31/llmio'
     steps:
       - name: Checkout code
         uses: actions/checkout@v3

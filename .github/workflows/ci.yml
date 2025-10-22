@@ -1,29 +1,27 @@
-name: ci build and push docker image
+name: build and push docker image, deploy to k8s.
 
 on:
   push:
     tags:
       - 'v*.*.*'
-
-# 1. 设置动态的镜像名称
 env:
-  # 自动构建镜像名称，格式为：<dockerhub-username>/<repo-name>
-  # 例如：'my-docker-user/my-awesome-app'
+  # 构建镜像名称 apopos31/llmio
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  docker:
+  build-image:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. 动态生成 Docker 标签 (version 和 latest)
+      # 生成 docker 标签 (version 和 latest)
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }} # 使用我们动态生成的镜像名
+          images: ${{ env.IMAGE_NAME }}
+          # 根据 git tag 生成对应 x.y.z 和 latest
           tags: |
             type=semver,pattern={{version}}
             type=raw,value=latest
@@ -40,9 +38,8 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # 3. 构建并推送最终镜像 (使用 meta 步骤生成的动态标签)
+      # 构建并推送最终镜像
       - name: Build and push final image
-        if: success() # 确保测试通过后才执行
         uses: docker/build-push-action@v6
         with:
           context: .

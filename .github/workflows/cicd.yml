@@ -1,6 +1,7 @@
 name: build and push docker image, deploy to k8s.
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*.*.*'
@@ -47,4 +48,15 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
+  deploy:
+    needs: build-image
+    runs-on: ubuntu-latest
+    if: github.repository == 'apopos31/llmio'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - uses: actions-hub/kubectl@master
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        with:
+          args: rollout restart deployment llmio

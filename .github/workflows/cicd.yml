@@ -6,7 +6,7 @@ on:
     tags:
       - 'v*.*.*'
 env:
-  # 构建镜像名称 apopos31/llmio
+  # 构建镜像名称 atopos31/llmio
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:

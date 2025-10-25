@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense, lazy } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Loading from "@/components/loading";
@@ -9,8 +9,10 @@ import {
   getModelCounts
 } from "@/lib/api";
 import type { MetricsData, ModelCount } from "@/lib/api";
-import { ChartPieDonutText } from "@/components/charts/pie-chart";
-import { ModelRankingChart } from "@/components/charts/bar-chart";
+
+// 懒加载图表组件
+const ChartPieDonutText = lazy(() => import("@/components/charts/pie-chart").then(module => ({ default: module.ChartPieDonutText })));
+const ModelRankingChart = lazy(() => import("@/components/charts/bar-chart").then(module => ({ default: module.ModelRankingChart })));
 
 // Animated counter component
 const AnimatedCounter = ({ value, duration = 1000 }: { value: number; duration?: number }) => {
@@ -151,7 +153,11 @@ export default function Home() {
             </Button>
           </div>
           <div className="mt-4">
-            {activeChart === "distribution" ? <ChartPieDonutText data={modelCounts} /> : <ModelRankingChart data={modelCounts} />}
+            <Suspense fallback={<div className="h-64 flex items-center justify-center">
+              <Loading message="加载图表..." />
+            </div>}>
+              {activeChart === "distribution" ? <ChartPieDonutText data={modelCounts} /> : <ModelRankingChart data={modelCounts} />}
+            </Suspense>
           </div>
         </CardContent>
       </Card>

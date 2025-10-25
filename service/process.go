@@ -7,14 +7,12 @@ import (
 	"errors"
 	"io"
 	"iter"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/atopos31/llmio/models"
 	"github.com/tidwall/gjson"
-	"gorm.io/gorm"
 )
 
 const (
@@ -22,9 +20,9 @@ const (
 	MaxScannerBufferSize  = 1024 * 1024 * 15 // 15MB
 )
 
-type Processer func(ctx context.Context, pr io.ReadCloser, stream bool, logId uint, start time.Time)
+type Processer func(ctx context.Context, pr io.Reader, stream bool, logId uint, start time.Time) (*models.ChatLog, error)
 
-func ProcesserOpenAI(ctx context.Context, pr io.ReadCloser, stream bool, logId uint, start time.Time) {
+func ProcesserOpenAI(ctx context.Context, pr io.Reader, stream bool, logId uint, start time.Time) (*models.ChatLog, error) {
 	// 首字时延
 	var firstChunkTime time.Duration
 	var once sync.Once
@@ -61,10 +59,9 @@ func ProcesserOpenAI(ctx context.Context, pr io.ReadCloser, stream bool, logId u
 	// token用量
 	var usage models.Usage
 	usageStr := gjson.Get(lastchunk, "usage")
-	slog.Info("usage", "usage", usageStr.String())
 	if usageStr.Exists() && usageStr.Get("total_tokens").Int() != 0 {
 		if err := json.Unmarshal([]byte(usageStr.Raw), &usage); err != nil {
-			slog.Error("unmarshal usage error, raw:" + usageStr.Raw)
+			return nil, err
 		}
 	}
 
@@ -84,10 +81,7 @@ func ProcesserOpenAI(ctx context.Context, pr io.ReadCloser, stream bool, logId u
 		log = log.WithError(chunkErr)
 	}
 
-	if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, log); err != nil {
-		slog.Error("update chat log error", "error", err)
-	}
-	slog.Info("response", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens, "firstChunkTime", firstChunkTime, "chunkTime", chunkTime, "tps", tps)
+	return &log, nil
 }
 
 type OpenAIResUsage struct {
@@ -104,7 +98,7 @@ type AnthropicUsage struct {
 	ServiceTier              string `json:"service_tier"`
 }
 
-func ProcesserOpenAiRes(ctx context.Context, pr io.ReadCloser, stream bool, logId uint, start time.Time) {
+func ProcesserOpenAiRes(ctx context.Context, pr io.Reader, stream bool, logId uint, start time.Time) (*models.ChatLog, error) {
 	// 首字时延
 	var firstChunkTime time.Duration
 	var once sync.Once
@@ -132,7 +126,9 @@ func ProcesserOpenAiRes(ctx context.Context, pr io.ReadCloser, stream bool, logI
 		}
 	}
 	var openAIResUsage OpenAIResUsage
-	json.Unmarshal([]byte(usageStr), &openAIResUsage)
+	if err := json.Unmarshal([]byte(usageStr), &openAIResUsage); err != nil {
+		return nil, err
+	}
 	totalTokens := openAIResUsage.TotalTokens
 	// 耗时
 	chunkTime := time.Since(start) - firstChunkTime
@@ -160,13 +156,10 @@ func ProcesserOpenAiRes(ctx context.Context, pr io.ReadCloser, stream bool, logI
 	if chunkErr != nil {
 		log = log.WithError(chunkErr)
 	}
-	if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, log); err != nil {
-		slog.Error("update chat log error", "error", err)
-	}
-	slog.Info("response", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens, "firstChunkTime", firstChunkTime, "chunkTime", chunkTime, "tps", tps)
+	return &log, nil
 }
 
-func ProcesserAnthropic(ctx context.Context, pr io.ReadCloser, stream bool, logId uint, start time.Time) {
+func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, logId uint, start time.Time) (*models.ChatLog, error) {
 	// 首字时延
 	var firstChunkTime time.Duration
 	var once sync.Once
@@ -192,7 +185,9 @@ func ProcesserAnthropic(ctx context.Context, pr io.ReadCloser, stream bool, logI
 		}
 	}
 	var athropicUsage AnthropicUsage
-	json.Unmarshal([]byte(usageStr), &athropicUsage)
+	if err := json.Unmarshal([]byte(usageStr), &athropicUsage); err != nil {
+		return nil, err
+	}
 	totalTokens := athropicUsage.InputTokens + athropicUsage.OutputTokens
 	// 耗时
 	chunkTime := time.Since(start) - firstChunkTime
@@ -220,10 +215,7 @@ func ProcesserAnthropic(ctx context.Context, pr io.ReadCloser, stream bool, logI
 	if chunkErr != nil {
 		log = log.WithError(chunkErr)
 	}
-	if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, log); err != nil {
-		slog.Error("update chat log error", "error", err)
-	}
-	slog.Info("response", "input", usage.PromptTokens, "output", usage.CompletionTokens, "total", usage.TotalTokens, "firstChunkTime", firstChunkTime, "chunkTime", chunkTime, "tps", tps)
+	return &log, nil
 }
 
 func ScannerToken(reader *bufio.Scanner) iter.Seq[string] {

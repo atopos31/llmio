@@ -17,14 +17,14 @@ import (
 	"gorm.io/gorm"
 )
 
-func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Processer) error {
+func BalanceChat(c *gin.Context, style string, beforer Beforer, processer Processer) error {
 	proxyStart := time.Now()
 	rawData, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		return err
 	}
 	ctx := c.Request.Context()
-	before, err := Beforer(rawData)
+	before, err := beforer(rawData)
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,16 @@ func BalanceChat(c *gin.Context, style string, Beforer Beforer, processer Proces
 			// 与客户端并行处理响应数据流 同时记录日志
 			go func(ctx context.Context) {
 				defer pr.Close()
-				processer(ctx, pr, before.stream, logId, reqStart)
+				log, err := processer(ctx, pr, before.stream, logId, reqStart)
+				if err != nil {
+					slog.Error("processer error", "error", err)
+					return
+				}
+				if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, *log); err != nil {
+					slog.Error("update chat log error", "error", err)
+					return
+				}
+				slog.Info("response", "input", log.PromptTokens, "output", log.CompletionTokens, "total", log.TotalTokens, "firstChunkTime", log.FirstChunkTime, "chunkTime", log.ChunkTime, "tps", log.Tps)
 			}(context.Background())
 			// 转发给客户端
 			if before.stream {

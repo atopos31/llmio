@@ -90,6 +90,11 @@ func TestReactHandler(c *gin.Context) {
 		return
 	}
 
+	if chatModel.Type != "openai" {
+		c.SSEvent("error", "该测试仅支持 OpenAI 类型")
+		return
+	}
+
 	var config providers.OpenAI
 	if err := json.Unmarshal([]byte(chatModel.Config), &config); err != nil {
 		common.ErrorWithHttpStatus(c, http.StatusBadRequest, 400, "Invalid config format")
@@ -102,7 +107,7 @@ func TestReactHandler(c *gin.Context) {
 	)
 
 	agent := react.New(client, 20)
-	question := "分两次获取一下南京和北京的天气 两次之间分别回复我总结信息"
+	question := "分两次获取一下南京和北京的天气 每次调用后回复我对应城市的总结信息"
 	model := chatModel.Model
 
 	tools := []openai.ChatCompletionToolUnionParam{

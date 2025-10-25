@@ -24,6 +24,9 @@ func init() {
 
 func main() {
 	router := gin.Default()
+
+	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/v1/"})))
+
 	setwebui(router, "./webui/dist")
 
 	authOpenAI := middleware.Auth(os.Getenv("TOKEN"))
@@ -77,7 +80,6 @@ func main() {
 }
 
 func setwebui(r *gin.Engine, path string) {
-	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/v1/"})))
 	r.Use(static.Serve("/", static.LocalFile(path, false)))
 
 	r.NoRoute(func(c *gin.Context) {

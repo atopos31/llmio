@@ -90,8 +90,19 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
 }
 
 // Provider API functions
-export async function getProviders(): Promise<Provider[]> {
-  return apiRequest<Provider[]>('/providers');
+export async function getProviders(filters: {
+  name?: string;
+  type?: string;
+} = {}): Promise<Provider[]> {
+  const params = new URLSearchParams();
+
+  if (filters.name) params.append("name", filters.name);
+  if (filters.type) params.append("type", filters.type);
+
+  const queryString = params.toString();
+  const endpoint = queryString ? `/providers?${queryString}` : '/providers';
+
+  return apiRequest<Provider[]>(endpoint);
 }
 
 export async function createProvider(provider: {

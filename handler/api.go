@@ -48,10 +48,24 @@ type SystemConfigRequest struct {
 	MinWeight           int     `json:"min_weight"`
 }
 
-// GetProviders 获取所有提供商列表
+// GetProviders 获取所有提供商列表（支持名称搜索和类型筛选）
 func GetProviders(c *gin.Context) {
-	providers, err := gorm.G[models.Provider](models.DB).Find(c.Request.Context())
-	if err != nil {
+	// 筛选参数
+	name := c.Query("name")
+	providerType := c.Query("type")
+
+	// 构建查询条件
+	query := models.DB.Model(&models.Provider{}).WithContext(c.Request.Context())
+
+	if name != "" {
+		query = query.Where("name LIKE ?", "%"+name+"%")
+	}
+
+	if providerType != "" {
+		query = query.Where("type = ?", providerType)
+	}
+	var providers []models.Provider
+	if err := query.Find(&providers).Error; err != nil {
 		common.InternalServerError(c, err.Error())
 		return
 	}

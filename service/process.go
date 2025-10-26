@@ -27,8 +27,8 @@ func ProcesserOpenAI(ctx context.Context, pr io.Reader, stream bool, start time.
 	var firstChunkTime time.Duration
 	var once sync.Once
 
-	var chunkErr error
-	var lastchunk string
+	var usageStr string
+	var output models.OutputUnion
 
 	scanner := bufio.NewScanner(pr)
 	scanner.Buffer(make([]byte, 0, InitScannerBufferSize), MaxScannerBufferSize)
@@ -36,52 +36,49 @@ func ProcesserOpenAI(ctx context.Context, pr io.Reader, stream bool, start time.
 		once.Do(func() {
 			firstChunkTime = time.Since(start)
 		})
-		if stream {
-			chunk = strings.TrimPrefix(chunk, "data: ")
+		if !stream {
+			output.OfString = chunk
+			usageStr = gjson.Get(chunk, "usage").String()
+			break
 		}
+		chunk = strings.TrimPrefix(chunk, "data: ")
 		if chunk == "[DONE]" {
 			break
 		}
 		// 流式过程中错误
 		errStr := gjson.Get(chunk, "error")
 		if errStr.Exists() {
-			chunkErr = errors.New(errStr.String())
+			return nil, nil, errors.New(errStr.String())
+		}
+		output.OfStringArray = append(output.OfStringArray, chunk)
+
+		if usageStr != "" {
 			break
 		}
-		lastchunk = chunk
+
+		usageStr = gjson.Get(chunk, "usage").String()
 	}
-	// 耗时
-	chunkTime := time.Since(start) - firstChunkTime
-	// reader错误
 	if err := scanner.Err(); err != nil {
-		chunkErr = err
+		return nil, nil, err
 	}
+
 	// token用量
-	var usage models.Usage
-	usageStr := gjson.Get(lastchunk, "usage")
-	if usageStr.Exists() && usageStr.Get("total_tokens").Int() != 0 {
-		if err := json.Unmarshal([]byte(usageStr.Raw), &usage); err != nil {
+	var openaiUsage models.Usage
+	usage := []byte(usageStr)
+	if json.Valid(usage) {
+		if err := json.Unmarshal(usage, &openaiUsage); err != nil {
 			return nil, nil, err
 		}
 	}
 
-	// tps
-	var tps float64
-	if stream {
-		tps = float64(usage.TotalTokens) / chunkTime.Seconds()
-	}
+	chunkTime := time.Since(start) - firstChunkTime
 
-	log := models.ChatLog{
-		Usage:          usage,
-		ChunkTime:      chunkTime,
-		Tps:            tps,
+	return &models.ChatLog{
 		FirstChunkTime: firstChunkTime,
-	}
-	if chunkErr != nil {
-		log = log.WithError(chunkErr)
-	}
-
-	return &log, &models.OutputUnion{}, nil
+		ChunkTime:      chunkTime,
+		Usage:          openaiUsage,
+		Tps:            float64(openaiUsage.TotalTokens) / chunkTime.Seconds(),
+	}, &output, nil
 }
 
 type OpenAIResUsage struct {
@@ -102,61 +99,60 @@ func ProcesserOpenAiRes(ctx context.Context, pr io.Reader, stream bool, start ti
 	// 首字时延
 	var firstChunkTime time.Duration
 	var once sync.Once
-	var chunkErr error
 
-	var event string
 	var usageStr string
+	var output models.OutputUnion
 
 	scanner := bufio.NewScanner(pr)
 	scanner.Buffer(make([]byte, 0, InitScannerBufferSize), MaxScannerBufferSize)
+	var event string
 	for chunk := range ScannerToken(scanner) {
 		once.Do(func() {
 			firstChunkTime = time.Since(start)
 		})
-		if stream {
-			content := strings.TrimPrefix(chunk, "data: ")
-			if event == "response.completed" {
-				usageStr = gjson.Get(content, "response.usage").String()
-			}
-			if after, ok := strings.CutPrefix(chunk, "event: "); ok {
-				event = after
-			}
-		} else {
+		if !stream {
+			output.OfString = chunk
 			usageStr = gjson.Get(chunk, "usage").String()
+			break
+		}
+
+		if after, ok := strings.CutPrefix(chunk, "event: "); ok {
+			event = after
+			continue
+		}
+		content := strings.TrimPrefix(chunk, "data: ")
+		if content == "" {
+			continue
+		}
+		output.OfStringArray = append(output.OfStringArray, content)
+		if event == "response.completed" {
+			usageStr = gjson.Get(content, "response.usage").String()
 		}
 	}
-	var openAIResUsage OpenAIResUsage
-	if err := json.Unmarshal([]byte(usageStr), &openAIResUsage); err != nil {
+	if err := scanner.Err(); err != nil {
 		return nil, nil, err
 	}
-	totalTokens := openAIResUsage.TotalTokens
-	// 耗时
+
+	var openAIResUsage OpenAIResUsage
+	usage := []byte(usageStr)
+	if json.Valid(usage) {
+		if err := json.Unmarshal(usage, &openAIResUsage); err != nil {
+			return nil, nil, err
+		}
+	}
+
 	chunkTime := time.Since(start) - firstChunkTime
-	// tps
-	var tps float64
-	if stream {
-		tps = float64(totalTokens) / chunkTime.Seconds()
-	}
 
-	usage := models.Usage{
-		PromptTokens:     openAIResUsage.InputTokens,
-		CompletionTokens: openAIResUsage.OutputTokens,
-		TotalTokens:      totalTokens,
-	}
-
-	log := models.ChatLog{
-		Usage:          usage,
-		ChunkTime:      chunkTime,
-		Tps:            tps,
+	return &models.ChatLog{
 		FirstChunkTime: firstChunkTime,
-	}
-	if err := scanner.Err(); err != nil {
-		chunkErr = err
-	}
-	if chunkErr != nil {
-		log = log.WithError(chunkErr)
-	}
-	return &log, &models.OutputUnion{}, nil
+		ChunkTime:      chunkTime,
+		Usage: models.Usage{
+			PromptTokens:     openAIResUsage.InputTokens,
+			CompletionTokens: openAIResUsage.OutputTokens,
+			TotalTokens:      openAIResUsage.TotalTokens,
+		},
+		Tps: float64(openAIResUsage.TotalTokens) / chunkTime.Seconds(),
+	}, &output, nil
 }
 
 func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start time.Time) (*models.ChatLog, *models.OutputUnion, error) {
@@ -178,7 +174,7 @@ func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start ti
 		if !stream {
 			output.OfString = chunk
 			usageStr = gjson.Get(chunk, "usage").String()
-			continue
+			break
 		}
 
 		if after, ok := strings.CutPrefix(chunk, "event: "); ok {
@@ -201,8 +197,11 @@ func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start ti
 	}
 
 	var athropicUsage AnthropicUsage
-	if err := json.Unmarshal([]byte(usageStr), &athropicUsage); err != nil {
-		return nil, nil, err
+	usage := []byte(usageStr)
+	if json.Valid(usage) {
+		if err := json.Unmarshal(usage, &athropicUsage); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	chunkTime := time.Since(start) - firstChunkTime

@@ -170,13 +170,21 @@ func BalanceChat(c *gin.Context, style string, beforer Beforer, processer Proces
 				return err
 			}
 
+			// 记录输入数据
+			if err := gorm.G[models.ChatIO](models.DB).Create(ctx, &models.ChatIO{
+				LogId: logId,
+				Input: string(before.raw),
+			}); err != nil {
+				return err
+			}
+
 			pr, pw := io.Pipe()
 			tee := io.TeeReader(res.Body, pw)
 
 			// 与客户端并行处理响应数据流 同时记录日志
 			go func(ctx context.Context) {
 				defer pr.Close()
-				log, err := processer(ctx, pr, before.stream, logId, reqStart)
+				log, output, err := processer(ctx, pr, before.stream, reqStart)
 				if err != nil {
 					slog.Error("processer error", "error", err)
 					return
@@ -186,6 +194,11 @@ func BalanceChat(c *gin.Context, style string, beforer Beforer, processer Proces
 					return
 				}
 				slog.Info("response", "input", log.PromptTokens, "output", log.CompletionTokens, "total", log.TotalTokens, "firstChunkTime", log.FirstChunkTime, "chunkTime", log.ChunkTime, "tps", log.Tps)
+
+				if _, err := gorm.G[models.ChatIO](models.DB).Where("log_id = ?", logId).Updates(ctx, models.ChatIO{OutputUnion: *output}); err != nil {
+					slog.Error("update chat io error", "error", err)
+					return
+				}
 			}(context.Background())
 			// 转发给客户端
 			if before.stream {

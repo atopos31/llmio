@@ -68,3 +68,15 @@ type Usage struct {
 	CompletionTokens int64 `json:"completion_tokens"`
 	TotalTokens      int64 `json:"total_tokens"`
 }
+
+type ChatIO struct {
+	gorm.Model
+	LogId uint
+	Input string
+	OutputUnion
+}
+
+type OutputUnion struct {
+	OfString      string
+	OfStringArray []string `gorm:"serializer:json"`
+}

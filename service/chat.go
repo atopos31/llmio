@@ -11,19 +11,24 @@ import (
 	"time"
 
 	"github.com/atopos31/llmio/balancer"
+	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
-func BalanceChat(c *gin.Context, style string, beforer Beforer, processer Processer) error {
+func BalanceChat(c *gin.Context, style string) error {
 	proxyStart := time.Now()
 	rawData, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		return err
 	}
 	ctx := c.Request.Context()
+	beforer, processer, err := GetBeforerAndProcesserByStyle(style)
+	if err != nil {
+		return err
+	}
 	before, err := beforer(rawData)
 	if err != nil {
 		return err
@@ -257,4 +262,17 @@ func ProvidersBymodelsName(ctx context.Context, modelsName string) (*ProvidersWi
 		MaxRetry:  llmmodels.MaxRetry,
 		TimeOut:   llmmodels.TimeOut,
 	}, nil
+}
+
+func GetBeforerAndProcesserByStyle(style string) (Beforer, Processer, error) {
+	switch style {
+	case consts.StyleOpenAI:
+		return BeforerOpenAI, ProcesserOpenAI, nil
+	case consts.StyleOpenAIRes:
+		return BeforerOpenAIRes, ProcesserOpenAiRes, nil
+	case consts.StyleAnthropic:
+		return BeforerAnthropic, ProcesserAnthropic, nil
+	default:
+		return nil, nil, errors.New("unsupported style: " + style)
+	}
 }

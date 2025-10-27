@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
 	"github.com/tidwall/gjson"
 )
@@ -22,19 +21,6 @@ const (
 )
 
 type Processer func(ctx context.Context, pr io.Reader, stream bool, start time.Time) (*models.ChatLog, *models.OutputUnion, error)
-
-func GetProcesserByStyle(style string) (Processer, error) {
-	switch style {
-	case consts.StyleOpenAI:
-		return ProcesserOpenAI, nil
-	case consts.StyleOpenAIRes:
-		return ProcesserOpenAiRes, nil
-	case consts.StyleAnthropic:
-		return ProcesserAnthropic, nil
-	default:
-		return nil, errors.New("unsupported style: " + style)
-	}
-}
 
 func ProcesserOpenAI(ctx context.Context, pr io.Reader, stream bool, start time.Time) (*models.ChatLog, *models.OutputUnion, error) {
 	// 首字时延

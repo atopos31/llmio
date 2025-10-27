@@ -34,21 +34,21 @@ func ModelsHandler(c *gin.Context) {
 }
 
 func ChatCompletionsHandler(c *gin.Context) {
-	if err := service.BalanceChat(c, consts.StyleOpenAI, service.BeforerOpenAI, service.ProcesserOpenAI); err != nil {
+	if err := service.BalanceChat(c, consts.StyleOpenAI); err != nil {
 		common.InternalServerError(c, err.Error())
 		return
 	}
 }
 
 func ResponsesHandler(c *gin.Context) {
-	if err := service.BalanceChat(c, consts.StyleOpenAIRes, service.BeforerOpenAIRes, service.ProcesserOpenAiRes); err != nil {
+	if err := service.BalanceChat(c, consts.StyleOpenAIRes); err != nil {
 		common.InternalServerError(c, err.Error())
 		return
 	}
 }
 
 func Messages(c *gin.Context) {
-	if err := service.BalanceChat(c, consts.StyleAnthropic, service.BeforerAnthropic, service.ProcesserAnthropic); err != nil {
+	if err := service.BalanceChat(c, consts.StyleAnthropic); err != nil {
 		common.InternalServerError(c, err.Error())
 		return
 	}

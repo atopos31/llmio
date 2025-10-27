@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"log/slog"
-
 	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
@@ -27,7 +25,7 @@ func ModelsHandler(c *gin.Context) {
 			OwnedBy: "llmio",
 		})
 	}
-	slog.Info("models", "models", models)
+
 	common.SuccessRaw(c, providers.ModelList{
 		Object: "list",
 		Data:   models,

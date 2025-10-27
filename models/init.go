@@ -7,8 +7,8 @@ import (
 
 var DB *gorm.DB
 
-func Init(name string) {
-	db, err := gorm.Open(sqlite.Open(name))
+func Init(path string) {
+	db, err := gorm.Open(sqlite.Open(path))
 	if err != nil {
 		panic(err)
 	}

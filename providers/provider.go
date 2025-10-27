@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+
+	"github.com/atopos31/llmio/consts"
 )
 
 type ModelList struct {
@@ -27,21 +29,21 @@ type Provider interface {
 
 func New(Type, providerConfig string) (Provider, error) {
 	switch Type {
-	case "openai":
+	case consts.StyleOpenAI:
 		var openai OpenAI
 		if err := json.Unmarshal([]byte(providerConfig), &openai); err != nil {
 			return nil, errors.New("invalid openai config")
 		}
 
 		return &openai, nil
-	case "openai-res":
+	case consts.StyleOpenAIRes:
 		var openaiRes OpenAIRes
 		if err := json.Unmarshal([]byte(providerConfig), &openaiRes); err != nil {
 			return nil, errors.New("invalid openai-res config")
 		}
 
 		return &openaiRes, nil
-	case "anthropic":
+	case consts.StyleAnthropic:
 		var anthropic Anthropic
 		if err := json.Unmarshal([]byte(providerConfig), &anthropic); err != nil {
 			return nil, errors.New("invalid anthropic config")

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"github.com/atopos31/llmio/common"
+	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
 	"github.com/atopos31/llmio/service"
@@ -33,21 +34,21 @@ func ModelsHandler(c *gin.Context) {
 }
 
 func ChatCompletionsHandler(c *gin.Context) {
-	if err := service.BalanceChat(c, "openai", service.BeforerOpenAI, service.ProcesserOpenAI); err != nil {
+	if err := service.BalanceChat(c, consts.StyleOpenAI, service.BeforerOpenAI, service.ProcesserOpenAI); err != nil {
 		common.InternalServerError(c, err.Error())
 		return
 	}
 }
 
 func ResponsesHandler(c *gin.Context) {
-	if err := service.BalanceChat(c, "openai-res", service.BeforerOpenAIRes, service.ProcesserOpenAiRes); err != nil {
+	if err := service.BalanceChat(c, consts.StyleOpenAIRes, service.BeforerOpenAIRes, service.ProcesserOpenAiRes); err != nil {
 		common.InternalServerError(c, err.Error())
 		return
 	}
 }
 
 func Messages(c *gin.Context) {
-	if err := service.BalanceChat(c, "anthropic", service.BeforerAnthropic, service.ProcesserAnthropic); err != nil {
+	if err := service.BalanceChat(c, consts.StyleAnthropic, service.BeforerAnthropic, service.ProcesserAnthropic); err != nil {
 		common.InternalServerError(c, err.Error())
 		return
 	}

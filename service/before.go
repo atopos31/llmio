@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 
+	"github.com/atopos31/llmio/consts"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -17,6 +18,19 @@ type before struct {
 }
 
 type Beforer func(data []byte) (*before, error)
+
+func GetBeforerByStyle(style string) (Beforer, error) {
+	switch style {
+	case consts.StyleOpenAI:
+		return BeforerOpenAI, nil
+	case consts.StyleOpenAIRes:
+		return BeforerOpenAIRes, nil
+	case consts.StyleAnthropic:
+		return BeforerAnthropic, nil
+	default:
+		return nil, errors.New("unsupported style: " + style)
+	}
+}
 
 func BeforerOpenAI(data []byte) (*before, error) {
 	model := gjson.GetBytes(data, "model").String()

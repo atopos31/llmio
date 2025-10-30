@@ -56,6 +56,7 @@ const formSchema = z.object({
   remark: z.string(),
   max_retry: z.number().min(0, { message: "重试次数限制不能为负数" }),
   time_out: z.number().min(0, { message: "超时时间不能为负数" }),
+  io_log: z.boolean(),
 });
 
 export default function ModelsPage() {
@@ -75,6 +76,7 @@ export default function ModelsPage() {
       remark: "",
       max_retry: 10,
       time_out: 60,
+      io_log: false,
     },
   });
 
@@ -100,7 +102,7 @@ export default function ModelsPage() {
     try {
       await createModel(values);
       setOpen(false);
-      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60 });
+      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false });
       fetchModels();
     } catch (err) {
       setError("创建模型失败");
@@ -114,7 +116,7 @@ export default function ModelsPage() {
       await updateModel(editingModel.ID, values);
       setOpen(false);
       setEditingModel(null);
-      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60 });
+      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false });
       fetchModels();
     } catch (err) {
       setError("更新模型失败");
@@ -141,13 +143,14 @@ export default function ModelsPage() {
       remark: model.Remark,
       max_retry: model.MaxRetry,
       time_out: model.TimeOut,
+      io_log: model.IOLog,
     });
     setOpen(true);
   };
 
   const openCreateDialog = () => {
     setEditingModel(null);
-    form.reset({ name: "", remark: "", max_retry: 10, time_out: 60 });
+    form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false });
     setOpen(true);
   };
 
@@ -175,6 +178,7 @@ export default function ModelsPage() {
               <TableHead>备注</TableHead>
               <TableHead>重试次数限制</TableHead>
               <TableHead>超时时间(秒)</TableHead>
+              <TableHead>IO 记录</TableHead>
               <TableHead>操作</TableHead>
             </TableRow>
           </TableHeader>
@@ -186,6 +190,11 @@ export default function ModelsPage() {
                 <TableCell>{model.Remark}</TableCell>
                 <TableCell>{model.MaxRetry}</TableCell>
                 <TableCell>{model.TimeOut}</TableCell>
+                <TableCell>
+                  <span className={model.IOLog ? "text-green-500" : "text-red-500"}>
+                    {model.IOLog ? '✓' : '✗'}
+                  </span>
+                </TableCell>
                 <TableCell className="space-x-2">
                   <Button
                     variant="default"
@@ -293,6 +302,12 @@ export default function ModelsPage() {
                   <span className="text-gray-500">超时时间:</span>
                   <span className="ml-1">{model.TimeOut}秒</span>
                 </div>
+                <div className="text-sm">
+                  <span className="text-gray-500">IO 记录:</span>
+                  <span className={model.IOLog ? "text-green-500 ml-1" : "text-red-500 ml-1"}>
+                    {model.IOLog ? '✓' : '✗'}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -368,10 +383,10 @@ export default function ModelsPage() {
                     <FormItem>
                       <FormLabel>超时时间(秒)</FormLabel>
                       <FormControl>
-                        <Input 
-                          type="number" 
-                          {...field} 
-                          onChange={e => field.onChange(+e.target.value)} 
+                        <Input
+                          type="number"
+                          {...field}
+                          onChange={e => field.onChange(+e.target.value)}
                         />
                       </FormControl>
                       <FormMessage />
@@ -379,7 +394,30 @@ export default function ModelsPage() {
                   )}
                 />
               </div>
-              
+
+              <FormField
+                control={form.control}
+                name="io_log"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base">IO 记录</FormLabel>
+                      <div className="text-sm text-muted-foreground">
+                        是否记录输入输出日志
+                      </div>
+                    </div>
+                    <FormControl>
+                      <input
+                        type="checkbox"
+                        checked={field.value}
+                        onChange={field.onChange}
+                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                   取消

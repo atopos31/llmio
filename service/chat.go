@@ -175,12 +175,14 @@ func BalanceChat(c *gin.Context, style string) error {
 				return err
 			}
 
-			// 记录输入数据
-			if err := gorm.G[models.ChatIO](models.DB).Create(ctx, &models.ChatIO{
-				LogId: logId,
-				Input: string(before.raw),
-			}); err != nil {
-				return err
+			// 记录输入输出数据（如果开启IO记录）
+			if llmProvidersWithLimit.IOLog {
+				if err := gorm.G[models.ChatIO](models.DB).Create(ctx, &models.ChatIO{
+					LogId: logId,
+					Input: string(before.raw),
+				}); err != nil {
+					return err
+				}
 			}
 
 			pr, pw := io.Pipe()
@@ -200,9 +202,12 @@ func BalanceChat(c *gin.Context, style string) error {
 				}
 				slog.Info("response", "input", log.PromptTokens, "output", log.CompletionTokens, "total", log.TotalTokens, "firstChunkTime", log.FirstChunkTime, "chunkTime", log.ChunkTime, "tps", log.Tps)
 
-				if _, err := gorm.G[models.ChatIO](models.DB).Where("log_id = ?", logId).Updates(ctx, models.ChatIO{OutputUnion: *output}); err != nil {
-					slog.Error("update chat io error", "error", err)
-					return
+				// 只有开启IO记录才更新输出数据
+				if llmProvidersWithLimit.IOLog {
+					if _, err := gorm.G[models.ChatIO](models.DB).Where("log_id = ?", logId).Updates(ctx, models.ChatIO{OutputUnion: *output}); err != nil {
+						slog.Error("update chat io error", "error", err)
+						return
+					}
 				}
 			}(context.Background())
 			// 转发给客户端
@@ -238,6 +243,7 @@ type ProvidersWithlimit struct {
 	Providers []models.ModelWithProvider
 	MaxRetry  int
 	TimeOut   int
+	IOLog     bool
 }
 
 func ProvidersBymodelsName(ctx context.Context, modelsName string) (*ProvidersWithlimit, error) {
@@ -261,6 +267,7 @@ func ProvidersBymodelsName(ctx context.Context, modelsName string) (*ProvidersWi
 		Providers: llmproviders,
 		MaxRetry:  llmmodels.MaxRetry,
 		TimeOut:   llmmodels.TimeOut,
+		IOLog:     llmmodels.IOLog,
 	}, nil
 }
 

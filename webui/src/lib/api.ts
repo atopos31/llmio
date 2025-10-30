@@ -16,6 +16,7 @@ export interface Model {
   Remark: string;
   MaxRetry: number;
   TimeOut: number;
+  IOLog: boolean;
 }
 
 export interface ModelWithProvider {
@@ -145,6 +146,7 @@ export async function createModel(model: {
   remark: string;
   max_retry: number;
   time_out: number;
+  io_log: boolean;
 }): Promise<Model> {
   return apiRequest<Model>('/models', {
     method: 'POST',
@@ -157,6 +159,7 @@ export async function updateModel(id: number, model: {
   remark?: string;
   max_retry?: number;
   time_out?: number;
+  io_log?: boolean;
 }): Promise<Model> {
   return apiRequest<Model>(`/models/${id}`, {
     method: 'PUT',

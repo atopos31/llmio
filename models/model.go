@@ -24,8 +24,9 @@ type Model struct {
 	gorm.Model
 	Name     string
 	Remark   string
-	MaxRetry int // 重试次数限制
-	TimeOut  int // 超时时间 单位秒
+	MaxRetry int  // 重试次数限制
+	TimeOut  int  // 超时时间 单位秒
+	IOLog    bool // 是否记录IO
 }
 
 type ModelWithProvider struct {

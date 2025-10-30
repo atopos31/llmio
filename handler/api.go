@@ -87,7 +87,7 @@ func GetProviderModels(c *gin.Context) {
 	}
 	models, err := chatModel.Models(c.Request.Context())
 	if err != nil {
-		common.InternalServerError(c, "Failed to get models: "+err.Error())
+		common.NotFound(c, "Failed to get models: "+err.Error())
 		return
 	}
 	common.Success(c, models)

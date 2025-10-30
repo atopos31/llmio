@@ -3,13 +3,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from "@/components/ui/table";
 import {
   Dialog,
@@ -47,10 +47,10 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import Loading from "@/components/loading";
-import { 
-  getProviders, 
-  createProvider, 
-  updateProvider, 
+import {
+  getProviders,
+  createProvider,
+  updateProvider,
   deleteProvider,
   getProviderTemplates,
   getProviderModels
@@ -83,7 +83,7 @@ export default function ProvidersPage() {
   const [nameFilter, setNameFilter] = useState<string>("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [availableTypes, setAvailableTypes] = useState<string[]>([]);
-  
+
   // 初始化表单
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -142,6 +142,8 @@ export default function ProvidersPage() {
       setFilteredProviderModels(data);
     } catch (err) {
       console.error("获取提供商模型失败", err);
+      setProviderModels([]);
+      setFilteredProviderModels([]);
     } finally {
       setModelsLoading(false);
     }
@@ -280,7 +282,7 @@ export default function ProvidersPage() {
           </SelectContent>
         </Select>
       </div>
-      
+
       {/* 桌面端表格 */}
       <div className="border rounded-lg hidden sm:block">
         {loading ? (
@@ -377,7 +379,7 @@ export default function ProvidersPage() {
           </Table>
         )}
       </div>
-      
+
       {/* 移动端卡片布局 */}
       <div className="sm:hidden space-y-4">
         {loading ? (
@@ -465,12 +467,12 @@ export default function ProvidersPage() {
               {editingProvider ? "编辑提供商" : "添加提供商"}
             </DialogTitle>
             <DialogDescription>
-              {editingProvider 
-                ? "修改提供商信息" 
+              {editingProvider
+                ? "修改提供商信息"
                 : "添加一个新的提供商"}
             </DialogDescription>
           </DialogHeader>
-          
+
           <Form {...form}>
             <form onSubmit={form.handleSubmit(editingProvider ? handleUpdate : handleCreate)} className="space-y-4 min-w-0">
               <FormField
@@ -486,7 +488,7 @@ export default function ProvidersPage() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="type"
@@ -494,8 +496,8 @@ export default function ProvidersPage() {
                   <FormItem>
                     <FormLabel>类型</FormLabel>
                     <FormControl>
-                      <select 
-                        {...field} 
+                      <select
+                        {...field}
                         className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                         onChange={(e) => {
                           field.onChange(e);
@@ -518,7 +520,7 @@ export default function ProvidersPage() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="config"
@@ -526,16 +528,16 @@ export default function ProvidersPage() {
                   <FormItem>
                     <FormLabel>配置</FormLabel>
                     <FormControl>
-                      <Textarea 
-                        {...field} 
-                        className="resize-none whitespace-pre overflow-x-auto" 
+                      <Textarea
+                        {...field}
+                        className="resize-none whitespace-pre overflow-x-auto"
                       />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="console"
@@ -549,7 +551,7 @@ export default function ProvidersPage() {
                   </FormItem>
                 )}
               />
-              
+
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                   取消
@@ -572,7 +574,7 @@ export default function ProvidersPage() {
               当前提供商的所有可用模型
             </DialogDescription>
           </DialogHeader>
-          
+
           {/* 搜索框 */}
           {!modelsLoading && providerModels.length > 0 && (
             <div className="mb-4">
@@ -583,7 +585,7 @@ export default function ProvidersPage() {
                   if (searchTerm === '') {
                     setFilteredProviderModels(providerModels);
                   } else {
-                    const filteredModels = providerModels.filter(model => 
+                    const filteredModels = providerModels.filter(model =>
                       model.id.toLowerCase().includes(searchTerm)
                     );
                     setFilteredProviderModels(filteredModels);
@@ -593,7 +595,7 @@ export default function ProvidersPage() {
               />
             </div>
           )}
-          
+
           {modelsLoading ? (
             <Loading message="加载模型列表" />
           ) : (
@@ -604,9 +606,9 @@ export default function ProvidersPage() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {filteredProviderModels.map((model,index) => (
-                    <div 
-                      key={index} 
+                  {filteredProviderModels.map((model, index) => (
+                    <div
+                      key={index}
                       className="flex items-center justify-between p-3 border rounded-lg"
                     >
                       <div className="flex-1">
@@ -632,7 +634,7 @@ export default function ProvidersPage() {
               )}
             </div>
           )}
-          
+
           <DialogFooter>
             <Button onClick={() => setModelsOpen(false)}>关闭</Button>
           </DialogFooter>

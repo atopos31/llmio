@@ -10,6 +10,7 @@ const ProvidersPage = lazy(() => import('./routes/providers'));
 const ModelsPage = lazy(() => import('./routes/models'));
 const ModelProvidersPage = lazy(() => import('./routes/model-providers'));
 const LogsPage = lazy(() => import('./routes/logs'));
+const LogChatPage = lazy(() => import('./routes/log-chat'));
 const LoginPage = lazy(() => import('./routes/login'));
 
 // 简单的加载组件
@@ -32,6 +33,7 @@ function App() {
               <Route path="models" element={<ModelsPage />} />
               <Route path="model-providers" element={<ModelProvidersPage />} />
               <Route path="logs" element={<LogsPage />} />
+              <Route path="logs/:logId/chat-io" element={<LogChatPage />} />
             </Route>
           </Routes>
         </Suspense>

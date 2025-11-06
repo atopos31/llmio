@@ -612,6 +612,19 @@ func GetRequestLogs(c *gin.Context) {
 	common.Success(c, result)
 }
 
+// GetChatIO 查询指定日志的输入输出记录
+func GetChatIO(c *gin.Context) {
+	id := c.Param("id")
+
+	chatIO, err := gorm.G[models.ChatIO](models.DB).Where("log_id = ?", id).First(c.Request.Context())
+	if err != nil {
+		common.NotFound(c, "ChatIO not found")
+		return
+	}
+
+	common.Success(c, chatIO)
+}
+
 // GetSystemConfig 获取系统配置
 func GetSystemConfig(c *gin.Context) {
 	config := map[string]interface{}{

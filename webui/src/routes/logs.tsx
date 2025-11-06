@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -56,6 +57,7 @@ export default function LogsPage() {
   const [styleFilter, setStyleFilter] = useState<string>("all");
   const [userAgentFilter, setUserAgentFilter] = useState<string>("all");
   const [availableStyles, setAvailableStyles] = useState<string[]>([]);
+  const navigate = useNavigate();
 
   // 详情弹窗
   const [selectedLog, setSelectedLog] = useState<ChatLog | null>(null);
@@ -157,6 +159,10 @@ export default function LogsPage() {
   const openDetailDialog = (log: ChatLog) => {
     setSelectedLog(log);
     setIsDialogOpen(true);
+  };
+
+  const handleViewChatIO = (logId: number) => {
+    navigate(`/logs/${logId}/chat-io`);
   };
 
   if (loading && logs.length === 0) return <Loading message="加载请求日志" />;
@@ -300,9 +306,14 @@ export default function LogsPage() {
                         {log.UserAgent || '-'}
                       </TableCell>
                       <TableCell>
-                        <Button variant="outline" size="sm" onClick={() => openDetailDialog(log)}>
-                          详情
-                        </Button>
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <Button variant="outline" size="sm" onClick={() => openDetailDialog(log)}>
+                            详情
+                          </Button>
+                          <Button size="sm" onClick={() => handleViewChatIO(log.ID)}>
+                            会话
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -321,9 +332,14 @@ export default function LogsPage() {
                       <h3 className="font-bold text-lg">{log.Name}</h3>
                       <p className="text-sm text-gray-500">{new Date(log.CreatedAt).toLocaleString()}</p>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => openDetailDialog(log)}>
-                      详情
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => openDetailDialog(log)}>
+                        详情
+                      </Button>
+                      <Button size="sm" onClick={() => handleViewChatIO(log.ID)}>
+                        会话
+                      </Button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div className="text-gray-500">状态:</div>

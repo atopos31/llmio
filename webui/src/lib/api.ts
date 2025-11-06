@@ -310,6 +310,17 @@ export interface ChatLog {
   total_tokens: number;
 }
 
+export interface ChatIO {
+  ID: number;
+  CreatedAt: string;
+  UpdatedAt: string;
+  DeletedAt?: unknown;
+  LogId: number;
+  Input: string;
+  OfString?: string | null;
+  OfStringArray?: string[] | null;
+}
+
 export interface LogsResponse {
   data: ChatLog[];
   total: number;
@@ -346,4 +357,8 @@ export async function getLogs(
   if (filters.userAgent) params.append("user_agent", filters.userAgent);
 
   return apiRequest<LogsResponse>(`/logs?${params.toString()}`);
+}
+
+export async function getChatIO(logId: number): Promise<ChatIO> {
+  return apiRequest<ChatIO>(`/logs/${logId}/chat-io`);
 }

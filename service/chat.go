@@ -267,7 +267,7 @@ func ProvidersBymodelsName(ctx context.Context, modelsName string) (*ProvidersWi
 		Providers: llmproviders,
 		MaxRetry:  llmmodels.MaxRetry,
 		TimeOut:   llmmodels.TimeOut,
-		IOLog:     llmmodels.IOLog,
+		IOLog:     *llmmodels.IOLog,
 	}, nil
 }
 

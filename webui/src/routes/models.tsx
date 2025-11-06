@@ -4,13 +4,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from "@/components/ui/table";
 import {
   Dialog,
@@ -42,13 +42,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import Loading from "@/components/loading";
-import { 
-  getModels, 
-  createModel, 
-  updateModel, 
+import {
+  getModels,
+  createModel,
+  updateModel,
   deleteModel,
 } from "@/lib/api";
 import type { Model } from "@/lib/api";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // 定义表单验证模式
 const formSchema = z.object({
@@ -67,7 +68,7 @@ export default function ModelsPage() {
   const [open, setOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<Model | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
-  
+
   // 初始化表单
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -167,7 +168,7 @@ export default function ModelsPage() {
         <h2 className="text-2xl font-bold">模型管理</h2>
         <Button onClick={openCreateDialog} className="w-full sm:w-auto">添加模型</Button>
       </div>
-      
+
       {/* 桌面端表格 */}
       <div className="border rounded-lg hidden sm:block">
         <Table>
@@ -204,18 +205,18 @@ export default function ModelsPage() {
                   >
                     关联
                   </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => openEditDialog(model)}
                   >
                     编辑
                   </Button>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
-                      <Button 
-                        variant="destructive" 
-                        size="sm" 
+                      <Button
+                        variant="destructive"
+                        size="sm"
                         onClick={() => openDeleteDialog(model.ID)}
                       >
                         删除
@@ -240,7 +241,7 @@ export default function ModelsPage() {
           </TableBody>
         </Table>
       </div>
-      
+
       {/* 移动端卡片布局 */}
       <div className="sm:hidden space-y-4">
         {models.map((model) => (
@@ -259,18 +260,18 @@ export default function ModelsPage() {
                 >
                   关联
                 </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => openEditDialog(model)}
                 >
                   编辑
                 </Button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button 
-                      variant="destructive" 
-                      size="sm" 
+                    <Button
+                      variant="destructive"
+                      size="sm"
                       onClick={() => openDeleteDialog(model.ID)}
                     >
                       删除
@@ -321,12 +322,12 @@ export default function ModelsPage() {
               {editingModel ? "编辑模型" : "添加模型"}
             </DialogTitle>
             <DialogDescription>
-              {editingModel 
-                ? "修改模型信息" 
+              {editingModel
+                ? "修改模型信息"
                 : "添加一个新的模型"}
             </DialogDescription>
           </DialogHeader>
-          
+
           <Form {...form}>
             <form onSubmit={form.handleSubmit(editingModel ? handleUpdate : handleCreate)} className="space-y-4">
               <FormField
@@ -342,7 +343,7 @@ export default function ModelsPage() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
                 name="remark"
@@ -356,7 +357,7 @@ export default function ModelsPage() {
                   </FormItem>
                 )}
               />
-              
+
               <div className="grid grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
@@ -365,17 +366,17 @@ export default function ModelsPage() {
                     <FormItem>
                       <FormLabel>重试次数限制</FormLabel>
                       <FormControl>
-                        <Input 
-                          type="number" 
-                          {...field} 
-                          onChange={e => field.onChange(+e.target.value)} 
+                        <Input
+                          type="number"
+                          {...field}
+                          onChange={e => field.onChange(+e.target.value)}
                         />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                
+
                 <FormField
                   control={form.control}
                   name="time_out"
@@ -407,11 +408,9 @@ export default function ModelsPage() {
                       </div>
                     </div>
                     <FormControl>
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={field.value}
-                        onChange={field.onChange}
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        onCheckedChange={field.onChange}
                       />
                     </FormControl>
                   </FormItem>

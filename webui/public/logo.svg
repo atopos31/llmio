@@ -1,0 +1,11 @@
+<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  
+  <rect width="32" height="32" rx="5" ry="5" fill="#000000"/>
+  <text x="16" y="16" 
+        font-family="Arial, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" 
+        font-size="23" 
+        font-weight="700"
+        fill="#FFFFFF" 
+        text-anchor="middle" 
+        dominant-baseline="central">L</text>
+</svg>

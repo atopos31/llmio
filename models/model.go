@@ -48,6 +48,7 @@ type ChatLog struct {
 	Status        string // error or success
 	Style         string // 类型
 	UserAgent     string // 用户代理
+	ChatIO        bool   // 是否开启IO记录
 
 	Error          string        // if status is error, this field will be set
 	Retry          int           // 重试次数

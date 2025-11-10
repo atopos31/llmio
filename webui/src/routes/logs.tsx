@@ -161,8 +161,11 @@ export default function LogsPage() {
     setIsDialogOpen(true);
   };
 
-  const handleViewChatIO = (logId: number) => {
-    navigate(`/logs/${logId}/chat-io`);
+  const canViewChatIO = (log: ChatLog) => log.Status === 'success' && log.ChatIO;
+
+  const handleViewChatIO = (log: ChatLog) => {
+    if (!canViewChatIO(log)) return;
+    navigate(`/logs/${log.ID}/chat-io`);
   };
 
   if (loading && logs.length === 0) return <Loading message="加载请求日志" />;
@@ -310,7 +313,12 @@ export default function LogsPage() {
                           <Button variant="outline" size="sm" onClick={() => openDetailDialog(log)}>
                             详情
                           </Button>
-                          <Button size="sm" onClick={() => handleViewChatIO(log.ID)}>
+                          <Button
+                            size="sm"
+                            onClick={() => handleViewChatIO(log)}
+                            disabled={!canViewChatIO(log)}
+                            title={!canViewChatIO(log) ? '未开启会话记录' : undefined}
+                          >
                             会话
                           </Button>
                         </div>
@@ -336,7 +344,12 @@ export default function LogsPage() {
                       <Button variant="outline" size="sm" onClick={() => openDetailDialog(log)}>
                         详情
                       </Button>
-                      <Button size="sm" onClick={() => handleViewChatIO(log.ID)}>
+                      <Button
+                        size="sm"
+                        onClick={() => handleViewChatIO(log)}
+                        disabled={!canViewChatIO(log)}
+                        title={!canViewChatIO(log) ? '未开启会话记录' : undefined}
+                      >
                         会话
                       </Button>
                     </div>

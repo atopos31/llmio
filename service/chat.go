@@ -144,7 +144,12 @@ func BalanceChat(c *gin.Context, style string) error {
 			}
 			reqStart := time.Now()
 			client := providers.GetClient(time.Second * time.Duration(llmProvidersWithLimit.TimeOut) / 3)
-			res, err := chatModel.Chat(ctx, client, modelWithProvider.ProviderModel, before.raw)
+			header := make(http.Header)
+			// 请求头透传
+			if modelWithProvider.WithHeader != nil && *modelWithProvider.WithHeader {
+				header = c.Request.Header
+			}
+			res, err := chatModel.Chat(ctx, header, client, modelWithProvider.ProviderModel, before.raw)
 			if err != nil {
 				retryErrLog <- log.WithError(err)
 				// 请求失败 移除待选

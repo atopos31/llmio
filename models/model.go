@@ -37,6 +37,7 @@ type ModelWithProvider struct {
 	ToolCall         *bool // 能否接受带有工具调用的请求
 	StructuredOutput *bool // 能否接受带有结构化输出的请求
 	Image            *bool // 能否接受带有图片的请求(视觉)
+	WithHeader       *bool // 是否携带header
 	Weight           int
 }
 

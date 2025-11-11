@@ -23,7 +23,7 @@ type Model struct {
 
 type Provider interface {
 	// client 用于HTTP请求的客户端
-	Chat(ctx context.Context, client *http.Client, model string, rawData []byte) (*http.Response, error)
+	Chat(ctx context.Context, header http.Header, client *http.Client, model string, rawData []byte) (*http.Response, error)
 	Models(ctx context.Context) ([]Model, error)
 }
 

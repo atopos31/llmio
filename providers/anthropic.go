@@ -18,7 +18,7 @@ type Anthropic struct {
 	Beta    string `json:"beta"`
 }
 
-func (a *Anthropic) Chat(ctx context.Context, client *http.Client, model string, rawBody []byte) (*http.Response, error) {
+func (a *Anthropic) Chat(ctx context.Context, header http.Header, client *http.Client, model string, rawBody []byte) (*http.Response, error) {
 	body, err := sjson.SetBytes(rawBody, "model", model)
 	if err != nil {
 		return nil, err
@@ -26,6 +26,9 @@ func (a *Anthropic) Chat(ctx context.Context, client *http.Client, model string,
 	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/messages", a.BaseURL), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
+	}
+	if header != nil {
+		req.Header = header
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("x-api-key", a.APIKey)

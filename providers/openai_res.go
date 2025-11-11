@@ -16,7 +16,7 @@ type OpenAIRes struct {
 	APIKey  string `json:"api_key"`
 }
 
-func (o *OpenAIRes) Chat(ctx context.Context, client *http.Client, model string, rawBody []byte) (*http.Response, error) {
+func (o *OpenAIRes) Chat(ctx context.Context, header http.Header, client *http.Client, model string, rawBody []byte) (*http.Response, error) {
 	body, err := sjson.SetBytes(rawBody, "model", model)
 	if err != nil {
 		return nil, err
@@ -24,6 +24,9 @@ func (o *OpenAIRes) Chat(ctx context.Context, client *http.Client, model string,
 	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/responses", o.BaseURL), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
+	}
+	if header != nil {
+		req.Header = header
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", o.APIKey))

@@ -57,7 +57,7 @@ func ProviderTestHandler(c *gin.Context) {
 
 	// Test connectivity by fetching models
 	client := providers.GetClient(time.Second * time.Duration(30))
-	res, err := providerInstance.Chat(c.Request.Context(), client, chatModel.Model, []byte(testBody))
+	res, err := providerInstance.Chat(c.Request.Context(), nil, client, chatModel.Model, []byte(testBody))
 	if err != nil {
 		common.ErrorWithHttpStatus(c, http.StatusOK, 502, "Failed to connect to provider: "+err.Error())
 		return

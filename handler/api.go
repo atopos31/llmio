@@ -37,6 +37,7 @@ type ModelWithProviderRequest struct {
 	ToolCall         bool   `json:"tool_call"`
 	StructuredOutput bool   `json:"structured_output"`
 	Image            bool   `json:"image"`
+	WithHeader       bool   `json:"with_header"`
 	Weight           int    `json:"weight"`
 }
 
@@ -443,6 +444,7 @@ func CreateModelProvider(c *gin.Context) {
 		ToolCall:         &req.ToolCall,
 		StructuredOutput: &req.StructuredOutput,
 		Image:            &req.Image,
+		WithHeader:       &req.WithHeader,
 		Weight:           req.Weight,
 	}
 
@@ -490,6 +492,7 @@ func UpdateModelProvider(c *gin.Context) {
 		ToolCall:         &req.ToolCall,
 		StructuredOutput: &req.StructuredOutput,
 		Image:            &req.Image,
+		WithHeader:       &req.WithHeader,
 		Weight:           req.Weight,
 	}
 

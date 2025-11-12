@@ -403,17 +403,17 @@ export default function ProvidersPage() {
                       {provider.Console && (
                         <p className="text-sm">
                           <Button
-                            variant="link"
+                            variant="outline"
                             size="sm"
                             onClick={() => window.open(provider.Console, '_blank')}
-                            className="p-0 h-auto"
+                            className="mt-2"
                           >
                             前往
                           </Button>
                         </p>
                       )}
                     </div>
-                    <div className="flex space-x-2">
+                    <div className="flex flex-col space-y-2">
                       <Button
                         variant="outline"
                         size="sm"

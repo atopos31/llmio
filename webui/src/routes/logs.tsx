@@ -294,7 +294,7 @@ export default function LogsPage() {
                   {logs.map((log) => (
                     <TableRow key={log.ID}>
                       <TableCell>{new Date(log.CreatedAt).toLocaleString()}</TableCell>
-                      <TableCell>{log.Name}</TableCell>
+                      <TableCell className="max-w-[150px] truncate" >{log.Name}</TableCell>
                       <TableCell>
                         <span className={log.Status === 'success' ? 'text-green-600' : 'text-red-600'}>
                           {log.Status}
@@ -302,7 +302,7 @@ export default function LogsPage() {
                       </TableCell>
                       <TableCell>{log.total_tokens}</TableCell>
                       <TableCell><div className="col-span-3">{formatTime(log.ChunkTime)}</div></TableCell>
-                      <TableCell>{log.ProviderModel}</TableCell>
+                      <TableCell className="max-w-[150px] truncate">{log.ProviderModel}</TableCell>
                       <TableCell>{log.Style}</TableCell>
                       <TableCell>{log.ProviderName}</TableCell>
                       <TableCell className="max-w-[200px] truncate" title={log.UserAgent}>

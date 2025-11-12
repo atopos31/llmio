@@ -269,6 +269,9 @@ func ProvidersBymodelsName(ctx context.Context, modelsName string) (*ProvidersWi
 	if len(llmproviders) == 0 {
 		return nil, errors.New("not provider for model " + modelsName)
 	}
+	if llmmodels.IOLog == nil {
+		llmmodels.IOLog = new(bool)
+	}
 	return &ProvidersWithlimit{
 		Providers: llmproviders,
 		MaxRetry:  llmmodels.MaxRetry,

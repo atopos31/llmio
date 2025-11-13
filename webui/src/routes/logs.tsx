@@ -12,7 +12,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Loading from "@/components/loading";
 import { getLogs, getProviders, getModels, getUserAgents, type ChatLog, type Provider, type Model, getProviderTemplates } from "@/lib/api";
 
@@ -404,15 +404,14 @@ export default function LogsPage() {
       {/* 详情弹窗 */}
       {selectedLog && (
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="max-w-2xl p-0">
-            <div className="sticky top-0 z-10 bg-background border-b p-6">
+          <DialogContent className="p-0">
+            <div className="sticky top-0 bg-background border-b p-6">
               <DialogHeader className="p-0">
                 <DialogTitle>日志详情</DialogTitle>
-                <DialogDescription>请求日志的详细信息</DialogDescription>
               </DialogHeader>
             </div>
             <div className="max-h-[85vh] overflow-y-auto p-6">
-              <div className="grid gap-4">
+              <div className="grid gap-3">
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label className="text-right">ID:</Label>
                   <div className="col-span-3">{selectedLog.ID}</div>
@@ -440,6 +439,10 @@ export default function LogsPage() {
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label className="text-right">用户代理:</Label>
                   <div className="col-span-3 break-all">{selectedLog.UserAgent || '-'}</div>
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label className="text-right">访问IP:</Label>
+                  <div className="col-span-3 break-all">{selectedLog.RemoteIP || '-'}</div>
                 </div>
                 <div className="grid grid-cols-4 items-center gap-4">
                   <Label className="text-right">状态:</Label>

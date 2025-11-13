@@ -302,6 +302,7 @@ export interface ChatLog {
   Status: string;
   Style: string;
   UserAgent: string;
+  RemoteIP?: string;
   Error: string;
   Retry: number;
   ProxyTime: number;

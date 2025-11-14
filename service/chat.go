@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptrace"
 	"slices"
 	"time"
 
@@ -97,19 +98,22 @@ func BalanceChat(c *gin.Context, style string) error {
 	retryErrLog := make(chan models.ChatLog, llmProvidersWithLimit.MaxRetry)
 	defer close(retryErrLog)
 	go func() {
+		ctx := context.Background()
 		for log := range retryErrLog {
-			_, err := SaveChatLog(context.Background(), log)
+			_, err := SaveChatLog(ctx, log)
 			if err != nil {
 				slog.Error("save chat log error", "error", err)
 			}
 		}
 	}()
 
+	timer := time.NewTimer(time.Second * time.Duration(llmProvidersWithLimit.TimeOut))
+	defer timer.Stop()
 	for retry := 0; retry < llmProvidersWithLimit.MaxRetry; retry++ {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(time.Second * time.Duration(llmProvidersWithLimit.TimeOut)):
+		case <-timer.C:
 			return errors.New("retry time out")
 		default:
 			// 加权负载均衡
@@ -150,7 +154,12 @@ func BalanceChat(c *gin.Context, style string) error {
 			if modelWithProvider.WithHeader != nil && *modelWithProvider.WithHeader {
 				header = c.Request.Header
 			}
-			res, err := chatModel.Chat(ctx, header, client, modelWithProvider.ProviderModel, before.raw)
+			trace := &httptrace.ClientTrace{
+				GotFirstResponseByte: func() {
+					fmt.Printf("响应时间: %v", time.Since(reqStart))
+				},
+			}
+			res, err := chatModel.Chat(httptrace.WithClientTrace(ctx, trace), header, client, modelWithProvider.ProviderModel, before.raw)
 			if err != nil {
 				retryErrLog <- log.WithError(err)
 				// 请求失败 移除待选

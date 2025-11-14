@@ -138,7 +138,7 @@ func BalanceChat(c *gin.Context, style string) error {
 				Status:        "success",
 				Style:         style,
 				UserAgent:     c.Request.UserAgent(),
-				RemoteIP:      c.RemoteIP(),
+				RemoteIP:      c.ClientIP(),
 				ChatIO:        llmProvidersWithLimit.IOLog,
 				Retry:         retry,
 				ProxyTime:     time.Since(proxyStart),

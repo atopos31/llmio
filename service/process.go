@@ -53,11 +53,14 @@ func ProcesserOpenAI(ctx context.Context, pr io.Reader, stream bool, start time.
 		output.OfStringArray = append(output.OfStringArray, chunk)
 
 		// 部分厂商openai格式中 每段sse响应都会返回usage 兼容性考虑
-		// if usageStr != "" { 
+		// if usageStr != "" {
 		// 	break
 		// }
 
-		usageStr = gjson.Get(chunk, "usage").String()
+		usage := gjson.Get(chunk, "usage")
+		if usage.Exists() && usage.Get("total_tokens").Int() != 0 {
+			usageStr = usage.String()
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, nil, err

@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptrace"
-	"slices"
 	"time"
 
 	"github.com/atopos31/llmio/balancer"
@@ -16,6 +15,7 @@ import (
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
 	"github.com/gin-gonic/gin"
+	"github.com/samber/lo"
 	"gorm.io/gorm"
 )
 
@@ -35,26 +35,21 @@ func BalanceChat(c *gin.Context, style string) error {
 		return err
 	}
 
-	llmProvidersWithLimit, err := ProvidersBymodelsName(ctx, before.model)
+	modelWithProvidersWithLimit, err := ProvidersBymodelsName(ctx, before.model)
 	if err != nil {
 		return err
 	}
 	// 所有模型提供商关联
-	llmproviders := llmProvidersWithLimit.Providers
+	modelWithProviders := modelWithProvidersWithLimit.Providers
+	modelWithProviderMap := lo.KeyBy(modelWithProviders, func(mp models.ModelWithProvider) uint { return mp.ModelID })
 
 	slog.Info("request", "model", before.model, "stream", before.stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
 
-	if len(llmproviders) == 0 {
+	if len(modelWithProviders) == 0 {
 		return fmt.Errorf("no provider found for models %s", before.model)
 	}
 
-	// 预分配切片容量
-	providerIds := make([]uint, 0, len(llmproviders))
-	for _, modelWithProvider := range llmproviders {
-		providerIds = append(providerIds, modelWithProvider.ProviderID)
-	}
-
-	provideritems, err := gorm.G[models.Provider](models.DB).Where("id IN ?", providerIds).Where("type = ?", style).Find(ctx)
+	provideritems, err := gorm.G[models.Provider](models.DB).Where("id IN ?", lo.Map(modelWithProviders, func(mp models.ModelWithProvider, _ int) uint { return mp.ID })).Where("type = ?", style).Find(ctx)
 	if err != nil {
 		return err
 	}
@@ -63,14 +58,11 @@ func BalanceChat(c *gin.Context, style string) error {
 	}
 
 	// 构建providerID到provider的映射，避免重复查找
-	providerMap := make(map[uint]*models.Provider, len(provideritems))
-	for i := range provideritems {
-		provider := &provideritems[i]
-		providerMap[provider.ID] = provider
-	}
-
-	items := make(map[uint]int)
-	for _, modelWithProvider := range llmproviders {
+	providerMap := lo.KeyBy(provideritems, func(p models.Provider) uint { return p.ID })
+	// modelWithProvider id 与 weight映射
+	weightItems := make(map[uint]int)
+	for i := range modelWithProviders {
+		modelWithProvider := modelWithProviders[i]
 		// 过滤是否开启工具调用
 		if modelWithProvider.ToolCall != nil && before.toolCall && !*modelWithProvider.ToolCall {
 			continue
@@ -85,17 +77,17 @@ func BalanceChat(c *gin.Context, style string) error {
 		}
 		provider := providerMap[modelWithProvider.ProviderID]
 		// 过滤提供商类型
-		if provider == nil || provider.Type != style {
+		if provider.Type != style {
 			continue
 		}
-		items[modelWithProvider.ID] = modelWithProvider.Weight
+		weightItems[modelWithProvider.ID] = modelWithProvider.Weight
 	}
 
-	if len(items) == 0 {
+	if len(weightItems) == 0 {
 		return errors.New("no provider with tool_call or structured_output or image found for models " + before.model)
 	}
 	// 收集重试过程中的err日志
-	retryErrLog := make(chan models.ChatLog, llmProvidersWithLimit.MaxRetry)
+	retryErrLog := make(chan models.ChatLog, modelWithProvidersWithLimit.MaxRetry)
 	defer close(retryErrLog)
 	go func() {
 		ctx := context.Background()
@@ -107,9 +99,9 @@ func BalanceChat(c *gin.Context, style string) error {
 		}
 	}()
 
-	timer := time.NewTimer(time.Second * time.Duration(llmProvidersWithLimit.TimeOut))
+	timer := time.NewTimer(time.Second * time.Duration(modelWithProvidersWithLimit.TimeOut))
 	defer timer.Stop()
-	for retry := 0; retry < llmProvidersWithLimit.MaxRetry; retry++ {
+	for retry := range modelWithProvidersWithLimit.MaxRetry {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -117,14 +109,16 @@ func BalanceChat(c *gin.Context, style string) error {
 			return errors.New("retry time out")
 		default:
 			// 加权负载均衡
-			item, err := balancer.WeightedRandom(items)
+			id, err := balancer.WeightedRandom(weightItems)
 			if err != nil {
 				return err
 			}
-			modelWithProviderIndex := slices.IndexFunc(llmproviders, func(mp models.ModelWithProvider) bool {
-				return mp.ID == *item
-			})
-			modelWithProvider := llmproviders[modelWithProviderIndex]
+			modelWithProvider, ok := modelWithProviderMap[*id]
+			if !ok {
+				// 数据不一致，移除该模型避免下次重复命中
+				delete(weightItems, *id)
+				continue
+			}
 
 			provider := providerMap[modelWithProvider.ProviderID]
 
@@ -143,12 +137,12 @@ func BalanceChat(c *gin.Context, style string) error {
 				Style:         style,
 				UserAgent:     c.Request.UserAgent(),
 				RemoteIP:      c.ClientIP(),
-				ChatIO:        llmProvidersWithLimit.IOLog,
+				ChatIO:        modelWithProvidersWithLimit.IOLog,
 				Retry:         retry,
 				ProxyTime:     time.Since(proxyStart),
 			}
 			reqStart := time.Now()
-			client := providers.GetClient(time.Second * time.Duration(llmProvidersWithLimit.TimeOut) / 3)
+			client := providers.GetClient(time.Second * time.Duration(modelWithProvidersWithLimit.TimeOut) / 3)
 			header := make(http.Header)
 			// 请求头透传
 			if modelWithProvider.WithHeader != nil && *modelWithProvider.WithHeader {
@@ -163,7 +157,7 @@ func BalanceChat(c *gin.Context, style string) error {
 			if err != nil {
 				retryErrLog <- log.WithError(err)
 				// 请求失败 移除待选
-				delete(items, *item)
+				delete(weightItems, *id)
 				continue
 			}
 
@@ -176,10 +170,10 @@ func BalanceChat(c *gin.Context, style string) error {
 
 				if res.StatusCode == http.StatusTooManyRequests {
 					// 达到RPM限制 降低权重
-					items[*item] -= items[*item] / 3
+					weightItems[*id] -= weightItems[*id] / 3
 				} else {
 					// 非RPM限制 移除待选
-					delete(items, *item)
+					delete(weightItems, *id)
 				}
 				res.Body.Close()
 				continue
@@ -192,7 +186,7 @@ func BalanceChat(c *gin.Context, style string) error {
 			}
 
 			// 记录输入输出数据（如果开启IO记录）
-			if llmProvidersWithLimit.IOLog {
+			if modelWithProvidersWithLimit.IOLog {
 				if err := gorm.G[models.ChatIO](models.DB).Create(ctx, &models.ChatIO{
 					LogId: logId,
 					Input: string(before.raw),
@@ -205,8 +199,9 @@ func BalanceChat(c *gin.Context, style string) error {
 			tee := io.TeeReader(res.Body, pw)
 
 			// 与客户端并行处理响应数据流 同时记录日志
-			go func(ctx context.Context) {
+			go func() {
 				defer pr.Close()
+				ctx := context.Background()
 				log, output, err := processer(ctx, pr, before.stream, reqStart)
 				if err != nil {
 					slog.Error("processer error", "error", err)
@@ -219,13 +214,13 @@ func BalanceChat(c *gin.Context, style string) error {
 				slog.Info("response", "input", log.PromptTokens, "output", log.CompletionTokens, "total", log.TotalTokens, "firstChunkTime", log.FirstChunkTime, "chunkTime", log.ChunkTime, "tps", log.Tps)
 
 				// 只有开启IO记录才更新输出数据
-				if llmProvidersWithLimit.IOLog {
+				if modelWithProvidersWithLimit.IOLog {
 					if _, err := gorm.G[models.ChatIO](models.DB).Where("log_id = ?", logId).Updates(ctx, models.ChatIO{OutputUnion: *output}); err != nil {
 						slog.Error("update chat io error", "error", err)
 						return
 					}
 				}
-			}(context.Background())
+			}()
 			// 转发给客户端
 			if before.stream {
 				c.Header("Content-Type", "text/event-stream")
@@ -271,19 +266,19 @@ func ProvidersBymodelsName(ctx context.Context, modelsName string) (*ProvidersWi
 		return nil, err
 	}
 
-	llmproviders, err := gorm.G[models.ModelWithProvider](models.DB).Where("model_id = ?", llmmodels.ID).Find(ctx)
+	modelWithProviders, err := gorm.G[models.ModelWithProvider](models.DB).Where("model_id = ?", llmmodels.ID).Find(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(llmproviders) == 0 {
+	if len(modelWithProviders) == 0 {
 		return nil, errors.New("not provider for model " + modelsName)
 	}
 	if llmmodels.IOLog == nil {
 		llmmodels.IOLog = new(bool)
 	}
 	return &ProvidersWithlimit{
-		Providers: llmproviders,
+		Providers: modelWithProviders,
 		MaxRetry:  llmmodels.MaxRetry,
 		TimeOut:   llmmodels.TimeOut,
 		IOLog:     *llmmodels.IOLog,

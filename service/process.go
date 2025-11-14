@@ -52,9 +52,10 @@ func ProcesserOpenAI(ctx context.Context, pr io.Reader, stream bool, start time.
 		}
 		output.OfStringArray = append(output.OfStringArray, chunk)
 
-		if usageStr != "" {
-			break
-		}
+		// 部分厂商openai格式中 每段sse响应都会返回usage 兼容性考虑
+		// if usageStr != "" { 
+		// 	break
+		// }
 
 		usageStr = gjson.Get(chunk, "usage").String()
 	}

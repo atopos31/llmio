@@ -41,6 +41,11 @@ type ModelWithProviderRequest struct {
 	Weight           int    `json:"weight"`
 }
 
+// ModelProviderStatusRequest represents the request body for updating provider status
+type ModelProviderStatusRequest struct {
+	Status bool `json:"status"`
+}
+
 // SystemConfigRequest represents the request body for updating system configuration
 type SystemConfigRequest struct {
 	EnableSmartRouting  bool    `json:"enable_smart_routing"`
@@ -448,6 +453,9 @@ func CreateModelProvider(c *gin.Context) {
 		Weight:           req.Weight,
 	}
 
+	defaultStatus := true
+	modelProvider.Status = &defaultStatus
+
 	err := gorm.G[models.ModelWithProvider](models.DB).Create(c.Request.Context(), &modelProvider)
 	if err != nil {
 		common.InternalServerError(c, "Failed to create model-provider association: "+err.Error())
@@ -509,6 +517,45 @@ func UpdateModelProvider(c *gin.Context) {
 	}
 
 	common.Success(c, updatedModelProvider)
+}
+
+// UpdateModelProviderStatus 切换模型提供商关联启用状态
+func UpdateModelProviderStatus(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		common.BadRequest(c, "Invalid ID format")
+		return
+	}
+
+	var req ModelProviderStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.BadRequest(c, "Invalid request body: "+err.Error())
+		return
+	}
+
+	existing, err := gorm.G[models.ModelWithProvider](models.DB).Where("id = ?", id).First(c.Request.Context())
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			common.NotFound(c, "Model-provider association not found")
+			return
+		}
+		common.InternalServerError(c, "Failed to retrieve model-provider association: "+err.Error())
+		return
+	}
+
+	status := req.Status
+	updates := models.ModelWithProvider{
+		Status: &status,
+	}
+
+	if _, err := gorm.G[models.ModelWithProvider](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {
+		common.InternalServerError(c, "Failed to update status: "+err.Error())
+		return
+	}
+
+	existing.Status = &status
+	common.Success(c, existing)
 }
 
 // DeleteModelProvider 删除模型提供商关联

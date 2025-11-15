@@ -48,7 +48,10 @@ func BalanceChat(c *gin.Context, style string) error {
 
 	slog.Info("request", "model", before.model, "stream", before.stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
 
-	provideritems, err := gorm.G[models.Provider](models.DB).Where("id IN ?", lo.Map(modelWithProviders, func(mp models.ModelWithProvider, _ int) uint { return mp.ProviderID })).Where("type = ?", style).Find(ctx)
+	provideritems, err := gorm.G[models.Provider](models.DB).
+		Where("id IN ?", lo.Map(modelWithProviders, func(mp models.ModelWithProvider, _ int) uint { return mp.ProviderID })).
+		Where("type = ?", style).
+		Find(ctx)
 	if err != nil {
 		return err
 	}
@@ -265,7 +268,10 @@ func ProvidersBymodelsName(ctx context.Context, modelsName string) (*ProvidersWi
 		return nil, err
 	}
 
-	modelWithProviders, err := gorm.G[models.ModelWithProvider](models.DB).Where("model_id = ?", llmmodels.ID).Find(ctx)
+	modelWithProviders, err := gorm.G[models.ModelWithProvider](models.DB).
+		Where("model_id = ?", llmmodels.ID).
+		Where("status = ?", true).
+		Find(ctx)
 	if err != nil {
 		return nil, err
 	}

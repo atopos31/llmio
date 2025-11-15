@@ -28,6 +28,7 @@ export interface ModelWithProvider {
   StructuredOutput: boolean;
   Image: boolean;
   WithHeader: boolean;
+  Status: boolean | null;
   Weight: number;
 }
 
@@ -217,6 +218,13 @@ export async function updateModelProvider(id: number, association: {
   return apiRequest<ModelWithProvider>(`/model-providers/${id}`, {
     method: 'PUT',
     body: JSON.stringify(association),
+  });
+}
+
+export async function updateModelProviderStatus(id: number, status: boolean): Promise<ModelWithProvider> {
+  return apiRequest<ModelWithProvider>(`/model-providers/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
   });
 }
 

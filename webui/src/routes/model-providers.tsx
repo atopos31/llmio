@@ -35,6 +35,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Form,
   FormControl,
@@ -49,6 +50,7 @@ import {
   getModelProviderStatus,
   createModelProvider,
   updateModelProvider,
+  updateModelProviderStatus,
   deleteModelProvider,
   getModels,
   getProviders,
@@ -98,6 +100,8 @@ export default function ModelProvidersPage() {
     success: null,
     error: null
   });
+  const [statusUpdating, setStatusUpdating] = useState<Record<number, boolean>>({});
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   const dialogClose = () => {
     setTestDialogOpen(false)
@@ -283,6 +287,40 @@ export default function ModelProvidersPage() {
     } catch (err) {
       setError("删除模型提供商关联失败");
       console.error(err);
+    }
+  };
+
+  const handleStatusToggle = async (association: ModelWithProvider, nextStatus: boolean) => {
+    const previousStatus = association.Status ?? true;
+    setStatusError(null);
+    setStatusUpdating(prev => ({ ...prev, [association.ID]: true }));
+    setModelProviders(prev =>
+      prev.map(item =>
+        item.ID === association.ID ? { ...item, Status: nextStatus } : item
+      )
+    );
+
+    try {
+      const updated = await updateModelProviderStatus(association.ID, nextStatus);
+      setModelProviders(prev =>
+        prev.map(item =>
+          item.ID === association.ID ? updated : item
+        )
+      );
+    } catch (err) {
+      setModelProviders(prev =>
+        prev.map(item =>
+          item.ID === association.ID ? { ...item, Status: previousStatus } : item
+        )
+      );
+      setStatusError("更新启用状态失败");
+      console.error(err);
+    } finally {
+      setStatusUpdating(prev => {
+        const next = { ...prev };
+        delete next[association.ID];
+        return next;
+      });
     }
   };
 
@@ -518,6 +556,12 @@ export default function ModelProvidersPage() {
         </div>
       </div>
 
+      {statusError && (
+        <div className="text-sm text-red-500">
+          {statusError}
+        </div>
+      )}
+
       {!selectedModelId ? (
         <div>请选择一个模型来查看其提供商关联</div>
       ) : (
@@ -536,13 +580,15 @@ export default function ModelProvidersPage() {
                   <TableHead>视觉</TableHead>
                   <TableHead>请求头透传</TableHead>
                   <TableHead>权重</TableHead>
+                  <TableHead>启用</TableHead>
                   <TableHead>状态</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
+                  <TableHead>操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredModelProviders.map((association) => {
                   const provider = providers.find(p => p.ID === association.ProviderID);
+                  const isAssociationEnabled = association.Status ?? false;
                   return (
                     <TableRow key={association.ID}>
                       <TableCell>{association.ID}</TableCell>
@@ -570,6 +616,19 @@ export default function ModelProvidersPage() {
                         </span>
                       </TableCell>
                       <TableCell>{association.Weight}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={isAssociationEnabled}
+                            disabled={!!statusUpdating[association.ID]}
+                            onCheckedChange={(value) => handleStatusToggle(association, value)}
+                            aria-label="切换启用状态"
+                          />
+                          <span className="text-sm text-gray-500">
+                            {isAssociationEnabled ? "已启用" : "已停用"}
+                          </span>
+                        </div>
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center space-x-4">
                           {providerStatus[association.ID] ? (
@@ -640,6 +699,7 @@ export default function ModelProvidersPage() {
           <div className="sm:hidden space-y-4">
             {filteredModelProviders.map((association) => {
               const provider = providers.find(p => p.ID === association.ProviderID);
+              const isAssociationEnabled = association.Status ?? true;
               return (
                 <div key={association.ID} className="border rounded-lg p-4 space-y-3">
                   <div className="flex justify-between items-start">
@@ -725,6 +785,15 @@ export default function ModelProvidersPage() {
                         </AlertDialogContent>
                       </AlertDialog>
                     </div>
+                  </div>
+                  <div className="flex items-center justify-between text-sm text-gray-500">
+                    <span>{isAssociationEnabled ? "已启用" : "已停用"}</span>
+                    <Switch
+                      checked={isAssociationEnabled}
+                      disabled={!!statusUpdating[association.ID]}
+                      onCheckedChange={(value) => handleStatusToggle(association, value)}
+                      aria-label="切换启用状态"
+                    />
                   </div>
                   <div className="flex justify-between items-center">
                     <Button

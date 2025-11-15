@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,7 +19,8 @@ import (
 )
 
 func init() {
-	models.Init("./db/llmio.db")
+	ctx := context.Background()
+	models.Init(ctx, "./db/llmio.db")
 	slog.Info("TZ", "time.Local", time.Local.String())
 }
 
@@ -62,6 +64,7 @@ func main() {
 	api.GET("/model-providers/status", handler.GetModelProviderStatus)
 	api.POST("/model-providers", handler.CreateModelProvider)
 	api.PUT("/model-providers/:id", handler.UpdateModelProvider)
+	api.PATCH("/model-providers/:id/status", handler.UpdateModelProviderStatus)
 	api.DELETE("/model-providers/:id", handler.DeleteModelProvider)
 
 	// System status and monitoring

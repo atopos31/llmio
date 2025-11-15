@@ -38,6 +38,7 @@ type ModelWithProvider struct {
 	StructuredOutput *bool // 能否接受带有结构化输出的请求
 	Image            *bool // 能否接受带有图片的请求(视觉)
 	WithHeader       *bool // 是否携带header
+	Status           *bool // 是否启用
 	Weight           int
 }
 

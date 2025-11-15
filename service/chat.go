@@ -41,15 +41,14 @@ func BalanceChat(c *gin.Context, style string) error {
 	}
 	// 所有模型提供商关联
 	modelWithProviders := modelWithProvidersWithLimit.Providers
-	modelWithProviderMap := lo.KeyBy(modelWithProviders, func(mp models.ModelWithProvider) uint { return mp.ModelID })
-
-	slog.Info("request", "model", before.model, "stream", before.stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
-
 	if len(modelWithProviders) == 0 {
 		return fmt.Errorf("no provider found for models %s", before.model)
 	}
+	modelWithProviderMap := lo.KeyBy(modelWithProviders, func(mp models.ModelWithProvider) uint { return mp.ID })
 
-	provideritems, err := gorm.G[models.Provider](models.DB).Where("id IN ?", lo.Map(modelWithProviders, func(mp models.ModelWithProvider, _ int) uint { return mp.ID })).Where("type = ?", style).Find(ctx)
+	slog.Info("request", "model", before.model, "stream", before.stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
+
+	provideritems, err := gorm.G[models.Provider](models.DB).Where("id IN ?", lo.Map(modelWithProviders, func(mp models.ModelWithProvider, _ int) uint { return mp.ProviderID })).Where("type = ?", style).Find(ctx)
 	if err != nil {
 		return err
 	}

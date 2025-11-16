@@ -17,8 +17,14 @@ LLMIO 是一个基于 Go 的多供应商大语言模型网关，提供统一的 
 
 ### Docker
 ```bash
-docker build -t llmio .
-docker run -p 7070:7070 -e TOKEN=your-token llmio
+docker run -d \
+  --name llmio \
+  -p 7070:7070 \
+  -v $(pwd)/db:/app/db \
+  -e GIN_MODE=release \
+  -e TOKEN=<YOUR_TOKEN> \
+  -e TZ=Asia/Shanghai \
+  atopos31/llmio:latest
 ```
 
 ### Docker Compose

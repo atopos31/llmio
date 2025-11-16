@@ -48,6 +48,10 @@ docker compose up -d
    ```
 2. **本地快速启动**（推荐）
    ```bash
+   make webui
+   ```
+   编译前端 
+   ```bash
    make run
    ```
    `make run` 会自动执行 `go fmt`、`go mod tidy` 并启动后端服务。首次启动会在 `db/` 目录生成 SQLite 数据库。

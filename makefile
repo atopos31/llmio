@@ -16,4 +16,4 @@ add: fmt tidy
 .PHONY: webui
 
 webui: 
-	cd webui && pnpm run build
+	cd webui && pnpm install && pnpm run build

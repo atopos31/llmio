@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"log/slog"
 	"slices"
 	"strconv"
@@ -238,7 +239,7 @@ func CreateModel(c *gin.Context) {
 		return
 	}
 	if count > 0 {
-		common.BadRequest(c, "Model already exists")
+		common.BadRequest(c, fmt.Sprintf("Model: %s already exists", req.Name))
 		return
 	}
 

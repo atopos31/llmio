@@ -50,6 +50,7 @@ import {
 } from "@/lib/api";
 import type { Model } from "@/lib/api";
 import { Checkbox } from "@/components/ui/checkbox";
+import { toast } from "sonner";
 
 // 定义表单验证模式
 const formSchema = z.object({
@@ -103,11 +104,11 @@ export default function ModelsPage() {
     try {
       await createModel(values);
       setOpen(false);
+      toast.success(`模型: ${values.name} 创建成功`);
       form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false });
       fetchModels();
-    } catch (err) {
-      setError("创建模型失败");
-      console.error(err);
+    } catch (err: any) {
+      toast.error(`创建模型失败: ${err.message}`);
     }
   };
 

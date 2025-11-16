@@ -87,7 +87,7 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
 
   const data = await response.json();
   if (data.code !== 200) {
-    throw new Error(`API request failed: ${data.code} ${data.message}`);
+    throw new Error(`${data.message}`);
   }
   return data.data as T;
 }

@@ -145,11 +145,7 @@ func BalanceChat(c *gin.Context, style string) error {
 			}
 			reqStart := time.Now()
 			client := providers.GetClient(time.Second * time.Duration(modelWithProvidersWithLimit.TimeOut) / 3)
-			header := make(http.Header)
-			// 请求头透传
-			if modelWithProvider.WithHeader != nil && *modelWithProvider.WithHeader {
-				header = c.Request.Header
-			}
+			header := buildHeaders(c.Request.Header, modelWithProvider.WithHeader, modelWithProvider.CustomerHeaders)
 			trace := &httptrace.ClientTrace{
 				GotFirstResponseByte: func() {
 					fmt.Printf("响应时间: %v", time.Since(reqStart))
@@ -250,6 +246,20 @@ func SaveChatLog(ctx context.Context, log models.ChatLog) (uint, error) {
 		return 0, err
 	}
 	return log.ID, nil
+}
+
+func buildHeaders(source http.Header, withHeader *bool, customHeaders map[string]string) http.Header {
+	header := http.Header{}
+
+	if withHeader != nil && *withHeader {
+		header = source.Clone()
+	}
+
+	for key, value := range customHeaders {
+		header.Set(key, value)
+	}
+
+	return header
 }
 
 type ProvidersWithlimit struct {

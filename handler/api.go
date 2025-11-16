@@ -32,14 +32,15 @@ type ModelRequest struct {
 
 // ModelWithProviderRequest represents the request body for creating/updating a model-provider association
 type ModelWithProviderRequest struct {
-	ModelID          uint   `json:"model_id"`
-	ProviderModel    string `json:"provider_name"`
-	ProviderID       uint   `json:"provider_id"`
-	ToolCall         bool   `json:"tool_call"`
-	StructuredOutput bool   `json:"structured_output"`
-	Image            bool   `json:"image"`
-	WithHeader       bool   `json:"with_header"`
-	Weight           int    `json:"weight"`
+	ModelID          uint              `json:"model_id"`
+	ProviderModel    string            `json:"provider_name"`
+	ProviderID       uint              `json:"provider_id"`
+	ToolCall         bool              `json:"tool_call"`
+	StructuredOutput bool              `json:"structured_output"`
+	Image            bool              `json:"image"`
+	WithHeader       bool              `json:"with_header"`
+	CustomerHeaders  map[string]string `json:"customer_headers"`
+	Weight           int               `json:"weight"`
 }
 
 // ModelProviderStatusRequest represents the request body for updating provider status
@@ -443,6 +444,11 @@ func CreateModelProvider(c *gin.Context) {
 		return
 	}
 
+	customerHeaders := req.CustomerHeaders
+	if customerHeaders == nil {
+		customerHeaders = map[string]string{}
+	}
+
 	modelProvider := models.ModelWithProvider{
 		ModelID:          req.ModelID,
 		ProviderModel:    req.ProviderModel,
@@ -451,6 +457,7 @@ func CreateModelProvider(c *gin.Context) {
 		StructuredOutput: &req.StructuredOutput,
 		Image:            &req.Image,
 		WithHeader:       &req.WithHeader,
+		CustomerHeaders:  customerHeaders,
 		Weight:           req.Weight,
 	}
 
@@ -482,6 +489,11 @@ func UpdateModelProvider(c *gin.Context) {
 	}
 	slog.Info("UpdateModelProvider", "req", req)
 
+	customerHeaders := req.CustomerHeaders
+	if customerHeaders == nil {
+		customerHeaders = map[string]string{}
+	}
+
 	// Check if model-provider association exists
 	_, err = gorm.G[models.ModelWithProvider](models.DB).Where("id = ?", id).First(c.Request.Context())
 	if err != nil {
@@ -502,6 +514,7 @@ func UpdateModelProvider(c *gin.Context) {
 		StructuredOutput: &req.StructuredOutput,
 		Image:            &req.Image,
 		WithHeader:       &req.WithHeader,
+		CustomerHeaders:  customerHeaders,
 		Weight:           req.Weight,
 	}
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { useFieldArray, useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
@@ -62,6 +62,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 
 // 定义表单验证模式
+const headerPairSchema = z.object({
+  key: z.string().min(1, { message: "请求头键不能为空" }),
+  value: z.string().default(""),
+});
+
 const formSchema = z.object({
   model_id: z.number().positive({ message: "模型ID必须大于0" }),
   provider_name: z.string().min(1, { message: "提供商模型名称不能为空" }),
@@ -71,7 +76,10 @@ const formSchema = z.object({
   image: z.boolean(),
   with_header: z.boolean(),
   weight: z.number().positive({ message: "权重必须大于0" }),
+  customer_headers: z.array(headerPairSchema).default([]),
 });
+
+type FormValues = z.input<typeof formSchema>;
 
 export default function ModelProvidersPage() {
   const [modelProviders, setModelProviders] = useState<ModelWithProvider[]>([]);
@@ -108,7 +116,7 @@ export default function ModelProvidersPage() {
   };
 
   // 初始化表单
-  const form = useForm<z.infer<typeof formSchema>>({
+  const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       model_id: 0,
@@ -119,7 +127,12 @@ export default function ModelProvidersPage() {
       image: false,
       with_header: false,
       weight: 1,
+      customer_headers: [],
     },
+  });
+  const { fields: headerFields, append: appendHeader, remove: removeHeader } = useFieldArray({
+    control: form.control,
+    name: "customer_headers",
   });
 
   useEffect(() => {
@@ -166,6 +179,28 @@ export default function ModelProvidersPage() {
     }
   }, [selectedModelId]);
 
+  const buildPayload = (values: FormValues) => {
+    const headers: Record<string, string> = {};
+    (values.customer_headers || []).forEach(({ key, value }) => {
+      const trimmedKey = key.trim();
+      if (trimmedKey) {
+        headers[trimmedKey] = value ?? "";
+      }
+    });
+
+    return {
+      model_id: values.model_id,
+      provider_name: values.provider_name,
+      provider_id: values.provider_id,
+      tool_call: values.tool_call,
+      structured_output: values.structured_output,
+      image: values.image,
+      with_header: values.with_header,
+      customer_headers: headers,
+      weight: values.weight
+    };
+  };
+
   const fetchModels = async () => {
     try {
       const data = await getModels();
@@ -192,7 +227,10 @@ export default function ModelProvidersPage() {
     try {
       setLoading(true);
       const data = await getModelProviders(modelId);
-      setModelProviders(data);
+      setModelProviders(data.map(item => ({
+        ...item,
+        CustomerHeaders: item.CustomerHeaders || {}
+      })));
       // 异步加载状态数据
       loadProviderStatus(data, modelId);
     } catch (err) {
@@ -230,9 +268,9 @@ export default function ModelProvidersPage() {
     setProviderStatus(newStatus);
   };
 
-  const handleCreate = async (values: z.infer<typeof formSchema>) => {
+  const handleCreate = async (values: FormValues) => {
     try {
-      await createModelProvider(values);
+      await createModelProvider(buildPayload(values));
       setOpen(false);
       toast.success("模型提供商关联创建成功");
       form.reset({
@@ -243,7 +281,8 @@ export default function ModelProvidersPage() {
         structured_output: false,
         image: false,
         with_header: false,
-        weight: 1
+        weight: 1,
+        customer_headers: []
       });
       if (selectedModelId) {
         fetchModelProviders(selectedModelId);
@@ -255,11 +294,11 @@ export default function ModelProvidersPage() {
     }
   };
 
-  const handleUpdate = async (values: z.infer<typeof formSchema>) => {
+  const handleUpdate = async (values: FormValues) => {
     if (!editingAssociation) return;
 
     try {
-      await updateModelProvider(editingAssociation.ID, values);
+      await updateModelProvider(editingAssociation.ID, buildPayload(values));
       setOpen(false);
       toast.success("模型提供商关联更新成功");
       setEditingAssociation(null);
@@ -271,7 +310,8 @@ export default function ModelProvidersPage() {
         structured_output: false,
         image: false,
         with_header: false,
-        weight: 1
+        weight: 1,
+        customer_headers: []
       });
       if (selectedModelId) {
         fetchModelProviders(selectedModelId);
@@ -311,9 +351,10 @@ export default function ModelProvidersPage() {
 
     try {
       const updated = await updateModelProviderStatus(association.ID, nextStatus);
+      const normalized = { ...updated, CustomerHeaders: updated.CustomerHeaders || {} };
       setModelProviders(prev =>
         prev.map(item =>
-          item.ID === association.ID ? updated : item
+          item.ID === association.ID ? normalized : item
         )
       );
     } catch (err) {
@@ -471,6 +512,10 @@ export default function ModelProvidersPage() {
 
   const openEditDialog = (association: ModelWithProvider) => {
     setEditingAssociation(association);
+    const headerPairs = Object.entries(association.CustomerHeaders || {}).map(([key, value]) => ({
+      key,
+      value,
+    }));
     form.reset({
       model_id: association.ModelID,
       provider_name: association.ProviderModel,
@@ -480,6 +525,7 @@ export default function ModelProvidersPage() {
       image: association.Image,
       with_header: association.WithHeader,
       weight: association.Weight,
+      customer_headers: headerPairs.length ? headerPairs : [],
     });
     setOpen(true);
   };
@@ -494,7 +540,8 @@ export default function ModelProvidersPage() {
       structured_output: false,
       image: false,
       with_header: false,
-      weight: 1
+      weight: 1,
+      customer_headers: []
     });
     setOpen(true);
   };
@@ -987,6 +1034,68 @@ export default function ModelProvidersPage() {
                       </div>
                     </FormItem>
                   )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="customer_headers"
+                  render={({ field }) => {
+                    const headerValues = field.value ?? [];
+                    return (
+                      <FormItem>
+                        <div className="flex items-center justify-between">
+                          <FormLabel>自定义请求头</FormLabel>
+                          <Button type="button" variant="outline" size="sm" onClick={() => appendHeader({ key: "", value: "" })}>
+                            添加
+                          </Button>
+                        </div>
+                        <div className="space-y-2">
+                          {headerFields.map((header, index) => {
+                            const errorMsg = form.formState.errors.customer_headers?.[index]?.key?.message;
+                            return (
+                              <div key={header.id} className="space-y-1">
+                                <div className="flex gap-2 items-center">
+                                  <div className="flex-1">
+                                    <Input
+                                      placeholder="Header Key"
+                                      value={headerValues[index]?.key ?? ""}
+                                      onChange={(e) => {
+                                        const next = [...headerValues];
+                                        next[index] = { ...next[index], key: e.target.value };
+                                        field.onChange(next);
+                                      }}
+                                    />
+                                  </div>
+                                  <div className="flex-1">
+                                    <Input
+                                      placeholder="Header Value"
+                                      value={headerValues[index]?.value ?? ""}
+                                      onChange={(e) => {
+                                        const next = [...headerValues];
+                                        next[index] = { ...next[index], value: e.target.value };
+                                        field.onChange(next);
+                                      }}
+                                    />
+                                  </div>
+                                  <Button type="button" size="sm" variant="destructive" onClick={() => removeHeader(index)}>
+                                    删除
+                                  </Button>
+                                </div>
+                                {errorMsg && (
+                                  <p className="text-sm text-red-500">
+                                    {errorMsg}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
+                          <p className="text-sm text-muted-foreground">
+                              {"优先级: 提供商配置 > 自定义请求头 > 透传请求头"}
+                            </p>
+                        </div>
+                      </FormItem>
+                    );
+                  }}
                 />
 
                 <FormField

@@ -57,7 +57,8 @@ func ProviderTestHandler(c *gin.Context) {
 
 	// Test connectivity by fetching models
 	client := providers.GetClient(time.Second * time.Duration(30))
-	res, err := providerInstance.Chat(c.Request.Context(), nil, client, chatModel.Model, []byte(testBody))
+	header := buildTestHeaders(c.Request.Header, chatModel.WithHeader, chatModel.CustomerHeaders)
+	res, err := providerInstance.Chat(c.Request.Context(), header, client, chatModel.Model, []byte(testBody))
 	if err != nil {
 		common.ErrorWithHttpStatus(c, http.StatusOK, 502, "Failed to connect to provider: "+err.Error())
 		return
@@ -214,10 +215,12 @@ func GetWeather(ctx context.Context, call openai.ChatCompletionChunkChoiceDeltaT
 }
 
 type ChatModel struct {
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-	Model  string `json:"model"`
-	Config string `json:"config"`
+	Name            string            `json:"name"`
+	Type            string            `json:"type"`
+	Model           string            `json:"model"`
+	Config          string            `json:"config"`
+	WithHeader      *bool             `json:"with_header,omitempty"`
+	CustomerHeaders map[string]string `json:"customer_headers,omitempty"`
 }
 
 func FindChatModel(ctx context.Context, id string) (*ChatModel, error) {
@@ -234,9 +237,25 @@ func FindChatModel(ctx context.Context, id string) (*ChatModel, error) {
 	}
 
 	return &ChatModel{
-		Name:   provider.Name,
-		Type:   provider.Type,
-		Model:  modelWithProvider.ProviderModel,
-		Config: provider.Config,
+		Name:            provider.Name,
+		Type:            provider.Type,
+		Model:           modelWithProvider.ProviderModel,
+		Config:          provider.Config,
+		WithHeader:      modelWithProvider.WithHeader,
+		CustomerHeaders: modelWithProvider.CustomerHeaders,
 	}, nil
+}
+
+func buildTestHeaders(source http.Header, withHeader *bool, customHeaders map[string]string) http.Header {
+	header := http.Header{}
+
+	if withHeader != nil && *withHeader {
+		header = source.Clone()
+	}
+
+	for key, value := range customHeaders {
+		header.Set(key, value)
+	}
+
+	return header
 }

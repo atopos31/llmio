@@ -28,6 +28,7 @@ export interface ModelWithProvider {
   StructuredOutput: boolean;
   Image: boolean;
   WithHeader: boolean;
+  CustomerHeaders: Record<string, string> | null;
   Status: boolean | null;
   Weight: number;
 }
@@ -197,6 +198,7 @@ export async function createModelProvider(association: {
   structured_output: boolean;
   image: boolean;
   with_header: boolean;
+  customer_headers: Record<string, string>;
   weight: number;
 }): Promise<ModelWithProvider> {
   return apiRequest<ModelWithProvider>('/model-providers', {
@@ -213,6 +215,7 @@ export async function updateModelProvider(id: number, association: {
   structured_output?: boolean;
   image?: boolean;
   with_header?: boolean;
+  customer_headers?: Record<string, string>;
   weight?: number;
 }): Promise<ModelWithProvider> {
   return apiRequest<ModelWithProvider>(`/model-providers/${id}`, {

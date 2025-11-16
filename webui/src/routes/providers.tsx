@@ -240,53 +240,28 @@ export default function ProvidersPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <h2 className="text-2xl font-bold whitespace-nowrap">提供商管理</h2>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <div className="hidden sm:flex items-center gap-2">
-            <Input
-              placeholder="搜索提供商名称"
-              value={nameFilter}
-              onChange={(e) => setNameFilter(e.target.value)}
-              className="w-[160px]"
-            />
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue placeholder="选择类型" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部</SelectItem>
-                {availableTypes.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {type}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Input
+            placeholder="搜索提供商名称"
+            value={nameFilter}
+            onChange={(e) => setNameFilter(e.target.value)}
+            className="w-full sm:w-64"
+          />
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="选择类型" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部</SelectItem>
+              {availableTypes.map((type) => (
+                <SelectItem key={type} value={type}>
+                  {type}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button onClick={openCreateDialog} className="w-full sm:w-auto">添加提供商</Button>
         </div>
-      </div>
-
-      {/* 移动端筛选区域 */}
-      <div className="sm:flex gap-2">
-        <Input
-          placeholder="搜索提供商名称"
-          value={nameFilter}
-          onChange={(e) => setNameFilter(e.target.value)}
-          className="w-full sm:hidden"
-        />
-        <Select value={typeFilter} onValueChange={setTypeFilter}>
-          <SelectTrigger className="w-full sm:hidden">
-            <SelectValue placeholder="选择类型" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">全部</SelectItem>
-            {availableTypes.map((type) => (
-              <SelectItem key={type} value={type}>
-                {type}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
 
       {/* 桌面端表格 */}

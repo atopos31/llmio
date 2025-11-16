@@ -56,6 +56,7 @@ import {
   getProviderModels
 } from "@/lib/api";
 import type { Provider, ProviderTemplate, ProviderModel } from "@/lib/api";
+import { toast } from "sonner";
 
 // 定义表单验证模式
 const formSchema = z.object({
@@ -69,7 +70,6 @@ export default function ProvidersPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerTemplates, setProviderTemplates] = useState<ProviderTemplate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
@@ -115,7 +115,8 @@ export default function ProvidersPage() {
       const data = await getProviders({ name, type });
       setProviders(data);
     } catch (err) {
-      setError("获取提供商列表失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`获取提供商列表失败: ${message}`);
       console.error(err);
     } finally {
       setLoading(false);
@@ -168,10 +169,12 @@ export default function ProvidersPage() {
         console: values.console || ""
       });
       setOpen(false);
+      toast.success(`提供商 ${values.name} 创建成功`);
       form.reset({ name: "", type: "", config: "", console: "" });
       fetchProviders();
     } catch (err) {
-      setError("创建提供商失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`创建提供商失败: ${message}`);
       console.error(err);
     }
   };
@@ -186,11 +189,13 @@ export default function ProvidersPage() {
         console: values.console || ""
       });
       setOpen(false);
+      toast.success(`提供商 ${values.name} 更新成功`);
       setEditingProvider(null);
       form.reset({ name: "", type: "", config: "", console: "" });
       fetchProviders();
     } catch (err) {
-      setError("更新提供商失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`更新提供商失败: ${message}`);
       console.error(err);
     }
   };
@@ -198,11 +203,14 @@ export default function ProvidersPage() {
   const handleDelete = async () => {
     if (!deleteId) return;
     try {
+      const targetProvider = providers.find((provider) => provider.ID === deleteId);
       await deleteProvider(deleteId);
       setDeleteId(null);
       fetchProviders();
+      toast.success(`提供商 ${targetProvider?.Name ?? deleteId} 删除成功`);
     } catch (err) {
-      setError("删除提供商失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`删除提供商失败: ${message}`);
       console.error(err);
     }
   };
@@ -227,8 +235,6 @@ export default function ProvidersPage() {
   const openDeleteDialog = (id: number) => {
     setDeleteId(id);
   };
-
-  if (error) return <div className="text-red-500">{error}</div>;
 
   return (
     <div className="space-y-6">

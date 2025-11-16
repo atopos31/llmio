@@ -8,6 +8,7 @@ import { getChatIO, type ChatIO } from "@/lib/api";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { duotoneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { duotoneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { toast } from "sonner";
 
 type SyntaxStyle = typeof duotoneLight;
 
@@ -182,7 +183,7 @@ export default function LogChatPage() {
   const navigate = useNavigate();
   const [chatIO, setChatIO] = useState<ChatIO | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadErrorMessage, setLoadErrorMessage] = useState<string | null>(null);
   const outputList = chatIO?.OfStringArray ?? [];
   const hasArrayOutput = outputList.length > 0;
   const singleOutput = chatIO?.OfString ?? "";
@@ -190,14 +191,18 @@ export default function LogChatPage() {
 
   useEffect(() => {
     if (!logId) {
-      setError("缺少日志 ID");
+      const message = "缺少日志 ID";
+      toast.error(message);
+      setLoadErrorMessage(message);
       setLoading(false);
       return;
     }
 
     const parsedId = Number(logId);
     if (Number.isNaN(parsedId)) {
-      setError("日志 ID 无效");
+      const message = "日志 ID 无效";
+      toast.error(message);
+      setLoadErrorMessage(message);
       setLoading(false);
       return;
     }
@@ -206,17 +211,18 @@ export default function LogChatPage() {
       try {
         const data = await getChatIO(parsedId);
         setChatIO(data);
-        setError(null);
+        setLoadErrorMessage(null);
       } catch (fetchError) {
+        let message = "获取会话日志失败";
         if (fetchError instanceof Error) {
           if (fetchError.message.includes("chat io not found")) {
-            setError("暂无会话记录，可能未开启 IO 记录");
+            message = "暂无会话记录，可能未开启 IO 记录";
           } else {
-            setError(fetchError.message);
+            message = fetchError.message;
           }
-        } else {
-          setError("获取会话日志失败");
         }
+        toast.error(message);
+        setLoadErrorMessage(message);
       } finally {
         setLoading(false);
       }
@@ -241,11 +247,11 @@ export default function LogChatPage() {
         </Button>
       </div>
 
-      {error && (
+      {loadErrorMessage && (
         <Card>
           <CardHeader>
             <CardTitle>加载失败</CardTitle>
-            <CardDescription>{error}</CardDescription>
+            <CardDescription>{loadErrorMessage}</CardDescription>
           </CardHeader>
           <CardContent>
             <Button onClick={() => navigate(-1)}>回到日志列表</Button>
@@ -253,7 +259,7 @@ export default function LogChatPage() {
         </Card>
       )}
 
-      {!error && chatIO && (
+      {!loadErrorMessage && chatIO && (
         <div className="space-y-6">
           <JsonBlock title="请求输入" raw={chatIO.Input} syntaxStyle={syntaxStyle} />
 

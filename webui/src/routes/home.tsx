@@ -9,6 +9,7 @@ import {
   getModelCounts
 } from "@/lib/api";
 import type { MetricsData, ModelCount } from "@/lib/api";
+import { toast } from "sonner";
 
 // 懒加载图表组件
 const ChartPieDonutText = lazy(() => import("@/components/charts/pie-chart").then(module => ({ default: module.ChartPieDonutText })));
@@ -41,7 +42,6 @@ const AnimatedCounter = ({ value, duration = 1000 }: { value: number; duration?:
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [activeChart, setActiveChart] = useState<"distribution" | "ranking">("distribution");
   
   // Real data from APIs
@@ -58,7 +58,8 @@ export default function Home() {
       const data = await getMetrics(0);
       setTodayMetrics(data);
     } catch (err) {
-      setError("获取今日指标失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`获取今日指标失败: ${message}`);
       console.error(err);
     }
   };
@@ -68,7 +69,8 @@ export default function Home() {
       const data = await getMetrics(30); // Get last 30 days for "total" metrics
       setTotalMetrics(data);
     } catch (err) {
-      setError("获取总计指标失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`获取总计指标失败: ${message}`);
       console.error(err);
     }
   };
@@ -78,7 +80,8 @@ export default function Home() {
       const data = await getModelCounts();
       setModelCounts(data);
     } catch (err) {
-      setError("获取模型调用统计失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`获取模型调用统计失败: ${message}`);
       console.error(err);
     } finally {
       setLoading(false);
@@ -86,7 +89,6 @@ export default function Home() {
   };
 
   if (loading) return <Loading message="加载系统概览" />;
-  if (error) return <div className="text-red-500">{error}</div>;
 
   return (
     <div className="space-y-6">

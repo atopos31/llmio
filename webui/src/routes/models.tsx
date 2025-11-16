@@ -65,7 +65,6 @@ export default function ModelsPage() {
   const navigate = useNavigate();
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<Model | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
@@ -93,7 +92,8 @@ export default function ModelsPage() {
       const data = await getModels();
       setModels(data);
     } catch (err) {
-      setError("获取模型列表失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`获取模型列表失败: ${message}`);
       console.error(err);
     } finally {
       setLoading(false);
@@ -117,11 +117,13 @@ export default function ModelsPage() {
     try {
       await updateModel(editingModel.ID, values);
       setOpen(false);
+      toast.success(`模型: ${values.name} 更新成功`);
       setEditingModel(null);
       form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false });
       fetchModels();
     } catch (err) {
-      setError("更新模型失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`更新模型失败: ${message}`);
       console.error(err);
     }
   };
@@ -129,11 +131,14 @@ export default function ModelsPage() {
   const handleDelete = async () => {
     if (!deleteId) return;
     try {
+      const targetModel = models.find((model) => model.ID === deleteId);
       await deleteModel(deleteId);
       setDeleteId(null);
       fetchModels();
+      toast.success(`模型: ${targetModel?.Name ?? deleteId} 删除成功`);
     } catch (err) {
-      setError("删除模型失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`删除模型失败: ${message}`);
       console.error(err);
     }
   };
@@ -161,7 +166,6 @@ export default function ModelsPage() {
   };
 
   if (loading) return <Loading message="加载模型列表" />;
-  if (error) return <div className="text-red-500">{error}</div>;
 
   return (
     <div className="space-y-6">

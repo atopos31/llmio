@@ -59,6 +59,7 @@ import {
 import type { ModelWithProvider, Model, Provider } from "@/lib/api";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 
 // 定义表单验证模式
 const formSchema = z.object({
@@ -79,7 +80,6 @@ export default function ModelProvidersPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [providerStatus, setProviderStatus] = useState<Record<number, boolean[]>>({});
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [editingAssociation, setEditingAssociation] = useState<ModelWithProvider | null>(null);
   const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
@@ -171,7 +171,8 @@ export default function ModelProvidersPage() {
       const data = await getModels();
       setModels(data);
     } catch (err) {
-      setError("获取模型列表失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`获取模型列表失败: ${message}`);
       console.error(err);
     }
   };
@@ -181,7 +182,8 @@ export default function ModelProvidersPage() {
       const data = await getProviders();
       setProviders(data);
     } catch (err) {
-      setError("获取提供商列表失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`获取提供商列表失败: ${message}`);
       console.error(err);
     }
   };
@@ -194,7 +196,8 @@ export default function ModelProvidersPage() {
       // 异步加载状态数据
       loadProviderStatus(data, modelId);
     } catch (err) {
-      setError("获取模型提供商关联列表失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`获取模型提供商关联列表失败: ${message}`);
       console.error(err);
     } finally {
       setLoading(false);
@@ -231,6 +234,7 @@ export default function ModelProvidersPage() {
     try {
       await createModelProvider(values);
       setOpen(false);
+      toast.success("模型提供商关联创建成功");
       form.reset({
         model_id: selectedModelId || 0,
         provider_name: "",
@@ -245,7 +249,8 @@ export default function ModelProvidersPage() {
         fetchModelProviders(selectedModelId);
       }
     } catch (err) {
-      setError("创建模型提供商关联失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`创建模型提供商关联失败: ${message}`);
       console.error(err);
     }
   };
@@ -256,6 +261,7 @@ export default function ModelProvidersPage() {
     try {
       await updateModelProvider(editingAssociation.ID, values);
       setOpen(false);
+      toast.success("模型提供商关联更新成功");
       setEditingAssociation(null);
       form.reset({
         model_id: 0,
@@ -271,7 +277,8 @@ export default function ModelProvidersPage() {
         fetchModelProviders(selectedModelId);
       }
     } catch (err) {
-      setError("更新模型提供商关联失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`更新模型提供商关联失败: ${message}`);
       console.error(err);
     }
   };
@@ -284,8 +291,10 @@ export default function ModelProvidersPage() {
       if (selectedModelId) {
         fetchModelProviders(selectedModelId);
       }
+      toast.success("模型提供商关联删除成功");
     } catch (err) {
-      setError("删除模型提供商关联失败");
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`删除模型提供商关联失败: ${message}`);
       console.error(err);
     }
   };
@@ -518,7 +527,6 @@ export default function ModelProvidersPage() {
 
 
   if (loading && models.length === 0 && providers.length === 0) return <Loading message="加载模型和提供商" />;
-  if (error) return <div className="text-red-500">{error}</div>;
 
   return (
     <div className="space-y-6">

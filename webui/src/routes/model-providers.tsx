@@ -820,7 +820,7 @@ export default function ModelProvidersPage() {
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>
               {editingAssociation ? "编辑关联" : "添加关联"}
@@ -833,179 +833,181 @@ export default function ModelProvidersPage() {
           </DialogHeader>
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(editingAssociation ? handleUpdate : handleCreate)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="model_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>模型</FormLabel>
-                    <Select
-                      value={field.value.toString()}
-                      onValueChange={(value) => field.onChange(parseInt(value))}
-                      disabled={!!editingAssociation}
-                    >
+            <form onSubmit={form.handleSubmit(editingAssociation ? handleUpdate : handleCreate)} className="flex flex-col gap-4 flex-1 min-h-0">
+              <div className="space-y-4 overflow-y-auto pr-1 sm:pr-2 max-h-[60vh] flex-1 min-h-0">
+                <FormField
+                  control={form.control}
+                  name="model_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>模型</FormLabel>
+                      <Select
+                        value={field.value.toString()}
+                        onValueChange={(value) => field.onChange(parseInt(value))}
+                        disabled={!!editingAssociation}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="form-select">
+                            <SelectValue placeholder="选择模型" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {models.map((model) => (
+                            <SelectItem key={model.ID} value={model.ID.toString()}>
+                              {model.Name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="provider_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>提供商</FormLabel>
+                      <Select
+                        value={field.value.toString()}
+                        onValueChange={(value) => field.onChange(parseInt(value))}
+                      >
+                        <FormControl>
+                          <SelectTrigger className="form-select">
+                            <SelectValue placeholder="选择提供商" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {providers.map((provider) => (
+                            <SelectItem key={provider.ID} value={provider.ID.toString()}>
+                              {provider.Name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="provider_name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>提供商模型</FormLabel>
                       <FormControl>
-                        <SelectTrigger className="form-select">
-                          <SelectValue placeholder="选择模型" />
-                        </SelectTrigger>
+                        <Input
+                          {...field}
+                          placeholder="输入提供商模型名称"
+                        />
                       </FormControl>
-                      <SelectContent>
-                        {models.map((model) => (
-                          <SelectItem key={model.ID} value={model.ID.toString()}>
-                            {model.Name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="provider_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>提供商</FormLabel>
-                    <Select
-                      value={field.value.toString()}
-                      onValueChange={(value) => field.onChange(parseInt(value))}
-                    >
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormLabel>模型能力</FormLabel>
+                <FormField
+                  control={form.control}
+                  name="tool_call"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
                       <FormControl>
-                        <SelectTrigger className="form-select">
-                          <SelectValue placeholder="选择提供商" />
-                        </SelectTrigger>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
                       </FormControl>
-                      <SelectContent>
-                        {providers.map((provider) => (
-                          <SelectItem key={provider.ID} value={provider.ID.toString()}>
-                            {provider.Name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                      <div className="space-y-1 leading-none">
+                        <FormLabel>
+                          工具调用
+                        </FormLabel>
+                      </div>
+                    </FormItem>
+                  )}
+                />
 
-              <FormField
-                control={form.control}
-                name="provider_name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>提供商模型</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="输入提供商模型名称"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormLabel>模型能力</FormLabel>
-              <FormField
-                control={form.control}
-                name="tool_call"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>
-                        工具调用
-                      </FormLabel>
-                    </div>
-                  </FormItem>
-                )}
-              />
+                <FormField
+                  control={form.control}
+                  name="structured_output"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel>
+                          结构化输出
+                        </FormLabel>
+                      </div>
+                    </FormItem>
+                  )}
+                />
 
-              <FormField
-                control={form.control}
-                name="structured_output"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>
-                        结构化输出
-                      </FormLabel>
-                    </div>
-                  </FormItem>
-                )}
-              />
+                <FormField
+                  control={form.control}
+                  name="image"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel>
+                          视觉
+                        </FormLabel>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+                <FormLabel>参数配置</FormLabel>
+                <FormField
+                  control={form.control}
+                  name="with_header"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel>
+                          请求头透传
+                        </FormLabel>
+                      </div>
+                    </FormItem>
+                  )}
+                />
 
-              <FormField
-                control={form.control}
-                name="image"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>
-                        视觉
-                      </FormLabel>
-                    </div>
-                  </FormItem>
-                )}
-              />
-              <FormLabel>参数配置</FormLabel>
-              <FormField
-                control={form.control}
-                name="with_header"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                    <div className="space-y-1 leading-none">
-                      <FormLabel>
-                        请求头透传
-                      </FormLabel>
-                    </div>
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="weight"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>权重 (必须大于0)</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        type="number"
-                        min="1"
-                        onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                <FormField
+                  control={form.control}
+                  name="weight"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>权重 (必须大于0)</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="number"
+                          min="1"
+                          onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
 
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>

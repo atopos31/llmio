@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Suspense, lazy } from 'react';
 import { ThemeProvider } from "@/components/theme-provider"
 import Loading from "@/components/loading"
+import { Toaster } from './components/ui/sonner';
 
 // 懒加载路由组件
 const Layout = lazy(() => import('./routes/layout'));
@@ -38,6 +39,7 @@ function App() {
           </Routes>
         </Suspense>
       </Router>
+      <Toaster richColors position='top-center' />
     </ThemeProvider>
   );
 }

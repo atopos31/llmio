@@ -2,7 +2,6 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
-import { Toaster } from './components/ui/sonner.tsx';
 
 // Check if user is authenticated
 const isAuthenticated = () => {
@@ -30,6 +29,5 @@ const ProtectedApp = () => {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ProtectedApp />
-    <Toaster richColors position='top-center'/>
   </StrictMode>,
 )

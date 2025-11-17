@@ -49,7 +49,9 @@ docker run -d \
 前往 [releases](https://github.com/atopos31/llmio/releases) 获取对应操作系统及cpu架构的压缩包(版本大于0.5.13)，这里以 linux amd64 为例。
 ```bash
 wget https://github.com/atopos31/llmio/releases/download/v0.5.13/llmio_0.5.13_linux_amd64.tar.gz
+
 tar -xzf ./llmio_0.5.13_linux_amd64.tar.gz
+
 GIN_MODE=release TOKEN=<YOUR_TOKEN> ./llmio
 ```
 运行后会自动在当前目录下创建 `./db/llmio.db` 作为 `sqlite` 持久化数据文件。

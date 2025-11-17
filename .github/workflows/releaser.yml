@@ -31,10 +31,10 @@ jobs:
           version: 9
           run_install: false
       - name: Install frontend dependencies
-        working-directory: webui
+        working-directory: ./webui
         run: pnpm install
       - name: Build webui
-        working-directory: webui
+        working-directory: ./webui
         run: pnpm run build
       - name: Set up Go
         uses: actions/setup-go@v5

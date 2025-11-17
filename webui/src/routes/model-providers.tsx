@@ -565,9 +565,9 @@ export default function ModelProvidersPage() {
   // 根据选择的提供商类型过滤模型提供商关联
   const filteredModelProviders = selectedProviderType && selectedProviderType !== "all"
     ? modelProviders.filter(association => {
-        const provider = providers.find(p => p.ID === association.ProviderID);
-        return provider?.Type === selectedProviderType;
-      })
+      const provider = providers.find(p => p.ID === association.ProviderID);
+      return provider?.Type === selectedProviderType;
+    })
     : modelProviders;
 
 
@@ -647,7 +647,7 @@ export default function ModelProvidersPage() {
                   return (
                     <TableRow key={association.ID}>
                       <TableCell>{association.ID}</TableCell>
-                      <TableCell>{association.ProviderModel}</TableCell>
+                      <TableCell className="max-w-[150px] truncate">{association.ProviderModel}</TableCell>
                       <TableCell>{provider?.Type}</TableCell>
                       <TableCell>{provider ? provider.Name : '未知'}</TableCell>
                       <TableCell>
@@ -685,7 +685,7 @@ export default function ModelProvidersPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center space-x-4">
+                        <div className="flex items-center space-x-4 w-20">
                           {providerStatus[association.ID] ? (
                             providerStatus[association.ID].length > 0 ? (
                               <div className="flex space-x-1 items-end h-6">
@@ -706,7 +706,7 @@ export default function ModelProvidersPage() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="space-x-2 text-right">
+                      <TableCell className="space-x-2">
                         <Button
                           variant="outline"
                           size="sm"
@@ -1090,8 +1090,8 @@ export default function ModelProvidersPage() {
                             );
                           })}
                           <p className="text-sm text-muted-foreground">
-                              {"优先级: 提供商配置 > 自定义请求头 > 透传请求头"}
-                            </p>
+                            {"优先级: 提供商配置 > 自定义请求头 > 透传请求头"}
+                          </p>
                         </div>
                       </FormItem>
                     );

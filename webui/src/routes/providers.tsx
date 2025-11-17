@@ -156,8 +156,9 @@ export default function ProvidersPage() {
     await fetchProviderModels(providerId);
   };
 
-  const copyModelName = (modelName: string) => {
-    navigator.clipboard.writeText(modelName);
+  const copyModelName = async (modelName: string) => {
+    await navigator.clipboard.writeText(modelName);
+    toast.success(`已复制模型名称: ${modelName}`);
   };
 
   const handleCreate = async (values: z.infer<typeof formSchema>) => {
@@ -590,7 +591,7 @@ export default function ProvidersPage() {
                   {filteredProviderModels.map((model, index) => (
                     <div
                       key={index}
-                      className="flex items-center justify-between p-3 border rounded-lg"
+                      className="flex items-center justify-between p-2 border rounded-lg"
                     >
                       <div className="flex-1">
                         <div className="font-medium">{model.id}</div>
@@ -602,9 +603,9 @@ export default function ProvidersPage() {
                               variant="outline"
                               size="sm"
                               onClick={() => copyModelName(model.id)}
-                              className="ml-2"
+                              className="min-w-16"
                             >
-                              复制
+                              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true" className="h-4 w-4"><path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
                             </Button>
                           </TooltipTrigger>
                         </Tooltip>

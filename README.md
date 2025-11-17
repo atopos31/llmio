@@ -15,19 +15,7 @@ LLMIO 是一个基于 Go 的多供应商大语言模型网关，提供统一的 
 
 ## 部署
 
-### Docker
-```bash
-docker run -d \
-  --name llmio \
-  -p 7070:7070 \
-  -v $(pwd)/db:/app/db \
-  -e GIN_MODE=release \
-  -e TOKEN=<YOUR_TOKEN> \
-  -e TZ=Asia/Shanghai \
-  atopos31/llmio:latest
-```
-
-### Docker Compose
+### Docker Compose (推荐)
 ```yaml
 services:
   llmio:
@@ -44,6 +32,27 @@ services:
 ```bash
 docker compose up -d
 ```
+
+### Docker
+```bash
+docker run -d \
+  --name llmio \
+  -p 7070:7070 \
+  -v $(pwd)/db:/app/db \
+  -e GIN_MODE=release \
+  -e TOKEN=<YOUR_TOKEN> \
+  -e TZ=Asia/Shanghai \
+  atopos31/llmio:latest
+```
+
+## 本地运行
+前往 [releases](https://github.com/atopos31/llmio/releases) 获取对应操作系统及cpu架构的压缩包(版本大于0.5.13)，这里以 linux amd64 为例。
+```bash
+wget https://github.com/atopos31/llmio/releases/download/v0.5.13/llmio_0.5.13_linux_amd64.tar.gz
+tar -xzf ./llmio_0.5.13_linux_amd64.tar.gz
+GIN_MODE=release TOKEN=<YOUR_TOKEN> ./llmio
+```
+运行后会自动在当前目录下创建 `./db/llmio.db` 作为 `sqlite` 持久化数据文件。
 
 ## 快速开始
 

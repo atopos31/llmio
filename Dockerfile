@@ -20,7 +20,6 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o llmio .
 # Final stage
 FROM alpine:latest
 
-WORKDIR /app/db
 WORKDIR /app
 
 # Copy the binary from backend build stage

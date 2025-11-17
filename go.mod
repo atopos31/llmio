@@ -5,7 +5,6 @@ go 1.25.0
 require (
 	github.com/atopos31/nsxno v0.1.1
 	github.com/gin-contrib/gzip v1.2.3
-	github.com/gin-contrib/static v1.1.5
 	github.com/gin-gonic/gin v1.10.1
 	github.com/glebarez/sqlite v1.11.0
 	github.com/openai/openai-go/v2 v2.0.2
@@ -14,6 +13,8 @@ require (
 	golang.org/x/crypto/x509roots/fallback v0.0.0-20250803194717-c247dead11de
 	gorm.io/gorm v1.30.0
 )
+
+require gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 
 require (
 	github.com/bytedance/sonic v1.13.3 // indirect

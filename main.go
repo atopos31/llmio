@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"embed"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,7 +15,6 @@ import (
 	"github.com/atopos31/llmio/middleware"
 	"github.com/atopos31/llmio/models"
 	"github.com/gin-contrib/gzip"
-	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 	_ "golang.org/x/crypto/x509roots/fallback"
 )
@@ -28,8 +29,6 @@ func main() {
 	router := gin.Default()
 
 	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/v1/"})))
-
-	setwebui(router, "./webui/dist")
 
 	authOpenAI := middleware.Auth(os.Getenv("TOKEN"))
 	authAnthropic := middleware.AuthAnthropic(os.Getenv("TOKEN"))
@@ -80,15 +79,24 @@ func main() {
 	api.GET("/test/:id", handler.ProviderTestHandler)
 	api.GET("/test/react/:id", handler.TestReactHandler)
 
+	setwebui(router)
 	router.Run(":7070")
 }
 
-func setwebui(r *gin.Engine, path string) {
-	r.Use(static.Serve("/", static.LocalFile(path, false)))
+//go:embed webui/dist/*
+var embededFiles embed.FS
+
+func setwebui(r *gin.Engine) {
+	subFS, err := fs.Sub(embededFiles, "webui/dist/assets")
+	if err != nil {
+		panic(err)
+	}
+
+	r.StaticFS("/assets", http.FS(subFS))
 
 	r.NoRoute(func(c *gin.Context) {
 		if c.Request.Method == http.MethodGet && !strings.HasPrefix(c.Request.URL.Path, "/api/") && !strings.HasPrefix(c.Request.URL.Path, "/v1/") {
-			data, err := os.ReadFile(path + "/index.html")
+			data, err := embededFiles.ReadFile("webui/dist/index.html")
 			if err != nil {
 				c.AbortWithError(http.StatusInternalServerError, err) //nolint:errcheck
 				return

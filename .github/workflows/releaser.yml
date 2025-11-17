@@ -28,8 +28,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "pnpm"
-          cache-dependency-path: webui/package-lock.json
       - name: Install dependencies
         working-directory: ./webui
         run: pnpm install

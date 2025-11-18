@@ -37,13 +37,23 @@ func BalanceChat(c *gin.Context, style string) error {
 
 	modelWithProvidersWithLimit, err := ProvidersBymodelsName(ctx, before.model)
 	if err != nil {
+		// 未知模型或无提供商
+		if _, err := SaveChatLog(ctx, models.ChatLog{
+			Name:          before.model,
+			ProviderModel: "nil",
+			ProviderName:  "nil",
+			Status:        "error",
+			Style:         style,
+			Error:         err.Error(),
+			RemoteIP:      c.ClientIP(),
+			UserAgent:     c.Request.UserAgent(),
+		}); err != nil {
+			return err
+		}
 		return err
 	}
 	// 所有模型提供商关联
 	modelWithProviders := modelWithProvidersWithLimit.Providers
-	if len(modelWithProviders) == 0 {
-		return fmt.Errorf("no provider found for models %s", before.model)
-	}
 	modelWithProviderMap := lo.KeyBy(modelWithProviders, func(mp models.ModelWithProvider) uint { return mp.ID })
 
 	slog.Info("request", "model", before.model, "stream", before.stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)

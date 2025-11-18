@@ -107,8 +107,9 @@ export default function ModelsPage() {
       toast.success(`模型: ${values.name} 创建成功`);
       form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false });
       fetchModels();
-    } catch (err: any) {
-      toast.error(`创建模型失败: ${err.message}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`创建模型失败: ${message}`);
     }
   };
 
@@ -165,8 +166,6 @@ export default function ModelsPage() {
     setDeleteId(id);
   };
 
-  if (loading) return <Loading message="加载模型列表" />;
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
@@ -176,20 +175,32 @@ export default function ModelsPage() {
 
       {/* 桌面端表格 */}
       <div className="border rounded-lg hidden sm:block">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>名称</TableHead>
-              <TableHead>备注</TableHead>
-              <TableHead>重试次数限制</TableHead>
-              <TableHead>超时时间(秒)</TableHead>
-              <TableHead>IO 记录</TableHead>
-              <TableHead>操作</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {models.map((model) => (
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loading message="加载模型列表" />
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>ID</TableHead>
+                <TableHead>名称</TableHead>
+                <TableHead>备注</TableHead>
+                <TableHead>重试次数限制</TableHead>
+                <TableHead>超时时间(秒)</TableHead>
+                <TableHead>IO 记录</TableHead>
+                <TableHead>操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {models.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                    暂无模型数据
+                  </TableCell>
+                </TableRow>
+              ) : (
+                models.map((model) => (
               <TableRow key={model.ID}>
                 <TableCell>{model.ID}</TableCell>
                 <TableCell>{model.Name}</TableCell>
@@ -242,14 +253,27 @@ export default function ModelsPage() {
                   </AlertDialog>
                 </TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        )}
       </div>
 
       {/* 移动端卡片布局 */}
       <div className="sm:hidden space-y-4">
-        {models.map((model) => (
+        {loading ? (
+          <div className="flex items-center justify-center py-12 border rounded-lg">
+            <Loading message="加载模型列表" />
+          </div>
+        ) : (
+          <>
+            {models.length === 0 ? (
+              <div className="text-center py-8 text-gray-500 border rounded-lg">
+                暂无模型数据
+              </div>
+            ) : (
+              models.map((model) => (
           <div key={model.ID} className="border rounded-lg p-4 space-y-3">
             <div className="flex justify-between items-start">
               <div>
@@ -317,7 +341,10 @@ export default function ModelsPage() {
               </div>
             </div>
           </div>
-        ))}
+              ))
+            )}
+          </>
+        )}
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>

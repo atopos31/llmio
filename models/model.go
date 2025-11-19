@@ -70,9 +70,15 @@ func (l ChatLog) WithError(err error) ChatLog {
 }
 
 type Usage struct {
-	PromptTokens     int64 `json:"prompt_tokens"`
-	CompletionTokens int64 `json:"completion_tokens"`
-	TotalTokens      int64 `json:"total_tokens"`
+	PromptTokens        int64               `json:"prompt_tokens"`
+	CompletionTokens    int64               `json:"completion_tokens"`
+	TotalTokens         int64               `json:"total_tokens"`
+	PromptTokensDetails PromptTokensDetails `json:"prompt_tokens_details" gorm:"serializer:json"`
+}
+
+type PromptTokensDetails struct {
+	CachedTokens int64 `json:"cached_tokens"`
+	AudioTokens  int64 `json:"audio_tokens"`
 }
 
 type ChatIO struct {

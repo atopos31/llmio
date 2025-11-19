@@ -184,7 +184,7 @@ func TestReactHandler(c *gin.Context) {
 		c.Writer.Flush()
 	}
 	if toolCount != 2 || nankingCount != 1 || pekingCount != 1 {
-		checkError = errors.New("工具调用次数异常")
+		checkError = fmt.Errorf("工具调用次数异常: 南京: %d 北京: %d 总计: %d", nankingCount, pekingCount, toolCount)
 	}
 
 	if checkError != nil {

@@ -218,6 +218,9 @@ func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start ti
 			PromptTokens:     athropicUsage.InputTokens,
 			CompletionTokens: athropicUsage.OutputTokens,
 			TotalTokens:      totalTokens,
+			PromptTokensDetails: models.PromptTokensDetails{
+				CachedTokens: athropicUsage.CacheReadInputTokens,
+			},
 		},
 		Tps: float64(totalTokens) / chunkTime.Seconds(),
 	}, &output, nil

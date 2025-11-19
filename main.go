@@ -100,8 +100,8 @@ func setwebui(r *gin.Engine) {
 	r.NoRoute(func(c *gin.Context) {
 		if c.Request.Method == http.MethodGet && !strings.HasPrefix(c.Request.URL.Path, "/api/") && !strings.HasPrefix(c.Request.URL.Path, "/v1/") {
 			c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
-		} else {
-			c.Status(http.StatusNotFound)
+			return
 		}
+		c.Status(http.StatusNotFound)
 	})
 }

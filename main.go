@@ -83,11 +83,14 @@ func main() {
 	router.Run(":7070")
 }
 
-//go:embed webui/dist/*
-var embededFiles embed.FS
+//go:embed webui/dist
+var distFiles embed.FS
+
+//go:embed webui/dist/index.html
+var indexHTML []byte
 
 func setwebui(r *gin.Engine) {
-	subFS, err := fs.Sub(embededFiles, "webui/dist/assets")
+	subFS, err := fs.Sub(distFiles, "webui/dist/assets")
 	if err != nil {
 		panic(err)
 	}
@@ -96,12 +99,7 @@ func setwebui(r *gin.Engine) {
 
 	r.NoRoute(func(c *gin.Context) {
 		if c.Request.Method == http.MethodGet && !strings.HasPrefix(c.Request.URL.Path, "/api/") && !strings.HasPrefix(c.Request.URL.Path, "/v1/") {
-			data, err := embededFiles.ReadFile("webui/dist/index.html")
-			if err != nil {
-				c.AbortWithError(http.StatusInternalServerError, err) //nolint:errcheck
-				return
-			}
-			c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+			c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 		} else {
 			c.Status(http.StatusNotFound)
 		}

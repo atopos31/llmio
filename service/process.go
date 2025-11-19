@@ -86,9 +86,14 @@ func ProcesserOpenAI(ctx context.Context, pr io.Reader, stream bool, start time.
 }
 
 type OpenAIResUsage struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
-	TotalTokens  int64 `json:"total_tokens"`
+	InputTokens        int64              `json:"input_tokens"`
+	OutputTokens       int64              `json:"output_tokens"`
+	TotalTokens        int64              `json:"total_tokens"`
+	InputTokensDetails InputTokensDetails `json:"input_tokens_details"`
+}
+
+type InputTokensDetails struct {
+	CachedTokens int64 `json:"cached_tokens"`
 }
 
 type AnthropicUsage struct {
@@ -154,6 +159,9 @@ func ProcesserOpenAiRes(ctx context.Context, pr io.Reader, stream bool, start ti
 			PromptTokens:     openAIResUsage.InputTokens,
 			CompletionTokens: openAIResUsage.OutputTokens,
 			TotalTokens:      openAIResUsage.TotalTokens,
+			PromptTokensDetails: models.PromptTokensDetails{
+				CachedTokens: openAIResUsage.InputTokensDetails.CachedTokens,
+			},
 		},
 		Tps: float64(openAIResUsage.TotalTokens) / chunkTime.Seconds(),
 	}, &output, nil

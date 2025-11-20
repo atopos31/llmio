@@ -102,6 +102,6 @@ func setwebui(r *gin.Engine) {
 			c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 			return
 		}
-		c.Status(http.StatusNotFound)
+		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte("404 Not Found"))
 	})
 }

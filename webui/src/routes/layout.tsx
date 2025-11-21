@@ -83,7 +83,7 @@ export default function Layout() {
       </header>
 
       {/* 2. 下方主体区域 */}
-      <div className="flex overflow-hidden flex-1">
+      <div className="flex overflow-y-hidden flex-1 min-w-0">
         
         {/* 左侧侧边栏 Sidebar */}
         <aside 
@@ -179,8 +179,8 @@ export default function Layout() {
         </aside>
 
         {/* 右侧主内容区域 */}
-        <main className="flex-1 bg-muted/20 p-2 md:p-4 transition-all duration-300">
-          <div className="mx-auto max-w-full h-full">
+        <main className="flex-1 min-w-0 bg-muted/20 p-2 md:p-4 transition-all duration-300">
+          <div className="mx-auto max-w-full h-full min-w-0 overflow-x-hidden">
              <Outlet />
           </div>
         </main>

@@ -111,19 +111,19 @@ interface JsonContentProps {
 function JsonContent({ text, parsed, empty, syntaxStyle }: JsonContentProps) {
   if (parsed && !empty) {
     return (
-      <div className="overflow-auto rounded-md border bg-muted/70 font-mono text-sm leading-6">
+      <div className="w-full max-w-full min-w-0 overflow-x-auto rounded-md border bg-muted/70 font-mono text-sm leading-6">
         <SyntaxHighlighter
           language="json"
           style={syntaxStyle}
-          wrapLongLines
           customStyle={{
             margin: 0,
             background: "transparent",
             padding: "1rem",
             fontSize: "0.875rem",
             lineHeight: "1.5rem",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word"
+            whiteSpace: "pre",
+            minWidth: "100%",
+            maxWidth: "100%"
           }}
         >
           {text}
@@ -133,7 +133,7 @@ function JsonContent({ text, parsed, empty, syntaxStyle }: JsonContentProps) {
   }
 
   return (
-    <pre className="whitespace-pre-wrap break-words font-mono text-sm leading-6 bg-muted/70 border rounded-md p-4 overflow-auto">{text}</pre>
+    <pre className="whitespace-pre font-mono text-sm leading-6 bg-muted/70 border rounded-md p-4 overflow-x-auto w-full max-w-full min-w-0">{text}</pre>
   );
 }
 
@@ -236,7 +236,7 @@ export default function LogChatPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 h-full overflow-y-auto overflow-x-hidden">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">会话详情</h1>

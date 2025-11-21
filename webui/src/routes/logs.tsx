@@ -151,7 +151,6 @@ export default function LogsPage() {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h2 className="text-2xl font-bold tracking-tight">请求日志</h2>
-            <p className="text-sm text-muted-foreground">系统处理的请求日志，支持分页和筛选</p>
           </div>
           <Button
             onClick={handleRefresh}
@@ -276,9 +275,8 @@ export default function LogsPage() {
                         </TableCell>
                         <TableCell className="font-medium">{log.Name}</TableCell>
                         <TableCell>
-                          <span className={`inline-flex items-center px-2 py-1 ${
-                            log.Status === 'success' ? 'text-green-500' : 'text-red-500 '
-                          }`}>
+                          <span className={`inline-flex items-center px-2 py-1 ${log.Status === 'success' ? 'text-green-500' : 'text-red-500 '
+                            }`}>
                             {log.Status}
                           </span>
                         </TableCell>
@@ -321,9 +319,8 @@ export default function LogsPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <span
-                          className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
-                            log.Status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                          }`}
+                          className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${log.Status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                            }`}
                         >
                           {log.Status}
                         </span>
@@ -368,27 +365,25 @@ export default function LogsPage() {
         )}
       </div>
       {/* 分页区域 */}
-      {!loading && pages > 1 && (
+      
         <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0 border-t pt-2">
           <div className="text-sm text-muted-foreground whitespace-nowrap">
-            共 {total} 条记录，第 {page} / {pages} 页
+            共 {total} 条，第 {page} / {pages} 页
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span>每页</span>
               <Select value={String(pageSize)} onValueChange={(value) => handlePageSizeChange(Number(value))}>
-                <SelectTrigger className="h-8 w-[90px] text-xs">
+                <SelectTrigger className="h-8 text-xs">
                   <SelectValue placeholder="条数" />
                 </SelectTrigger>
                 <SelectContent>
                   {[10, 20, 50].map((size) => (
                     <SelectItem key={size} value={String(size)}>
-                      {size} 条
+                      {size}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <span>条</span>
             </div>
             <div className="flex gap-2">
               <Button
@@ -412,7 +407,6 @@ export default function LogsPage() {
             </div>
           </div>
         </div>
-      )}
       {/* 详情弹窗 */}
       {selectedLog && (
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

@@ -47,6 +47,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import Loading from "@/components/loading";
+import { Label } from "@/components/ui/label";
+import { RefreshCw } from "lucide-react";
 import {
   getProviders,
   createProvider,
@@ -237,186 +239,174 @@ export default function ProvidersPage() {
     setDeleteId(id);
   };
 
+  const handleRefresh = () => {
+    fetchProviders();
+  };
+
+  const hasFilter = nameFilter.trim() !== "" || typeFilter !== "all";
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-        <h2 className="text-2xl font-bold whitespace-nowrap">提供商管理</h2>
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <Input
-            placeholder="搜索提供商名称"
-            value={nameFilter}
-            onChange={(e) => setNameFilter(e.target.value)}
-            className="w-full sm:w-64"
-          />
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-full sm:w-48">
-              <SelectValue placeholder="选择类型" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部</SelectItem>
-              {availableTypes.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {type}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button onClick={openCreateDialog} className="w-full sm:w-auto">添加提供商</Button>
+    <div className="h-full min-h-0 flex flex-col gap-4 p-1">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-2xl font-bold tracking-tight">提供商管理</h2>
+          <p className="text-sm text-muted-foreground">维护上游供应商、类型与凭据</p>
+        </div>
+        <div className="flex w-full sm:w-auto items-center justify-end gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0"
+            aria-label="刷新列表"
+            title="刷新列表"
+            onClick={handleRefresh}
+          >
+            <RefreshCw className="size-4" />
+          </Button>
         </div>
       </div>
-
-      {/* 桌面端表格 */}
-      <div className="border rounded-lg hidden sm:block">
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loading message="加载提供商列表" />
+      <div className="flex flex-col gap-2 flex-shrink-0">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex flex-col gap-1 text-xs w-full sm:w-64">
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商名称</Label>
+            <Input
+              placeholder="输入名称"
+              value={nameFilter}
+              onChange={(e) => setNameFilter(e.target.value)}
+              className="h-9 text-sm"
+            />
           </div>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>名称</TableHead>
-                <TableHead>类型</TableHead>
-                <TableHead>配置</TableHead>
-                <TableHead>控制台</TableHead>
-                <TableHead>操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {providers.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-gray-500">
-                    {nameFilter || typeFilter !== "all" ? '未找到匹配的提供商' : '暂无提供商数据'}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                providers.map((provider) => (
-                  <TableRow key={provider.ID}>
-                    <TableCell>{provider.ID}</TableCell>
-                    <TableCell>{provider.Name}</TableCell>
-                    <TableCell>{provider.Type}</TableCell>
-                    <TableCell>
-                      <pre className="text-xs overflow-hidden max-w-md truncate">
-                        {provider.Config}
-                      </pre>
-                    </TableCell>
-                    <TableCell>
-                      {provider.Console ? (
-                        <Button
-                          title={provider.Console}
-                          variant="outline"
-                          size="sm"
-                          onClick={() => window.open(provider.Console, '_blank')}
-                        >
-                          前往
-                        </Button>
-                      ) : (
-                        "暂未设置"
-                      )}
-                    </TableCell>
-                    <TableCell className="space-x-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openEditDialog(provider)}
-                      >
-                        编辑
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openModelsDialog(provider.ID)}
-                      >
-                        模型列表
-                      </Button>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => openDeleteDialog(provider.ID)}
-                          >
-                            删除
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>确定要删除这个提供商吗？</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              此操作无法撤销。这将永久删除该提供商。
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        )}
+          <div className="flex flex-col gap-1 text-xs w-full sm:w-48">
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">类型</Label>
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue placeholder="选择类型" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部</SelectItem>
+                {availableTypes.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button onClick={openCreateDialog} className="w-full sm:w-auto sm:ml-auto">
+            添加提供商
+          </Button>
+        </div>
       </div>
-
-      {/* 移动端卡片布局 */}
-      <div className="sm:hidden space-y-4">
+      <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
         {loading ? (
-          <div className="flex items-center justify-center py-12 border rounded-lg">
+          <div className="flex h-full items-center justify-center">
             <Loading message="加载提供商列表" />
           </div>
+        ) : providers.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-muted-foreground text-sm text-center px-6">
+            {hasFilter ? '未找到匹配的提供商' : '暂无提供商数据'}
+          </div>
         ) : (
-          <>
-            {providers.length === 0 ? (
-              <div className="text-center py-8 text-gray-500 border rounded-lg">
-                {nameFilter || typeFilter !== "all" ? '未找到匹配的提供商' : '暂无提供商数据'}
-              </div>
-            ) : (
-              providers.map((provider) => (
-                <div key={provider.ID} className="border rounded-lg p-4 space-y-3">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-bold text-lg">{provider.Name}</h3>
-                      <p className="text-sm text-gray-500">ID: {provider.ID}</p>
-                      <p className="text-sm text-gray-500">类型: {provider.Type}</p>
-                      {provider.Console && (
-                        <p className="text-sm">
+          <div className="h-full flex flex-col">
+            <div className="hidden sm:block w-full overflow-x-auto">
+              <Table className="min-w-[1100px]">
+                <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
+                  <TableRow>
+                    <TableHead>ID</TableHead>
+                    <TableHead>名称</TableHead>
+                    <TableHead>类型</TableHead>
+                    <TableHead>配置</TableHead>
+                    <TableHead>控制台</TableHead>
+                    <TableHead className="w-[260px]">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {providers.map((provider) => (
+                    <TableRow key={provider.ID}>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{provider.ID}</TableCell>
+                      <TableCell className="font-medium">{provider.Name}</TableCell>
+                      <TableCell className="text-sm">{provider.Type}</TableCell>
+                      <TableCell>
+                        <pre className="text-xs overflow-hidden max-w-md truncate">
+                          {provider.Config}
+                        </pre>
+                      </TableCell>
+                      <TableCell>
+                        {provider.Console ? (
                           <Button
+                            title={provider.Console}
                             variant="outline"
                             size="sm"
                             onClick={() => window.open(provider.Console, '_blank')}
-                            className="mt-2"
                           >
                             前往
                           </Button>
-                        </p>
+                        ) : (
+                          <span className="text-muted-foreground">暂未设置</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" size="sm" onClick={() => openEditDialog(provider)}>
+                            编辑
+                          </Button>
+                          <Button variant="secondary" size="sm" onClick={() => openModelsDialog(provider.ID)}>
+                            模型列表
+                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(provider.ID)}>
+                                删除
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>确定要删除这个提供商吗？</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  此操作无法撤销。这将永久删除该提供商。
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="sm:hidden px-2 py-3 divide-y divide-border">
+              {providers.map((provider) => (
+                <div key={provider.ID} className="py-3 space-y-3 my-1 px-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-semibold text-base truncate">{provider.Name}</h3>
+                      <p className="text-[11px] text-muted-foreground">ID: {provider.ID}</p>
+                      <p className="text-[11px] text-muted-foreground">类型: {provider.Type}</p>
+                      {provider.Console && (
+                        <Button
+                          variant="link"
+                          className="px-0 h-auto text-xs"
+                          onClick={() => window.open(provider.Console, '_blank')}
+                        >
+                          打开控制台
+                        </Button>
                       )}
                     </div>
-                    <div className="flex flex-col space-y-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openEditDialog(provider)}
-                      >
+                    <div className="flex flex-wrap justify-end gap-1.5">
+                      <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialog(provider)}>
                         编辑
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openModelsDialog(provider.ID)}
-                      >
-                        模型列表
+                      <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => openModelsDialog(provider.ID)}>
+                        模型
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => openDeleteDialog(provider.ID)}
-                          >
+                          <Button variant="destructive" size="sm" className="h-7 px-2 text-xs" onClick={() => openDeleteDialog(provider.ID)}>
                             删除
                           </Button>
                         </AlertDialogTrigger>
@@ -435,10 +425,16 @@ export default function ProvidersPage() {
                       </AlertDialog>
                     </div>
                   </div>
+                  <div className="text-xs space-y-1">
+                    <p className="text-muted-foreground">配置</p>
+                    <pre className="font-mono text-[11px] whitespace-pre-wrap break-words bg-muted/40 p-2 rounded">
+                      {provider.Config}
+                    </pre>
+                  </div>
                 </div>
-              ))
-            )}
-          </>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 

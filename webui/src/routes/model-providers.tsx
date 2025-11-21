@@ -60,6 +60,7 @@ import type { ModelWithProvider, Model, Provider } from "@/lib/api";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { RefreshCw } from "lucide-react";
 
 // 定义表单验证模式
 const headerPairSchema = z.object({
@@ -570,143 +571,273 @@ export default function ModelProvidersPage() {
     })
     : modelProviders;
 
+  const handleRefresh = () => {
+    if (selectedModelId) {
+      fetchModelProviders(selectedModelId);
+    } else {
+      Promise.all([fetchModels(), fetchProviders()]);
+    }
+  };
 
-
+  const hasAssociationFilter = selectedProviderType !== "all";
 
   if (loading && models.length === 0 && providers.length === 0) return <Loading message="加载模型和提供商" />;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-        <h2 className="text-2xl font-bold">模型提供商关联</h2>
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <Select value={selectedProviderType} onValueChange={setSelectedProviderType}>
-            <SelectTrigger className="w-full sm:w-48">
-              <SelectValue placeholder="按类型筛选" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">全部类型</SelectItem>
-              {providerTypes.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {type}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={selectedModelId?.toString() || ""} onValueChange={handleModelChange}>
-            <SelectTrigger className="w-full sm:w-64">
-              <SelectValue placeholder="选择模型" />
-            </SelectTrigger>
-            <SelectContent>
-              {models.map((model) => (
-                <SelectItem key={model.ID} value={model.ID.toString()}>
-                  {model.Name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button onClick={openCreateDialog} disabled={!selectedModelId} className="w-full sm:w-auto">
+    <div className="h-full min-h-0 flex flex-col gap-4 p-1">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-2xl font-bold tracking-tight">模型提供商关联</h2>
+        </div>
+        <div className="flex w-full sm:w-auto items-center justify-end gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0"
+            aria-label="刷新列表"
+            title="刷新列表"
+            onClick={handleRefresh}
+          >
+            <RefreshCw className="size-4" />
+          </Button>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2 flex-shrink-0">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex flex-col gap-1 text-xs ">
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">关联模型</Label>
+            <Select value={selectedModelId?.toString() || ""} onValueChange={handleModelChange}>
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue placeholder="选择模型" />
+              </SelectTrigger>
+              <SelectContent>
+                {models.map((model) => (
+                  <SelectItem key={model.ID} value={model.ID.toString()}>
+                    {model.Name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1 text-xs">
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商类型</Label>
+            <Select value={selectedProviderType} onValueChange={setSelectedProviderType}>
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue placeholder="按类型筛选" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部类型</SelectItem>
+                {providerTypes.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button onClick={openCreateDialog} disabled={!selectedModelId} className="w-full sm:w-auto sm:ml-auto">
             添加关联
           </Button>
         </div>
       </div>
-
       {statusError && (
-        <div className="text-sm text-red-500">
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {statusError}
         </div>
       )}
-
-      {!selectedModelId ? (
-        <div>请选择一个模型来查看其提供商关联</div>
-      ) : (
-        <>
-          {/* 桌面端表格 */}
-          <div className="border rounded-lg hidden sm:block">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>提供商模型</TableHead>
-                  <TableHead>类型</TableHead>
-                  <TableHead>提供商</TableHead>
-                  <TableHead>工具调用</TableHead>
-                  <TableHead>结构化输出</TableHead>
-                  <TableHead>视觉</TableHead>
-                  <TableHead>请求头透传</TableHead>
-                  <TableHead>权重</TableHead>
-                  <TableHead>启用</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead>操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredModelProviders.map((association) => {
-                  const provider = providers.find(p => p.ID === association.ProviderID);
-                  const isAssociationEnabled = association.Status ?? false;
-                  return (
-                    <TableRow key={association.ID}>
-                      <TableCell>{association.ID}</TableCell>
-                      <TableCell className="max-w-[150px] truncate">{association.ProviderModel}</TableCell>
-                      <TableCell>{provider?.Type}</TableCell>
-                      <TableCell>{provider ? provider.Name : '未知'}</TableCell>
-                      <TableCell>
-                        <span className={association.ToolCall ? "text-green-500" : "text-red-500"}>
-                          {association.ToolCall ? '✓' : '✗'}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <span className={association.StructuredOutput ? "text-green-500" : "text-red-500"}>
-                          {association.StructuredOutput ? '✓' : '✗'}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <span className={association.Image ? "text-green-500" : "text-red-500"}>
-                          {association.Image ? '✓' : '✗'}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <span className={association.WithHeader ? "text-green-500" : "text-red-500"}>
-                          {association.WithHeader ? '✓' : '✗'}
-                        </span>
-                      </TableCell>
-                      <TableCell>{association.Weight}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Switch
-                            checked={isAssociationEnabled}
-                            disabled={!!statusUpdating[association.ID]}
-                            onCheckedChange={(value) => handleStatusToggle(association, value)}
-                            aria-label="切换启用状态"
-                          />
-                          <span className="text-sm text-gray-500">
-                            {isAssociationEnabled ? "已启用" : "已停用"}
+      <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
+        {loading ? (
+          <div className="flex h-full items-center justify-center">
+            <Loading message="加载关联数据" />
+          </div>
+        ) : !selectedModelId ? (
+          <div className="flex h-full items-center justify-center text-muted-foreground">
+            请选择一个模型来查看其提供商关联
+          </div>
+        ) : filteredModelProviders.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-muted-foreground text-sm text-center px-6">
+            {hasAssociationFilter ? '当前类型暂无关联' : '该模型还没有关联的提供商'}
+          </div>
+        ) : (
+          <div className="h-full flex flex-col">
+            <div className="hidden sm:block w-full overflow-x-auto">
+              <Table className="min-w-[1150px]">
+                <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
+                  <TableRow>
+                    <TableHead>ID</TableHead>
+                    <TableHead>提供商模型</TableHead>
+                    <TableHead>类型</TableHead>
+                    <TableHead>提供商</TableHead>
+                    <TableHead>工具调用</TableHead>
+                    <TableHead>结构化输出</TableHead>
+                    <TableHead>视觉</TableHead>
+                    <TableHead>请求头透传</TableHead>
+                    <TableHead>权重</TableHead>
+                    <TableHead>启用</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead>操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredModelProviders.map((association) => {
+                    const provider = providers.find(p => p.ID === association.ProviderID);
+                    const isAssociationEnabled = association.Status ?? false;
+                    const statusBars = providerStatus[association.ID];
+                    return (
+                      <TableRow key={association.ID}>
+                        <TableCell className="font-mono text-xs text-muted-foreground">{association.ID}</TableCell>
+                        <TableCell className="max-w-[200px] truncate" title={association.ProviderModel}>
+                          {association.ProviderModel}
+                        </TableCell>
+                        <TableCell>{provider?.Type ?? '未知'}</TableCell>
+                        <TableCell>{provider?.Name ?? '未知'}</TableCell>
+                        <TableCell>
+                          <span className={association.ToolCall ? "text-green-600" : "text-red-600"}>
+                            {association.ToolCall ? '✓' : '✗'}
                           </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-4 w-20">
-                          {providerStatus[association.ID] ? (
-                            providerStatus[association.ID].length > 0 ? (
-                              <div className="flex space-x-1 items-end h-6">
-                                {providerStatus[association.ID].map((isSuccess, index) => (
+                        </TableCell>
+                        <TableCell>
+                          <span className={association.StructuredOutput ? "text-green-600" : "text-red-600"}>
+                            {association.StructuredOutput ? '✓' : '✗'}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span className={association.Image ? "text-green-600" : "text-red-600"}>
+                            {association.Image ? '✓' : '✗'}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span className={association.WithHeader ? "text-green-600" : "text-red-600"}>
+                            {association.WithHeader ? '✓' : '✗'}
+                          </span>
+                        </TableCell>
+                        <TableCell>{association.Weight}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={isAssociationEnabled}
+                              disabled={!!statusUpdating[association.ID]}
+                              onCheckedChange={(value) => handleStatusToggle(association, value)}
+                              aria-label="切换启用状态"
+                            />
+                            <span className="text-xs text-muted-foreground">
+                              {isAssociationEnabled ? '已启用' : '已停用'}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center space-x-4 w-20">
+                            {statusBars ? (
+                              statusBars.length > 0 ? (
+                                <div className="flex space-x-1 items-end h-6">
+                                  {statusBars.map((isSuccess, index) => (
+                                    <div
+                                      key={index}
+                                      className={`w-1 h-6 ${isSuccess ? 'bg-green-500' : 'bg-red-500'}`}
+                                      title={isSuccess ? '成功' : '失败'}
+                                    />
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="text-xs text-gray-400">无数据</div>
+                              )
+                            ) : (
+                              <div className="text-xs text-gray-400">加载中...</div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-2">
+                            <Button variant="outline" size="sm" onClick={() => openEditDialog(association)}>
+                              编辑
+                            </Button>
+                            <AlertDialog open={deleteId === association.ID} onOpenChange={(open) => !open && setDeleteId(null)}>
+                              <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(association.ID)}>
+                                删除
+                              </Button>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    此操作无法撤销。这将永久删除该模型提供商关联。
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
+                                  <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                            <Button variant="outline" size="sm" onClick={() => handleTest(association.ID)}>
+                              测试
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="sm:hidden space-y-4">
+              {filteredModelProviders.map((association) => {
+                const provider = providers.find(p => p.ID === association.ProviderID);
+                const isAssociationEnabled = association.Status ?? true;
+                return (
+                  <div key={association.ID} className="border rounded-lg p-4 space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="font-bold text-lg">{provider ? provider.Name : '未知'}</h3>
+                        <p className="text-sm text-gray-500">ID: {provider?.ID}</p>
+                        <p className="text-sm text-gray-500">类型: {provider?.Type}</p>
+                        <p className="text-sm text-gray-500">提供商模型: {association.ProviderModel}</p>
+                        <p className="text-sm text-gray-500">
+                          工具调用:
+                          <span className={association.ToolCall ? "text-green-500" : "text-red-500"}>
+                            {association.ToolCall ? '✓' : '✗'}
+                          </span>
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          结构化输出:
+                          <span className={association.StructuredOutput ? "text-green-500" : "text-red-500"}>
+                            {association.StructuredOutput ? '✓' : '✗'}
+                          </span>
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          视觉:
+                          <span className={association.Image ? "text-green-500" : "text-red-500"}>
+                            {association.Image ? '✓' : '✗'}
+                          </span>
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          请求头透传:
+                          <span className={association.WithHeader ? "text-green-500" : "text-red-500"}>
+                            {association.WithHeader ? '✓' : '✗'}
+                          </span>
+                        </p>
+                        <p className="text-sm text-gray-500">权重: {association.Weight}</p>
+                        <div className="text-sm text-gray-500 flex items-center gap-2">
+                          <span>状态:</span>
+                          <div className="flex space-x-1 items-end h-4">
+                            {providerStatus[association.ID] ? (
+                              providerStatus[association.ID].length > 0 ? (
+                                providerStatus[association.ID].map((isSuccess, index) => (
                                   <div
                                     key={index}
-                                    className={`w-1 h-6  ${isSuccess ? 'bg-green-500' : 'bg-red-500'
-                                      }`}
+                                    className={`w-0.75 h-4  ${isSuccess ? 'bg-green-500' : 'bg-red-500'}`}
                                     title={isSuccess ? '成功' : '失败'}
                                   />
-                                ))}
-                              </div>
+                                ))
+                              ) : (
+                                <span className="text-xs">无数据</span>
+                              )
                             ) : (
-                              <div className="text-xs text-gray-400">无数据</div>
-                            )
-                          ) : (
-                            <div className="text-xs text-gray-400">加载中...</div>
-                          )}
+                              <span className="text-xs">加载中...</span>
+                            )}
+                          </div>
                         </div>
-                      </TableCell>
-                      <TableCell className="space-x-2">
+                      </div>
+                      <div className="flex flex-col space-y-2">
                         <Button
                           variant="outline"
                           size="sm"
@@ -735,136 +866,33 @@ export default function ModelProvidersPage() {
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleTest(association.ID)}
-                        >
-                          测试
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-
-          {/* 移动端卡片布局 */}
-          <div className="sm:hidden space-y-4">
-            {filteredModelProviders.map((association) => {
-              const provider = providers.find(p => p.ID === association.ProviderID);
-              const isAssociationEnabled = association.Status ?? true;
-              return (
-                <div key={association.ID} className="border rounded-lg p-4 space-y-3">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-bold text-lg">{provider ? provider.Name : '未知'}</h3>
-                      <p className="text-sm text-gray-500">ID: {provider?.ID}</p>
-                      <p className="text-sm text-gray-500">类型: {provider?.Type}</p>
-                      <p className="text-sm text-gray-500">提供商模型: {association.ProviderModel}</p>
-                      <p className="text-sm text-gray-500">
-                        工具调用:
-                        <span className={association.ToolCall ? "text-green-500" : "text-red-500"}>
-                          {association.ToolCall ? '✓' : '✗'}
-                        </span>
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        结构化输出:
-                        <span className={association.StructuredOutput ? "text-green-500" : "text-red-500"}>
-                          {association.StructuredOutput ? '✓' : '✗'}
-                        </span>
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        视觉:
-                        <span className={association.Image ? "text-green-500" : "text-red-500"}>
-                          {association.Image ? '✓' : '✗'}
-                        </span>
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        请求头透传:
-                        <span className={association.WithHeader ? "text-green-500" : "text-red-500"}>
-                          {association.WithHeader ? '✓' : '✗'}
-                        </span>
-                      </p>
-                      <p className="text-sm text-gray-500">权重: {association.Weight}</p>
-                      <div className="text-sm text-gray-500 flex items-center gap-2">
-                        <span>状态:</span>
-                        <div className="flex space-x-1 items-end h-4">
-                          {providerStatus[association.ID] ? (
-                            providerStatus[association.ID].length > 0 ? (
-                              providerStatus[association.ID].map((isSuccess, index) => (
-                                <div
-                                  key={index}
-                                  className={`w-0.75 h-4  ${isSuccess ? 'bg-green-500' : 'bg-red-500'
-                                    }`}
-                                  title={isSuccess ? '成功' : '失败'}
-                                />
-                              ))
-                            ) : (
-                              <span className="text-xs">无数据</span>
-                            )
-                          ) : (
-                            <span className="text-xs">加载中...</span>
-                          )}
-                        </div>
                       </div>
                     </div>
-                    <div className="flex flex-col space-y-2">
+                    <div className="flex items-center justify-between text-sm text-gray-500">
+                      <span>{isAssociationEnabled ? "已启用" : "已停用"}</span>
+                      <Switch
+                        checked={isAssociationEnabled}
+                        disabled={!!statusUpdating[association.ID]}
+                        onCheckedChange={(value) => handleStatusToggle(association, value)}
+                        aria-label="切换启用状态"
+                      />
+                    </div>
+                    <div className="flex justify-between items-center">
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => openEditDialog(association)}
+                        onClick={() => handleTest(association.ID)}
                       >
-                        编辑
+                        测试
                       </Button>
-                      <AlertDialog open={deleteId === association.ID} onOpenChange={(open) => !open && setDeleteId(null)}>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => openDeleteDialog(association.ID)}
-                        >
-                          删除
-                        </Button>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              此操作无法撤销。这将永久删除该模型提供商关联。
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between text-sm text-gray-500">
-                    <span>{isAssociationEnabled ? "已启用" : "已停用"}</span>
-                    <Switch
-                      checked={isAssociationEnabled}
-                      disabled={!!statusUpdating[association.ID]}
-                      onCheckedChange={(value) => handleStatusToggle(association, value)}
-                      aria-label="切换启用状态"
-                    />
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleTest(association.ID)}
-                    >
-                      测试
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </>
-      )}
+        )}
+      </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[85vh] flex flex-col">

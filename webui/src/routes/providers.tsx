@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -59,6 +59,18 @@ import {
 } from "@/lib/api";
 import type { Provider, ProviderTemplate, ProviderModel } from "@/lib/api";
 import { toast } from "sonner";
+
+type MobileInfoItemProps = {
+  label: string;
+  value: ReactNode;
+};
+
+const MobileInfoItem = ({ label, value }: MobileInfoItemProps) => (
+  <div className="space-y-1">
+    <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</p>
+    <div className="text-sm font-medium break-words">{value}</div>
+  </div>
+);
 
 // 定义表单验证模式
 const formSchema = z.object({
@@ -239,44 +251,32 @@ export default function ProvidersPage() {
     setDeleteId(id);
   };
 
-  const handleRefresh = () => {
-    fetchProviders();
-  };
-
   const hasFilter = nameFilter.trim() !== "" || typeFilter !== "all";
 
   return (
     <div className="h-full min-h-0 flex flex-col gap-4 p-1">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className="text-2xl font-bold tracking-tight">提供商管理</h2>
-          <p className="text-sm text-muted-foreground">维护上游供应商、类型与凭据</p>
-        </div>
-        <div className="flex w-full sm:w-auto items-center justify-end gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0"
-            aria-label="刷新列表"
-            title="刷新列表"
-            onClick={handleRefresh}
-          >
-            <RefreshCw className="size-4" />
-          </Button>
+      <div className="flex flex-col gap-2 flex-shrink-0">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-bold tracking-tight">提供商管理</h2>
+            <p className="text-sm text-muted-foreground">维护上游供应商、类型与凭据</p>
+          </div>
+          <div className="flex w-full sm:w-auto items-center justify-end gap-2">
+          </div>
         </div>
       </div>
       <div className="flex flex-col gap-2 flex-shrink-0">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="flex flex-col gap-1 text-xs w-full sm:w-64">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
+          <div className="flex flex-col gap-1 text-xs">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商名称</Label>
             <Input
               placeholder="输入名称"
               value={nameFilter}
               onChange={(e) => setNameFilter(e.target.value)}
-              className="h-9 text-sm"
+              className="h-9 text-sm w-40"
             />
           </div>
-          <div className="flex flex-col gap-1 text-xs w-full sm:w-48">
+          <div className="flex flex-col gap-1 text-xs">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">类型</Label>
             <Select value={typeFilter} onValueChange={setTypeFilter}>
               <SelectTrigger className="h-9 text-sm">
@@ -292,9 +292,11 @@ export default function ProvidersPage() {
               </SelectContent>
             </Select>
           </div>
-          <Button onClick={openCreateDialog} className="w-full sm:w-auto sm:ml-auto">
-            添加提供商
-          </Button>
+          <div className="flex items-end">
+            <Button onClick={openCreateDialog} className="w-full sm:w-auto sm:ml-auto">
+              添加提供商
+            </Button>
+          </div>
         </div>
       </div>
       <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
@@ -379,18 +381,18 @@ export default function ProvidersPage() {
                 </TableBody>
               </Table>
             </div>
-            <div className="sm:hidden px-2 py-3 divide-y divide-border">
+            <div className="sm:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 divide-y divide-border">
               {providers.map((provider) => (
-                <div key={provider.ID} className="py-3 space-y-3 my-1 px-1">
+                <div key={provider.ID} className="py-3 space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <h3 className="font-semibold text-base truncate">{provider.Name}</h3>
+                      <h3 className="font-semibold text-sm truncate">{provider.Name}</h3>
                       <p className="text-[11px] text-muted-foreground">ID: {provider.ID}</p>
-                      <p className="text-[11px] text-muted-foreground">类型: {provider.Type}</p>
+                      <p className="text-[11px] text-muted-foreground">类型: {provider.Type || "未知"}</p>
                       {provider.Console && (
                         <Button
                           variant="link"
-                          className="px-0 h-auto text-xs"
+                          className="px-0 h-auto text-[11px]"
                           onClick={() => window.open(provider.Console, '_blank')}
                         >
                           打开控制台
@@ -425,9 +427,13 @@ export default function ProvidersPage() {
                       </AlertDialog>
                     </div>
                   </div>
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <MobileInfoItem label="ID" value={<span className="font-mono text-xs">{provider.ID}</span>} />
+                    <MobileInfoItem label="控制台" value={provider.Console ? provider.Console : <span className="text-muted-foreground">暂未设置</span>} />
+                  </div>
                   <div className="text-xs space-y-1">
-                    <p className="text-muted-foreground">配置</p>
-                    <pre className="font-mono text-[11px] whitespace-pre-wrap break-words bg-muted/40 p-2 rounded">
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wide">配置</p>
+                    <pre className="font-mono text-[11px] whitespace-pre-wrap break-words bg-muted/40 p-2 rounded-md">
                       {provider.Config}
                     </pre>
                   </div>

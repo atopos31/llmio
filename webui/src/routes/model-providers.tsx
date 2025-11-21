@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm } from "react-hook-form";
@@ -60,7 +60,18 @@ import type { ModelWithProvider, Model, Provider } from "@/lib/api";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { RefreshCw } from "lucide-react";
+
+type MobileInfoItemProps = {
+  label: string;
+  value: ReactNode;
+};
+
+const MobileInfoItem = ({ label, value }: MobileInfoItemProps) => (
+  <div className="space-y-1">
+    <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</p>
+    <div className="text-sm font-medium break-words">{value}</div>
+  </div>
+);
 
 // 定义表单验证模式
 const headerPairSchema = z.object({
@@ -571,40 +582,24 @@ export default function ModelProvidersPage() {
     })
     : modelProviders;
 
-  const handleRefresh = () => {
-    if (selectedModelId) {
-      fetchModelProviders(selectedModelId);
-    } else {
-      Promise.all([fetchModels(), fetchProviders()]);
-    }
-  };
-
   const hasAssociationFilter = selectedProviderType !== "all";
 
   if (loading && models.length === 0 && providers.length === 0) return <Loading message="加载模型和提供商" />;
 
   return (
     <div className="h-full min-h-0 flex flex-col gap-4 p-1">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className="text-2xl font-bold tracking-tight">模型提供商关联</h2>
-        </div>
-        <div className="flex w-full sm:w-auto items-center justify-end gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0"
-            aria-label="刷新列表"
-            title="刷新列表"
-            onClick={handleRefresh}
-          >
-            <RefreshCw className="size-4" />
-          </Button>
+      <div className="flex flex-col gap-2 flex-shrink-0">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-bold tracking-tight">模型提供商关联</h2>
+          </div>
+          <div className="flex w-full sm:w-auto items-center justify-end gap-2">
+          </div>
         </div>
       </div>
       <div className="flex flex-col gap-2 flex-shrink-0">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="flex flex-col gap-1 text-xs ">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
+          <div className="flex flex-col gap-1 text-xs">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">关联模型</Label>
             <Select value={selectedModelId?.toString() || ""} onValueChange={handleModelChange}>
               <SelectTrigger className="h-9 text-sm">
@@ -626,7 +621,7 @@ export default function ModelProvidersPage() {
                 <SelectValue placeholder="按类型筛选" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部类型</SelectItem>
+                <SelectItem value="all">全部</SelectItem>
                 {providerTypes.map((type) => (
                   <SelectItem key={type} value={type}>
                     {type}
@@ -635,9 +630,11 @@ export default function ModelProvidersPage() {
               </SelectContent>
             </Select>
           </div>
-          <Button onClick={openCreateDialog} disabled={!selectedModelId} className="w-full sm:w-auto sm:ml-auto">
-            添加关联
-          </Button>
+          <div className="flex items-end">
+            <Button onClick={openCreateDialog} disabled={!selectedModelId} className="w-full sm:w-auto sm:ml-auto">
+              添加关联
+            </Button>
+          </div>
         </div>
       </div>
       {statusError && (
@@ -779,108 +776,115 @@ export default function ModelProvidersPage() {
                 </TableBody>
               </Table>
             </div>
-            <div className="sm:hidden space-y-4">
+            <div className="sm:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 divide-y divide-border">
               {filteredModelProviders.map((association) => {
                 const provider = providers.find(p => p.ID === association.ProviderID);
                 const isAssociationEnabled = association.Status ?? true;
+                const statusBars = providerStatus[association.ID];
                 return (
-                  <div key={association.ID} className="border rounded-lg p-4 space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-bold text-lg">{provider ? provider.Name : '未知'}</h3>
-                        <p className="text-sm text-gray-500">ID: {provider?.ID}</p>
-                        <p className="text-sm text-gray-500">类型: {provider?.Type}</p>
-                        <p className="text-sm text-gray-500">提供商模型: {association.ProviderModel}</p>
-                        <p className="text-sm text-gray-500">
-                          工具调用:
-                          <span className={association.ToolCall ? "text-green-500" : "text-red-500"}>
-                            {association.ToolCall ? '✓' : '✗'}
-                          </span>
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          结构化输出:
-                          <span className={association.StructuredOutput ? "text-green-500" : "text-red-500"}>
-                            {association.StructuredOutput ? '✓' : '✗'}
-                          </span>
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          视觉:
-                          <span className={association.Image ? "text-green-500" : "text-red-500"}>
-                            {association.Image ? '✓' : '✗'}
-                          </span>
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          请求头透传:
-                          <span className={association.WithHeader ? "text-green-500" : "text-red-500"}>
-                            {association.WithHeader ? '✓' : '✗'}
-                          </span>
-                        </p>
-                        <p className="text-sm text-gray-500">权重: {association.Weight}</p>
-                        <div className="text-sm text-gray-500 flex items-center gap-2">
-                          <span>状态:</span>
-                          <div className="flex space-x-1 items-end h-4">
-                            {providerStatus[association.ID] ? (
-                              providerStatus[association.ID].length > 0 ? (
-                                providerStatus[association.ID].map((isSuccess, index) => (
+                  <div key={association.ID} className="py-3 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-semibold text-sm truncate">{provider?.Name ?? '未知提供商'}</h3>
+                        <p className="text-[11px] text-muted-foreground">提供商模型: {association.ProviderModel}</p>
+                      </div>
+                      <span
+                        className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${isAssociationEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
+                      >
+                        {isAssociationEnabled ? '已启用' : '已停用'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <MobileInfoItem label="提供商类型" value={provider?.Type ?? '未知'} />
+                      <MobileInfoItem label="提供商 ID" value={<span className="font-mono text-xs">{provider?.ID ?? '-'}</span>} />
+                      <MobileInfoItem label="权重" value={association.Weight} />
+                      <MobileInfoItem
+                        label="请求头透传"
+                        value={<span className={association.WithHeader ? "text-green-600" : "text-red-600"}>{association.WithHeader ? '✓' : '✗'}</span>}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <MobileInfoItem
+                        label="工具调用"
+                        value={<span className={association.ToolCall ? "text-green-600" : "text-red-600"}>{association.ToolCall ? '✓' : '✗'}</span>}
+                      />
+                      <MobileInfoItem
+                        label="结构化输出"
+                        value={<span className={association.StructuredOutput ? "text-green-600" : "text-red-600"}>{association.StructuredOutput ? '✓' : '✗'}</span>}
+                      />
+                      <MobileInfoItem
+                        label="视觉能力"
+                        value={<span className={association.Image ? "text-green-600" : "text-red-600"}>{association.Image ? '✓' : '✗'}</span>}
+                      />
+                      <MobileInfoItem
+                        label="最近状态"
+                        value={
+                          <div className="flex items-center gap-1">
+                            {statusBars ? (
+                              statusBars.length > 0 ? (
+                                statusBars.map((isSuccess, index) => (
                                   <div
                                     key={index}
-                                    className={`w-0.75 h-4  ${isSuccess ? 'bg-green-500' : 'bg-red-500'}`}
-                                    title={isSuccess ? '成功' : '失败'}
+                                    className={`w-1 h-4 rounded ${isSuccess ? 'bg-green-500' : 'bg-red-500'}`}
                                   />
                                 ))
                               ) : (
-                                <span className="text-xs">无数据</span>
+                                <span className="text-muted-foreground text-[11px]">无数据</span>
                               )
                             ) : (
-                              <span className="text-xs">加载中...</span>
+                              <span className="text-muted-foreground text-[11px]">加载中...</span>
                             )}
                           </div>
-                        </div>
-                      </div>
-                      <div className="flex flex-col space-y-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openEditDialog(association)}
-                        >
-                          编辑
-                        </Button>
-                        <AlertDialog open={deleteId === association.ID} onOpenChange={(open) => !open && setDeleteId(null)}>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => openDeleteDialog(association.ID)}
-                          >
-                            删除
-                          </Button>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                此操作无法撤销。这将永久删除该模型提供商关联。
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
-                              <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between text-sm text-gray-500">
-                      <span>{isAssociationEnabled ? "已启用" : "已停用"}</span>
-                      <Switch
-                        checked={isAssociationEnabled}
-                        disabled={!!statusUpdating[association.ID]}
-                        onCheckedChange={(value) => handleStatusToggle(association, value)}
-                        aria-label="切换启用状态"
+                        }
                       />
                     </div>
-                    <div className="flex justify-between items-center">
+                    <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
+                      <p className="text-xs text-muted-foreground">启用状态</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{isAssociationEnabled ? "启用" : "停用"}</span>
+                        <Switch
+                          checked={isAssociationEnabled}
+                          disabled={!!statusUpdating[association.ID]}
+                          onCheckedChange={(value) => handleStatusToggle(association, value)}
+                          aria-label="切换启用状态"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-1.5">
                       <Button
                         variant="outline"
                         size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => openEditDialog(association)}
+                      >
+                        编辑
+                      </Button>
+                      <AlertDialog open={deleteId === association.ID} onOpenChange={(open) => !open && setDeleteId(null)}>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => openDeleteDialog(association.ID)}
+                        >
+                          删除
+                        </Button>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              此操作无法撤销。这将永久删除该模型提供商关联。
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
                         onClick={() => handleTest(association.ID)}
                       >
                         测试

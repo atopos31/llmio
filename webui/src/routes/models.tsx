@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -51,7 +51,18 @@ import {
 import type { Model } from "@/lib/api";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { RefreshCw } from "lucide-react";
+
+type MobileInfoItemProps = {
+  label: string;
+  value: ReactNode;
+};
+
+const MobileInfoItem = ({ label, value }: MobileInfoItemProps) => (
+  <div className="space-y-1">
+    <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</p>
+    <div className="text-sm font-medium break-words">{value}</div>
+  </div>
+);
 
 // 定义表单验证模式
 const formSchema = z.object({
@@ -167,31 +178,19 @@ export default function ModelsPage() {
     setDeleteId(id);
   };
 
-  const handleRefresh = () => {
-    fetchModels();
-  };
-
   return (
     <div className="h-full min-h-0 flex flex-col gap-4 p-1">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className="text-2xl font-bold tracking-tight">模型管理</h2>
-          <p className="text-sm text-muted-foreground">维护可用模型、限时和重试等参数</p>
-        </div>
-        <div className="flex w-full sm:w-auto items-center justify-end gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0"
-            aria-label="刷新列表"
-            title="刷新列表"
-            onClick={handleRefresh}
-          >
-            <RefreshCw className="size-4" />
-          </Button>
-          <Button onClick={openCreateDialog} className="flex-1 sm:flex-none">
-            添加模型
-          </Button>
+      <div className="flex flex-col gap-2 flex-shrink-0">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-bold tracking-tight">模型管理</h2>
+            <p className="text-sm text-muted-foreground">维护可用模型、限时和重试等参数</p>
+          </div>
+          <div className="flex w-full sm:w-auto items-center justify-end gap-2">
+            <Button onClick={openCreateDialog} className="w-full sm:w-auto sm:min-w-[120px]">
+              添加模型
+            </Button>
+          </div>
         </div>
       </div>
       <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
@@ -269,12 +268,12 @@ export default function ModelsPage() {
                 </TableBody>
               </Table>
             </div>
-            <div className="sm:hidden px-2 py-3 divide-y divide-border">
+            <div className="sm:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 divide-y divide-border">
               {models.map((model) => (
-                <div key={model.ID} className="py-3 space-y-3 my-1 px-1">
+                <div key={model.ID} className="py-3 space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <h3 className="font-semibold text-base truncate">{model.Name}</h3>
+                      <h3 className="font-semibold text-sm truncate">{model.Name}</h3>
                       <p className="text-[11px] text-muted-foreground">ID: {model.ID}</p>
                     </div>
                     <div className="flex flex-wrap justify-end gap-1.5">
@@ -304,22 +303,16 @@ export default function ModelsPage() {
                     </div>
                   </div>
                   <div className="text-xs space-y-1">
-                    <p className="text-muted-foreground">备注</p>
+                    <p className="text-[11px] text-muted-foreground uppercase tracking-wide">备注</p>
                     <p className="break-words">{model.Remark || "-"}</p>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div>
-                      <p className="text-muted-foreground text-[11px] uppercase tracking-wide">重试次数</p>
-                      <p className="font-medium">{model.MaxRetry}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground text-[11px] uppercase tracking-wide">超时时间</p>
-                      <p className="font-medium">{model.TimeOut} 秒</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground text-[11px] uppercase tracking-wide">IO 记录</p>
-                      <p className={model.IOLog ? "text-green-600" : "text-red-600"}>{model.IOLog ? "开启" : "关闭"}</p>
-                    </div>
+                    <MobileInfoItem label="重试次数" value={model.MaxRetry} />
+                    <MobileInfoItem label="超时时间" value={`${model.TimeOut} 秒`} />
+                    <MobileInfoItem
+                      label="IO 记录"
+                      value={<span className={model.IOLog ? "text-green-600" : "text-red-600"}>{model.IOLog ? '✓' : '✗'}</span>}
+                    />
                   </div>
                 </div>
               ))}

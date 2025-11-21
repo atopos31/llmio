@@ -37,11 +37,11 @@ export default function Layout() {
   ];
 
   // 侧边栏宽度常量，方便统一管理
-  const WIDTH_EXPANDED = "w-48";
-  const WIDTH_COLLAPSED = "w-14";
+  const WIDTH_EXPANDED = "min-w-48";
+  const WIDTH_COLLAPSED = "min-w-14";
 
   return (
-    <div className="flex flex-col h-screen w-full dark:bg-gray-900 overflow-hidden transition-colors duration-300">
+    <div className="flex flex-col h-screen w-full dark:bg-gray-900 transition-colors duration-300">
       
       {/* 1. 顶部栏 Header */}
       <header className="h-16 border-b bg-background flex items-center justify-between px-6 flex-shrink-0 shadow-sm z-20">
@@ -84,7 +84,7 @@ export default function Layout() {
       </header>
 
       {/* 2. 下方主体区域 */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex overflow-hidden flex-1">
         
         {/* 左侧侧边栏 Sidebar */}
         <aside 
@@ -180,8 +180,8 @@ export default function Layout() {
         </aside>
 
         {/* 右侧主内容区域 */}
-        <main className="flex-1 overflow-y-auto bg-muted/20 p-4 md:p-8 transition-all duration-300">
-          <div className="mx-auto max-w-full"> 
+        <main className="flex-1 bg-muted/20 p-2 md:p-4 transition-all duration-300">
+          <div className="mx-auto max-w-full h-full">
              <Outlet />
           </div>
         </main>

@@ -78,7 +78,6 @@ export default function Layout() {
             className="gap-2"
           >
             <FaSignOutAlt />
-            <span className="hidden sm:inline">登出</span>
           </Button>
         </div>
       </header>

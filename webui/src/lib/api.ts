@@ -324,6 +324,11 @@ export interface ChatLog {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  prompt_tokens_details: PromptTokensDetails;
+}
+
+export interface PromptTokensDetails {
+  cached_tokens: number;
 }
 
 export interface ChatIO {

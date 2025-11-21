@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Loading from "@/components/loading";
 import { getLogs, getProviders, getModels, getUserAgents, type ChatLog, type Provider, type Model, getProviderTemplates } from "@/lib/api";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 
 // 格式化时间显示
 const formatTime = (nanoseconds: number): string => {
@@ -23,6 +23,25 @@ const formatTime = (nanoseconds: number): string => {
   if (nanoseconds < 1000000000) return `${(nanoseconds / 1000000).toFixed(2)} ms`;
   return `${(nanoseconds / 1000000000).toFixed(2)} s`;
 };
+
+type DetailCardProps = {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+};
+
+const DetailCard = ({ label, value, mono = false }: DetailCardProps) => (
+  <div className="rounded-md border bg-muted/20 p-3 space-y-1">
+    <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</p>
+    <div className={`text-sm break-words ${mono ? 'font-mono text-xs' : ''}`}>
+      {value ?? '-'}
+    </div>
+  </div>
+);
+
+const formatDurationValue = (value?: number) => (typeof value === "number" ? formatTime(value) : "-");
+const formatTokenValue = (value?: number) => (typeof value === "number" ? value.toLocaleString() : "-");
+const formatTpsValue = (value?: number) => (typeof value === "number" ? value.toFixed(2) : "-");
 
 export default function LogsPage() {
   const [logs, setLogs] = useState<ChatLog[]>([]);
@@ -134,7 +153,16 @@ export default function LogsPage() {
             <h2 className="text-2xl font-bold tracking-tight">请求日志</h2>
             <p className="text-sm text-muted-foreground">系统处理的请求日志，支持分页和筛选</p>
           </div>
-          <Button onClick={handleRefresh} className="ml-auto shrink-0">刷新</Button>
+          <Button
+            onClick={handleRefresh}
+            variant="outline"
+            size="icon"
+            className="ml-auto shrink-0"
+            aria-label="刷新列表"
+            title="刷新列表"
+          >
+            <RefreshCw className="size-4" />
+          </Button>
         </div>
       </div>
       {/* 筛选区域 */}
@@ -346,19 +374,21 @@ export default function LogsPage() {
             共 {total} 条记录，第 {page} / {pages} 页
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 text-xs ">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>每页</span>
               <Select value={String(pageSize)} onValueChange={(value) => handlePageSizeChange(Number(value))}>
-                <SelectTrigger className="h-8 text-xs">
+                <SelectTrigger className="h-8 w-[90px] text-xs">
                   <SelectValue placeholder="条数" />
                 </SelectTrigger>
                 <SelectContent>
                   {[10, 20, 50].map((size) => (
                     <SelectItem key={size} value={String(size)}>
-                      {size}
+                      {size} 条
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <span>条</span>
             </div>
             <div className="flex gap-2">
               <Button
@@ -386,39 +416,67 @@ export default function LogsPage() {
       {/* 详情弹窗 */}
       {selectedLog && (
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="p-0 max-w-2xl max-h-[90vh] flex flex-col">
-            <div className="p-6 border-b flex-shrink-0">
+          <DialogContent className="p-0 w-[92vw] sm:w-auto sm:max-w-2xl max-h-[95vh] flex flex-col">
+            <div className="p-4 border-b flex-shrink-0">
               <DialogHeader className="p-0">
-                <DialogTitle>日志详情</DialogTitle>
+                <DialogTitle>日志详情: {selectedLog.ID}</DialogTitle>
               </DialogHeader>
             </div>
-            <div className="overflow-y-auto p-6 flex-1">
-              <div className="grid gap-3 text-sm">
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right text-muted-foreground">ID</Label>
-                  <div className="col-span-3 font-mono text-xs select-all">{selectedLog.ID}</div>
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right text-muted-foreground">时间</Label>
-                  <div className="col-span-3">{new Date(selectedLog.CreatedAt).toLocaleString()}</div>
-                </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label className="text-right text-muted-foreground">完整状态</Label>
-                  <div className="col-span-3">
-                    <span className={selectedLog.Status === 'success' ? 'text-green-600' : 'text-red-600'}>
-                      {selectedLog.Status}
-                    </span>
+            <div className="overflow-y-auto p-3 flex-1">
+              <div className="space-y-6 text-sm">
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">创建时间：</span>
+                      <span>{new Date(selectedLog.CreatedAt).toLocaleString()}</span>
+                    </div>
+                    <div className="text-sm">
+                      <span className="text-muted-foreground">状态：</span>
+                      <span className={selectedLog.Status === 'success' ? 'text-green-600' : 'text-red-600'}>
+                        {selectedLog.Status}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 {selectedLog.Error && (
-                  <div className="grid grid-cols-4 items-start gap-4 bg-destructive/10 p-2 rounded">
-                    <Label className="text-right text-destructive pt-1">错误信息</Label>
-                    <div className="col-span-3 text-destructive whitespace-pre-wrap break-words">
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+                    <p className="text-xs text-destructive uppercase tracking-wide mb-1">错误信息</p>
+                    <div className="text-destructive whitespace-pre-wrap break-words text-sm">
                       {selectedLog.Error}
                     </div>
                   </div>
                 )}
-                {/* 其他详情字段可按需补充 */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">基本信息</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <DetailCard label="模型名称" value={selectedLog.Name} />
+                    <DetailCard label="提供商" value={selectedLog.ProviderName || '-'} />
+                    <DetailCard label="提供商模型" value={selectedLog.ProviderModel || '-'} mono />
+                    <DetailCard label="类型" value={selectedLog.Style || '-'} />
+                    <DetailCard label="用户代理" value={selectedLog.UserAgent || '-'} mono />
+                    <DetailCard label="远端 IP" value={selectedLog.RemoteIP || '-'} mono />
+                    <DetailCard label="记录 IO" value={selectedLog.ChatIO ? '是' : '否'} />
+                    <DetailCard label="重试次数" value={selectedLog.Retry ?? 0} />
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">性能指标</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <DetailCard label="代理耗时" value={formatDurationValue(selectedLog.ProxyTime)} />
+                    <DetailCard label="首包耗时" value={formatDurationValue(selectedLog.FirstChunkTime)} />
+                    <DetailCard label="完成耗时" value={formatDurationValue(selectedLog.ChunkTime)} />
+                    <DetailCard label="TPS" value={formatTpsValue(selectedLog.Tps)} />
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Token 使用</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                    <DetailCard label="输入" value={formatTokenValue(selectedLog.prompt_tokens)} />
+                    <DetailCard label="输出" value={formatTokenValue(selectedLog.completion_tokens)} />
+                    <DetailCard label="总计" value={formatTokenValue(selectedLog.total_tokens)} />
+                    <DetailCard label="缓存" value={formatTokenValue(selectedLog.prompt_tokens_details.cached_tokens)} />
+                  </div>
+                </div>
               </div>
             </div>
           </DialogContent>

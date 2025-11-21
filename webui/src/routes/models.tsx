@@ -228,7 +228,7 @@ export default function ModelsPage() {
                       <TableCell>{model.TimeOut}</TableCell>
                       <TableCell>
                         <span className={model.IOLog ? "text-green-500" : "text-red-500"}>
-                          {model.IOLog ? "开启" : "关闭"}
+                          {model.IOLog ? '✓' : '✗'}
                         </span>
                       </TableCell>
                       <TableCell>

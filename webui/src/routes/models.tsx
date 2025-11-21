@@ -184,7 +184,6 @@ export default function ModelsPage() {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h2 className="text-2xl font-bold tracking-tight">模型管理</h2>
-            <p className="text-sm text-muted-foreground">维护可用模型、限时和重试等参数</p>
           </div>
           <div className="flex w-full sm:w-auto items-center justify-end gap-2">
             <Button onClick={openCreateDialog} className="w-full sm:w-auto sm:min-w-[120px]">

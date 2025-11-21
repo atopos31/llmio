@@ -598,11 +598,11 @@ export default function ModelProvidersPage() {
         </div>
       </div>
       <div className="flex flex-col gap-2 flex-shrink-0">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
-          <div className="flex flex-col gap-1 text-xs">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:gap-4">
+          <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">关联模型</Label>
             <Select value={selectedModelId?.toString() || ""} onValueChange={handleModelChange}>
-              <SelectTrigger className="h-9 text-sm">
+              <SelectTrigger className="h-8 w-full text-xs px-2">
                 <SelectValue placeholder="选择模型" />
               </SelectTrigger>
               <SelectContent>
@@ -614,10 +614,10 @@ export default function ModelProvidersPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-1 text-xs">
+          <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商类型</Label>
             <Select value={selectedProviderType} onValueChange={setSelectedProviderType}>
-              <SelectTrigger className="h-9 text-sm">
+              <SelectTrigger className="h-8 w-full text-xs px-2">
                 <SelectValue placeholder="按类型筛选" />
               </SelectTrigger>
               <SelectContent>
@@ -630,8 +630,12 @@ export default function ModelProvidersPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-end">
-            <Button onClick={openCreateDialog} disabled={!selectedModelId} className="w-full sm:w-auto sm:ml-auto">
+          <div className="flex items-end col-span-2 sm:col-span-1 sm:justify-end">
+            <Button
+              onClick={openCreateDialog}
+              disabled={!selectedModelId}
+              className="h-8 w-full text-xs sm:w-auto sm:ml-auto"
+            >
               添加关联
             </Button>
           </div>

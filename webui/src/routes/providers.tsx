@@ -259,27 +259,26 @@ export default function ProvidersPage() {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h2 className="text-2xl font-bold tracking-tight">提供商管理</h2>
-            <p className="text-sm text-muted-foreground">维护上游供应商、类型与凭据</p>
           </div>
           <div className="flex w-full sm:w-auto items-center justify-end gap-2">
           </div>
         </div>
       </div>
       <div className="flex flex-col gap-2 flex-shrink-0">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
-          <div className="flex flex-col gap-1 text-xs">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:gap-4">
+          <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商名称</Label>
             <Input
               placeholder="输入名称"
               value={nameFilter}
               onChange={(e) => setNameFilter(e.target.value)}
-              className="h-9 text-sm w-40"
+              className="h-8 w-full text-xs px-2"
             />
           </div>
-          <div className="flex flex-col gap-1 text-xs">
+          <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">类型</Label>
             <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="h-9 text-sm">
+              <SelectTrigger className="h-8 w-full text-xs px-2">
                 <SelectValue placeholder="选择类型" />
               </SelectTrigger>
               <SelectContent>
@@ -292,8 +291,8 @@ export default function ProvidersPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-end">
-            <Button onClick={openCreateDialog} className="w-full sm:w-auto sm:ml-auto">
+          <div className="flex items-end col-span-2 sm:col-span-1 sm:justify-end">
+            <Button onClick={openCreateDialog} className="h-8 w-full text-xs sm:w-auto sm:ml-auto">
               添加提供商
             </Button>
           </div>
@@ -395,7 +394,7 @@ export default function ProvidersPage() {
                           className="px-0 h-auto text-[11px]"
                           onClick={() => window.open(provider.Console, '_blank')}
                         >
-                          打开控制台
+                          控制台
                         </Button>
                       )}
                     </div>
@@ -426,16 +425,6 @@ export default function ProvidersPage() {
                         </AlertDialogContent>
                       </AlertDialog>
                     </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <MobileInfoItem label="ID" value={<span className="font-mono text-xs">{provider.ID}</span>} />
-                    <MobileInfoItem label="控制台" value={provider.Console ? provider.Console : <span className="text-muted-foreground">暂未设置</span>} />
-                  </div>
-                  <div className="text-xs space-y-1">
-                    <p className="text-[11px] text-muted-foreground uppercase tracking-wide">配置</p>
-                    <pre className="font-mono text-[11px] whitespace-pre-wrap break-words bg-muted/40 p-2 rounded-md">
-                      {provider.Config}
-                    </pre>
                   </div>
                 </div>
               ))}

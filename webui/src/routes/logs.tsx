@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Loading from "@/components/loading";
 import { getLogs, getProviders, getModels, getUserAgents, type ChatLog, type Provider, type Model, getProviderTemplates } from "@/lib/api";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 // 格式化时间显示
 const formatTime = (nanoseconds: number): string => {
@@ -27,7 +28,7 @@ export default function LogsPage() {
   const [logs, setLogs] = useState<ChatLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(0);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -106,6 +107,11 @@ export default function LogsPage() {
   const handlePageChange = (newPage: number) => {
     if (newPage >= 1 && newPage <= pages) setPage(newPage);
   };
+  const handlePageSizeChange = (size: number) => {
+    if (size === pageSize) return;
+    setPage(1);
+    setPageSize(size);
+  };
   const handleRefresh = () => {
     fetchLogs();
   };
@@ -122,20 +128,22 @@ export default function LogsPage() {
   return (
     <div className="h-full min-h-0 flex flex-col gap-4 p-1">
       {/* 顶部标题和刷新 */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 flex-shrink-0">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">请求日志</h2>
-          <p className="text-sm text-muted-foreground">系统处理的请求日志，支持分页和筛选</p>
+      <div className="flex flex-col gap-2 flex-shrink-0">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-bold tracking-tight">请求日志</h2>
+            <p className="text-sm text-muted-foreground">系统处理的请求日志，支持分页和筛选</p>
+          </div>
+          <Button onClick={handleRefresh} className="ml-auto shrink-0">刷新</Button>
         </div>
-        <Button onClick={handleRefresh} className="w-full sm:w-auto">刷新</Button>
       </div>
       {/* 筛选区域 */}
-      <div className="flex flex-col lg:flex-row gap-4 flex-shrink-0">
-        <div className="flex flex-wrap gap-4 items-end">
-          <div className="flex flex-col gap-2 w-full sm:w-auto">
-            <Label className="text-xs text-muted-foreground">模型名称</Label>
+      <div className="flex flex-col gap-2 flex-shrink-0">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 lg:gap-4">
+          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">模型名称</Label>
             <Select value={modelFilter} onValueChange={setModelFilter}>
-              <SelectTrigger className="w-full sm:w-[160px] h-9">
+              <SelectTrigger className="h-8 text-xs w-full px-2">
                 <SelectValue placeholder="选择模型" />
               </SelectTrigger>
               <SelectContent>
@@ -146,10 +154,10 @@ export default function LogsPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-2 w-full sm:w-auto">
-            <Label className="text-xs text-muted-foreground">提供商</Label>
+          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商</Label>
             <Select value={providerNameFilter} onValueChange={setProviderNameFilter}>
-              <SelectTrigger className="w-full sm:w-[160px] h-9">
+              <SelectTrigger className="h-8 text-xs w-full px-2">
                 <SelectValue placeholder="选择提供商" />
               </SelectTrigger>
               <SelectContent>
@@ -160,10 +168,10 @@ export default function LogsPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-2 w-full sm:w-auto">
-            <Label className="text-xs text-muted-foreground">状态</Label>
+          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">状态</Label>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-[130px] h-9">
+              <SelectTrigger className="h-8 text-xs w-full px-2">
                 <SelectValue placeholder="状态" />
               </SelectTrigger>
               <SelectContent>
@@ -173,10 +181,10 @@ export default function LogsPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-2 w-full sm:w-auto">
-            <Label className="text-xs text-muted-foreground">类型</Label>
+          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">类型</Label>
             <Select value={styleFilter} onValueChange={setStyleFilter}>
-              <SelectTrigger className="w-full sm:w-[130px] h-9">
+              <SelectTrigger className="h-8 text-xs w-full px-2">
                 <SelectValue placeholder="类型" />
               </SelectTrigger>
               <SelectContent>
@@ -185,10 +193,10 @@ export default function LogsPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-2 w-full sm:w-auto">
-            <Label className="text-xs text-muted-foreground">用户代理</Label>
+          <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1 lg:col-span-1 lg:min-w-0">
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">用户代理</Label>
             <Select value={userAgentFilter} onValueChange={setUserAgentFilter}>
-              <SelectTrigger className="w-full sm:w-[160px] h-9">
+              <SelectTrigger className="h-8 text-xs w-full px-2">
                 <SelectValue placeholder="User Agent" />
               </SelectTrigger>
               <SelectContent>
@@ -216,8 +224,8 @@ export default function LogsPage() {
         ) : (
           <div className="h-full flex flex-col">
             <div className="flex-1 overflow-y-auto">
-              <div className="hidden sm:block ">
-                <Table>
+              <div className="hidden sm:block w-full">
+                <Table className="min-w-[1100px]">
                   <TableHeader className="z-10 sticky top-0 bg-secondary/90 backdrop-blur text-secondary-foreground">
                     <TableRow className="hover:bg-secondary/90">
                       <TableHead>时间</TableHead>
@@ -275,37 +283,54 @@ export default function LogsPage() {
                   </TableBody>
                 </Table>
               </div>
-              <div className="sm:hidden p-4 space-y-4">
+              <div className="sm:hidden px-2 py-3 divide-y divide-border">
                 {logs.map((log) => (
-                  <div key={log.ID} className="border rounded-lg p-4 bg-card shadow-sm space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-bold">{log.Name}</h3>
-                        <p className="text-xs text-muted-foreground">{new Date(log.CreatedAt).toLocaleString()}</p>
+                  <div key={log.ID} className="py-3 space-y-2 my-1 px-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-semibold text-sm truncate">{log.Name}</h3>
+                        <p className="text-[11px] text-muted-foreground">{new Date(log.CreatedAt).toLocaleString()}</p>
                       </div>
-                      <div className="flex gap-1">
-                        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => openDetailDialog(log)}>
-                          详情
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="h-7 text-xs"
-                          onClick={() => handleViewChatIO(log)}
-                          disabled={!canViewChatIO(log)}
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                            log.Status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                          }`}
                         >
-                          会话
-                        </Button>
+                          {log.Status}
+                        </span>
+                        <div className="flex gap-1.5">
+                          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openDetailDialog(log)}>
+                            详情
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => handleViewChatIO(log)}
+                            disabled={!canViewChatIO(log)}
+                          >
+                            会话
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <span className="text-muted-foreground text-xs">状态:</span>
-                      <span className={log.Status === 'success' ? 'text-green-600' : 'text-red-600'}>
-                        {log.Status}
-                      </span>
-                      <span className="text-muted-foreground text-xs">Tokens:</span>
-                      <span>{log.total_tokens}</span>
-                      <span className="text-muted-foreground text-xs">耗时:</span>
-                      <span>{formatTime(log.ChunkTime)}</span>
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div className="space-y-1">
+                        <p className="text-muted-foreground text-[10px] uppercase tracking-wide">Tokens</p>
+                        <p className="font-medium">{log.total_tokens}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-muted-foreground text-[10px] uppercase tracking-wide">耗时</p>
+                        <p className="font-medium">{formatTime(log.ChunkTime)}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-muted-foreground text-[10px] uppercase tracking-wide">提供商</p>
+                        <p className="truncate">{log.ProviderName}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-muted-foreground text-[10px] uppercase tracking-wide">类型</p>
+                        <p>{log.Style || '-'}</p>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -316,27 +341,45 @@ export default function LogsPage() {
       </div>
       {/* 分页区域 */}
       {!loading && pages > 1 && (
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 flex-shrink-0 border-t pt-2">
-          <div className="text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0 border-t pt-2">
+          <div className="text-sm text-muted-foreground whitespace-nowrap">
             共 {total} 条记录，第 {page} / {pages} 页
           </div>
-          <div className="flex space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handlePageChange(page - 1)}
-              disabled={page === 1}
-            >
-              上一页
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handlePageChange(page + 1)}
-              disabled={page === pages}
-            >
-              下一页
-            </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 text-xs ">
+              <Select value={String(pageSize)} onValueChange={(value) => handlePageSizeChange(Number(value))}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="条数" />
+                </SelectTrigger>
+                <SelectContent>
+                  {[10, 20, 50].map((size) => (
+                    <SelectItem key={size} value={String(size)}>
+                      {size}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handlePageChange(page - 1)}
+                disabled={page === 1}
+                aria-label="上一页"
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handlePageChange(page + 1)}
+                disabled={page === pages}
+                aria-label="下一页"
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
           </div>
         </div>
       )}

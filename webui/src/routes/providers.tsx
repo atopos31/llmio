@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -48,7 +48,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import Loading from "@/components/loading";
 import { Label } from "@/components/ui/label";
-import { RefreshCw } from "lucide-react";
 import {
   getProviders,
   createProvider,
@@ -59,18 +58,6 @@ import {
 } from "@/lib/api";
 import type { Provider, ProviderTemplate, ProviderModel } from "@/lib/api";
 import { toast } from "sonner";
-
-type MobileInfoItemProps = {
-  label: string;
-  value: ReactNode;
-};
-
-const MobileInfoItem = ({ label, value }: MobileInfoItemProps) => (
-  <div className="space-y-1">
-    <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</p>
-    <div className="text-sm font-medium break-words">{value}</div>
-  </div>
-);
 
 // 定义表单验证模式
 const formSchema = z.object({

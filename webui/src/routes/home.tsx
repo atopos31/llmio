@@ -91,7 +91,7 @@ export default function Home() {
   if (loading) return <Loading message="加载系统概览" />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 overflow-auto h-full">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card>
           <CardHeader>

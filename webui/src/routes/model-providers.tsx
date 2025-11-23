@@ -183,7 +183,7 @@ export default function ModelProvidersPage() {
       nextParams.set("modelId", fallbackId.toString());
       setSearchParams(nextParams, { replace: true });
     }
-  }, [models, searchParams, selectedModelId, form, setSearchParams]);
+  }, [models, searchParams, form, setSearchParams]);
 
   useEffect(() => {
     if (selectedModelId) {

@@ -8,8 +8,8 @@ import (
 )
 
 type before struct {
-	model            string
-	stream           bool
+	Model            string
+	Stream           bool
 	toolCall         bool
 	structuredOutput bool
 	image            bool
@@ -60,8 +60,8 @@ func BeforerOpenAI(data []byte) (*before, error) {
 		return true
 	})
 	return &before{
-		model:            model,
-		stream:           stream,
+		Model:            model,
+		Stream:           stream,
 		toolCall:         toolCall,
 		structuredOutput: structuredOutput,
 		image:            image,
@@ -101,8 +101,8 @@ func BeforerOpenAIRes(data []byte) (*before, error) {
 		return true
 	})
 	return &before{
-		model:            model,
-		stream:           stream,
+		Model:            model,
+		Stream:           stream,
 		toolCall:         toolCall,
 		structuredOutput: structuredOutput,
 		image:            image,
@@ -138,8 +138,8 @@ func BeforerAnthropic(data []byte) (*before, error) {
 		return true
 	})
 	return &before{
-		model:            model,
-		stream:           stream,
+		Model:            model,
+		Stream:           stream,
 		toolCall:         toolCall,
 		structuredOutput: toolCall,
 		image:            image,

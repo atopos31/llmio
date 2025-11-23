@@ -14,59 +14,26 @@ import (
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
-	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
 	"gorm.io/gorm"
 )
 
-func BalanceChat(c *gin.Context, style string) error {
-	proxyStart := time.Now()
-	rawData, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		return err
-	}
-	ctx := c.Request.Context()
-	beforer, processer, err := GetBeforerAndProcesserByStyle(style)
-	if err != nil {
-		return err
-	}
-	before, err := beforer(rawData)
-	if err != nil {
-		return err
-	}
-
-	modelWithProvidersWithLimit, err := ProvidersBymodelsName(ctx, before.model)
-	if err != nil {
-		// 未知模型或无提供商
-		if _, err := SaveChatLog(ctx, models.ChatLog{
-			Name:          before.model,
-			ProviderModel: "nil",
-			ProviderName:  "nil",
-			Status:        "error",
-			Style:         style,
-			Error:         err.Error(),
-			RemoteIP:      c.ClientIP(),
-			UserAgent:     c.Request.UserAgent(),
-		}); err != nil {
-			return err
-		}
-		return err
-	}
+func BalanceChat(ctx context.Context, start time.Time, style string, before before, providersWithMeta ProvidersWithMeta, reqMeta models.ReqMeta) (*http.Response, uint, error) {
 	// 所有模型提供商关联
-	modelWithProviders := modelWithProvidersWithLimit.Providers
+	modelWithProviders := providersWithMeta.Providers
 	modelWithProviderMap := lo.KeyBy(modelWithProviders, func(mp models.ModelWithProvider) uint { return mp.ID })
 
-	slog.Info("request", "model", before.model, "stream", before.stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
+	slog.Info("request", "model", before.Model, "stream", before.Stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
 
 	provideritems, err := gorm.G[models.Provider](models.DB).
 		Where("id IN ?", lo.Map(modelWithProviders, func(mp models.ModelWithProvider, _ int) uint { return mp.ProviderID })).
 		Where("type = ?", style).
 		Find(ctx)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
 	if len(provideritems) == 0 {
-		return fmt.Errorf("no %s provider found for %s", style, before.model)
+		return nil, 0, fmt.Errorf("no %s provider found for %s", style, before.Model)
 	}
 
 	// 构建providerID到provider的映射，避免重复查找
@@ -96,10 +63,10 @@ func BalanceChat(c *gin.Context, style string) error {
 	}
 
 	if len(weightItems) == 0 {
-		return errors.New("no provider with tool_call or structured_output or image found for models " + before.model)
+		return nil, 0, errors.New("no provider with tool_call or structured_output or image found for models " + before.Model)
 	}
 	// 收集重试过程中的err日志
-	retryErrLog := make(chan models.ChatLog, modelWithProvidersWithLimit.MaxRetry)
+	retryErrLog := make(chan models.ChatLog, providersWithMeta.MaxRetry)
 	defer close(retryErrLog)
 	go func() {
 		ctx := context.Background()
@@ -111,19 +78,19 @@ func BalanceChat(c *gin.Context, style string) error {
 		}
 	}()
 
-	timer := time.NewTimer(time.Second * time.Duration(modelWithProvidersWithLimit.TimeOut))
+	timer := time.NewTimer(time.Second * time.Duration(providersWithMeta.TimeOut))
 	defer timer.Stop()
-	for retry := range modelWithProvidersWithLimit.MaxRetry {
+	for retry := range providersWithMeta.MaxRetry {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil, 0, ctx.Err()
 		case <-timer.C:
-			return errors.New("retry time out")
+			return nil, 0, errors.New("retry time out")
 		default:
 			// 加权负载均衡
 			id, err := balancer.WeightedRandom(weightItems)
 			if err != nil {
-				return err
+				return nil, 0, err
 			}
 			modelWithProvider, ok := modelWithProviderMap[*id]
 			if !ok {
@@ -136,26 +103,26 @@ func BalanceChat(c *gin.Context, style string) error {
 
 			chatModel, err := providers.New(style, provider.Config)
 			if err != nil {
-				return err
+				return nil, 0, err
 			}
 
 			slog.Info("using provider", "provider", provider.Name, "model", modelWithProvider.ProviderModel)
 
 			log := models.ChatLog{
-				Name:          before.model,
+				Name:          before.Model,
 				ProviderModel: modelWithProvider.ProviderModel,
 				ProviderName:  provider.Name,
 				Status:        "success",
 				Style:         style,
-				UserAgent:     c.Request.UserAgent(),
-				RemoteIP:      c.ClientIP(),
-				ChatIO:        modelWithProvidersWithLimit.IOLog,
+				UserAgent:     reqMeta.UserAgent,
+				RemoteIP:      reqMeta.RemoteIP,
+				ChatIO:        providersWithMeta.IOLog,
 				Retry:         retry,
-				ProxyTime:     time.Since(proxyStart),
+				ProxyTime:     time.Since(start),
 			}
 			reqStart := time.Now()
-			client := providers.GetClient(time.Second * time.Duration(modelWithProvidersWithLimit.TimeOut) / 3)
-			header := buildHeaders(c.Request.Header, modelWithProvider.WithHeader, modelWithProvider.CustomerHeaders)
+			client := providers.GetClient(time.Second * time.Duration(providersWithMeta.TimeOut) / 3)
+			header := buildHeaders(reqMeta.Header, modelWithProvider.WithHeader, modelWithProvider.CustomerHeaders)
 			trace := &httptrace.ClientTrace{
 				GotFirstResponseByte: func() {
 					fmt.Printf("响应时间: %v", time.Since(reqStart))
@@ -186,69 +153,39 @@ func BalanceChat(c *gin.Context, style string) error {
 				res.Body.Close()
 				continue
 			}
-			defer res.Body.Close()
-
 			logId, err := SaveChatLog(ctx, log)
 			if err != nil {
-				return err
+				return nil, 0, err
 			}
-
-			// 记录输入输出数据（如果开启IO记录）
-			if modelWithProvidersWithLimit.IOLog {
-				if err := gorm.G[models.ChatIO](models.DB).Create(ctx, &models.ChatIO{
-					LogId: logId,
-					Input: string(before.raw),
-				}); err != nil {
-					return err
-				}
-			}
-
-			pr, pw := io.Pipe()
-			tee := io.TeeReader(res.Body, pw)
-
-			// 与客户端并行处理响应数据流 同时记录日志
-			go func() {
-				defer pr.Close()
-				ctx := context.Background()
-				log, output, err := processer(ctx, pr, before.stream, reqStart)
-				if err != nil {
-					slog.Error("processer error", "error", err)
-					return
-				}
-				if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, *log); err != nil {
-					slog.Error("update chat log error", "error", err)
-					return
-				}
-				slog.Info("response", "input", log.PromptTokens, "output", log.CompletionTokens, "total", log.TotalTokens, "firstChunkTime", log.FirstChunkTime, "chunkTime", log.ChunkTime, "tps", log.Tps)
-
-				// 只有开启IO记录才更新输出数据
-				if modelWithProvidersWithLimit.IOLog {
-					if _, err := gorm.G[models.ChatIO](models.DB).Where("log_id = ?", logId).Updates(ctx, models.ChatIO{OutputUnion: *output}); err != nil {
-						slog.Error("update chat io error", "error", err)
-						return
-					}
-				}
-			}()
-			// 转发给客户端
-			if before.stream {
-				c.Header("Content-Type", "text/event-stream")
-				c.Header("Cache-Control", "no-cache")
-			} else {
-				c.Header("Content-Type", "application/json")
-			}
-			c.Writer.Flush()
-			if _, err := io.Copy(c.Writer, tee); err != nil {
-				pw.CloseWithError(err)
-				return err
-			}
-
-			pw.Close()
-
-			return nil
+			return res, logId, nil
 		}
 	}
 
-	return errors.New("maximum retry attempts reached")
+	return nil, 0, errors.New("maximum retry attempts reached")
+}
+
+func RecordLog(ctx context.Context, reader io.ReadCloser, processer Processer, logId uint, stream bool, ioLog bool, reqStart time.Time) error {
+	defer reader.Close()
+	log, output, err := processer(ctx, reader, stream, reqStart)
+	if err != nil {
+		return err
+	}
+	if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, *log); err != nil {
+		return err
+	}
+	slog.Info("response", "input", log.PromptTokens, "output", log.CompletionTokens, "total", log.TotalTokens, "firstChunkTime", log.FirstChunkTime, "chunkTime", log.ChunkTime, "tps", log.Tps)
+
+	// 只有开启IO记录才更新输出数据
+	if ioLog {
+		if _, err := gorm.G[models.ChatIO](models.DB).Where("log_id = ?", logId).Updates(ctx, models.ChatIO{OutputUnion: *output}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func SaveChatIO(ctx context.Context, log models.ChatIO) error {
+	return gorm.G[models.ChatIO](models.DB).Create(ctx, &log)
 }
 
 func SaveChatLog(ctx context.Context, log models.ChatLog) (uint, error) {
@@ -272,24 +209,32 @@ func buildHeaders(source http.Header, withHeader *bool, customHeaders map[string
 	return header
 }
 
-type ProvidersWithlimit struct {
+type ProvidersWithMeta struct {
 	Providers []models.ModelWithProvider
 	MaxRetry  int
 	TimeOut   int
 	IOLog     bool
 }
 
-func ProvidersBymodelsName(ctx context.Context, modelsName string) (*ProvidersWithlimit, error) {
-	llmmodels, err := gorm.G[models.Model](models.DB).Where("name = ?", modelsName).First(ctx)
+func ProvidersBymodelsName(ctx context.Context, modelName string) (*ProvidersWithMeta, error) {
+	mmodel, err := gorm.G[models.Model](models.DB).Where("name = ?", modelName).First(ctx)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("not found model " + modelsName)
+			if _, err := SaveChatLog(ctx, models.ChatLog{
+				Name:   modelName,
+				Status: "error",
+				Style:  consts.StyleOpenAI,
+				Error:  err.Error(),
+			}); err != nil {
+				return nil, err
+			}
+			return nil, errors.New("not found model " + modelName)
 		}
 		return nil, err
 	}
 
 	modelWithProviders, err := gorm.G[models.ModelWithProvider](models.DB).
-		Where("model_id = ?", llmmodels.ID).
+		Where("model_id = ?", mmodel.ID).
 		Where("status = ?", true).
 		Find(ctx)
 	if err != nil {
@@ -297,16 +242,16 @@ func ProvidersBymodelsName(ctx context.Context, modelsName string) (*ProvidersWi
 	}
 
 	if len(modelWithProviders) == 0 {
-		return nil, errors.New("not provider for model " + modelsName)
+		return nil, errors.New("not provider for model " + modelName)
 	}
-	if llmmodels.IOLog == nil {
-		llmmodels.IOLog = new(bool)
+	if mmodel.IOLog == nil {
+		mmodel.IOLog = new(bool)
 	}
-	return &ProvidersWithlimit{
+	return &ProvidersWithMeta{
 		Providers: modelWithProviders,
-		MaxRetry:  llmmodels.MaxRetry,
-		TimeOut:   llmmodels.TimeOut,
-		IOLog:     *llmmodels.IOLog,
+		MaxRetry:  mmodel.MaxRetry,
+		TimeOut:   mmodel.TimeOut,
+		IOLog:     *mmodel.IOLog,
 	}, nil
 }
 

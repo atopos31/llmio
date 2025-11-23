@@ -1,6 +1,10 @@
 package handler
 
 import (
+	"context"
+	"io"
+	"time"
+
 	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
@@ -10,6 +14,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// ModelsHandler 列出当前可用模型，直接从数据库读取基础信息并按 OpenAI 协议返回。
 func ModelsHandler(c *gin.Context) {
 	llmModels, err := gorm.G[models.Model](models.DB).Find(c.Request.Context())
 	if err != nil {
@@ -34,22 +39,185 @@ func ModelsHandler(c *gin.Context) {
 }
 
 func ChatCompletionsHandler(c *gin.Context) {
-	if err := service.BalanceChat(c, consts.StyleOpenAI); err != nil {
+	// 步骤1：读取原始请求体
+	reqBody, err := io.ReadAll(c.Request.Body)
+	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return
 	}
+	// 步骤1：预处理、提取模型参数
+	before, err := service.BeforerOpenAI(reqBody)
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+	// 步骤2：按模型获取可用 provider
+	ctx := c.Request.Context()
+	providersWithMeta, err := service.ProvidersBymodelsName(ctx, before.Model)
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+
+	startReq := time.Now()
+	// 步骤2：调用负载均衡后的 provider 并转发
+	res, logId, err := service.BalanceChat(ctx, startReq, consts.StyleOpenAI, *before, *providersWithMeta, models.ReqMeta{
+		Header:    c.Request.Header,
+		RemoteIP:  c.ClientIP(),
+		UserAgent: c.Request.UserAgent(),
+	})
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+	defer res.Body.Close()
+	// 步骤3：记录输入日志
+	if providersWithMeta.IOLog {
+		if err := service.SaveChatIO(ctx, models.ChatIO{
+			Input: string(reqBody),
+			LogId: logId,
+		}); err != nil {
+			common.InternalServerError(c, err.Error())
+			return
+		}
+	}
+	pr, pw := io.Pipe()
+	tee := io.TeeReader(res.Body, pw)
+	// 步骤3：异步处理输出并记录 tokens
+	go service.RecordLog(context.Background(), pr, service.ProcesserOpenAI, logId, before.Stream, providersWithMeta.IOLog, startReq)
+
+	WithContentType(c, before.Stream)
+	if _, err := io.Copy(c.Writer, tee); err != nil {
+		pw.CloseWithError(err)
+		common.InternalServerError(c, err.Error())
+		return
+	}
+
+	pw.Close()
 }
 
 func ResponsesHandler(c *gin.Context) {
-	if err := service.BalanceChat(c, consts.StyleOpenAIRes); err != nil {
+	// 步骤1：读取原始请求体
+	reqBody, err := io.ReadAll(c.Request.Body)
+	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return
 	}
+	// 步骤1：预处理、提取模型参数
+	before, err := service.BeforerOpenAIRes(reqBody)
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+	// 步骤2：按模型获取可用 provider
+	ctx := c.Request.Context()
+	providersWithMeta, err := service.ProvidersBymodelsName(ctx, before.Model)
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+
+	startReq := time.Now()
+	// 步骤2：调用负载均衡后的 provider 并转发
+	res, logId, err := service.BalanceChat(ctx, startReq, consts.StyleOpenAIRes, *before, *providersWithMeta, models.ReqMeta{
+		Header:    c.Request.Header,
+		RemoteIP:  c.ClientIP(),
+		UserAgent: c.Request.UserAgent(),
+	})
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+	defer res.Body.Close()
+	// 步骤3：记录输入日志
+	if providersWithMeta.IOLog {
+		if err := service.SaveChatIO(ctx, models.ChatIO{
+			Input: string(reqBody),
+			LogId: logId,
+		}); err != nil {
+			common.InternalServerError(c, err.Error())
+			return
+		}
+	}
+	pr, pw := io.Pipe()
+	tee := io.TeeReader(res.Body, pw)
+	// 步骤3：异步处理输出并记录 tokens
+	go service.RecordLog(context.Background(), pr, service.ProcesserOpenAiRes, logId, before.Stream, providersWithMeta.IOLog, startReq)
+
+	WithContentType(c, before.Stream)
+	if _, err := io.Copy(c.Writer, tee); err != nil {
+		pw.CloseWithError(err)
+		common.InternalServerError(c, err.Error())
+		return
+	}
+
+	pw.Close()
 }
 
 func Messages(c *gin.Context) {
-	if err := service.BalanceChat(c, consts.StyleAnthropic); err != nil {
+	// 步骤1：读取原始请求体
+	reqBody, err := io.ReadAll(c.Request.Body)
+	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return
 	}
+	// 步骤1：预处理、提取模型参数
+	before, err := service.BeforerAnthropic(reqBody)
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+	// 步骤2：按模型获取可用 provider
+	ctx := c.Request.Context()
+	providersWithMeta, err := service.ProvidersBymodelsName(ctx, before.Model)
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+	startReq := time.Now()
+	// 步骤2：调用负载均衡后的 provider 并转发
+	res, logId, err := service.BalanceChat(ctx, startReq, consts.StyleAnthropic, *before, *providersWithMeta, models.ReqMeta{
+		Header:    c.Request.Header,
+		RemoteIP:  c.ClientIP(),
+		UserAgent: c.Request.UserAgent(),
+	})
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+	defer res.Body.Close()
+	// 步骤3：记录输入日志
+	if providersWithMeta.IOLog {
+		if err := service.SaveChatIO(ctx, models.ChatIO{
+			Input: string(reqBody),
+			LogId: logId,
+		}); err != nil {
+			common.InternalServerError(c, err.Error())
+			return
+		}
+	}
+	pr, pw := io.Pipe()
+	tee := io.TeeReader(res.Body, pw)
+	// 步骤3：异步处理输出并记录 tokens
+	go service.RecordLog(context.Background(), pr, service.ProcesserAnthropic, logId, before.Stream, providersWithMeta.IOLog, startReq)
+
+	WithContentType(c, before.Stream)
+	if _, err := io.Copy(c.Writer, tee); err != nil {
+		pw.CloseWithError(err)
+		common.InternalServerError(c, err.Error())
+		return
+	}
+
+	pw.Close()
+}
+
+func WithContentType(c *gin.Context, stream bool) {
+	// 根据是否流式设置响应头，保持 SSE 或 JSON 客户端兼容
+	if stream {
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+	} else {
+		c.Header("Content-Type", "application/json")
+	}
+	c.Writer.Flush()
 }

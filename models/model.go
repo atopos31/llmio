@@ -1,6 +1,7 @@
 package models
 
 import (
+	"net/http"
 	"time"
 
 	"gorm.io/gorm"
@@ -91,4 +92,10 @@ type ChatIO struct {
 type OutputUnion struct {
 	OfString      string
 	OfStringArray []string `gorm:"serializer:json"`
+}
+
+type ReqMeta struct {
+	UserAgent string `gorm:"index"` // 用户代理
+	RemoteIP  string // 访问ip
+	Header    http.Header
 }

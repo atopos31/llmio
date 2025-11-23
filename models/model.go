@@ -45,12 +45,12 @@ type ModelWithProvider struct {
 
 type ChatLog struct {
 	gorm.Model
-	Name          string
-	ProviderModel string
-	ProviderName  string
-	Status        string // error or success
+	Name          string `gorm:"index"`
+	ProviderModel string `gorm:"index"`
+	ProviderName  string `gorm:"index"`
+	Status        string `gorm:"index"` // error or success
 	Style         string // 类型
-	UserAgent     string // 用户代理
+	UserAgent     string `gorm:"index"` // 用户代理
 	RemoteIP      string // 访问ip
 	ChatIO        bool   // 是否开启IO记录
 

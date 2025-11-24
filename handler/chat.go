@@ -74,7 +74,7 @@ func ChatCompletionsHandler(c *gin.Context) {
 	pr, pw := io.Pipe()
 	tee := io.TeeReader(res.Body, pw)
 	// 步骤3：异步处理输出并记录 tokens
-	go service.RecordLog(context.Background(), pr, service.ProcesserOpenAI, logId, before.Stream, providersWithMeta.IOLog, startReq)
+	go service.RecordLog(context.Background(), pr, service.ProcesserOpenAI, logId, *before, providersWithMeta.IOLog, startReq)
 
 	WithContentType(c, before.Stream)
 	if _, err := io.Copy(c.Writer, tee); err != nil {
@@ -123,7 +123,7 @@ func ResponsesHandler(c *gin.Context) {
 	pr, pw := io.Pipe()
 	tee := io.TeeReader(res.Body, pw)
 	// 步骤3：异步处理输出并记录 tokens
-	go service.RecordLog(context.Background(), pr, service.ProcesserOpenAiRes, logId, before.Stream, providersWithMeta.IOLog, startReq)
+	go service.RecordLog(context.Background(), pr, service.ProcesserOpenAiRes, logId, *before, providersWithMeta.IOLog, startReq)
 
 	WithContentType(c, before.Stream)
 	if _, err := io.Copy(c.Writer, tee); err != nil {
@@ -171,7 +171,7 @@ func Messages(c *gin.Context) {
 	pr, pw := io.Pipe()
 	tee := io.TeeReader(res.Body, pw)
 	// 步骤3：异步处理输出并记录 tokens
-	go service.RecordLog(context.Background(), pr, service.ProcesserAnthropic, logId, before.Stream, providersWithMeta.IOLog, startReq)
+	go service.RecordLog(context.Background(), pr, service.ProcesserAnthropic, logId, *before, providersWithMeta.IOLog, startReq)
 
 	WithContentType(c, before.Stream)
 	if _, err := io.Copy(c.Writer, tee); err != nil {

@@ -7,7 +7,7 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-type before struct {
+type Before struct {
 	Model            string
 	Stream           bool
 	toolCall         bool
@@ -16,9 +16,9 @@ type before struct {
 	raw              []byte
 }
 
-type Beforer func(data []byte) (*before, error)
+type Beforer func(data []byte) (*Before, error)
 
-func BeforerOpenAI(data []byte) (*before, error) {
+func BeforerOpenAI(data []byte) (*Before, error) {
 	model := gjson.GetBytes(data, "model").String()
 	if model == "" {
 		return nil, errors.New("model is empty")
@@ -59,7 +59,7 @@ func BeforerOpenAI(data []byte) (*before, error) {
 		}
 		return true
 	})
-	return &before{
+	return &Before{
 		Model:            model,
 		Stream:           stream,
 		toolCall:         toolCall,
@@ -69,7 +69,7 @@ func BeforerOpenAI(data []byte) (*before, error) {
 	}, nil
 }
 
-func BeforerOpenAIRes(data []byte) (*before, error) {
+func BeforerOpenAIRes(data []byte) (*Before, error) {
 	model := gjson.GetBytes(data, "model").String()
 	if model == "" {
 		return nil, errors.New("model is empty")
@@ -100,7 +100,7 @@ func BeforerOpenAIRes(data []byte) (*before, error) {
 		}
 		return true
 	})
-	return &before{
+	return &Before{
 		Model:            model,
 		Stream:           stream,
 		toolCall:         toolCall,
@@ -110,7 +110,7 @@ func BeforerOpenAIRes(data []byte) (*before, error) {
 	}, nil
 }
 
-func BeforerAnthropic(data []byte) (*before, error) {
+func BeforerAnthropic(data []byte) (*Before, error) {
 	model := gjson.GetBytes(data, "model").String()
 	if model == "" {
 		return nil, errors.New("model is empty")
@@ -137,7 +137,7 @@ func BeforerAnthropic(data []byte) (*before, error) {
 		}
 		return true
 	})
-	return &before{
+	return &Before{
 		Model:            model,
 		Stream:           stream,
 		toolCall:         toolCall,

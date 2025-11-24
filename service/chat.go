@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func BalanceChat(ctx context.Context, start time.Time, style string, before before, providersWithMeta ProvidersWithMeta, reqMeta models.ReqMeta) (*http.Response, uint, error) {
+func BalanceChat(ctx context.Context, start time.Time, style string, before Before, providersWithMeta ProvidersWithMeta, reqMeta models.ReqMeta) (*http.Response, uint, error) {
 	// 所有模型提供商关联
 	modelWithProviders := providersWithMeta.Providers
 	modelWithProviderMap := lo.KeyBy(modelWithProviders, func(mp models.ModelWithProvider) uint { return mp.ID })
@@ -166,15 +166,6 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before befo
 				res.Body.Close()
 				return nil, 0, err
 			}
-			if providersWithMeta.IOLog {
-				if err := SaveChatIO(ctx, models.ChatIO{
-					Input: string(before.raw),
-					LogId: logId,
-				}); err != nil {
-					res.Body.Close()
-					return nil, 0, err
-				}
-			}
 			return res, logId, nil
 		}
 	}
@@ -182,28 +173,31 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before befo
 	return nil, 0, errors.New("maximum retry attempts reached")
 }
 
-func RecordLog(ctx context.Context, reader io.ReadCloser, processer Processer, logId uint, stream bool, ioLog bool, reqStart time.Time) error {
+func RecordLog(ctx context.Context, reader io.ReadCloser, processer Processer, logId uint, before Before, ioLog bool, reqStart time.Time) {
 	defer reader.Close()
-	log, output, err := processer(ctx, reader, stream, reqStart)
+	if ioLog {
+		if err := gorm.G[models.ChatIO](models.DB).Create(ctx, &models.ChatIO{
+			Input: string(before.raw),
+			LogId: logId,
+		}); err != nil {
+			slog.Error("save chat io error", "error", err)
+		}
+	}
+	log, output, err := processer(ctx, reader, before.Stream, reqStart)
 	if err != nil {
-		return err
+		slog.Error("process error", "error", err)
 	}
 	if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, *log); err != nil {
-		return err
+		slog.Error("update chat log error", "error", err)
 	}
 	slog.Info("response", "input", log.PromptTokens, "output", log.CompletionTokens, "total", log.TotalTokens, "firstChunkTime", log.FirstChunkTime, "chunkTime", log.ChunkTime, "tps", log.Tps)
 
 	// 只有开启IO记录才更新输出数据
 	if ioLog {
 		if _, err := gorm.G[models.ChatIO](models.DB).Where("log_id = ?", logId).Updates(ctx, models.ChatIO{OutputUnion: *output}); err != nil {
-			return err
+			slog.Error("update chat io error", "error", err)
 		}
 	}
-	return nil
-}
-
-func SaveChatIO(ctx context.Context, log models.ChatIO) error {
-	return gorm.G[models.ChatIO](models.DB).Create(ctx, &log)
 }
 
 func SaveChatLog(ctx context.Context, log models.ChatLog) (uint, error) {
@@ -272,4 +266,3 @@ func ProvidersBymodelsName(ctx context.Context, modelName string) (*ProvidersWit
 		IOLog:     *mmodel.IOLog,
 	}, nil
 }
-

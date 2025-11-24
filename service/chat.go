@@ -39,7 +39,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 	// 构建providerID到provider的映射，避免重复查找
 	providerMap := lo.KeyBy(provideritems, func(p models.Provider) uint { return p.ID })
-	
+
 	// modelWithProvider id 与 weight映射
 	weightItems := make(map[uint]int)
 	for i := range modelWithProviders {
@@ -127,10 +127,10 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 			reqStart := time.Now()
 			client := providers.GetClient(time.Second * time.Duration(providersWithMeta.TimeOut) / 3)
-			
+
 			// 根据请求原始请求头 是否透传请求头 自定义请求头 构建新的请求头
 			header := buildHeaders(reqMeta.Header, modelWithProvider.WithHeader, modelWithProvider.CustomerHeaders)
-			
+
 			trace := &httptrace.ClientTrace{
 				GotFirstResponseByte: func() {
 					fmt.Printf("响应时间: %v", time.Since(reqStart))
@@ -237,9 +237,9 @@ func buildHeaders(source http.Header, withHeader *bool, customHeaders map[string
 
 type ProvidersWithMeta struct {
 	ModelWithProviders []models.ModelWithProvider
-	MaxRetry  int
-	TimeOut   int
-	IOLog     bool
+	MaxRetry           int
+	TimeOut            int
+	IOLog              bool
 }
 
 func ProvidersBymodelsName(ctx context.Context, modelName string) (*ProvidersWithMeta, error) {
@@ -275,8 +275,8 @@ func ProvidersBymodelsName(ctx context.Context, modelName string) (*ProvidersWit
 	}
 	return &ProvidersWithMeta{
 		ModelWithProviders: modelWithProviders,
-		MaxRetry:  mmodel.MaxRetry,
-		TimeOut:   mmodel.TimeOut,
-		IOLog:     *mmodel.IOLog,
+		MaxRetry:           mmodel.MaxRetry,
+		TimeOut:            mmodel.TimeOut,
+		IOLog:              *mmodel.IOLog,
 	}, nil
 }

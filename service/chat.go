@@ -25,17 +25,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 	slog.Info("request", "model", before.Model, "stream", before.Stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
 
-	provideritems, err := gorm.G[models.Provider](models.DB).
-		Where("id IN ?", lo.Map(modelWithProviders, func(mp models.ModelWithProvider, _ int) uint { return mp.ProviderID })).
-		Where("type = ?", style).
-		Find(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	if len(provideritems) == 0 {
-		return nil, 0, fmt.Errorf("no %s provider found for %s", style, before.Model)
-	}
+	provideritems := providersWithMeta.Providers
 
 	// 构建providerID到provider的映射，避免重复查找
 	providerMap := lo.KeyBy(provideritems, func(p models.Provider) uint { return p.ID })
@@ -237,12 +227,13 @@ func buildHeaders(source http.Header, withHeader *bool, customHeaders map[string
 
 type ProvidersWithMeta struct {
 	ModelWithProviders []models.ModelWithProvider
+	Providers          []models.Provider
 	MaxRetry           int
 	TimeOut            int
 	IOLog              bool
 }
 
-func ProvidersWithMetaBymodelsName(ctx context.Context, modelName string) (*ProvidersWithMeta, error) {
+func ProvidersWithMetaBymodelsName(ctx context.Context, modelName string, style string) (*ProvidersWithMeta, error) {
 	mmodel, err := gorm.G[models.Model](models.DB).Where("name = ?", modelName).First(ctx)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -270,11 +261,22 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, modelName string) (*Prov
 	if len(modelWithProviders) == 0 {
 		return nil, errors.New("not provider for model " + modelName)
 	}
+
+	providers, err := gorm.G[models.Provider](models.DB).
+		Where("id IN ?", lo.Map(modelWithProviders, func(mp models.ModelWithProvider, _ int) uint { return mp.ProviderID })).
+		Where("type = ?", style).
+		Find(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	if mmodel.IOLog == nil {
 		mmodel.IOLog = new(bool)
 	}
+
 	return &ProvidersWithMeta{
 		ModelWithProviders: modelWithProviders,
+		Providers:          providers,
 		MaxRetry:           mmodel.MaxRetry,
 		TimeOut:            mmodel.TimeOut,
 		IOLog:              *mmodel.IOLog,

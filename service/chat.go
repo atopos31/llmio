@@ -155,7 +155,15 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before befo
 			}
 			logId, err := SaveChatLog(ctx, log)
 			if err != nil {
-				return nil, 0, err
+				return res, 0, err
+			}
+			if providersWithMeta.IOLog {
+				if err := SaveChatIO(ctx, models.ChatIO{
+					Input: string(before.raw),
+					LogId: logId,
+				}); err != nil {
+					return res, 0, err
+				}
 			}
 			return res, logId, nil
 		}

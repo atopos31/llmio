@@ -71,16 +71,6 @@ func ChatCompletionsHandler(c *gin.Context) {
 		return
 	}
 	defer res.Body.Close()
-	// 步骤3：记录输入日志
-	if providersWithMeta.IOLog {
-		if err := service.SaveChatIO(ctx, models.ChatIO{
-			Input: string(reqBody),
-			LogId: logId,
-		}); err != nil {
-			common.InternalServerError(c, err.Error())
-			return
-		}
-	}
 	pr, pw := io.Pipe()
 	tee := io.TeeReader(res.Body, pw)
 	// 步骤3：异步处理输出并记录 tokens
@@ -129,16 +119,7 @@ func ResponsesHandler(c *gin.Context) {
 		return
 	}
 	defer res.Body.Close()
-	// 步骤3：记录输入日志
-	if providersWithMeta.IOLog {
-		if err := service.SaveChatIO(ctx, models.ChatIO{
-			Input: string(reqBody),
-			LogId: logId,
-		}); err != nil {
-			common.InternalServerError(c, err.Error())
-			return
-		}
-	}
+
 	pr, pw := io.Pipe()
 	tee := io.TeeReader(res.Body, pw)
 	// 步骤3：异步处理输出并记录 tokens
@@ -186,16 +167,7 @@ func Messages(c *gin.Context) {
 		return
 	}
 	defer res.Body.Close()
-	// 步骤3：记录输入日志
-	if providersWithMeta.IOLog {
-		if err := service.SaveChatIO(ctx, models.ChatIO{
-			Input: string(reqBody),
-			LogId: logId,
-		}); err != nil {
-			common.InternalServerError(c, err.Error())
-			return
-		}
-	}
+
 	pr, pw := io.Pipe()
 	tee := io.TeeReader(res.Body, pw)
 	// 步骤3：异步处理输出并记录 tokens

@@ -32,12 +32,14 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	if err != nil {
 		return nil, 0, err
 	}
+	
 	if len(provideritems) == 0 {
 		return nil, 0, fmt.Errorf("no %s provider found for %s", style, before.Model)
 	}
 
 	// 构建providerID到provider的映射，避免重复查找
 	providerMap := lo.KeyBy(provideritems, func(p models.Provider) uint { return p.ID })
+	
 	// modelWithProvider id 与 weight映射
 	weightItems := make(map[uint]int)
 	for i := range modelWithProviders {
@@ -65,6 +67,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	if len(weightItems) == 0 {
 		return nil, 0, errors.New("no provider with tool_call or structured_output or image found for models " + before.Model)
 	}
+
 	// 收集重试过程中的err日志
 	retryErrLog := make(chan models.ChatLog, providersWithMeta.MaxRetry)
 	defer close(retryErrLog)
@@ -92,6 +95,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			if err != nil {
 				return nil, 0, err
 			}
+
 			modelWithProvider, ok := modelWithProviderMap[*id]
 			if !ok {
 				// 数据不一致，移除该模型避免下次重复命中
@@ -120,15 +124,19 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				Retry:         retry,
 				ProxyTime:     time.Since(start),
 			}
+
 			reqStart := time.Now()
 			client := providers.GetClient(time.Second * time.Duration(providersWithMeta.TimeOut) / 3)
+			
 			// 根据请求原始请求头 是否透传请求头 自定义请求头 构建新的请求头
 			header := buildHeaders(reqMeta.Header, modelWithProvider.WithHeader, modelWithProvider.CustomerHeaders)
+			
 			trace := &httptrace.ClientTrace{
 				GotFirstResponseByte: func() {
 					fmt.Printf("响应时间: %v", time.Since(reqStart))
 				},
 			}
+
 			req, err := chatModel.BuildReq(httptrace.WithClientTrace(ctx, trace), header, modelWithProvider.ProviderModel, before.raw)
 			if err != nil {
 				retryErrLog <- log.WithError(err)
@@ -136,6 +144,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				delete(weightItems, *id)
 				continue
 			}
+
 			res, err := client.Do(req)
 			if err != nil {
 				retryErrLog <- log.WithError(err)
@@ -161,11 +170,13 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				res.Body.Close()
 				continue
 			}
+
 			logId, err := SaveChatLog(ctx, log)
 			if err != nil {
 				res.Body.Close()
 				return nil, 0, err
 			}
+
 			return res, logId, nil
 		}
 	}
@@ -175,6 +186,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 func RecordLog(ctx context.Context, reader io.ReadCloser, processer Processer, logId uint, before Before, ioLog bool, reqStart time.Time) {
 	defer reader.Close()
+
 	if ioLog {
 		if err := gorm.G[models.ChatIO](models.DB).Create(ctx, &models.ChatIO{
 			Input: string(before.raw),
@@ -183,10 +195,12 @@ func RecordLog(ctx context.Context, reader io.ReadCloser, processer Processer, l
 			slog.Error("save chat io error", "error", err)
 		}
 	}
+
 	log, output, err := processer(ctx, reader, before.Stream, reqStart)
 	if err != nil {
 		slog.Error("process error", "error", err)
 	}
+
 	if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, *log); err != nil {
 		slog.Error("update chat log error", "error", err)
 	}

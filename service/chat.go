@@ -20,7 +20,7 @@ import (
 
 func BalanceChat(ctx context.Context, start time.Time, style string, before Before, providersWithMeta ProvidersWithMeta, reqMeta models.ReqMeta) (*http.Response, uint, error) {
 	// 所有模型提供商关联
-	modelWithProviders := providersWithMeta.Providers
+	modelWithProviders := providersWithMeta.ModelWithProviders
 	modelWithProviderMap := lo.KeyBy(modelWithProviders, func(mp models.ModelWithProvider) uint { return mp.ID })
 
 	slog.Info("request", "model", before.Model, "stream", before.Stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
@@ -32,7 +32,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	if err != nil {
 		return nil, 0, err
 	}
-	
+
 	if len(provideritems) == 0 {
 		return nil, 0, fmt.Errorf("no %s provider found for %s", style, before.Model)
 	}
@@ -236,7 +236,7 @@ func buildHeaders(source http.Header, withHeader *bool, customHeaders map[string
 }
 
 type ProvidersWithMeta struct {
-	Providers []models.ModelWithProvider
+	ModelWithProviders []models.ModelWithProvider
 	MaxRetry  int
 	TimeOut   int
 	IOLog     bool
@@ -274,7 +274,7 @@ func ProvidersBymodelsName(ctx context.Context, modelName string) (*ProvidersWit
 		mmodel.IOLog = new(bool)
 	}
 	return &ProvidersWithMeta{
-		Providers: modelWithProviders,
+		ModelWithProviders: modelWithProviders,
 		MaxRetry:  mmodel.MaxRetry,
 		TimeOut:   mmodel.TimeOut,
 		IOLog:     *mmodel.IOLog,

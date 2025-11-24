@@ -184,33 +184,33 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	return nil, 0, errors.New("maximum retry attempts reached")
 }
 
-func RecordLog(ctx context.Context,reqStart time.Time, reader io.ReadCloser, processer Processer, logId uint, before Before, ioLog bool) {
-	defer reader.Close()
-
-	if ioLog {
-		if err := gorm.G[models.ChatIO](models.DB).Create(ctx, &models.ChatIO{
-			Input: string(before.raw),
-			LogId: logId,
-		}); err != nil {
-			slog.Error("save chat io error", "error", err)
+func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, processer Processer, logId uint, before Before, ioLog bool) {
+	recordFunc := func() error {
+		defer reader.Close()
+		if ioLog {
+			if err := gorm.G[models.ChatIO](models.DB).Create(ctx, &models.ChatIO{
+				Input: string(before.raw),
+				LogId: logId,
+			}); err != nil {
+				return err
+			}
 		}
-	}
-
-	log, output, err := processer(ctx, reader, before.Stream, reqStart)
-	if err != nil {
-		slog.Error("process error", "error", err)
-	}
-
-	if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, *log); err != nil {
-		slog.Error("update chat log error", "error", err)
-	}
-	slog.Info("response", "input", log.PromptTokens, "output", log.CompletionTokens, "total", log.TotalTokens, "firstChunkTime", log.FirstChunkTime, "chunkTime", log.ChunkTime, "tps", log.Tps)
-
-	// 只有开启IO记录才更新输出数据
-	if ioLog {
-		if _, err := gorm.G[models.ChatIO](models.DB).Where("log_id = ?", logId).Updates(ctx, models.ChatIO{OutputUnion: *output}); err != nil {
-			slog.Error("update chat io error", "error", err)
+		log, output, err := processer(ctx, reader, before.Stream, reqStart)
+		if err != nil {
+			return err
 		}
+		if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, *log); err != nil {
+			return err
+		}
+		if ioLog {
+			if _, err := gorm.G[models.ChatIO](models.DB).Where("log_id = ?", logId).Updates(ctx, models.ChatIO{OutputUnion: *output}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := recordFunc(); err != nil {
+		slog.Error("record log error", "error", err)
 	}
 }
 

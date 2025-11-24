@@ -19,44 +19,10 @@ import (
 )
 
 func BalanceChat(ctx context.Context, start time.Time, style string, before Before, providersWithMeta ProvidersWithMeta, reqMeta models.ReqMeta) (*http.Response, uint, error) {
-	// 所有模型提供商关联
-	modelWithProviders := providersWithMeta.ModelWithProviders
-	modelWithProviderMap := lo.KeyBy(modelWithProviders, func(mp models.ModelWithProvider) uint { return mp.ID })
-
 	slog.Info("request", "model", before.Model, "stream", before.Stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
 
-	provideritems := providersWithMeta.Providers
-
-	// 构建providerID到provider的映射，避免重复查找
-	providerMap := lo.KeyBy(provideritems, func(p models.Provider) uint { return p.ID })
-
-	// modelWithProvider id 与 weight映射
-	weightItems := make(map[uint]int)
-	for i := range modelWithProviders {
-		modelWithProvider := modelWithProviders[i]
-		// 过滤是否开启工具调用
-		if modelWithProvider.ToolCall != nil && before.toolCall && !*modelWithProvider.ToolCall {
-			continue
-		}
-		// 过滤是否开启结构化输出
-		if modelWithProvider.StructuredOutput != nil && before.structuredOutput && !*modelWithProvider.StructuredOutput {
-			continue
-		}
-		// 过滤是否拥有视觉能力
-		if modelWithProvider.Image != nil && before.image && !*modelWithProvider.Image {
-			continue
-		}
-		provider := providerMap[modelWithProvider.ProviderID]
-		// 过滤提供商类型
-		if provider.Type != style {
-			continue
-		}
-		weightItems[modelWithProvider.ID] = modelWithProvider.Weight
-	}
-
-	if len(weightItems) == 0 {
-		return nil, 0, errors.New("no provider with tool_call or structured_output or image found for models " + before.Model)
-	}
+	providerMap := providersWithMeta.ProviderMap
+	weightItems := providersWithMeta.WeightItems
 
 	// 收集重试过程中的err日志
 	retryErrLog := make(chan models.ChatLog, providersWithMeta.MaxRetry)
@@ -86,7 +52,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				return nil, 0, err
 			}
 
-			modelWithProvider, ok := modelWithProviderMap[*id]
+			modelWithProvider, ok := providersWithMeta.ModelWithProviderMap[*id]
 			if !ok {
 				// 数据不一致，移除该模型避免下次重复命中
 				delete(weightItems, *id)
@@ -226,15 +192,16 @@ func buildHeaders(source http.Header, withHeader *bool, customHeaders map[string
 }
 
 type ProvidersWithMeta struct {
-	ModelWithProviders []models.ModelWithProvider
-	Providers          []models.Provider
-	MaxRetry           int
-	TimeOut            int
-	IOLog              bool
+	ModelWithProviderMap map[uint]models.ModelWithProvider
+	WeightItems          map[uint]int
+	ProviderMap          map[uint]models.Provider
+	MaxRetry             int
+	TimeOut              int
+	IOLog                bool
 }
 
-func ProvidersWithMetaBymodelsName(ctx context.Context, modelName string, style string) (*ProvidersWithMeta, error) {
-	mmodel, err := gorm.G[models.Model](models.DB).Where("name = ?", modelName).First(ctx)
+func ProvidersWithMetaBymodelsName(ctx context.Context, modelName string, style string, before Before) (*ProvidersWithMeta, error) {
+	model, err := gorm.G[models.Model](models.DB).Where("name = ?", modelName).First(ctx)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			if _, err := SaveChatLog(ctx, models.ChatLog{
@@ -250,10 +217,21 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, modelName string, style 
 		return nil, err
 	}
 
-	modelWithProviders, err := gorm.G[models.ModelWithProvider](models.DB).
-		Where("model_id = ?", mmodel.ID).
-		Where("status = ?", true).
-		Find(ctx)
+	modelWithProviderChain := gorm.G[models.ModelWithProvider](models.DB).Where("model_id = ?", model.ID).Where("status = ?", true)
+
+	if before.toolCall {
+		modelWithProviderChain = modelWithProviderChain.Where("tool_call = ?", true)
+	}
+
+	if before.structuredOutput {
+		modelWithProviderChain = modelWithProviderChain.Where("structured_output = ?", true)
+	}
+
+	if before.image {
+		modelWithProviderChain = modelWithProviderChain.Where("image = ?", true)
+	}
+
+	modelWithProviders, err := modelWithProviderChain.Find(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -261,6 +239,12 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, modelName string, style 
 	if len(modelWithProviders) == 0 {
 		return nil, errors.New("not provider for model " + modelName)
 	}
+
+	modelWithProviderMap := lo.KeyBy(modelWithProviders, func(mp models.ModelWithProvider) uint { return mp.ID })
+
+	weightItems := lo.SliceToMap(modelWithProviders, func(modelWithProvider models.ModelWithProvider) (uint, int) {
+		return modelWithProvider.ID, modelWithProvider.Weight
+	})
 
 	providers, err := gorm.G[models.Provider](models.DB).
 		Where("id IN ?", lo.Map(modelWithProviders, func(mp models.ModelWithProvider, _ int) uint { return mp.ProviderID })).
@@ -270,15 +254,18 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, modelName string, style 
 		return nil, err
 	}
 
-	if mmodel.IOLog == nil {
-		mmodel.IOLog = new(bool)
+	providerMap := lo.KeyBy(providers, func(p models.Provider) uint { return p.ID })
+
+	if model.IOLog == nil {
+		model.IOLog = new(bool)
 	}
 
 	return &ProvidersWithMeta{
-		ModelWithProviders: modelWithProviders,
-		Providers:          providers,
-		MaxRetry:           mmodel.MaxRetry,
-		TimeOut:            mmodel.TimeOut,
-		IOLog:              *mmodel.IOLog,
+		ModelWithProviderMap: modelWithProviderMap,
+		WeightItems:          weightItems,
+		ProviderMap:          providerMap,
+		MaxRetry:             model.MaxRetry,
+		TimeOut:              model.TimeOut,
+		IOLog:                *model.IOLog,
 	}, nil
 }

@@ -15,7 +15,7 @@ type OpenAI struct {
 	APIKey  string `json:"api_key"`
 }
 
-func (o *OpenAI) Chat(ctx context.Context, header http.Header, client *http.Client, model string, rawBody []byte) (*http.Response, error) {
+func (o *OpenAI) BuildReq(ctx context.Context, header http.Header, model string, rawBody []byte) (*http.Request, error) {
 	body, err := sjson.SetBytes(rawBody, "model", model)
 	if err != nil {
 		return nil, err
@@ -30,7 +30,7 @@ func (o *OpenAI) Chat(ctx context.Context, header http.Header, client *http.Clie
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", o.APIKey))
 
-	return client.Do(req)
+	return req, nil
 }
 
 func (o *OpenAI) Models(ctx context.Context) ([]Model, error) {

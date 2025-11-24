@@ -122,13 +122,21 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before befo
 			}
 			reqStart := time.Now()
 			client := providers.GetClient(time.Second * time.Duration(providersWithMeta.TimeOut) / 3)
+			// 根据请求原始请求头 是否透传请求头 自定义请求头 构建新的请求头
 			header := buildHeaders(reqMeta.Header, modelWithProvider.WithHeader, modelWithProvider.CustomerHeaders)
 			trace := &httptrace.ClientTrace{
 				GotFirstResponseByte: func() {
 					fmt.Printf("响应时间: %v", time.Since(reqStart))
 				},
 			}
-			res, err := chatModel.Chat(httptrace.WithClientTrace(ctx, trace), header, client, modelWithProvider.ProviderModel, before.raw)
+			req, err := chatModel.BuildReq(httptrace.WithClientTrace(ctx, trace), header, modelWithProvider.ProviderModel, before.raw)
+			if err != nil {
+				retryErrLog <- log.WithError(err)
+				// 构建请求失败 移除待选
+				delete(weightItems, *id)
+				continue
+			}
+			res, err := client.Do(req)
 			if err != nil {
 				retryErrLog <- log.WithError(err)
 				// 请求失败 移除待选
@@ -155,14 +163,16 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before befo
 			}
 			logId, err := SaveChatLog(ctx, log)
 			if err != nil {
-				return res, 0, err
+				res.Body.Close()
+				return nil, 0, err
 			}
 			if providersWithMeta.IOLog {
 				if err := SaveChatIO(ctx, models.ChatIO{
 					Input: string(before.raw),
 					LogId: logId,
 				}); err != nil {
-					return res, 0, err
+					res.Body.Close()
+					return nil, 0, err
 				}
 			}
 			return res, logId, nil

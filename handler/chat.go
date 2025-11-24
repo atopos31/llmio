@@ -53,7 +53,7 @@ func ChatCompletionsHandler(c *gin.Context) {
 	}
 	// 步骤2：按模型获取可用 provider
 	ctx := c.Request.Context()
-	providersWithMeta, err := service.ProvidersBymodelsName(ctx, before.Model)
+	providersWithMeta, err := service.ProvidersWithMetaBymodelsName(ctx, before.Model)
 	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return
@@ -74,7 +74,7 @@ func ChatCompletionsHandler(c *gin.Context) {
 	pr, pw := io.Pipe()
 	tee := io.TeeReader(res.Body, pw)
 	// 步骤3：异步处理输出并记录 tokens
-	go service.RecordLog(context.Background(), pr, service.ProcesserOpenAI, logId, *before, providersWithMeta.IOLog, startReq)
+	go service.RecordLog(context.Background(), startReq, pr, service.ProcesserOpenAI, logId, *before, providersWithMeta.IOLog)
 
 	WithContentType(c, before.Stream)
 	if _, err := io.Copy(c.Writer, tee); err != nil {
@@ -101,7 +101,7 @@ func ResponsesHandler(c *gin.Context) {
 	}
 	// 步骤2：按模型获取可用 provider
 	ctx := c.Request.Context()
-	providersWithMeta, err := service.ProvidersBymodelsName(ctx, before.Model)
+	providersWithMeta, err := service.ProvidersWithMetaBymodelsName(ctx, before.Model)
 	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return
@@ -123,7 +123,7 @@ func ResponsesHandler(c *gin.Context) {
 	pr, pw := io.Pipe()
 	tee := io.TeeReader(res.Body, pw)
 	// 步骤3：异步处理输出并记录 tokens
-	go service.RecordLog(context.Background(), pr, service.ProcesserOpenAiRes, logId, *before, providersWithMeta.IOLog, startReq)
+	go service.RecordLog(context.Background(), startReq, pr, service.ProcesserOpenAiRes, logId, *before, providersWithMeta.IOLog)
 
 	WithContentType(c, before.Stream)
 	if _, err := io.Copy(c.Writer, tee); err != nil {
@@ -150,7 +150,7 @@ func Messages(c *gin.Context) {
 	}
 	// 步骤2：按模型获取可用 provider
 	ctx := c.Request.Context()
-	providersWithMeta, err := service.ProvidersBymodelsName(ctx, before.Model)
+	providersWithMeta, err := service.ProvidersWithMetaBymodelsName(ctx, before.Model)
 	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return
@@ -171,7 +171,7 @@ func Messages(c *gin.Context) {
 	pr, pw := io.Pipe()
 	tee := io.TeeReader(res.Body, pw)
 	// 步骤3：异步处理输出并记录 tokens
-	go service.RecordLog(context.Background(), pr, service.ProcesserAnthropic, logId, *before, providersWithMeta.IOLog, startReq)
+	go service.RecordLog(context.Background(), startReq, pr, service.ProcesserAnthropic, logId, *before, providersWithMeta.IOLog)
 
 	WithContentType(c, before.Stream)
 	if _, err := io.Copy(c.Writer, tee); err != nil {

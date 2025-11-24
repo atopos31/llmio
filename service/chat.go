@@ -184,7 +184,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	return nil, 0, errors.New("maximum retry attempts reached")
 }
 
-func RecordLog(ctx context.Context, reader io.ReadCloser, processer Processer, logId uint, before Before, ioLog bool, reqStart time.Time) {
+func RecordLog(ctx context.Context,reqStart time.Time, reader io.ReadCloser, processer Processer, logId uint, before Before, ioLog bool) {
 	defer reader.Close()
 
 	if ioLog {
@@ -242,7 +242,7 @@ type ProvidersWithMeta struct {
 	IOLog              bool
 }
 
-func ProvidersBymodelsName(ctx context.Context, modelName string) (*ProvidersWithMeta, error) {
+func ProvidersWithMetaBymodelsName(ctx context.Context, modelName string) (*ProvidersWithMeta, error) {
 	mmodel, err := gorm.G[models.Model](models.DB).Where("name = ?", modelName).First(ctx)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

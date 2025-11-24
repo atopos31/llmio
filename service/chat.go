@@ -273,15 +273,3 @@ func ProvidersBymodelsName(ctx context.Context, modelName string) (*ProvidersWit
 	}, nil
 }
 
-func GetBeforerAndProcesserByStyle(style string) (Beforer, Processer, error) {
-	switch style {
-	case consts.StyleOpenAI:
-		return BeforerOpenAI, ProcesserOpenAI, nil
-	case consts.StyleOpenAIRes:
-		return BeforerOpenAIRes, ProcesserOpenAiRes, nil
-	case consts.StyleAnthropic:
-		return BeforerAnthropic, ProcesserAnthropic, nil
-	default:
-		return nil, nil, errors.New("unsupported style: " + style)
-	}
-}

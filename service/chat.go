@@ -199,19 +199,19 @@ type ProvidersWithMeta struct {
 	IOLog                bool
 }
 
-func ProvidersWithMetaBymodelsName(ctx context.Context, modelName string, style string, before Before) (*ProvidersWithMeta, error) {
-	model, err := gorm.G[models.Model](models.DB).Where("name = ?", modelName).First(ctx)
+func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Before) (*ProvidersWithMeta, error) {
+	model, err := gorm.G[models.Model](models.DB).Where("name = ?", before.Model).First(ctx)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			if _, err := SaveChatLog(ctx, models.ChatLog{
-				Name:   modelName,
+				Name:   before.Model,
 				Status: "error",
 				Style:  consts.StyleOpenAI,
 				Error:  err.Error(),
 			}); err != nil {
 				return nil, err
 			}
-			return nil, errors.New("not found model " + modelName)
+			return nil, errors.New("not found model " + before.Model)
 		}
 		return nil, err
 	}
@@ -236,7 +236,7 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, modelName string, style 
 	}
 
 	if len(modelWithProviders) == 0 {
-		return nil, errors.New("not provider for model " + modelName)
+		return nil, errors.New("not provider for model " + before.Model)
 	}
 
 	modelWithProviderMap := lo.KeyBy(modelWithProviders, func(mp models.ModelWithProvider) uint { return mp.ID })

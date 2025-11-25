@@ -53,7 +53,7 @@ func ChatCompletionsHandler(c *gin.Context) {
 	}
 	// 步骤2：按模型获取可用 provider
 	ctx := c.Request.Context()
-	providersWithMeta, err := service.ProvidersWithMetaBymodelsName(ctx, before.Model, consts.StyleOpenAI, *before)
+	providersWithMeta, err := service.ProvidersWithMetaBymodelsName(ctx, consts.StyleOpenAI, *before)
 	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return
@@ -101,7 +101,7 @@ func ResponsesHandler(c *gin.Context) {
 	}
 	// 步骤2：按模型获取可用 provider
 	ctx := c.Request.Context()
-	providersWithMeta, err := service.ProvidersWithMetaBymodelsName(ctx, before.Model, consts.StyleOpenAIRes, *before)
+	providersWithMeta, err := service.ProvidersWithMetaBymodelsName(ctx, consts.StyleOpenAIRes, *before)
 	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return
@@ -150,7 +150,7 @@ func Messages(c *gin.Context) {
 	}
 	// 步骤2：按模型获取可用 provider
 	ctx := c.Request.Context()
-	providersWithMeta, err := service.ProvidersWithMetaBymodelsName(ctx, before.Model, consts.StyleAnthropic, *before)
+	providersWithMeta, err := service.ProvidersWithMetaBymodelsName(ctx, consts.StyleAnthropic, *before)
 	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return

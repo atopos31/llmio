@@ -25,17 +25,10 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	weightItems := providersWithMeta.WeightItems
 
 	// 收集重试过程中的err日志
-	retryErrLog := make(chan models.ChatLog, providersWithMeta.MaxRetry)
-	defer close(retryErrLog)
-	go func() {
-		ctx := context.Background()
-		for log := range retryErrLog {
-			_, err := SaveChatLog(ctx, log)
-			if err != nil {
-				slog.Error("save chat log error", "error", err)
-			}
-		}
-	}()
+	retryLog := make(chan models.ChatLog, providersWithMeta.MaxRetry)
+	defer close(retryLog)
+
+	go RecordRetryLog(context.Background(), retryLog)
 
 	client := providers.GetClient(time.Second * time.Duration(providersWithMeta.TimeOut) / 3)
 
@@ -94,7 +87,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 			req, err := chatModel.BuildReq(httptrace.WithClientTrace(ctx, trace), header, modelWithProvider.ProviderModel, before.raw)
 			if err != nil {
-				retryErrLog <- log.WithError(err)
+				retryLog <- log.WithError(err)
 				// 构建请求失败 移除待选
 				delete(weightItems, *id)
 				continue
@@ -102,7 +95,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 			res, err := client.Do(req)
 			if err != nil {
-				retryErrLog <- log.WithError(err)
+				retryLog <- log.WithError(err)
 				// 请求失败 移除待选
 				delete(weightItems, *id)
 				continue
@@ -113,7 +106,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				if err != nil {
 					slog.Error("read body error", "error", err)
 				}
-				retryErrLog <- log.WithError(fmt.Errorf("status: %d, body: %s", res.StatusCode, string(byteBody)))
+				retryLog <- log.WithError(fmt.Errorf("status: %d, body: %s", res.StatusCode, string(byteBody)))
 
 				if res.StatusCode == http.StatusTooManyRequests {
 					// 达到RPM限制 降低权重
@@ -137,6 +130,14 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	}
 
 	return nil, 0, errors.New("maximum retry attempts reached")
+}
+
+func RecordRetryLog(ctx context.Context, retryLog chan models.ChatLog) {
+	for log := range retryLog {
+		if _, err := SaveChatLog(ctx, log); err != nil {
+			slog.Error("save chat log error", "error", err)
+		}
+	}
 }
 
 func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, processer Processer, logId uint, before Before, ioLog bool) {

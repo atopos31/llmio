@@ -62,7 +62,7 @@ GIN_MODE=release TOKEN=<YOUR_TOKEN> ./llmio
 
 ## 开发
 
-### 克隆项目
+克隆项目
    ```bash
    git clone https://github.com/atopos31/llmio.git
    cd llmio

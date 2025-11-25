@@ -89,7 +89,7 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	// 异步处理输出并记录 tokens
 	go service.RecordLog(context.Background(), startReq, pr, postProcessor, logId, *before, providersWithMeta.IOLog)
 
-	WithContentType(c, before.Stream)
+	withContentType(c, before.Stream)
 	if _, err := io.Copy(c.Writer, tee); err != nil {
 		pw.CloseWithError(err)
 		common.InternalServerError(c, err.Error())
@@ -99,7 +99,7 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	pw.Close()
 }
 
-func WithContentType(c *gin.Context, stream bool) {
+func withContentType(c *gin.Context, stream bool) {
 	// 根据是否流式设置响应头，保持 SSE 或 JSON 客户端兼容
 	if stream {
 		c.Header("Content-Type", "text/event-stream")

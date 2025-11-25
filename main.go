@@ -39,6 +39,8 @@ func main() {
 	v1.POST("/chat/completions", authOpenAI, handler.ChatCompletionsHandler)
 	v1.POST("/responses", authOpenAI, handler.ResponsesHandler)
 	v1.POST("/messages", authAnthropic, handler.Messages)
+	// TODO
+	v1.POST("/count_tokens", authAnthropic)
 
 	api := router.Group("/api")
 	api.Use(middleware.Auth(os.Getenv("TOKEN")))

@@ -37,6 +37,8 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		}
 	}()
 
+	client := providers.GetClient(time.Second * time.Duration(providersWithMeta.TimeOut) / 3)
+
 	timer := time.NewTimer(time.Second * time.Duration(providersWithMeta.TimeOut))
 	defer timer.Stop()
 	for retry := range providersWithMeta.MaxRetry {
@@ -80,13 +82,10 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				Retry:         retry,
 				ProxyTime:     time.Since(start),
 			}
-
-			reqStart := time.Now()
-			client := providers.GetClient(time.Second * time.Duration(providersWithMeta.TimeOut) / 3)
-
 			// 根据请求原始请求头 是否透传请求头 自定义请求头 构建新的请求头
 			header := buildHeaders(reqMeta.Header, modelWithProvider.WithHeader, modelWithProvider.CustomerHeaders)
 
+			reqStart := time.Now()
 			trace := &httptrace.ClientTrace{
 				GotFirstResponseByte: func() {
 					fmt.Printf("响应时间: %v", time.Since(reqStart))

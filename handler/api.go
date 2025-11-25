@@ -660,7 +660,7 @@ func GetRequestLogs(c *gin.Context) {
 	// 获取分页数据
 	var logs []models.ChatLog
 	offset := (page - 1) * pageSize
-	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&logs).Error; err != nil {
+	if err := query.Order("id DESC").Offset(offset).Limit(pageSize).Find(&logs).Error; err != nil {
 		common.InternalServerError(c, "Failed to query logs: "+err.Error())
 		return
 	}

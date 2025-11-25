@@ -252,10 +252,6 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 
 	modelWithProviderMap := lo.KeyBy(modelWithProviders, func(mp models.ModelWithProvider) uint { return mp.ID })
 
-	weightItems := lo.SliceToMap(modelWithProviders, func(modelWithProvider models.ModelWithProvider) (uint, int) {
-		return modelWithProvider.ID, modelWithProvider.Weight
-	})
-
 	providers, err := gorm.G[models.Provider](models.DB).
 		Where("id IN ?", lo.Map(modelWithProviders, func(mp models.ModelWithProvider, _ int) uint { return mp.ProviderID })).
 		Where("type = ?", style).
@@ -265,6 +261,14 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 	}
 
 	providerMap := lo.KeyBy(providers, func(p models.Provider) uint { return p.ID })
+
+	weightItems := make(map[uint]int)
+	for _, mp := range modelWithProviders {
+		if _, ok := providerMap[mp.ProviderID]; !ok {
+			continue
+		}
+		weightItems[mp.ID] = mp.Weight
+	}
 
 	if model.IOLog == nil {
 		model.IOLog = new(bool)

@@ -76,7 +76,11 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				ProxyTime:     time.Since(start),
 			}
 			// 根据请求原始请求头 是否透传请求头 自定义请求头 构建新的请求头
-			header := buildHeaders(reqMeta.Header, modelWithProvider.WithHeader, modelWithProvider.CustomerHeaders)
+			withHeader := false
+			if modelWithProvider.WithHeader != nil {
+				withHeader = *modelWithProvider.WithHeader
+			}
+			header := buildHeaders(reqMeta.Header, withHeader, modelWithProvider.CustomerHeaders, before.Stream)
 
 			reqStart := time.Now()
 			trace := &httptrace.ClientTrace{
@@ -177,12 +181,18 @@ func SaveChatLog(ctx context.Context, log models.ChatLog) (uint, error) {
 	return log.ID, nil
 }
 
-func buildHeaders(source http.Header, withHeader *bool, customHeaders map[string]string) http.Header {
+func buildHeaders(source http.Header, withHeader bool, customHeaders map[string]string, stream bool) http.Header {
 	header := http.Header{}
-
-	if withHeader != nil && *withHeader {
+	if withHeader {
 		header = source.Clone()
 	}
+
+	if stream {
+		header.Set("X-Accel-Buffering", "no")
+	}
+
+	header.Del("Authorization")
+	header.Del("X-Api-Key")
 
 	for key, value := range customHeaders {
 		header.Set(key, value)

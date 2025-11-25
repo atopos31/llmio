@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"io"
+	"net/http"
 	"time"
 
 	"github.com/atopos31/llmio/common"
@@ -57,6 +58,7 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 		common.InternalServerError(c, err.Error())
 		return
 	}
+	c.Request.Body.Close()
 	// 预处理、提取模型参数
 	before, err := preProcessor(reqBody)
 	if err != nil {
@@ -89,7 +91,7 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	// 异步处理输出并记录 tokens
 	go service.RecordLog(context.Background(), startReq, pr, postProcessor, logId, *before, providersWithMeta.IOLog)
 
-	withContentType(c, before.Stream)
+	writeHeader(c, before.Stream, res.Header)
 	if _, err := io.Copy(c.Writer, tee); err != nil {
 		pw.CloseWithError(err)
 		common.InternalServerError(c, err.Error())
@@ -99,13 +101,18 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	pw.Close()
 }
 
-func withContentType(c *gin.Context, stream bool) {
-	// 根据是否流式设置响应头，保持 SSE 或 JSON 客户端兼容
+func writeHeader(c *gin.Context, stream bool, header http.Header) {
+	for k, values := range header {
+		for _, value := range values {
+			c.Writer.Header().Add(k, value)
+		}
+	}
+
 	if stream {
 		c.Header("Content-Type", "text/event-stream")
 		c.Header("Cache-Control", "no-cache")
-	} else {
-		c.Header("Content-Type", "application/json")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
 	}
 	c.Writer.Flush()
 }

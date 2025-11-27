@@ -95,10 +95,11 @@ GIN_MODE=release TOKEN=<YOUR_TOKEN> ./llmio
 
 ## 截图
 
-![系统主页](./docs/image1.png)
+![系统主页](./docs/home.jpeg)
 
-![多对一关联](./docs/image.png)
+![多对一关联](./docs/with.jpeg)
 
+![日志](./docs/log.jpeg)
 
 ## 许可证
 

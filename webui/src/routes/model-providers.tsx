@@ -60,6 +60,7 @@ import type { ModelWithProvider, Model, Provider } from "@/lib/api";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { RefreshCw } from "lucide-react";
 
 type MobileInfoItemProps = {
   label: string;
@@ -257,6 +258,7 @@ export default function ModelProvidersPage() {
   const loadProviderStatus = async (providers: ModelWithProvider[], modelId: number) => {
     const selectedModel = models.find(m => m.ID === modelId);
     if (!selectedModel) return;
+    setProviderStatus([])
 
     const newStatus: Record<number, boolean[]> = {};
 
@@ -675,7 +677,20 @@ export default function ModelProvidersPage() {
                     <TableHead>请求头透传</TableHead>
                     <TableHead>权重</TableHead>
                     <TableHead>启用</TableHead>
-                    <TableHead>状态</TableHead>
+                    <TableHead>
+                      <div className="flex items-center gap-1">状态
+                        <Button
+                          onClick={() => loadProviderStatus(modelProviders, selectedModelId)}
+                          variant="ghost"
+                          size="icon"
+                          aria-label="刷新状态"
+                          title="刷新状态"
+                          className="rounded-full"
+                        >
+                          <RefreshCw className="size-4" />
+                        </Button>
+                      </div>
+                    </TableHead>
                     <TableHead>操作</TableHead>
                   </TableRow>
                 </TableHeader>

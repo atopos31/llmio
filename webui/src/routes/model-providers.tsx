@@ -61,6 +61,7 @@ import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { RefreshCw } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
 
 type MobileInfoItemProps = {
   label: string;
@@ -758,7 +759,7 @@ export default function ModelProvidersPage() {
                                 <div className="text-xs text-gray-400">无数据</div>
                               )
                             ) : (
-                              <div className="text-xs text-gray-400">加载中...</div>
+                              <Spinner />
                             )}
                           </div>
                         </TableCell>
@@ -851,7 +852,7 @@ export default function ModelProvidersPage() {
                                 <span className="text-muted-foreground text-[11px]">无数据</span>
                               )
                             ) : (
-                              <span className="text-muted-foreground text-[11px]">加载中...</span>
+                              <Spinner />
                             )}
                           </div>
                         }

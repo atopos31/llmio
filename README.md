@@ -14,7 +14,11 @@ LLMIO 是一个基于 Go 的多供应商大语言模型网关，提供统一的 
 - **本地持久化**：通过 SQLite (`db/llmio.db`) 保存配置和调用记录，开箱即用。
 
 ## 部署
-
+**llmio通过读取环境变量的TOKEN来配置控制台以及所有API接口的鉴权！**
+```bash
+export ANTHROPIC_API_KEY=<YOUR_TOKEN>
+export OPENAI_API_KEY=<YOUR_TOKEN>
+```
 ### Docker Compose (推荐)
 ```yaml
 services:

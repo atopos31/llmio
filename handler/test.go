@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/atopos31/llmio/common"
+	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
 	"github.com/atopos31/nsxno/react"
@@ -20,7 +22,8 @@ import (
 	"gorm.io/gorm"
 )
 
-const testBody = `{
+const (
+	testOpenAI = `{
         "model": "gpt-4.1",
 		"stream": true,
         "messages": [
@@ -31,14 +34,32 @@ const testBody = `{
         ]
     }`
 
+	testOpenAIRes = `{
+        "model": "gpt-5-nano",
+        "input": "Write a one-sentence bedtime story about a unicorn."
+    }`
+
+	testAnthropic = `{
+    	"model": "claude-sonnet-4-5",
+    	"max_tokens": 1000,
+    	"messages": [
+      		{
+        		"role": "user", 
+        		"content": "Write a one-sentence bedtime story about a unicorn."
+      		}
+    	]
+ 	}`
+)
+
 func ProviderTestHandler(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
 		common.BadRequest(c, "Invalid ID format")
 		return
 	}
+	ctx := c.Request.Context()
 
-	chatModel, err := FindChatModel(c.Request.Context(), id)
+	chatModel, err := FindChatModel(ctx, id)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			common.NotFound(c, "ModelWithProvider not found")
@@ -57,8 +78,20 @@ func ProviderTestHandler(c *gin.Context) {
 
 	// Test connectivity by fetching models
 	client := providers.GetClient(time.Second * time.Duration(30))
+	var testBody []byte
+	switch chatModel.Type {
+	case consts.StyleOpenAI:
+		testBody = []byte(testOpenAI)
+	case consts.StyleAnthropic:
+		testBody = []byte(testAnthropic)
+	case consts.StyleOpenAIRes:
+		testBody = []byte(testOpenAIRes)
+	default:
+		common.BadRequest(c, "Invalid provider type")
+		return
+	}
 	header := buildTestHeaders(c.Request.Header, chatModel.WithHeader, chatModel.CustomerHeaders)
-	req, err := providerInstance.BuildReq(c.Request.Context(), header, chatModel.Model, []byte(testBody))
+	req, err := providerInstance.BuildReq(ctx, header, chatModel.Model, []byte(testBody))
 	if err != nil {
 		common.ErrorWithHttpStatus(c, http.StatusOK, 502, "Failed to connect to provider: "+err.Error())
 		return
@@ -75,7 +108,14 @@ func ProviderTestHandler(c *gin.Context) {
 		return
 	}
 
-	common.SuccessWithMessage(c, "Successfully connected to provider", nil)
+	content, err := io.ReadAll(res.Body)
+	if err != nil {
+		common.ErrorWithHttpStatus(c, http.StatusOK, res.StatusCode, "Failed to read res body: "+err.Error())
+		return
+	}
+	fmt.Println(string(content))
+
+	common.SuccessWithMessage(c, string(content), nil)
 }
 
 func TestReactHandler(c *gin.Context) {

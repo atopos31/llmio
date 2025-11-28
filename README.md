@@ -15,6 +15,7 @@ LLMIO 是一个基于 Go 的多供应商大语言模型网关，提供统一的 
 
 ## 部署
 **llmio通过读取环境变量的TOKEN来配置控制台以及所有API接口的鉴权！**
+
 对于cc或者codex, 使用如下环境变量接入鉴权
 ```bash
 export ANTHROPIC_API_KEY=<YOUR_TOKEN>

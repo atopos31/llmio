@@ -54,9 +54,10 @@ import {
   deleteModelProvider,
   getModels,
   getProviders,
+  getProviderModels,
   testModelProvider
 } from "@/lib/api";
-import type { ModelWithProvider, Model, Provider } from "@/lib/api";
+import type { ModelWithProvider, Model, Provider, ProviderModel } from "@/lib/api";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
@@ -99,6 +100,9 @@ export default function ModelProvidersPage() {
   const [modelProviders, setModelProviders] = useState<ModelWithProvider[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [providerModelsMap, setProviderModelsMap] = useState<Record<number, ProviderModel[]>>({});
+  const [providerModelsLoading, setProviderModelsLoading] = useState<Record<number, boolean>>({});
+  const [showProviderModels, setShowProviderModels] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const [providerStatus, setProviderStatus] = useState<Record<number, boolean[]>>({});
   const [loading, setLoading] = useState(true);
@@ -306,6 +310,26 @@ export default function ModelProvidersPage() {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(`创建模型提供商关联失败: ${message}`);
       console.error(err);
+    }
+  };
+
+  const loadProviderModels = async (providerId: number, force = false) => {
+    if (!providerId) return;
+    if (!force && providerModelsMap[providerId]) return;
+
+    setProviderModelsLoading(prev => ({ ...prev, [providerId]: true }));
+    try {
+      const data = await getProviderModels(providerId);
+      setProviderModelsMap(prev => ({ ...prev, [providerId]: data }));
+    } catch (err) {
+      console.error("获取提供商模型失败", err);
+      setProviderModelsMap(prev => ({ ...prev, [providerId]: [] }));
+    } finally {
+      setProviderModelsLoading(prev => {
+        const next = { ...prev };
+        delete next[providerId];
+        return next;
+      });
     }
   };
 
@@ -572,6 +596,33 @@ export default function ModelProvidersPage() {
     nextParams.set("modelId", id.toString());
     setSearchParams(nextParams);
     form.setValue("model_id", id);
+  };
+
+  const selectedProviderId = form.watch("provider_id");
+
+  useEffect(() => {
+    if (selectedProviderId && selectedProviderId > 0) {
+      loadProviderModels(selectedProviderId);
+    }
+    setShowProviderModels(false);
+  }, [selectedProviderId]);
+
+  const sortProviderModels = (providerId: number, query: string): ProviderModel[] => {
+    const models = providerModelsMap[providerId] || [];
+    if (!query) return models;
+
+    const normalized = query.toLowerCase();
+    const score = (id: string) => {
+      const val = id.toLowerCase();
+      if (val === normalized) return 1000;
+      let s = 0;
+      if (val.startsWith(normalized)) s += 500;
+      if (val.includes(normalized)) s += 200;
+      s -= Math.abs(val.length - normalized.length);
+      return s;
+    };
+
+    return [...models].sort((a, b) => score(b.id) - score(a.id));
   };
 
   // 获取唯一的提供商类型列表
@@ -970,8 +1021,13 @@ export default function ModelProvidersPage() {
                     <FormItem>
                       <FormLabel>提供商</FormLabel>
                       <Select
-                        value={field.value.toString()}
-                        onValueChange={(value) => field.onChange(parseInt(value))}
+                        value={field.value ? field.value.toString() : ""}
+                        onValueChange={(value) => {
+                          const parsed = parseInt(value);
+                          field.onChange(parsed);
+                          form.setValue("provider_name", "");
+                          loadProviderModels(parsed, true);
+                        }}
                       >
                         <FormControl>
                           <SelectTrigger className="form-select">
@@ -995,14 +1051,60 @@ export default function ModelProvidersPage() {
                   control={form.control}
                   name="provider_name"
                   render={({ field }) => (
-                    <FormItem>
+                    <FormItem className="space-y-2">
                       <FormLabel>提供商模型</FormLabel>
                       <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="输入提供商模型名称"
-                        />
+                        <div className="relative">
+                          <Input
+                            {...field}
+                            placeholder="输入或选择提供商模型"
+                            onFocus={() => setShowProviderModels(true)}
+                            onBlur={() => setTimeout(() => setShowProviderModels(false), 100)}
+                            onChange={(e) => {
+                              field.onChange(e.target.value);
+                              setShowProviderModels(true);
+                            }}
+                          />
+                          {selectedProviderId && showProviderModels && (providerModelsMap[selectedProviderId] || []).length > 0 && (
+                            <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-sm max-h-52 overflow-y-auto">
+                              {sortProviderModels(selectedProviderId, field.value || "").map((model) => (
+                                <button
+                                  key={model.id}
+                                  type="button"
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    field.onChange(model.id);
+                                    setShowProviderModels(false);
+                                  }}
+                                >
+                                  {model.id}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </FormControl>
+                      {selectedProviderId ? (
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <p>可直接输入，或在下拉列表中选择</p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => loadProviderModels(selectedProviderId, true)}
+                            disabled={!!providerModelsLoading[selectedProviderId]}
+                          >
+                            {providerModelsLoading[selectedProviderId] ? (
+                              <Spinner className="size-4" />
+                            ) : (
+                              <RefreshCw className="size-4" />
+                            )}
+                          </Button>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">请选择提供商以加载模型列表</p>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}

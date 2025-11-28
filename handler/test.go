@@ -25,7 +25,6 @@ import (
 const (
 	testOpenAI = `{
         "model": "gpt-4.1",
-		"stream": true,
         "messages": [
             {
                 "role": "user",
@@ -113,7 +112,6 @@ func ProviderTestHandler(c *gin.Context) {
 		common.ErrorWithHttpStatus(c, http.StatusOK, res.StatusCode, "Failed to read res body: "+err.Error())
 		return
 	}
-	fmt.Println(string(content))
 
 	common.SuccessWithMessage(c, string(content), nil)
 }

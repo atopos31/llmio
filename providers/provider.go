@@ -22,7 +22,6 @@ type Model struct {
 }
 
 type Provider interface {
-	// client 用于HTTP请求的客户端
 	BuildReq(ctx context.Context, header http.Header, model string, rawData []byte) (*http.Request, error)
 	Models(ctx context.Context) ([]Model, error)
 }

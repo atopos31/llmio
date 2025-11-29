@@ -23,7 +23,7 @@ func Success(c *gin.Context, data any) {
 	})
 }
 
-// Success 成功响应
+// Success 成功响应(原始数据)
 func SuccessRaw(c *gin.Context, data any) {
 	c.JSON(http.StatusOK, data)
 }

@@ -34,7 +34,7 @@ func main() {
 	authAnthropic := middleware.AuthAnthropic(os.Getenv("TOKEN"))
 
 	v1 := router.Group("/v1")
-	v1.GET("/models", authOpenAI, handler.ModelsHandler)
+	v1.GET("/models", authOpenAI, handler.OpenAIModelsHandler)
 
 	v1.POST("/chat/completions", authOpenAI, handler.ChatCompletionsHandler)
 	v1.POST("/responses", authOpenAI, handler.ResponsesHandler)

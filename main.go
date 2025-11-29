@@ -42,6 +42,7 @@ func main() {
 
 	anthropic := router.Group("/anthropic/v1", authAnthropic)
 	{
+		anthropic.GET("/models", handler.AnthropicModelsHandler)
 		anthropic.POST("/messages", handler.Messages)
 		// TODO
 		anthropic.POST("/messages/count_tokens", authAnthropic)

@@ -29,3 +29,25 @@ func OpenAIModelsHandler(c *gin.Context) {
 		Data:   resModels,
 	})
 }
+
+func AnthropicModelsHandler(c *gin.Context) {
+	ctx := c.Request.Context()
+	models, err := service.ModelsByTypes(ctx, consts.StyleAnthropic)
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+	resModels := make([]providers.AnthropicModel, 0)
+	for _, model := range models {
+		resModels = append(resModels, providers.AnthropicModel{
+			ID:          model.Name,
+			CreatedAt:   model.CreatedAt,
+			DisplayName: model.Name,
+			Type:        "model",
+		})
+	}
+	common.SuccessRaw(c, providers.AnthropicModelsResponse{
+		Data:    resModels,
+		HasMore: false,
+	})
+}

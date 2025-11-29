@@ -15,12 +15,6 @@ LLMIO 是一个基于 Go 的多供应商大语言模型网关，提供统一的 
 
 ## 部署
 **llmio通过读取环境变量的TOKEN来配置控制台以及所有API接口的鉴权！**
-
-对于cc或者codex, 使用如下环境变量接入鉴权
-```bash
-export ANTHROPIC_API_KEY=<YOUR_TOKEN>
-export OPENAI_API_KEY=<YOUR_TOKEN>
-```
 ### Docker Compose (推荐)
 ```yaml
 services:
@@ -82,6 +76,47 @@ GIN_MODE=release TOKEN=<YOUR_TOKEN> ./llmio
    TOKEN=<YOUR_TOKEN> make run
    ```
 访问入口webui：`http://localhost:7070/`
+
+## API 端点
+
+LLMIO 提供多供应商兼容的 REST API，支持以下端点：
+
+| 供应商 | 端点路径 | 方法 | 功能 | 认证方式 |
+|--------|----------|------|------|----------|
+| OpenAI | `/openai/v1/models` | GET | 获取可用模型列表 | Bearer Token |
+| OpenAI | `/openai/v1/chat/completions` | POST | 创建聊天完成 | Bearer Token |
+| OpenAI | `/openai/v1/responses` | POST | 创建响应 | Bearer Token |
+| Anthropic | `/anthropic/v1/models` | GET | 获取可用模型列表 | x-api-key |
+| Anthropic | `/anthropic/v1/messages` | POST | 创建消息 | x-api-key |
+| Anthropic | `/anthropic/v1/messages/count_tokens` | POST | 计算Token数量 | x-api-key |
+| 通用 | `/v1/models` | GET | 获取模型列表（兼容） | Bearer Token |
+| 通用 | `/v1/chat/completions` | POST | 创建聊天完成（兼容） | Bearer Token |
+| 通用 | `/v1/responses` | POST | 创建响应（兼容） | Bearer Token |
+| 通用 | `/v1/messages` | POST | 创建消息（兼容） | x-api-key |
+| 通用 | `/v1/messages/count_tokens` | POST | 计算Token数量（兼容） | x-api-key |
+
+### 认证方式
+
+LLMIO 根据端点类型使用不同的认证方式：
+
+#### 1. OpenAI 格式端点（Bearer Token）
+适用于：`/openai/v1/*` 和 `/v1/*` 中的 OpenAI 兼容端点
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:7070/openai/v1/models
+```
+
+#### 2. Anthropic 格式端点（x-api-key）
+适用于：`/anthropic/v1/*` 和 `/v1/*` 中的 Anthropic 兼容端点
+```bash
+curl -H "x-api-key: YOUR_TOKEN" http://localhost:7070/anthropic/v1/messages
+```
+
+对于cc或者codex, 使用如下环境变量接入鉴权
+```bash
+export OPENAI_API_KEY=<YOUR_TOKEN>
+export ANTHROPIC_API_KEY=<YOUR_TOKEN>
+```
+> **注意**：`/v1/*` 路径为兼容性保留，建议使用新的供应商特定路径。
 
 ## 目录结构
 

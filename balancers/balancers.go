@@ -1,18 +1,25 @@
 package balancers
 
 import (
+	"container/list"
 	"fmt"
 	"math/rand/v2"
+	"slices"
+
+	"github.com/samber/lo"
 )
 
 type Balancer interface {
 	Pop() (uint, error)
-	Weight(key uint) int
 	Delete(key uint)
 	Reduce(key uint)
 }
 
 type WeightedRandom map[uint]int
+
+func NewWeightedRandom(items map[uint]int) Balancer {
+	return WeightedRandom(items)
+}
 
 func (w WeightedRandom) Pop() (uint, error) {
 	if len(w) == 0 {
@@ -35,14 +42,50 @@ func (w WeightedRandom) Pop() (uint, error) {
 	return 0, fmt.Errorf("unexpected error")
 }
 
-func (w WeightedRandom) Weight(key uint) int {
-	return w[key]
-}
-
 func (w WeightedRandom) Delete(key uint) {
 	delete(w, key)
 }
 
 func (w WeightedRandom) Reduce(key uint) {
 	w[key] -= w[key] / 3
+}
+
+type WeightedList struct{ *list.List }
+
+func NewWeightedList(items map[uint]int) WeightedList {
+	l := list.New()
+	entries := lo.Entries(items)
+	slices.SortFunc(entries, func(a lo.Entry[uint, int], b lo.Entry[uint, int]) int {
+		return b.Value - a.Value
+	})
+	for _, entry := range entries {
+		l.PushBack(entry.Key)
+	}
+	return WeightedList{l}
+}
+
+func (w WeightedList) Pop() (uint, error) {
+	if w.Len() == 0 {
+		return 0, fmt.Errorf("no provide items")
+	}
+	e := w.Front()
+	return e.Value.(uint), nil
+}
+
+func (w WeightedList) Delete(key uint) {
+	for e := w.Front(); e != nil; e = e.Next() {
+		if e.Value.(uint) == key {
+			w.Remove(e)
+			return
+		}
+	}
+}
+
+func (w WeightedList) Reduce(key uint) {
+	for e := w.Front(); e != nil; e = e.Next() {
+		if e.Value.(uint) == key {
+			w.MoveToBack(e)
+			return
+		}
+	}
 }

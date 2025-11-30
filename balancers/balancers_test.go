@@ -29,14 +29,6 @@ func TestWeightedRandomPopSingle(t *testing.T) {
 	}
 }
 
-func TestWeightedRandomReduce(t *testing.T) {
-	w := WeightedRandom{2: 90}
-	w.Reduce(2)
-	if got := w.Weight(2); got != 60 {
-		t.Fatalf("expected weight 60, got %d", got)
-	}
-}
-
 func TestWeightedRandomDelete(t *testing.T) {
 	w := WeightedRandom{1: 1}
 	w.Delete(1)

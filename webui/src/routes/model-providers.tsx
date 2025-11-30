@@ -29,6 +29,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -763,7 +764,7 @@ export default function ModelProvidersPage() {
                         </Button>
                       </div>
                     </TableHead>
-                    <TableHead>操作</TableHead>
+                    <TableHead className="w-[220px]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -840,9 +841,11 @@ export default function ModelProvidersPage() {
                               编辑
                             </Button>
                             <AlertDialog open={deleteId === association.ID} onOpenChange={(open) => !open && setDeleteId(null)}>
-                              <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(association.ID)}>
-                                删除
-                              </Button>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(association.ID)}>
+                                  删除
+                                </Button>
+                              </AlertDialogTrigger>
                               <AlertDialogContent>
                                 <AlertDialogHeader>
                                   <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>

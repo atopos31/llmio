@@ -17,7 +17,7 @@ import (
 
 const (
 	InitScannerBufferSize = 1024 * 8         // 8KB
-	MaxScannerBufferSize  = 1024 * 1024 * 15 // 15MB
+	MaxScannerBufferSize  = 1024 * 1024 * 64 // 64MB
 )
 
 type Processer func(ctx context.Context, pr io.Reader, stream bool, start time.Time) (*models.ChatLog, *models.OutputUnion, error)

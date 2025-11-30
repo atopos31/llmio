@@ -115,6 +115,7 @@ export default function ModelProvidersPage() {
   const [selectedTestId, setSelectedTestId] = useState<number | null>(null);
   const [testType, setTestType] = useState<"connectivity" | "react">("connectivity");
   const [selectedProviderType, setSelectedProviderType] = useState<string>("all");
+  const [weightSortOrder, setWeightSortOrder] = useState<"asc" | "desc" | "none">("none");
   const [reactTestResult, setReactTestResult] = useState<{
     loading: boolean;
     messages: string;
@@ -628,13 +629,19 @@ export default function ModelProvidersPage() {
   // 获取唯一的提供商类型列表
   const providerTypes = Array.from(new Set(providers.map(p => p.Type).filter(Boolean)));
 
-  // 根据选择的提供商类型过滤模型提供商关联
+  // 根据选择的提供商类型过滤模型提供商关联，并按权重排序
   const filteredModelProviders = selectedProviderType && selectedProviderType !== "all"
     ? modelProviders.filter(association => {
       const provider = providers.find(p => p.ID === association.ProviderID);
       return provider?.Type === selectedProviderType;
     })
     : modelProviders;
+
+  // 按权重排序
+  const sortedModelProviders = [...filteredModelProviders].sort((a, b) => {
+    if (weightSortOrder === "none") return 0;
+    return weightSortOrder === "asc" ? a.Weight - b.Weight : b.Weight - a.Weight;
+  });
 
   const hasAssociationFilter = selectedProviderType !== "all";
 
@@ -652,7 +659,7 @@ export default function ModelProvidersPage() {
         </div>
       </div>
       <div className="flex flex-col gap-2 flex-shrink-0">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:gap-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
           <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">关联模型</Label>
             <Select value={selectedModelId?.toString() || ""} onValueChange={handleModelChange}>
@@ -668,7 +675,7 @@ export default function ModelProvidersPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
+          <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1 lg:col-span-1">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商类型</Label>
             <Select value={selectedProviderType} onValueChange={setSelectedProviderType}>
               <SelectTrigger className="h-8 w-full text-xs px-2">
@@ -684,11 +691,24 @@ export default function ModelProvidersPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-end col-span-2 sm:col-span-1 sm:justify-end">
+          <div className="flex items-end col-span-2 sm:col-span-2 lg:col-span-1 gap-2">
+            <div className="flex-1">
+              <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">权重排序</Label>
+              <Select value={weightSortOrder} onValueChange={(value) => setWeightSortOrder(value as "asc" | "desc" | "none")}>
+                <SelectTrigger className="h-8 w-full text-xs px-2">
+                  <SelectValue placeholder="选择排序方式" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">默认顺序</SelectItem>
+                  <SelectItem value="asc">权重升序</SelectItem>
+                  <SelectItem value="desc">权重降序</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <Button
               onClick={openCreateDialog}
               disabled={!selectedModelId}
-              className="h-8 w-full text-xs sm:w-auto sm:ml-auto"
+              className="h-8 text-xs"
             >
               添加关联
             </Button>
@@ -709,7 +729,7 @@ export default function ModelProvidersPage() {
           <div className="flex h-full items-center justify-center text-muted-foreground">
             请选择一个模型来查看其提供商关联
           </div>
-        ) : filteredModelProviders.length === 0 ? (
+        ) : sortedModelProviders.length === 0 ? (
           <div className="flex h-full items-center justify-center text-muted-foreground text-sm text-center px-6">
             {hasAssociationFilter ? '当前类型暂无关联' : '该模型还没有关联的提供商'}
           </div>
@@ -747,7 +767,7 @@ export default function ModelProvidersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredModelProviders.map((association) => {
+                  {sortedModelProviders.map((association) => {
                     const provider = providers.find(p => p.ID === association.ProviderID);
                     const isAssociationEnabled = association.Status ?? false;
                     const statusBars = providerStatus[association.ID];
@@ -848,7 +868,7 @@ export default function ModelProvidersPage() {
               </Table>
             </div>
             <div className="sm:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 divide-y divide-border">
-              {filteredModelProviders.map((association) => {
+              {sortedModelProviders.map((association) => {
                 const provider = providers.find(p => p.ID === association.ProviderID);
                 const isAssociationEnabled = association.Status ?? true;
                 const statusBars = providerStatus[association.ID];

@@ -10,7 +10,7 @@ import (
 	"net/http/httptrace"
 	"time"
 
-	"github.com/atopos31/llmio/balancer"
+	"github.com/atopos31/llmio/balancers"
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
@@ -22,13 +22,14 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	slog.Info("request", "model", before.Model, "stream", before.Stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
 
 	providerMap := providersWithMeta.ProviderMap
-	weightItems := providersWithMeta.WeightItems
 
 	// 收集重试过程中的err日志
 	retryLog := make(chan models.ChatLog, providersWithMeta.MaxRetry)
 	defer close(retryLog)
 
 	go RecordRetryLog(context.Background(), retryLog)
+
+	balancer := balancers.WeightedRandom(providersWithMeta.WeightItems)
 
 	client := providers.GetClient(time.Second * time.Duration(providersWithMeta.TimeOut) / 3)
 
@@ -42,15 +43,15 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			return nil, 0, errors.New("retry time out")
 		default:
 			// 加权负载均衡
-			id, err := balancer.WeightedRandom(weightItems)
+			id, err := balancer.Pop()
 			if err != nil {
 				return nil, 0, err
 			}
 
-			modelWithProvider, ok := providersWithMeta.ModelWithProviderMap[*id]
+			modelWithProvider, ok := providersWithMeta.ModelWithProviderMap[id]
 			if !ok {
 				// 数据不一致，移除该模型避免下次重复命中
-				delete(weightItems, *id)
+				balancer.Delete(id)
 				continue
 			}
 
@@ -93,7 +94,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			if err != nil {
 				retryLog <- log.WithError(err)
 				// 构建请求失败 移除待选
-				delete(weightItems, *id)
+				balancer.Delete(id)
 				continue
 			}
 
@@ -101,7 +102,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			if err != nil {
 				retryLog <- log.WithError(err)
 				// 请求失败 移除待选
-				delete(weightItems, *id)
+				balancer.Delete(id)
 				continue
 			}
 
@@ -114,10 +115,10 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 				if res.StatusCode == http.StatusTooManyRequests {
 					// 达到RPM限制 降低权重
-					weightItems[*id] -= weightItems[*id] / 3
+					balancer.Reduce(id)
 				} else {
 					// 非RPM限制 移除待选
-					delete(weightItems, *id)
+					balancer.Delete(id)
 				}
 				res.Body.Close()
 				continue

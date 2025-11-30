@@ -8,7 +8,7 @@ LLMIO 是一个基于 Go 的多供应商大语言模型网关，提供统一的 
 
 ## 功能特性
 - **统一 API**：兼容 OpenAI Chat Completions、OpenAI Responses 与 Anthropic Messages 语义，支持流式与非流式响应。
-- **权重调度**：`balancer/` 提供多种调度策略，可按工具调用、结构化输出、多模态能力与权重做智能分发。
+- **权重调度**：`balancers/` 提供多种调度策略，可按工具调用、结构化输出、多模态能力与权重做智能分发。
 - **可视化管理后台**：Web UI（React + TypeScript + Tailwind + Vite）覆盖提供商、模型、关联、日志与指标。
 - **速率与失败处理**：内建速率限制兜底与提供商连通性检测，保证故障隔离。
 - **本地持久化**：通过 SQLite (`db/llmio.db`) 保存配置和调用记录，开箱即用。
@@ -127,7 +127,7 @@ export ANTHROPIC_API_KEY=<YOUR_TOKEN>
 ├─ service/             # 业务逻辑与负载均衡调用
 ├─ middleware/          # 鉴权、速率限制与流式响应中间件
 ├─ providers/           # 多模型供应商适配实现
-├─ balancer/            # 权重与调度策略
+├─ balancers/           # 权重与调度策略
 ├─ models/              # GORM 实体定义与数据库初始化
 ├─ common/              # 通用工具与响应辅助方法
 ├─ webui/               # React + TypeScript 管理前端

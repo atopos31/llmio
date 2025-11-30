@@ -322,7 +322,7 @@ export default function ModelProvidersPage() {
       const data = await getProviderModels(providerId);
       setProviderModelsMap(prev => ({ ...prev, [providerId]: data }));
     } catch (err) {
-      console.error("获取提供商模型失败", err);
+      toast.warning(`获取提供商: ${providers.find(e => e.ID === providerId)?.Name} 模型列表失败, 请手动填写提供商模型\n${err}`);
       setProviderModelsMap(prev => ({ ...prev, [providerId]: [] }));
     } finally {
       setProviderModelsLoading(prev => {
@@ -1026,7 +1026,6 @@ export default function ModelProvidersPage() {
                           const parsed = parseInt(value);
                           field.onChange(parsed);
                           form.setValue("provider_name", "");
-                          loadProviderModels(parsed, true);
                         }}
                       >
                         <FormControl>
@@ -1065,7 +1064,7 @@ export default function ModelProvidersPage() {
                               setShowProviderModels(true);
                             }}
                           />
-                          {selectedProviderId && showProviderModels && (providerModelsMap[selectedProviderId] || []).length > 0 && (
+                          {showProviderModels && selectedProviderId && (providerModelsMap[selectedProviderId] || []).length > 0 && (
                             <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-sm max-h-52 overflow-y-auto">
                               {sortProviderModels(selectedProviderId, field.value || "").map((model) => (
                                 <button

@@ -30,8 +30,10 @@ func main() {
 
 	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/v1"})))
 
-	authOpenAI := middleware.Auth(os.Getenv("TOKEN"))
-	authAnthropic := middleware.AuthAnthropic(os.Getenv("TOKEN"))
+	token := os.Getenv("TOKEN")
+	
+	authOpenAI := middleware.Auth(token)
+	authAnthropic := middleware.AuthAnthropic(token)
 
 	openai := router.Group("/openai/v1", authOpenAI)
 	{
@@ -61,7 +63,7 @@ func main() {
 
 	api := router.Group("/api")
 	{
-		api.Use(middleware.Auth(os.Getenv("TOKEN")))
+		api.Use(middleware.Auth(token))
 		api.GET("/metrics/use/:days", handler.Metrics)
 		api.GET("/metrics/counts", handler.Counts)
 		// Provider management

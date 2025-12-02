@@ -130,15 +130,15 @@ func SyncProviderModels(c *gin.Context) {
 			continue
 		}
 		if count == 0 {
+			ioLog := true
 			model := models.Model{
 				Name:       pm.ID,
 				ProviderID: provider.ID,
 				IsCustom:   false,
 				MaxRetry:   3,
 				TimeOut:    300,
+				IOLog:      &ioLog,
 			}
-			ioLog := true
-			model.IOLog = &ioLog
 			if err := gorm.G[models.Model](models.DB).Create(c.Request.Context(), &model); err == nil {
 				syncCount++
 			}
@@ -265,7 +265,17 @@ func DeleteProvider(c *gin.Context) {
 
 // GetModels 获取所有模型列表
 func GetModels(c *gin.Context) {
-	modelsList, err := gorm.G[models.Model](models.DB).Find(c.Request.Context())
+	customOnly := c.Query("custom_only") == "true"
+
+	var modelsList []models.Model
+	var err error
+
+	if customOnly {
+		modelsList, err = gorm.G[models.Model](models.DB).Where("is_custom = ?", true).Find(c.Request.Context())
+	} else {
+		modelsList, err = gorm.G[models.Model](models.DB).Find(c.Request.Context())
+	}
+
 	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return
@@ -319,6 +329,7 @@ func CreateModel(c *gin.Context) {
 		MaxRetry: req.MaxRetry,
 		TimeOut:  req.TimeOut,
 		IOLog:    &req.IOLog,
+		IsCustom: true,
 	}
 
 	if err := gorm.G[models.Model](models.DB).Create(c.Request.Context(), &model); err != nil {

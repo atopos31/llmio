@@ -1,9 +1,10 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useMemo, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -80,6 +81,10 @@ export default function ModelsPage() {
   const [open, setOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<Model | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState("synced");
+
+  const syncedModels = useMemo(() => models.filter(m => !m.IsCustom), [models]);
+  const customModels = useMemo(() => models.filter(m => m.IsCustom), [models]);
 
   // 初始化表单
   const form = useForm<z.infer<typeof formSchema>>({
@@ -187,22 +192,159 @@ export default function ModelsPage() {
           </div>
           <div className="flex w-full sm:w-auto items-center justify-end gap-2">
             <Button onClick={openCreateDialog} className="w-full sm:w-auto sm:min-w-[120px]">
-              添加模型
+              添加代理模型
             </Button>
           </div>
         </div>
       </div>
-      <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
-        {loading ? (
-          <div className="flex h-full items-center justify-center">
-            <Loading message="加载模型列表" />
-          </div>
-        ) : models.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-muted-foreground">
-            暂无模型数据
-          </div>
-        ) : (
-          <div className="h-full flex flex-col">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 min-h-0 flex flex-col">
+        <TabsList className="flex-shrink-0 mx-1">
+          <TabsTrigger value="synced">供应商模型 ({syncedModels.length})</TabsTrigger>
+          <TabsTrigger value="custom">代理模型 ({customModels.length})</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="synced" className="flex-1 min-h-0 border rounded-md bg-background shadow-sm mt-2 mx-1">
+          {loading ? (
+            <div className="flex h-full items-center justify-center">
+              <Loading message="加载模型列表" />
+            </div>
+          ) : syncedModels.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-muted-foreground">
+              暂无供应商模型
+            </div>
+          ) : (
+            <div className="h-full flex flex-col">
+              <div className="hidden sm:block w-full overflow-x-auto">
+                <Table className="min-w-[900px]">
+                  <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>名称</TableHead>
+                      <TableHead>供应商</TableHead>
+                      <TableHead>备注</TableHead>
+                      <TableHead>重试次数限制</TableHead>
+                      <TableHead>超时时间(秒)</TableHead>
+                      <TableHead>IO 记录</TableHead>
+                      <TableHead className="w-[220px]">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {syncedModels.map((model) => (
+                      <TableRow key={model.ID}>
+                        <TableCell className="font-mono text-xs text-muted-foreground">{model.ID}</TableCell>
+                        <TableCell className="font-medium">{model.Name}</TableCell>
+                        <TableCell className="text-sm">{model.provider_name || "-"}</TableCell>
+                        <TableCell className="max-w-[240px] truncate text-sm" title={model.Remark}>
+                          {model.Remark || "-"}
+                        </TableCell>
+                        <TableCell>{model.MaxRetry}</TableCell>
+                        <TableCell>{model.TimeOut}</TableCell>
+                        <TableCell>
+                          <span className={model.IOLog ? "text-green-500" : "text-red-500"}>
+                            {model.IOLog ? '✓' : '✗'}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => navigate(`/model-providers?modelId=${model.ID}`)}
+                            >
+                              关联
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => openEditDialog(model)}>
+                              编辑
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(model.ID)}>
+                                  删除
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>确定要删除这个模型吗？</AlertDialogTitle>
+                                  <AlertDialogDescription>此操作无法撤销。这将永久删除该模型。</AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
+                                  <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="sm:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 divide-y divide-border">
+                {syncedModels.map((model) => (
+                  <div key={model.ID} className="py-3 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-semibold text-sm truncate">{model.Name}</h3>
+                        <p className="text-[11px] text-muted-foreground">ID: {model.ID}</p>
+                        {model.provider_name && <p className="text-[11px] text-muted-foreground">供应商: {model.provider_name}</p>}
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => navigate(`/model-providers?modelId=${model.ID}`)}>
+                          关联
+                        </Button>
+                        <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialog(model)}>
+                          编辑
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="destructive" size="sm" className="h-7 px-2 text-xs" onClick={() => openDeleteDialog(model.ID)}>
+                              删除
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>确定要删除这个模型吗？</AlertDialogTitle>
+                              <AlertDialogDescription>此操作无法撤销。这将永久删除该模型。</AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
+                              <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </div>
+                    <div className="text-xs space-y-1">
+                      <p className="text-[11px] text-muted-foreground uppercase tracking-wide">备注</p>
+                      <p className="break-words">{model.Remark || "-"}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <MobileInfoItem label="重试次数" value={model.MaxRetry} />
+                      <MobileInfoItem label="超时时间" value={`${model.TimeOut} 秒`} />
+                      <MobileInfoItem
+                        label="IO 记录"
+                        value={<span className={model.IOLog ? "text-green-600" : "text-red-600"}>{model.IOLog ? '✓' : '✗'}</span>}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="custom" className="flex-1 min-h-0 border rounded-md bg-background shadow-sm mt-2 mx-1">
+          {loading ? (
+            <div className="flex h-full items-center justify-center">
+              <Loading message="加载模型列表" />
+            </div>
+          ) : customModels.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-muted-foreground">
+              暂无代理模型
+            </div>
+          ) : (
+            <div className="h-full flex flex-col">
             <div className="hidden sm:block w-full overflow-x-auto">
               <Table className="min-w-[900px]">
                 <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
@@ -218,7 +360,7 @@ export default function ModelsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {models.map((model) => (
+                  {customModels.map((model) => (
                     <TableRow key={model.ID}>
                       <TableCell className="font-mono text-xs text-muted-foreground">{model.ID}</TableCell>
                       <TableCell className="font-medium">{model.Name}</TableCell>
@@ -270,7 +412,7 @@ export default function ModelsPage() {
               </Table>
             </div>
             <div className="sm:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 divide-y divide-border">
-              {models.map((model) => (
+              {customModels.map((model) => (
                 <div key={model.ID} className="py-3 space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
@@ -320,8 +462,9 @@ export default function ModelsPage() {
               ))}
             </div>
           </div>
-        )}
-      </div>
+          )}
+        </TabsContent>
+      </Tabs>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>

@@ -17,6 +17,7 @@ export interface Model {
   MaxRetry: number;
   TimeOut: number;
   IOLog: boolean;
+  IsCustom: boolean;
   provider_name: string;
 }
 
@@ -141,8 +142,9 @@ export async function deleteProvider(id: number): Promise<void> {
 }
 
 // Model API functions
-export async function getModels(): Promise<Model[]> {
-  return apiRequest<Model[]>('/models');
+export async function getModels(customOnly?: boolean): Promise<Model[]> {
+  const params = customOnly ? '?custom_only=true' : '';
+  return apiRequest<Model[]>(`/models${params}`);
 }
 
 export async function createModel(model: {

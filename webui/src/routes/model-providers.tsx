@@ -223,7 +223,7 @@ export default function ModelProvidersPage() {
 
   const fetchModels = async () => {
     try {
-      const data = await getModels();
+      const data = await getModels(true);
       setModels(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

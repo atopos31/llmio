@@ -102,6 +102,55 @@ func GetProviderModels(c *gin.Context) {
 	common.Success(c, models)
 }
 
+// SyncProviderModels 同步提供商模型到数据库
+func SyncProviderModels(c *gin.Context) {
+	id := c.Param("id")
+	provider, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).First(c.Request.Context())
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+
+	chatModel, err := providers.New(provider.Type, provider.Config)
+	if err != nil {
+		common.InternalServerError(c, "Failed to initialize provider: "+err.Error())
+		return
+	}
+
+	providerModels, err := chatModel.Models(c.Request.Context())
+	if err != nil {
+		common.InternalServerError(c, "Failed to get models: "+err.Error())
+		return
+	}
+
+	syncCount := 0
+	for _, pm := range providerModels {
+		count, err := gorm.G[models.Model](models.DB).Where("name = ?", pm.ID).Count(c.Request.Context(), "id")
+		if err != nil {
+			continue
+		}
+		if count == 0 {
+			model := models.Model{
+				Name:       pm.ID,
+				ProviderID: provider.ID,
+				IsCustom:   false,
+				MaxRetry:   3,
+				TimeOut:    300,
+			}
+			ioLog := true
+			model.IOLog = &ioLog
+			if err := gorm.G[models.Model](models.DB).Create(c.Request.Context(), &model); err == nil {
+				syncCount++
+			}
+		}
+	}
+
+	common.Success(c, map[string]interface{}{
+		"synced": syncCount,
+		"total":  len(providerModels),
+	})
+}
+
 // CreateProvider 创建提供商
 func CreateProvider(c *gin.Context) {
 	var req ProviderRequest
@@ -222,7 +271,27 @@ func GetModels(c *gin.Context) {
 		return
 	}
 
-	common.Success(c, modelsList)
+	type ModelWithProviderName struct {
+		models.Model
+		ProviderName string `json:"provider_name"`
+	}
+
+	result := make([]ModelWithProviderName, 0, len(modelsList))
+	for _, model := range modelsList {
+		providerName := ""
+		if model.ProviderID > 0 {
+			provider, err := gorm.G[models.Provider](models.DB).Where("id = ?", model.ProviderID).First(c.Request.Context())
+			if err == nil {
+				providerName = provider.Name
+			}
+		}
+		result = append(result, ModelWithProviderName{
+			Model:        model,
+			ProviderName: providerName,
+		})
+	}
+
+	common.Success(c, result)
 }
 
 // CreateModel 创建模型

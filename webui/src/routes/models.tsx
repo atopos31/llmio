@@ -209,6 +209,7 @@ export default function ModelsPage() {
                   <TableRow>
                     <TableHead>ID</TableHead>
                     <TableHead>名称</TableHead>
+                    <TableHead>供应商</TableHead>
                     <TableHead>备注</TableHead>
                     <TableHead>重试次数限制</TableHead>
                     <TableHead>超时时间(秒)</TableHead>
@@ -221,6 +222,7 @@ export default function ModelsPage() {
                     <TableRow key={model.ID}>
                       <TableCell className="font-mono text-xs text-muted-foreground">{model.ID}</TableCell>
                       <TableCell className="font-medium">{model.Name}</TableCell>
+                      <TableCell className="text-sm">{model.provider_name || "-"}</TableCell>
                       <TableCell className="max-w-[240px] truncate text-sm" title={model.Remark}>
                         {model.Remark || "-"}
                       </TableCell>
@@ -274,6 +276,7 @@ export default function ModelsPage() {
                     <div className="min-w-0 flex-1">
                       <h3 className="font-semibold text-sm truncate">{model.Name}</h3>
                       <p className="text-[11px] text-muted-foreground">ID: {model.ID}</p>
+                      {model.provider_name && <p className="text-[11px] text-muted-foreground">供应商: {model.provider_name}</p>}
                     </div>
                     <div className="flex flex-wrap justify-end gap-1.5">
                       <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => navigate(`/model-providers?modelId=${model.ID}`)}>

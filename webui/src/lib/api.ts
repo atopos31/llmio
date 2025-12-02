@@ -17,6 +17,7 @@ export interface Model {
   MaxRetry: number;
   TimeOut: number;
   IOLog: boolean;
+  provider_name: string;
 }
 
 export interface ModelWithProvider {
@@ -301,6 +302,12 @@ export interface ProviderModel {
 
 export async function getProviderModels(providerId: number): Promise<ProviderModel[]> {
   return apiRequest<ProviderModel[]>(`/providers/models/${providerId}`);
+}
+
+export async function syncProviderModels(providerId: number): Promise<{ synced: number; total: number }> {
+  return apiRequest<{ synced: number; total: number }>(`/providers/${providerId}/sync-models`, {
+    method: 'POST',
+  });
 }
 
 // Logs API functions

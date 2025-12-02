@@ -53,7 +53,8 @@ import {
   updateProvider,
   deleteProvider,
   getProviderTemplates,
-  getProviderModels
+  getProviderModels,
+  syncProviderModels
 } from "@/lib/api";
 import type { Provider, ProviderTemplate, ProviderModel } from "@/lib/api";
 import { toast } from "sonner";
@@ -178,6 +179,19 @@ export default function ProvidersPage() {
   const copyModelName = async (modelName: string) => {
     await navigator.clipboard.writeText(modelName);
     toast.success(`已复制模型名称: ${modelName}`);
+  };
+
+  const handleSyncModels = async (providerId: number) => {
+    try {
+      const result = await syncProviderModels(providerId);
+      toast.success(`同步完成: ${result.synced}/${result.total} 个模型已添加到数据库`);
+      if (result.synced > 0) {
+        fetchProviders();
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`同步模型失败: ${message}`);
+    }
   };
 
   const handleCreate = async (values: z.infer<typeof formSchema>) => {
@@ -407,6 +421,9 @@ export default function ProvidersPage() {
                           <Button variant="secondary" size="sm" onClick={() => openModelsDialog(provider.ID)}>
                             模型列表
                           </Button>
+                          <Button variant="outline" size="sm" onClick={() => handleSyncModels(provider.ID)}>
+                            同步模型
+                          </Button>
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(provider.ID)}>
@@ -457,6 +474,9 @@ export default function ProvidersPage() {
                       </Button>
                       <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => openModelsDialog(provider.ID)}>
                         模型
+                      </Button>
+                      <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => handleSyncModels(provider.ID)}>
+                        同步
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>

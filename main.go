@@ -31,7 +31,7 @@ func main() {
 	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/v1"})))
 
 	token := os.Getenv("TOKEN")
-	
+
 	authOpenAI := middleware.Auth(token)
 	authAnthropic := middleware.AuthAnthropic(token)
 

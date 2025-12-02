@@ -19,22 +19,25 @@ type AnthropicConfig struct {
 	BaseUrl string `json:"base_url"`
 	ApiKey  string `json:"api_key"`
 	Version string `json:"version"`
+	Beta    string `json:"beta"`
 }
 
 type Model struct {
 	gorm.Model
-	Name     string
-	Remark   string
-	MaxRetry int   // 重试次数限制
-	TimeOut  int   // 超时时间 单位秒
-	IOLog    *bool // 是否记录IO
+	Name       string // 模型名称
+	ProviderID uint   // 供应商ID
+	IsCustom   bool   // 是否为自定义模型
+	Remark     string // 备注
+	MaxRetry   int    // 重试次数限制
+	TimeOut    int    // 超时时间 单位秒
+	IOLog      *bool  // 是否记录IO
 }
 
 type ModelWithProvider struct {
 	gorm.Model
-	ModelID          uint
-	ProviderModel    string
-	ProviderID       uint
+	ModelID          uint              // 模型ID
+	ProviderModel    string            // 供应商模型名称
+	ProviderID       uint              // 供应商ID
 	ToolCall         *bool             // 能否接受带有工具调用的请求
 	StructuredOutput *bool             // 能否接受带有结构化输出的请求
 	Image            *bool             // 能否接受带有图片的请求(视觉)

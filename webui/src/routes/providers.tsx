@@ -25,7 +25,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Form,
   FormControl,
@@ -63,9 +62,25 @@ import { toast } from "sonner";
 const formSchema = z.object({
   name: z.string().min(1, { message: "提供商名称不能为空" }),
   type: z.string().min(1, { message: "提供商类型不能为空" }),
-  config: z.string().min(1, { message: "配置不能为空" }),
+  base_url: z.string().optional(),
+  api_key: z.string().optional(),
+  beta: z.string().optional(),
+  version: z.string().optional(),
   console: z.string().optional(),
 });
+
+// 获取提供商类型需要的字段
+const getRequiredFields = (type: string) => {
+  switch (type) {
+    case 'openai':
+    case 'openai-res':
+      return ['base_url', 'api_key'];
+    case 'anthropic':
+      return ['base_url', 'api_key', 'beta', 'version'];
+    default:
+      return [];
+  }
+};
 
 export default function ProvidersPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -91,8 +106,11 @@ export default function ProvidersPage() {
     defaultValues: {
       name: "",
       type: "",
-      config: "",
-      console: "",
+      base_url: undefined,
+      api_key: undefined,
+      beta: undefined,
+      version: undefined,
+      console: undefined,
     },
   });
 
@@ -164,15 +182,34 @@ export default function ProvidersPage() {
 
   const handleCreate = async (values: z.infer<typeof formSchema>) => {
     try {
+      // 只包含当前提供商类型需要的字段
+      const configObj: any = {};
+      const requiredFields = getRequiredFields(values.type);
+      
+      if (requiredFields.includes('base_url') && values.base_url) {
+        configObj.base_url = values.base_url;
+      }
+      if (requiredFields.includes('api_key') && values.api_key) {
+        configObj.api_key = values.api_key;
+      }
+      if (requiredFields.includes('beta') && values.beta) {
+        configObj.beta = values.beta;
+      }
+      if (requiredFields.includes('version') && values.version) {
+        configObj.version = values.version;
+      }
+
+      const config = JSON.stringify(configObj);
+
       await createProvider({
         name: values.name,
         type: values.type,
-        config: values.config,
+        config: config,
         console: values.console || ""
       });
       setOpen(false);
       toast.success(`提供商 ${values.name} 创建成功`);
-      form.reset({ name: "", type: "", config: "", console: "" });
+      form.reset({ name: "", type: "", base_url: undefined, api_key: undefined, beta: undefined, version: undefined, console: undefined });
       fetchProviders();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -184,16 +221,35 @@ export default function ProvidersPage() {
   const handleUpdate = async (values: z.infer<typeof formSchema>) => {
     if (!editingProvider) return;
     try {
+      // 只包含当前提供商类型需要的字段
+      const configObj: any = {};
+      const requiredFields = getRequiredFields(values.type);
+      
+      if (requiredFields.includes('base_url') && values.base_url) {
+        configObj.base_url = values.base_url;
+      }
+      if (requiredFields.includes('api_key') && values.api_key) {
+        configObj.api_key = values.api_key;
+      }
+      if (requiredFields.includes('beta') && values.beta) {
+        configObj.beta = values.beta;
+      }
+      if (requiredFields.includes('version') && values.version) {
+        configObj.version = values.version;
+      }
+
+      const config = JSON.stringify(configObj);
+
       await updateProvider(editingProvider.ID, {
         name: values.name,
         type: values.type,
-        config: values.config,
+        config: config,
         console: values.console || ""
       });
       setOpen(false);
       toast.success(`提供商 ${values.name} 更新成功`);
       setEditingProvider(null);
-      form.reset({ name: "", type: "", config: "", console: "" });
+      form.reset({ name: "", type: "", base_url: undefined, api_key: undefined, beta: undefined, version: undefined, console: undefined });
       fetchProviders();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -219,18 +275,28 @@ export default function ProvidersPage() {
 
   const openEditDialog = (provider: Provider) => {
     setEditingProvider(provider);
+    let config = { base_url: undefined, api_key: undefined, beta: undefined, version: undefined };
+    try {
+      config = JSON.parse(provider.Config);
+    } catch (e) {
+      console.error("Failed to parse config", e);
+    }
+
     form.reset({
       name: provider.Name,
       type: provider.Type,
-      config: provider.Config,
-      console: provider.Console || "",
+      base_url: config.base_url || undefined,
+      api_key: config.api_key || undefined,
+      beta: config.beta || undefined,
+      version: config.version || undefined,
+      console: provider.Console || undefined,
     });
     setOpen(true);
   };
 
   const openCreateDialog = () => {
     setEditingProvider(null);
-    form.reset({ name: "", type: "", config: "", console: "" });
+    form.reset({ name: "", type: "", base_url: undefined, api_key: undefined, beta: undefined, version: undefined, console: undefined });
     setOpen(true);
   };
 
@@ -464,7 +530,16 @@ export default function ProvidersPage() {
                           // When type changes, populate config with template if available
                           const selectedTemplate = providerTemplates.find(t => t.type === e.target.value);
                           if (selectedTemplate) {
-                            form.setValue("config", selectedTemplate.template);
+                            try {
+                              JSON.parse(selectedTemplate.template);
+                              // 使用 placeholder 提示而不是实际值
+                              form.setValue("base_url", undefined);
+                              form.setValue("api_key", undefined);
+                              form.setValue("beta", undefined);
+                              form.setValue("version", undefined);
+                            } catch (e) {
+                              console.error("Failed to parse template config", e);
+                            }
                           }
                         }}
                       >
@@ -481,22 +556,68 @@ export default function ProvidersPage() {
                 )}
               />
 
+              {/* Base URL - 显示给所有类型 */}
               <FormField
                 control={form.control}
-                name="config"
+                name="base_url"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>配置</FormLabel>
+                    <FormLabel>Base URL</FormLabel>
                     <FormControl>
-                      <Textarea
-                        {...field}
-                        className="resize-none whitespace-pre overflow-x-auto"
-                      />
+                      <Input {...field} placeholder="https://api.example.com" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+
+              {/* API Key - 显示给所有类型 */}
+              <FormField
+                control={form.control}
+                name="api_key"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>API Key</FormLabel>
+                    <FormControl>
+                      <Input {...field} type="password" placeholder="sk-..." />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Beta 和 Version - 只显示给 Anthropic */}
+              {form.watch('type') === 'anthropic' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="beta"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Beta</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="Optional" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="version"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Version</FormLabel>
+                        <FormControl>
+                          <Input {...field} placeholder="2023-06-01" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              )}
 
               <FormField
                 control={form.control}

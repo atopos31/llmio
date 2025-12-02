@@ -416,13 +416,6 @@ export default function ModelsPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-2">
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => openLinkDialog(model)}
-                          >
-                            关联
-                          </Button>
                           <Button variant="outline" size="sm" onClick={() => openEditDialog(model)}>
                             编辑
                           </Button>
@@ -460,9 +453,6 @@ export default function ModelsPage() {
                       {model.provider_name && <p className="text-[11px] text-muted-foreground">供应商: {model.provider_name}</p>}
                     </div>
                     <div className="flex flex-wrap justify-end gap-1.5">
-                      <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => openLinkDialog(model)}>
-                        关联
-                      </Button>
                       <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialog(model)}>
                         编辑
                       </Button>

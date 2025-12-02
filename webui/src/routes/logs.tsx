@@ -78,8 +78,8 @@ export default function LogsPage() {
   };
   const fetchModels = async () => {
     try {
-      const modelList = await getModels();
-      setModels(modelList);
+      const response = await getModels();
+      setModels(response.data);
     } catch (error) {
       console.error("Error fetching models:", error);
     }

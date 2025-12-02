@@ -263,21 +263,65 @@ func DeleteProvider(c *gin.Context) {
 	common.Success(c, nil)
 }
 
-// GetModels 获取所有模型列表
+// GetModels 获取所有模型列表（支持分页和过滤）
 func GetModels(c *gin.Context) {
-	customOnly := c.Query("custom_only") == "true"
+	isCustomStr := c.Query("is_custom")
+	providerName := c.Query("provider_name")
+	modelName := c.Query("name")
 
-	var modelsList []models.Model
-	var err error
-
-	if customOnly {
-		modelsList, err = gorm.G[models.Model](models.DB).Where("is_custom = ?", true).Find(c.Request.Context())
-	} else {
-		modelsList, err = gorm.G[models.Model](models.DB).Find(c.Request.Context())
+	// 分页参数
+	pageStr := c.Query("page")
+	page := 1
+	if pageStr != "" {
+		parsedPage, err := strconv.Atoi(pageStr)
+		if err != nil || parsedPage < 1 {
+			common.BadRequest(c, "Invalid page parameter")
+			return
+		}
+		page = parsedPage
 	}
 
-	if err != nil {
-		common.InternalServerError(c, err.Error())
+	pageSizeStr := c.Query("page_size")
+	pageSize := 20
+	if pageSizeStr != "" {
+		parsedPageSize, err := strconv.Atoi(pageSizeStr)
+		if err != nil || parsedPageSize < 1 || parsedPageSize > 100 {
+			common.BadRequest(c, "Invalid page_size parameter")
+			return
+		}
+		pageSize = parsedPageSize
+	}
+
+	// 构建查询
+	query := models.DB.Model(&models.Model{})
+
+	if isCustomStr != "" {
+		isCustom := isCustomStr == "true"
+		query = query.Where("is_custom = ?", isCustom)
+	}
+
+	if modelName != "" {
+		query = query.Where("name LIKE ?", "%"+modelName+"%")
+	}
+
+	// 如果有供应商过滤，使用 JOIN 查询
+	if providerName != "" {
+		query = query.Joins("JOIN providers ON models.provider_id = providers.id").
+			Where("providers.name = ?", providerName)
+	}
+
+	// 获取总数
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		common.InternalServerError(c, "Failed to count models: "+err.Error())
+		return
+	}
+
+	// 获取分页数据
+	var modelsList []models.Model
+	offset := (page - 1) * pageSize
+	if err := query.Order("models.id DESC").Offset(offset).Limit(pageSize).Find(&modelsList).Error; err != nil {
+		common.InternalServerError(c, "Failed to query models: "+err.Error())
 		return
 	}
 
@@ -288,20 +332,29 @@ func GetModels(c *gin.Context) {
 
 	result := make([]ModelWithProviderName, 0, len(modelsList))
 	for _, model := range modelsList {
-		providerName := ""
+		providerNameStr := ""
 		if model.ProviderID > 0 {
 			provider, err := gorm.G[models.Provider](models.DB).Where("id = ?", model.ProviderID).First(c.Request.Context())
 			if err == nil {
-				providerName = provider.Name
+				providerNameStr = provider.Name
 			}
 		}
+
 		result = append(result, ModelWithProviderName{
 			Model:        model,
-			ProviderName: providerName,
+			ProviderName: providerNameStr,
 		})
 	}
 
-	common.Success(c, result)
+	response := map[string]any{
+		"data":      result,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+		"pages":     (total + int64(pageSize) - 1) / int64(pageSize),
+	}
+
+	common.Success(c, response)
 }
 
 // CreateModel 创建模型

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Pagination } from "@/components/ui/pagination";
 import {
   Table,
   TableBody,
@@ -49,8 +50,9 @@ import {
   updateModel,
   deleteModel,
   createModelProvider,
+  getProviders,
 } from "@/lib/api";
-import type { Model } from "@/lib/api";
+import type { Model, Provider } from "@/lib/api";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 
@@ -86,6 +88,16 @@ export default function ModelsPage() {
   const [linkingModel, setLinkingModel] = useState<Model | null>(null);
   const [selectedCustomModelId, setSelectedCustomModelId] = useState<number>(0);
   const [linkLoading, setLinkLoading] = useState(false);
+  const [customModelsForLink, setCustomModelsForLink] = useState<Model[]>([]);
+  
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [filterProvider, setFilterProvider] = useState<string>("all");
+  const [filterName, setFilterName] = useState<string>("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [syncedCount, setSyncedCount] = useState(0);
+  const [customCount, setCustomCount] = useState(0);
 
   const syncedModels = useMemo(() => models.filter(m => !m.IsCustom), [models]);
   const customModels = useMemo(() => models.filter(m => m.IsCustom), [models]);
@@ -103,14 +115,56 @@ export default function ModelsPage() {
   });
 
   useEffect(() => {
-    fetchModels();
+    fetchProviders();
+    fetchInitialCounts();
   }, []);
+
+  const fetchInitialCounts = async () => {
+    try {
+      const [syncedRes, customRes] = await Promise.all([
+        getModels({ isCustom: false, page: 1, pageSize: 1 }),
+        getModels({ isCustom: true, page: 1, pageSize: 1 })
+      ]);
+      setSyncedCount(syncedRes.total);
+      setCustomCount(customRes.total);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    fetchModels();
+  }, [activeTab, filterProvider, filterName, currentPage, pageSize]);
+
+  const fetchProviders = async () => {
+    try {
+      const data = await getProviders();
+      setProviders(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const fetchModels = async () => {
     try {
       setLoading(true);
-      const data = await getModels();
-      setModels(data);
+      const isCustom = activeTab === "custom";
+      const response = await getModels({
+        isCustom: isCustom,
+        providerName: filterProvider === "all" ? undefined : filterProvider,
+        name: filterName,
+        page: currentPage,
+        pageSize,
+      });
+      setModels(response.data);
+      setTotalPages(response.pages);
+      
+      // 更新对应标签页的计数
+      if (isCustom) {
+        setCustomCount(response.total);
+      } else {
+        setSyncedCount(response.total);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(`获取模型列表失败: ${message}`);
@@ -118,6 +172,20 @@ export default function ModelsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setCurrentPage(1);
+  };
+
+  const handleSearch = () => {
+    setCurrentPage(1);
+    fetchModels();
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
   };
 
   const handleCreate = async (values: z.infer<typeof formSchema>) => {
@@ -186,10 +254,19 @@ export default function ModelsPage() {
     setDeleteId(id);
   };
 
-  const openLinkDialog = (model: Model) => {
+  const openLinkDialog = async (model: Model) => {
     setLinkingModel(model);
     setSelectedCustomModelId(0);
     setLinkOpen(true);
+    
+    // 获取所有代理模型
+    try {
+      const response = await getModels({ isCustom: true, page: 1, pageSize: 100 });
+      setCustomModelsForLink(response.data);
+    } catch (err) {
+      console.error(err);
+      toast.error("获取代理模型列表失败");
+    }
   };
 
   const handleLink = async () => {
@@ -235,23 +312,49 @@ export default function ModelsPage() {
             </Button>
           </div>
         </div>
+        <div className="flex flex-wrap gap-2">
+          <Select value={filterProvider} onValueChange={setFilterProvider}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="全部供应商" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">全部供应商</SelectItem>
+              {providers.map((p) => (
+                <SelectItem key={p.ID} value={p.Name}>
+                  {p.Name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            placeholder="搜索模型名称"
+            value={filterName}
+            onChange={(e) => setFilterName(e.target.value)}
+            className="w-[200px]"
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          />
+          <Button onClick={handleSearch} variant="secondary">
+            搜索
+          </Button>
+        </div>
       </div>
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 min-h-0 flex flex-col">
         <TabsList className="flex-shrink-0 mx-1">
-          <TabsTrigger value="synced">供应商模型 ({syncedModels.length})</TabsTrigger>
-          <TabsTrigger value="custom">代理模型 ({customModels.length})</TabsTrigger>
+          <TabsTrigger value="synced">供应商模型 ({syncedCount})</TabsTrigger>
+          <TabsTrigger value="custom">代理模型 ({customCount})</TabsTrigger>
         </TabsList>
         
-        <TabsContent value="synced" className="flex-1 min-h-0 border rounded-md bg-background shadow-sm mt-2 mx-1">
-          {loading ? (
-            <div className="flex h-full items-center justify-center">
-              <Loading message="加载模型列表" />
-            </div>
-          ) : syncedModels.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-muted-foreground">
-              暂无供应商模型
-            </div>
-          ) : (
+        <TabsContent value="synced" className="flex-1 min-h-0 flex flex-col gap-2 mt-2 mx-1">
+          <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
+            {loading ? (
+              <div className="flex h-full items-center justify-center">
+                <Loading message="加载模型列表" />
+              </div>
+            ) : syncedModels.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                暂无供应商模型
+              </div>
+            ) : (
             <div className="h-full flex flex-col">
               <div className="hidden sm:block w-full overflow-x-auto">
                 <Table className="min-w-[900px]">
@@ -368,21 +471,47 @@ export default function ModelsPage() {
                     </div>
                   </div>
                 ))}
+                </div>
+              </div>
+            )}
+          </div>
+          {!loading && syncedModels.length > 0 && (
+            <div className="flex items-center justify-between px-2 py-2 border-t">
+              <div className="text-sm text-muted-foreground">
+                共 {syncedModels.length} 条
+              </div>
+              <div className="flex items-center gap-2">
+                <Select value={pageSize.toString()} onValueChange={(v) => handlePageSizeChange(Number(v))}>
+                  <SelectTrigger className="h-8 w-[100px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10 条/页</SelectItem>
+                    <SelectItem value="20">20 条/页</SelectItem>
+                    <SelectItem value="50">50 条/页</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={handlePageChange}
+                />
               </div>
             </div>
           )}
         </TabsContent>
 
-        <TabsContent value="custom" className="flex-1 min-h-0 border rounded-md bg-background shadow-sm mt-2 mx-1">
-          {loading ? (
-            <div className="flex h-full items-center justify-center">
-              <Loading message="加载模型列表" />
-            </div>
-          ) : customModels.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-muted-foreground">
-              暂无代理模型
-            </div>
-          ) : (
+        <TabsContent value="custom" className="flex-1 min-h-0 flex flex-col gap-2 mt-2 mx-1">
+          <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
+            {loading ? (
+              <div className="flex h-full items-center justify-center">
+                <Loading message="加载模型列表" />
+              </div>
+            ) : customModels.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-muted-foreground">
+                暂无代理模型
+              </div>
+            ) : (
             <div className="h-full flex flex-col">
             <div className="hidden sm:block w-full overflow-x-auto">
               <Table className="min-w-[900px]">
@@ -491,6 +620,31 @@ export default function ModelsPage() {
               ))}
             </div>
           </div>
+            )}
+          </div>
+          {!loading && customModels.length > 0 && (
+            <div className="flex items-center justify-between px-2 py-2 border-t">
+              <div className="text-sm text-muted-foreground">
+                共 {customModels.length} 条
+              </div>
+              <div className="flex items-center gap-2">
+                <Select value={pageSize.toString()} onValueChange={(v) => handlePageSizeChange(Number(v))}>
+                  <SelectTrigger className="h-8 w-[100px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10 条/页</SelectItem>
+                    <SelectItem value="20">20 条/页</SelectItem>
+                    <SelectItem value="50">50 条/页</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={handlePageChange}
+                />
+              </div>
+            </div>
           )}
         </TabsContent>
       </Tabs>
@@ -625,7 +779,7 @@ export default function ModelsPage() {
                   <SelectValue placeholder="选择代理模型" />
                 </SelectTrigger>
                 <SelectContent>
-                  {customModels.map((m) => (
+                  {customModelsForLink.map((m) => (
                     <SelectItem key={m.ID} value={m.ID.toString()}>
                       {m.Name}
                     </SelectItem>

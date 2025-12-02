@@ -223,8 +223,8 @@ export default function ModelProvidersPage() {
 
   const fetchModels = async () => {
     try {
-      const data = await getModels(true);
-      setModels(data);
+      const response = await getModels({ isCustom: true });
+      setModels(response.data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(`获取模型列表失败: ${message}`);

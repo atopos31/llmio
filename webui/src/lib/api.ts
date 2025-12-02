@@ -142,9 +142,35 @@ export async function deleteProvider(id: number): Promise<void> {
 }
 
 // Model API functions
-export async function getModels(customOnly?: boolean): Promise<Model[]> {
-  const params = customOnly ? '?custom_only=true' : '';
-  return apiRequest<Model[]>(`/models${params}`);
+export interface ModelsResponse {
+  data: Model[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+}
+
+export async function getModels(filters?: {
+  isCustom?: boolean;
+  providerName?: string;
+  name?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<ModelsResponse> {
+  const params = new URLSearchParams();
+  
+  if (filters?.isCustom !== undefined) {
+    params.append("is_custom", filters.isCustom ? "true" : "false");
+  }
+  if (filters?.providerName) params.append("provider_name", filters.providerName);
+  if (filters?.name) params.append("name", filters.name);
+  if (filters?.page) params.append("page", filters.page.toString());
+  if (filters?.pageSize) params.append("page_size", filters.pageSize.toString());
+  
+  const queryString = params.toString();
+  const endpoint = queryString ? `/models?${queryString}` : '/models';
+  
+  return apiRequest<ModelsResponse>(endpoint);
 }
 
 export async function createModel(model: {

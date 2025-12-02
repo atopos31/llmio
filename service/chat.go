@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/atopos31/llmio/balancers"
-	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
 	"github.com/samber/lo"
@@ -218,7 +217,7 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 			if _, err := SaveChatLog(ctx, models.ChatLog{
 				Name:   before.Model,
 				Status: "error",
-				Style:  consts.StyleOpenAI,
+				Style:  style,
 				Error:  err.Error(),
 			}); err != nil {
 				return nil, err

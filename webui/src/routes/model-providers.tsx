@@ -666,10 +666,10 @@ export default function ModelProvidersPage() {
       <div className="flex flex-col gap-2 flex-shrink-0">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
           <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">关联模型</Label>
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">代理模型</Label>
             <Select value={selectedModelId?.toString() || ""} onValueChange={handleModelChange}>
               <SelectTrigger className="h-8 w-full text-xs px-2">
-                <SelectValue placeholder="选择模型" />
+                <SelectValue placeholder="代理模型" />
               </SelectTrigger>
               <SelectContent>
                 {models.map((model) => (

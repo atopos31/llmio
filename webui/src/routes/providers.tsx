@@ -385,7 +385,7 @@ export default function ProvidersPage() {
                     <TableHead>类型</TableHead>
                     <TableHead>配置</TableHead>
                     <TableHead>控制台</TableHead>
-                    <TableHead className="w-[260px]">操作</TableHead>
+                    <TableHead className="w-[320px]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -414,7 +414,7 @@ export default function ProvidersPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex gap-2">
                           <Button variant="outline" size="sm" onClick={() => openEditDialog(provider)}>
                             编辑
                           </Button>

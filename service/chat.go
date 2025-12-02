@@ -29,7 +29,16 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 	go RecordRetryLog(context.Background(), retryLog)
 
-	balancer := balancers.WeightedRandom(providersWithMeta.WeightItems)
+	// 选择负载均衡策略
+	var balancer balancers.Balancer
+	switch providersWithMeta.Strategy {
+	case consts.BalancerLottery:
+		balancer = balancers.NewLottery(providersWithMeta.WeightItems)
+	case consts.BalancerRotor:
+		balancer = balancers.NewRotor(providersWithMeta.WeightItems)
+	default:
+		balancer = balancers.NewLottery(providersWithMeta.WeightItems)
+	}
 
 	client := providers.GetClient(time.Second * time.Duration(providersWithMeta.TimeOut) / 3)
 
@@ -209,6 +218,7 @@ type ProvidersWithMeta struct {
 	MaxRetry             int
 	TimeOut              int
 	IOLog                bool
+	Strategy             string // 负载均衡策略
 }
 
 func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Before) (*ProvidersWithMeta, error) {
@@ -218,7 +228,7 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 			if _, err := SaveChatLog(ctx, models.ChatLog{
 				Name:   before.Model,
 				Status: "error",
-				Style:  consts.StyleOpenAI,
+				Style:  style,
 				Error:  err.Error(),
 			}); err != nil {
 				return nil, err
@@ -282,5 +292,6 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 		MaxRetry:             model.MaxRetry,
 		TimeOut:              model.TimeOut,
 		IOLog:                *model.IOLog,
+		Strategy:             model.Strategy,
 	}, nil
 }

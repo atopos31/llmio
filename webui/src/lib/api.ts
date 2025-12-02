@@ -21,6 +21,7 @@ export interface Model {
   ProviderID: number;
   provider_name: string;
   provider_type: string;
+  Strategy: string;
 }
 
 export interface ModelWithProvider {
@@ -181,6 +182,7 @@ export async function createModel(model: {
   max_retry: number;
   time_out: number;
   io_log: boolean;
+  strategy: string;
 }): Promise<Model> {
   return apiRequest<Model>('/models', {
     method: 'POST',
@@ -194,6 +196,7 @@ export async function updateModel(id: number, model: {
   max_retry?: number;
   time_out?: number;
   io_log?: boolean;
+  strategy?: string;
 }): Promise<Model> {
   return apiRequest<Model>(`/models/${id}`, {
     method: 'PUT',

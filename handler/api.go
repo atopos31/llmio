@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/atopos31/llmio/common"
+	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
 	"github.com/gin-gonic/gin"
@@ -28,6 +29,7 @@ type ModelRequest struct {
 	MaxRetry int    `json:"max_retry"`
 	TimeOut  int    `json:"time_out"`
 	IOLog    bool   `json:"io_log"`
+	Strategy string `json:"strategy"`
 }
 
 // ModelWithProviderRequest represents the request body for creating/updating a model-provider association
@@ -379,6 +381,10 @@ func CreateModel(c *gin.Context) {
 		common.BadRequest(c, fmt.Sprintf("Model: %s already exists", req.Name))
 		return
 	}
+	strategy := req.Strategy
+	if strategy == "" {
+		strategy = consts.BalancerDefault
+	}
 
 	model := models.Model{
 		Name:     req.Name,
@@ -387,6 +393,7 @@ func CreateModel(c *gin.Context) {
 		TimeOut:  req.TimeOut,
 		IOLog:    &req.IOLog,
 		IsCustom: true,
+		Strategy: strategy,
 	}
 
 	if err := gorm.G[models.Model](models.DB).Create(c.Request.Context(), &model); err != nil {
@@ -423,6 +430,11 @@ func UpdateModel(c *gin.Context) {
 		return
 	}
 
+	strategy := req.Strategy
+	if strategy == "" {
+		strategy = consts.BalancerDefault
+	}
+
 	// Update fields
 	updates := models.Model{
 		Name:     req.Name,
@@ -430,6 +442,7 @@ func UpdateModel(c *gin.Context) {
 		MaxRetry: req.MaxRetry,
 		TimeOut:  req.TimeOut,
 		IOLog:    &req.IOLog,
+		Strategy: strategy,
 	}
 
 	if _, err := gorm.G[models.Model](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {

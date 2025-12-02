@@ -31,6 +31,7 @@ type Model struct {
 	MaxRetry   int    // 重试次数限制
 	TimeOut    int    // 超时时间 单位秒
 	IOLog      *bool  // 是否记录IO
+	Strategy   string // 负载均衡策略 默认 lottery
 }
 
 type ModelWithProvider struct {

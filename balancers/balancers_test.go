@@ -4,22 +4,22 @@ import (
 	"testing"
 )
 
-func TestWeightedRandomPopEmpty(t *testing.T) {
-	w := WeightedRandom{}
+func TestLotteryPopEmpty(t *testing.T) {
+	w := Lottery{}
 	if _, err := w.Pop(); err == nil {
 		t.Fatalf("expected error on empty set")
 	}
 }
 
-func TestWeightedRandomPopZeroTotal(t *testing.T) {
-	w := WeightedRandom{1: 0, 2: 0}
+func TestLotteryPopZeroTotal(t *testing.T) {
+	w := Lottery{1: 0, 2: 0}
 	if _, err := w.Pop(); err == nil {
 		t.Fatalf("expected error when total weight is zero")
 	}
 }
 
-func TestWeightedRandomPopSingle(t *testing.T) {
-	w := WeightedRandom{5: 3}
+func TestLotteryPopSingle(t *testing.T) {
+	w := Lottery{5: 3}
 	for i := 0; i < 5; i++ {
 		id, err := w.Pop()
 		if err != nil {
@@ -31,22 +31,22 @@ func TestWeightedRandomPopSingle(t *testing.T) {
 	}
 }
 
-func TestWeightedRandomDelete(t *testing.T) {
-	w := WeightedRandom{1: 1}
+func TestLotteryDelete(t *testing.T) {
+	w := Lottery{1: 1}
 	w.Delete(1)
 	if _, ok := w[1]; ok {
 		t.Fatalf("expected key 1 to be removed")
 	}
 }
 
-func TestWeightedList(t *testing.T) {
-	t.Run("NewWeightedList", func(t *testing.T) {
+func TestRotor(t *testing.T) {
+	t.Run("NewRotor", func(t *testing.T) {
 		items := map[uint]int{
 			1: 10,
 			2: 20,
 			3: 30,
 		}
-		wl := NewWeightedList(items)
+		wl := NewRotor(items)
 
 		if wl.Len() != 3 {
 			t.Errorf("Expected length 3, got %d", wl.Len())
@@ -59,7 +59,7 @@ func TestWeightedList(t *testing.T) {
 			2: 20,
 			3: 30,
 		}
-		wl := NewWeightedList(items)
+		wl := NewRotor(items)
 
 		// Should return the item with highest weight (3)
 		result, err := wl.Pop()
@@ -72,7 +72,7 @@ func TestWeightedList(t *testing.T) {
 	})
 
 	t.Run("Pop empty list", func(t *testing.T) {
-		wl := NewWeightedList(map[uint]int{})
+		wl := NewRotor(map[uint]int{})
 		_, err := wl.Pop()
 		if err == nil {
 			t.Error("Expected error when popping from empty list")
@@ -85,7 +85,7 @@ func TestWeightedList(t *testing.T) {
 			2: 20,
 			3: 30,
 		}
-		wl := NewWeightedList(items)
+		wl := NewRotor(items)
 
 		wl.Delete(2)
 		if wl.Len() != 2 {
@@ -110,7 +110,7 @@ func TestWeightedList(t *testing.T) {
 			1: 10,
 			2: 20,
 		}
-		wl := NewWeightedList(items)
+		wl := NewRotor(items)
 
 		originalLen := wl.Len()
 		wl.Delete(999) // Non-existent item
@@ -126,7 +126,7 @@ func TestWeightedList(t *testing.T) {
 			2: 20,
 			3: 30,
 		}
-		wl := NewWeightedList(items)
+		wl := NewRotor(items)
 
 		// Reduce item 3 (highest weight)
 		wl.Reduce(3)
@@ -143,7 +143,7 @@ func TestWeightedList(t *testing.T) {
 			1: 10,
 			2: 20,
 		}
-		wl := NewWeightedList(items)
+		wl := NewRotor(items)
 
 		originalLen := wl.Len()
 		wl.Reduce(999) // Non-existent item
@@ -160,7 +160,7 @@ func TestWeightedList(t *testing.T) {
 			3: 30,
 			4: 40,
 		}
-		wl := NewWeightedList(items)
+		wl := NewRotor(items)
 
 		// Initial state: [4, 3, 2, 1] (sorted by weight)
 
@@ -208,7 +208,7 @@ func TestWeightedList(t *testing.T) {
 			4: 20,
 			5: 8,
 		}
-		wl := NewWeightedList(items)
+		wl := NewRotor(items)
 
 		// Should be ordered: [4, 2, 3, 5, 1]
 		expectedOrder := []uint{4, 2, 3, 5, 1}
@@ -226,7 +226,7 @@ func TestWeightedList(t *testing.T) {
 	})
 }
 
-func BenchmarkWeightedRandom(b *testing.B) {
+func BenchmarkLottery(b *testing.B) {
 	items := map[uint]int{
 		1: 10,
 		2: 20,
@@ -237,27 +237,27 @@ func BenchmarkWeightedRandom(b *testing.B) {
 
 	b.Run("Pop", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			w := NewWeightedRandom(items)
+			w := NewLottery(items)
 			w.Pop()
 		}
 	})
 
 	b.Run("Delete", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			w := NewWeightedRandom(items)
+			w := NewLottery(items)
 			w.Delete(3)
 		}
 	})
 
 	b.Run("Reduce", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			w := NewWeightedRandom(items)
+			w := NewLottery(items)
 			w.Reduce(3)
 		}
 	})
 }
 
-func BenchmarkWeightedList(b *testing.B) {
+func BenchmarkRotor(b *testing.B) {
 	items := map[uint]int{
 		1: 10,
 		2: 20,
@@ -268,21 +268,21 @@ func BenchmarkWeightedList(b *testing.B) {
 
 	b.Run("Pop", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			wl := NewWeightedList(items)
+			wl := NewRotor(items)
 			wl.Pop()
 		}
 	})
 
 	b.Run("Delete", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			wl := NewWeightedList(items)
+			wl := NewRotor(items)
 			wl.Delete(3)
 		}
 	})
 
 	b.Run("Reduce", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			wl := NewWeightedList(items)
+			wl := NewRotor(items)
 			wl.Reduce(3)
 		}
 	})

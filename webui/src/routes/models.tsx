@@ -64,6 +64,9 @@ const MobileInfoItem = ({ label, value }: MobileInfoItemProps) => (
   </div>
 );
 
+const renderStrategy = (strategy?: string) =>
+  strategy === "rotor" ? "Rotor" : "Lottery";
+
 // 定义表单验证模式
 const formSchema = z.object({
   name: z.string().min(1, { message: "模型名称不能为空" }),
@@ -71,6 +74,7 @@ const formSchema = z.object({
   max_retry: z.number().min(0, { message: "重试次数限制不能为负数" }),
   time_out: z.number().min(0, { message: "超时时间不能为负数" }),
   io_log: z.boolean(),
+  strategy: z.enum(["lottery", "rotor"]),
 });
 
 export default function ModelsPage() {
@@ -90,6 +94,7 @@ export default function ModelsPage() {
       max_retry: 10,
       time_out: 60,
       io_log: false,
+      strategy: "lottery",
     },
   });
 
@@ -114,10 +119,17 @@ export default function ModelsPage() {
 
   const handleCreate = async (values: z.infer<typeof formSchema>) => {
     try {
-      await createModel(values);
+      await createModel({
+        name: values.name,
+        remark: values.remark,
+        max_retry: values.max_retry,
+        time_out: values.time_out,
+        io_log: values.io_log,
+        strategy: values.strategy,
+      });
       setOpen(false);
       toast.success(`模型: ${values.name} 创建成功`);
-      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false });
+      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
       fetchModels();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -128,11 +140,18 @@ export default function ModelsPage() {
   const handleUpdate = async (values: z.infer<typeof formSchema>) => {
     if (!editingModel) return;
     try {
-      await updateModel(editingModel.ID, values);
+      await updateModel(editingModel.ID, {
+        name: values.name,
+        remark: values.remark,
+        max_retry: values.max_retry,
+        time_out: values.time_out,
+        io_log: values.io_log,
+        strategy: values.strategy,
+      });
       setOpen(false);
       toast.success(`模型: ${values.name} 更新成功`);
       setEditingModel(null);
-      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false });
+      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
       fetchModels();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -164,13 +183,14 @@ export default function ModelsPage() {
       max_retry: model.MaxRetry,
       time_out: model.TimeOut,
       io_log: model.IOLog,
+      strategy: model.Strategy === "rotor" ? "rotor" : "lottery",
     });
     setOpen(true);
   };
 
   const openCreateDialog = () => {
     setEditingModel(null);
-    form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false });
+    form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
     setOpen(true);
   };
 
@@ -212,6 +232,7 @@ export default function ModelsPage() {
                     <TableHead>备注</TableHead>
                     <TableHead>重试次数限制</TableHead>
                     <TableHead>超时时间(秒)</TableHead>
+                    <TableHead>负载策略</TableHead>
                     <TableHead>IO 记录</TableHead>
                     <TableHead className="w-[220px]">操作</TableHead>
                   </TableRow>
@@ -226,6 +247,7 @@ export default function ModelsPage() {
                       </TableCell>
                       <TableCell>{model.MaxRetry}</TableCell>
                       <TableCell>{model.TimeOut}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{renderStrategy(model.Strategy)}</TableCell>
                       <TableCell>
                         <span className={model.IOLog ? "text-green-500" : "text-red-500"}>
                           {model.IOLog ? '✓' : '✗'}
@@ -308,6 +330,7 @@ export default function ModelsPage() {
                   <div className="grid grid-cols-2 gap-3 text-xs">
                     <MobileInfoItem label="重试次数" value={model.MaxRetry} />
                     <MobileInfoItem label="超时时间" value={`${model.TimeOut} 秒`} />
+                    <MobileInfoItem label="负载策略" value={renderStrategy(model.Strategy)} />
                     <MobileInfoItem
                       label="IO 记录"
                       value={<span className={model.IOLog ? "text-green-600" : "text-red-600"}>{model.IOLog ? '✓' : '✗'}</span>}
@@ -407,9 +430,6 @@ export default function ModelsPage() {
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
                     <div className="space-y-0.5">
                       <FormLabel className="text-base">IO 记录</FormLabel>
-                      <div className="text-sm text-muted-foreground">
-                        是否记录输入输出日志
-                      </div>
                     </div>
                     <FormControl>
                       <Checkbox
@@ -417,6 +437,51 @@ export default function ModelsPage() {
                         onCheckedChange={field.onChange}
                       />
                     </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="strategy"
+                render={({ field }) => (
+                  <FormItem className="rounded-lg border p-4 space-y-3">
+                    <div className="flex flex-col gap-1">
+                      <FormLabel className="text-base">负载均衡策略</FormLabel>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {[
+                        {
+                          value: "lottery",
+                          title: "Lottery",
+                          desc: "按权重概率抽取, 适合随机分散流量.",
+                        },
+                        {
+                          value: "rotor",
+                          title: "Rotor",
+                          desc: "按权重循环轮转, 适合需要缓存命中场景.",
+                        },
+                      ].map((option) => (
+                        <label
+                          key={option.value}
+                          className="flex cursor-pointer items-start gap-3 rounded-md border p-3 hover:bg-accent"
+                        >
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value === option.value}
+                              onCheckedChange={(checked) => {
+                                if (checked) field.onChange(option.value);
+                              }}
+                            />
+                          </FormControl>
+                          <div className="space-y-1">
+                            <p className="font-medium leading-none">{option.title}</p>
+                            <p className="text-[13px] text-muted-foreground">{option.desc}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    <FormMessage />
                   </FormItem>
                 )}
               />

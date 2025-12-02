@@ -15,13 +15,14 @@ type Balancer interface {
 	Reduce(key uint)
 }
 
-type WeightedRandom map[uint]int
+// 按权重概率抽取，类似抽签。
+type Lottery map[uint]int
 
-func NewWeightedRandom(items map[uint]int) Balancer {
-	return WeightedRandom(items)
+func NewLottery(items map[uint]int) Balancer {
+	return Lottery(items)
 }
 
-func (w WeightedRandom) Pop() (uint, error) {
+func (w Lottery) Pop() (uint, error) {
 	if len(w) == 0 {
 		return 0, fmt.Errorf("no provide items")
 	}
@@ -42,17 +43,18 @@ func (w WeightedRandom) Pop() (uint, error) {
 	return 0, fmt.Errorf("unexpected error")
 }
 
-func (w WeightedRandom) Delete(key uint) {
+func (w Lottery) Delete(key uint) {
 	delete(w, key)
 }
 
-func (w WeightedRandom) Reduce(key uint) {
+func (w Lottery) Reduce(key uint) {
 	w[key] -= w[key] / 3
 }
 
-type WeightedList struct{ *list.List }
+// 按顺序循环轮转，每次降低权重后移到队尾
+type Rotor struct{ *list.List }
 
-func NewWeightedList(items map[uint]int) WeightedList {
+func NewRotor(items map[uint]int) Rotor {
 	l := list.New()
 	entries := lo.Entries(items)
 	slices.SortFunc(entries, func(a lo.Entry[uint, int], b lo.Entry[uint, int]) int {
@@ -61,10 +63,10 @@ func NewWeightedList(items map[uint]int) WeightedList {
 	for _, entry := range entries {
 		l.PushBack(entry.Key)
 	}
-	return WeightedList{l}
+	return Rotor{l}
 }
 
-func (w WeightedList) Pop() (uint, error) {
+func (w Rotor) Pop() (uint, error) {
 	if w.Len() == 0 {
 		return 0, fmt.Errorf("no provide items")
 	}
@@ -72,7 +74,7 @@ func (w WeightedList) Pop() (uint, error) {
 	return e.Value.(uint), nil
 }
 
-func (w WeightedList) Delete(key uint) {
+func (w Rotor) Delete(key uint) {
 	for e := w.Front(); e != nil; e = e.Next() {
 		if e.Value.(uint) == key {
 			w.Remove(e)
@@ -81,7 +83,7 @@ func (w WeightedList) Delete(key uint) {
 	}
 }
 
-func (w WeightedList) Reduce(key uint) {
+func (w Rotor) Reduce(key uint) {
 	for e := w.Front(); e != nil; e = e.Next() {
 		if e.Value.(uint) == key {
 			w.MoveToBack(e)

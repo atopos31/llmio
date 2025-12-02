@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/atopos31/llmio/consts"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -36,6 +37,9 @@ func Init(ctx context.Context, path string) {
 	if _, err := gorm.G[ModelWithProvider](DB).Where("customer_headers IS NULL").Updates(ctx, ModelWithProvider{
 		CustomerHeaders: map[string]string{},
 	}); err != nil {
+		panic(err)
+	}
+	if _, err := gorm.G[Model](DB).Where("strategy = '' OR strategy IS NULL").Update(ctx, "strategy", consts.BalancerDefault); err != nil {
 		panic(err)
 	}
 }

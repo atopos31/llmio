@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -48,6 +48,7 @@ import {
   createModel,
   updateModel,
   deleteModel,
+  createModelProvider,
 } from "@/lib/api";
 import type { Model } from "@/lib/api";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -75,13 +76,16 @@ const formSchema = z.object({
 });
 
 export default function ModelsPage() {
-  const navigate = useNavigate();
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<Model | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState("synced");
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkingModel, setLinkingModel] = useState<Model | null>(null);
+  const [selectedCustomModelId, setSelectedCustomModelId] = useState<number>(0);
+  const [linkLoading, setLinkLoading] = useState(false);
 
   const syncedModels = useMemo(() => models.filter(m => !m.IsCustom), [models]);
   const customModels = useMemo(() => models.filter(m => m.IsCustom), [models]);
@@ -99,7 +103,6 @@ export default function ModelsPage() {
   });
 
   useEffect(() => {
-    console.log("Fetching models...");
     fetchModels();
   }, []);
 
@@ -183,6 +186,42 @@ export default function ModelsPage() {
     setDeleteId(id);
   };
 
+  const openLinkDialog = (model: Model) => {
+    setLinkingModel(model);
+    setSelectedCustomModelId(0);
+    setLinkOpen(true);
+  };
+
+  const handleLink = async () => {
+    if (!linkingModel || !selectedCustomModelId) {
+      toast.error("请选择代理模型");
+      return;
+    }
+
+    try {
+      setLinkLoading(true);
+      await createModelProvider({
+        model_id: selectedCustomModelId,
+        provider_name: linkingModel.Name,
+        provider_id: linkingModel.ID,
+        tool_call: false,
+        structured_output: false,
+        image: false,
+        with_header: false,
+        customer_headers: {},
+        weight: 1,
+      });
+      toast.success("关联成功");
+      setLinkOpen(false);
+      setLinkingModel(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`关联失败: ${message}`);
+    } finally {
+      setLinkLoading(false);
+    }
+  };
+
   return (
     <div className="h-full min-h-0 flex flex-col gap-4 p-1">
       <div className="flex flex-col gap-2 flex-shrink-0">
@@ -249,7 +288,7 @@ export default function ModelsPage() {
                             <Button
                               variant="secondary"
                               size="sm"
-                              onClick={() => navigate(`/model-providers?modelId=${model.ID}`)}
+                              onClick={() => openLinkDialog(model)}
                             >
                               关联
                             </Button>
@@ -290,7 +329,7 @@ export default function ModelsPage() {
                         {model.provider_name && <p className="text-[11px] text-muted-foreground">供应商: {model.provider_name}</p>}
                       </div>
                       <div className="flex flex-wrap justify-end gap-1.5">
-                        <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => navigate(`/model-providers?modelId=${model.ID}`)}>
+                        <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => openLinkDialog(model)}>
                           关联
                         </Button>
                         <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialog(model)}>
@@ -380,7 +419,7 @@ export default function ModelsPage() {
                           <Button
                             variant="secondary"
                             size="sm"
-                            onClick={() => navigate(`/model-providers?modelId=${model.ID}`)}
+                            onClick={() => openLinkDialog(model)}
                           >
                             关联
                           </Button>
@@ -421,7 +460,7 @@ export default function ModelsPage() {
                       {model.provider_name && <p className="text-[11px] text-muted-foreground">供应商: {model.provider_name}</p>}
                     </div>
                     <div className="flex flex-wrap justify-end gap-1.5">
-                      <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => navigate(`/model-providers?modelId=${model.ID}`)}>
+                      <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => openLinkDialog(model)}>
                         关联
                       </Button>
                       <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialog(model)}>
@@ -577,6 +616,50 @@ export default function ModelsPage() {
               </DialogFooter>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={linkOpen} onOpenChange={setLinkOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>快速关联</DialogTitle>
+            <DialogDescription>
+              将供应商模型关联到代理模型
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">代理模型</label>
+              <Select value={selectedCustomModelId.toString()} onValueChange={(v) => setSelectedCustomModelId(Number(v))}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="选择代理模型" />
+                </SelectTrigger>
+                <SelectContent>
+                  {customModels.map((m) => (
+                    <SelectItem key={m.ID} value={m.ID.toString()}>
+                      {m.Name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">提供商</label>
+              <Input value={linkingModel?.provider_name || "-"} disabled />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">提供商模型</label>
+              <Input value={linkingModel?.Name || "-"} disabled />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setLinkOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={handleLink} disabled={linkLoading}>
+              {linkLoading ? "关联中..." : "确认关联"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

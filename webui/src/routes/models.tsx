@@ -275,12 +275,19 @@ export default function ModelsPage() {
       return;
     }
 
+    // 获取供应商信息
+    const provider = providers.find(p => p.ID === linkingModel.ProviderID);
+    if (!provider) {
+      toast.error("未找到供应商信息");
+      return;
+    }
+
     try {
       setLinkLoading(true);
       await createModelProvider({
         model_id: selectedCustomModelId,
         provider_name: linkingModel.Name,
-        provider_id: linkingModel.ID,
+        provider_id: provider.ID,
         tool_call: false,
         structured_output: false,
         image: false,

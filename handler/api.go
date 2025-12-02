@@ -328,21 +328,25 @@ func GetModels(c *gin.Context) {
 	type ModelWithProviderName struct {
 		models.Model
 		ProviderName string `json:"provider_name"`
+		ProviderType string `json:"provider_type"`
 	}
 
 	result := make([]ModelWithProviderName, 0, len(modelsList))
 	for _, model := range modelsList {
 		providerNameStr := ""
+		providerTypeStr := ""
 		if model.ProviderID > 0 {
 			provider, err := gorm.G[models.Provider](models.DB).Where("id = ?", model.ProviderID).First(c.Request.Context())
 			if err == nil {
 				providerNameStr = provider.Name
+				providerTypeStr = provider.Type
 			}
 		}
 
 		result = append(result, ModelWithProviderName{
 			Model:        model,
 			ProviderName: providerNameStr,
+			ProviderType: providerTypeStr,
 		})
 	}
 

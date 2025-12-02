@@ -18,7 +18,9 @@ export interface Model {
   TimeOut: number;
   IOLog: boolean;
   IsCustom: boolean;
+  ProviderID: number;
   provider_name: string;
+  provider_type: string;
 }
 
 export interface ModelWithProvider {

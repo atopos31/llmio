@@ -568,6 +568,10 @@ export default function ModelProvidersPage() {
       weight: association.Weight,
       customer_headers: headerPairs.length ? headerPairs : [],
     });
+    // 加载提供商模型列表
+    if (association.ProviderID) {
+      loadProviderModels(association.ProviderID);
+    }
     setOpen(true);
   };
 

@@ -371,7 +371,6 @@ var template = []ProviderTemplate{
 		Template: `{
 			"base_url": "https://api.anthropic.com/v1",
 			"api_key": "YOUR_API_KEY",
-			"beta": "",
 			"version": "2023-06-01"
 		}`,
 	},

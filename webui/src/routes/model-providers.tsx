@@ -737,7 +737,7 @@ export default function ModelProvidersPage() {
         ) : (
           <div className="h-full flex flex-col">
             <div className="hidden sm:block w-full overflow-x-auto">
-              <Table className="min-w-[1150px]">
+              <Table className="min-w-[1200px]">
                 <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
                   <TableRow>
                     <TableHead>ID</TableHead>

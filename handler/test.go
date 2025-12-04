@@ -34,9 +34,19 @@ const (
     }`
 
 	testOpenAIRes = `{
-        "model": "gpt-5-nano",
-        "input": "Write a one-sentence bedtime story about a unicorn."
-    }`
+		"model": "gpt-4.1",
+		"input": [
+			{
+				"role": "user",
+				"content": [
+					{
+						"type": "input_text",
+						"text": "Write a one-sentence bedtime story about a unicorn."
+					}
+				]
+			}
+		]
+  	}`
 
 	testAnthropic = `{
     	"model": "claude-sonnet-4-5",

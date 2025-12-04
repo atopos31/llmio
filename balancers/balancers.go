@@ -24,7 +24,7 @@ func NewLottery(items map[uint]int) Balancer {
 
 func (w Lottery) Pop() (uint, error) {
 	if len(w) == 0 {
-		return 0, fmt.Errorf("no provide items")
+		return 0, fmt.Errorf("no provide items or all items are disabled")
 	}
 	total := 0
 	for _, v := range w {

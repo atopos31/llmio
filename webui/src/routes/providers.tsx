@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Form,
   FormControl,
@@ -59,6 +61,59 @@ import {
 import type { Provider, ProviderTemplate, ProviderModel } from "@/lib/api";
 import { toast } from "sonner";
 
+type ConfigFieldMap = Record<string, string>;
+
+const parseConfigJson = (raw?: string | null): ConfigFieldMap | null => {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return null;
+    }
+    const entries: [string, string][] = [];
+    for (const [key, value] of Object.entries(parsed)) {
+      if (["string", "number", "boolean"].includes(typeof value)) {
+        entries.push([key, String(value)]);
+        continue;
+      }
+      return null;
+    }
+    return Object.fromEntries(entries);
+  } catch {
+    return null;
+  }
+};
+
+const stringifyConfigFields = (fields: ConfigFieldMap) =>
+  JSON.stringify(fields, null, 2);
+
+const mergeTemplateWithConfig = (
+  templateFields: ConfigFieldMap,
+  existingConfig: ConfigFieldMap | null,
+  preserveUnknownKeys: boolean
+): ConfigFieldMap => {
+  if (!existingConfig) {
+    return templateFields;
+  }
+
+  if (preserveUnknownKeys) {
+    return { ...templateFields, ...existingConfig };
+  }
+
+  const merged: ConfigFieldMap = {};
+  for (const [key, value] of Object.entries(templateFields)) {
+    merged[key] = Object.prototype.hasOwnProperty.call(existingConfig, key)
+      ? existingConfig[key]
+      : value;
+  }
+  return merged;
+};
+
+const getConfigBaseUrl = (config: string): string => {
+  const parsed = parseConfigJson(config);
+  return parsed?.base_url ?? "未设置";
+};
+
 // 定义表单验证模式
 const formSchema = z.object({
   name: z.string().min(1, { message: "提供商名称不能为空" }),
@@ -79,6 +134,9 @@ export default function ProvidersPage() {
   const [providerModels, setProviderModels] = useState<ProviderModel[]>([]);
   const [filteredProviderModels, setFilteredProviderModels] = useState<ProviderModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [configFields, setConfigFields] = useState<ConfigFieldMap>({});
+  const [structuredConfigEnabled, setStructuredConfigEnabled] = useState(false);
+  const configCacheRef = useRef<Record<string, ConfigFieldMap>>({});
 
   // 筛选条件
   const [nameFilter, setNameFilter] = useState<string>("");
@@ -88,13 +146,9 @@ export default function ProvidersPage() {
   // 初始化表单
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      name: "",
-      type: "",
-      config: "",
-      console: "",
-    },
+    defaultValues: { name: "", type: "", config: "", console: "" },
   });
+  const selectedProviderType = form.watch("type");
 
   useEffect(() => {
     fetchProviders();
@@ -105,6 +159,62 @@ export default function ProvidersPage() {
   useEffect(() => {
     fetchProviders();
   }, [nameFilter, typeFilter]);
+
+  useEffect(() => {
+    if (!open) {
+      setStructuredConfigEnabled(false);
+      setConfigFields({});
+      configCacheRef.current = {};
+      return;
+    }
+
+    if (!selectedProviderType) {
+      setStructuredConfigEnabled(false);
+      setConfigFields({});
+      return;
+    }
+
+    const template = providerTemplates.find(
+      (item) => item.type === selectedProviderType
+    );
+
+    if (!template) {
+      setStructuredConfigEnabled(false);
+      setConfigFields({});
+      return;
+    }
+
+    const templateFields = parseConfigJson(template.template);
+    if (!templateFields) {
+      setStructuredConfigEnabled(false);
+      setConfigFields({});
+      return;
+    }
+
+    let nextFields = configCacheRef.current[selectedProviderType];
+
+    if (!nextFields && editingProvider && editingProvider.Type === selectedProviderType) {
+      const editingConfig = parseConfigJson(editingProvider.Config);
+      if (editingConfig) {
+        nextFields = mergeTemplateWithConfig(templateFields, editingConfig, true);
+      }
+    }
+
+    if (!nextFields) {
+      nextFields = templateFields;
+    }
+
+    configCacheRef.current[selectedProviderType] = nextFields;
+    setConfigFields(nextFields);
+    setStructuredConfigEnabled(true);
+    form.setValue("config", stringifyConfigFields(nextFields));
+  }, [
+    open,
+    selectedProviderType,
+    providerTemplates,
+    editingProvider,
+    form,
+  ]);
 
   const fetchProviders = async () => {
     try {
@@ -128,9 +238,22 @@ export default function ProvidersPage() {
     try {
       const data = await getProviderTemplates();
       setProviderTemplates(data);
-      // 设置可用的提供商类型
-      const types = data.map(template => template.type);
+      const types = data.map((template) => template.type);
       setAvailableTypes(types);
+
+      if (!form.getValues("type") && types.length > 0) {
+        const firstType = types[0];
+        form.setValue("type", firstType);
+        const firstTemplate = data.find((item) => item.type === firstType);
+        if (firstTemplate) {
+          const parsed = parseConfigJson(firstTemplate.template);
+          if (parsed) {
+            form.setValue("config", stringifyConfigFields(parsed));
+          } else {
+            form.setValue("config", firstTemplate.template);
+          }
+        }
+      }
     } catch (err) {
       console.error("获取提供商模板失败", err);
     }
@@ -160,6 +283,20 @@ export default function ProvidersPage() {
   const copyModelName = async (modelName: string) => {
     await navigator.clipboard.writeText(modelName);
     toast.success(`已复制模型名称: ${modelName}`);
+  };
+
+  const handleConfigFieldChange = (key: string, value: string) => {
+    setConfigFields((prev) => {
+      const updatedFields = { ...prev, [key]: value };
+      if (selectedProviderType) {
+        configCacheRef.current[selectedProviderType] = updatedFields;
+      }
+      form.setValue("config", stringifyConfigFields(updatedFields), {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+      return updatedFields;
+    });
   };
 
   const handleCreate = async (values: z.infer<typeof formSchema>) => {
@@ -218,6 +355,7 @@ export default function ProvidersPage() {
   };
 
   const openEditDialog = (provider: Provider) => {
+    configCacheRef.current = {};
     setEditingProvider(provider);
     form.reset({
       name: provider.Name,
@@ -229,8 +367,26 @@ export default function ProvidersPage() {
   };
 
   const openCreateDialog = () => {
+    configCacheRef.current = {};
+    if (providerTemplates.length === 0) {
+      toast.error("暂无可用的提供商模板");
+      return;
+    }
     setEditingProvider(null);
-    form.reset({ name: "", type: "", config: "", console: "" });
+    const firstTemplate = providerTemplates[0];
+    const defaultType = firstTemplate?.type ?? "";
+    const defaultConfig = firstTemplate
+      ? (() => {
+          const parsed = parseConfigJson(firstTemplate.template);
+          return parsed ? stringifyConfigFields(parsed) : firstTemplate.template;
+        })()
+      : "";
+    form.reset({
+      name: "",
+      type: defaultType,
+      config: defaultConfig,
+      console: "",
+    });
     setOpen(true);
   };
 
@@ -279,7 +435,11 @@ export default function ProvidersPage() {
             </Select>
           </div>
           <div className="flex items-end col-span-2 sm:col-span-1 sm:justify-end">
-            <Button onClick={openCreateDialog} className="h-8 w-full text-xs sm:w-auto sm:ml-auto">
+            <Button
+              onClick={openCreateDialog}
+              className="h-8 w-full text-xs sm:w-auto sm:ml-auto"
+              disabled={providerTemplates.length === 0}
+            >
               添加提供商
             </Button>
           </div>
@@ -297,7 +457,7 @@ export default function ProvidersPage() {
         ) : (
           <div className="h-full flex flex-col">
             <div className="hidden sm:block w-full overflow-x-auto">
-              <Table className="min-w-[1100px]">
+              <Table className="min-w-[1200px]">
                 <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
                   <TableRow>
                     <TableHead>ID</TableHead>
@@ -313,13 +473,11 @@ export default function ProvidersPage() {
                     <TableRow key={provider.ID}>
                       <TableCell className="font-mono text-xs text-muted-foreground">{provider.ID}</TableCell>
                       <TableCell className="font-medium">{provider.Name}</TableCell>
-                      <TableCell className="text-sm">{provider.Type}</TableCell>
-                      <TableCell>
-                        <pre className="text-xs overflow-hidden max-w-md truncate">
-                          {provider.Config}
-                        </pre>
-                      </TableCell>
-                      <TableCell>
+                    <TableCell className="text-sm">{provider.Type}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground font-mono">
+                      {getConfigBaseUrl(provider.Config)}
+                    </TableCell>
+                    <TableCell>
                         {provider.Console ? (
                           <Button
                             title={provider.Console}
@@ -452,33 +610,78 @@ export default function ProvidersPage() {
               <FormField
                 control={form.control}
                 name="type"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>类型</FormLabel>
-                    <FormControl>
-                      <select
-                        {...field}
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                        onChange={(e) => {
-                          field.onChange(e);
-                          // When type changes, populate config with template if available
-                          const selectedTemplate = providerTemplates.find(t => t.type === e.target.value);
-                          if (selectedTemplate) {
-                            form.setValue("config", selectedTemplate.template);
-                          }
-                        }}
-                      >
-                        <option value="">请选择提供商类型</option>
-                        {providerTemplates.map((template) => (
-                          <option key={template.type} value={template.type}>
-                            {template.type}
-                          </option>
-                        ))}
-                      </select>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                render={({ field }) => {
+                  const currentValue = field.value ?? "";
+                  const hasCurrentValue = providerTemplates.some(
+                    (template) => template.type === currentValue
+                  );
+                  const templateOptions =
+                    !hasCurrentValue && currentValue
+                      ? [
+                          ...providerTemplates,
+                          {
+                            type: currentValue,
+                            template: "",
+                          } as ProviderTemplate,
+                        ]
+                      : providerTemplates;
+
+                  return (
+                    <FormItem>
+                      <FormLabel>类型</FormLabel>
+                      <FormControl>
+                        {providerTemplates.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            暂无可用类型，请先配置模板。
+                          </p>
+                        ) : (
+                          <RadioGroup
+                            value={currentValue}
+                            onValueChange={(value) => field.onChange(value)}
+                            className="flex flex-wrap gap-2"
+                          >
+                            {templateOptions.map((template) => {
+                              const radioId = `provider-type-${template.type}`;
+                              const selected = currentValue === template.type;
+                              return (
+                                <label
+                                  key={template.type}
+                                  htmlFor={radioId}
+                                  className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                                    selected
+                                      ? "border-primary bg-primary/10"
+                                      : "border-border"
+                                  }`}
+                                >
+                                  <RadioGroupItem
+                                    id={radioId}
+                                    value={template.type}
+                                    className="sr-only"
+                                  />
+                                  <Checkbox
+                                    checked={selected}
+                                    aria-hidden="true"
+                                    tabIndex={-1}
+                                    className="pointer-events-none"
+                                  />
+                                  <span className="select-none">{template.type}</span>
+                                </label>
+                              );
+                            })}
+                          </RadioGroup>
+                        )}
+                      </FormControl>
+                      {!hasCurrentValue && currentValue && (
+                        <p className="text-xs text-muted-foreground">
+                          当前提供商类型{" "}
+                          <span className="font-mono">{currentValue}</span>{" "}
+                          不在模板列表中，可继续使用或选择其他类型。
+                        </p>
+                      )}
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
 
               <FormField
@@ -487,12 +690,37 @@ export default function ProvidersPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>配置</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        {...field}
-                        className="resize-none whitespace-pre overflow-x-auto"
-                      />
-                    </FormControl>
+                    {structuredConfigEnabled ? (
+                      Object.keys(configFields).length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          当前提供商类型暂无额外配置。
+                        </p>
+                      ) : (
+                        <div className="space-y-3">
+                          {Object.entries(configFields).map(([key, value]) => (
+                            <div key={key} className="space-y-1">
+                              <Label className="text-xs font-medium text-muted-foreground">
+                                {key}
+                              </Label>
+                              <Input
+                                value={value}
+                                onChange={(event) =>
+                                  handleConfigFieldChange(key, event.target.value)
+                                }
+                                placeholder={`请输入 ${key}`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    ) : (
+                      <FormControl>
+                        <Textarea
+                          {...field}
+                          className="resize-none whitespace-pre overflow-x-auto"
+                        />
+                      </FormControl>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}

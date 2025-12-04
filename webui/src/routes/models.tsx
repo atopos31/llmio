@@ -224,7 +224,7 @@ export default function ModelsPage() {
         ) : (
           <div className="h-full flex flex-col">
             <div className="hidden sm:block w-full overflow-x-auto">
-              <Table className="min-w-[900px]">
+              <Table className="min-w-[1100px]">
                 <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
                   <TableRow>
                     <TableHead>ID</TableHead>

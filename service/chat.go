@@ -40,7 +40,10 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		balancer = balancers.NewLottery(providersWithMeta.WeightItems)
 	}
 
-	client := providers.GetClient(time.Second * time.Duration(providersWithMeta.TimeOut) / 3)
+	client := http.DefaultClient
+	if before.Stream {
+		client = providers.GetClient(time.Second * time.Duration(providersWithMeta.TimeOut) / 3)
+	}
 
 	timer := time.NewTimer(time.Second * time.Duration(providersWithMeta.TimeOut))
 	defer timer.Stop()

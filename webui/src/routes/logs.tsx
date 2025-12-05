@@ -230,7 +230,7 @@ export default function LogsPage() {
                 <SelectItem value="all">全部</SelectItem>
                 {userAgents.map((ua) => (
                   <SelectItem key={ua} value={ua}>
-                    <span className="truncate max-w-[140px] block">{ua.length > 20 ? ua.substring(0, 20) + '...' : ua}</span>
+                    <span className="truncate block sm:max-w-[260px] max-w-[360px]">{ua}</span>
                   </SelectItem>
                 ))}
               </SelectContent>

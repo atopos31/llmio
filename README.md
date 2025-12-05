@@ -145,3 +145,7 @@ export ANTHROPIC_API_KEY=<YOUR_TOKEN>
 ## 许可证
 
 本项目基于 MIT License 发布。
+
+## 星标历史
+
+[![Stargazers over time](https://starchart.cc/atopos31/llmio.svg?variant=adaptive)](https://starchart.cc/atopos31/llmio)

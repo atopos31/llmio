@@ -118,9 +118,6 @@ export default function ConfigPage() {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h2 className="text-2xl font-bold tracking-tight">系统配置</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              配置系统杂项参数
-            </p>
           </div>
         </div>
       </div>

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -79,4 +80,18 @@ func (a *Anthropic) Models(ctx context.Context) ([]Model, error) {
 		})
 	}
 	return modelList.Data, nil
+}
+
+func (a *Anthropic) BuildCountTokensReq(ctx context.Context, header http.Header, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/messages/count_tokens", a.BaseURL), body)
+	if err != nil {
+		return nil, err
+	}
+	if header != nil {
+		req.Header = header
+	}
+	req.Header.Set("content-type", "application/json")
+	req.Header.Set("x-api-key", a.APIKey)
+	req.Header.Set("anthropic-version", a.Version)
+	return req, nil
 }

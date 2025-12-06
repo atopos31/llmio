@@ -59,6 +59,11 @@ type SystemConfigRequest struct {
 	MinWeight           int     `json:"min_weight"`
 }
 
+// ConfigValueRequest represents the request body for updating config value
+type ConfigValueRequest struct {
+	Value string `json:"value" binding:"required"`
+}
+
 // GetProviders 获取所有提供商列表（支持名称搜索和类型筛选）
 func GetProviders(c *gin.Context) {
 	// 筛选参数
@@ -701,38 +706,6 @@ func GetChatIO(c *gin.Context) {
 	common.Success(c, chatIO)
 }
 
-// GetSystemConfig 获取系统配置
-func GetSystemConfig(c *gin.Context) {
-	config := map[string]interface{}{
-		"enable_smart_routing":  true,
-		"success_rate_weight":   0.7,
-		"response_time_weight":  0.3,
-		"decay_threshold_hours": 24,
-		"min_weight":            1,
-	}
-
-	common.Success(c, config)
-}
-
-// UpdateSystemConfig 更新系统配置
-func UpdateSystemConfig(c *gin.Context) {
-	var req SystemConfigRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		common.BadRequest(c, "Invalid request body: "+err.Error())
-		return
-	}
-
-	config := map[string]interface{}{
-		"enable_smart_routing":  req.EnableSmartRouting,
-		"success_rate_weight":   req.SuccessRateWeight,
-		"response_time_weight":  req.ResponseTimeWeight,
-		"decay_threshold_hours": req.DecayThresholdHours,
-		"min_weight":            req.MinWeight,
-	}
-
-	common.Success(c, config)
-}
-
 // GetUserAgents 获取所有不重复的用户代理种类
 func GetUserAgents(c *gin.Context) {
 	var userAgents []string
@@ -748,4 +721,70 @@ func GetUserAgents(c *gin.Context) {
 	}
 
 	common.Success(c, userAgents)
+}
+
+// GetConfigByKey 获取特定配置
+func GetConfigByKey(c *gin.Context) {
+	key := c.Param("key")
+	config, err := gorm.G[models.Config](models.DB).Where("key = ?", key).First(c.Request.Context())
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// 配置不存在，返回空响应
+			common.Success(c, map[string]string{
+				"key":   key,
+				"value": "",
+			})
+			return
+		}
+		common.InternalServerError(c, "Failed to get config: "+err.Error())
+		return
+	}
+
+	common.Success(c, map[string]string{
+		"key":   config.Key,
+		"value": config.Value,
+	})
+}
+
+// UpdateConfigByKey 更新配置
+func UpdateConfigByKey(c *gin.Context) {
+	key := c.Param("key")
+
+	var req ConfigValueRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	// 获取或创建配置记录
+	config, err := gorm.G[models.Config](models.DB).Where("key = ?", key).First(c.Request.Context())
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// 创建新配置
+			config = models.Config{
+				Key:   key,
+				Value: req.Value,
+			}
+			if err := gorm.G[models.Config](models.DB).Create(c.Request.Context(), &config); err != nil {
+				common.InternalServerError(c, "Failed to create config: "+err.Error())
+				return
+			}
+		} else {
+			common.InternalServerError(c, "Failed to get config: "+err.Error())
+			return
+		}
+	} else {
+		// 更新配置值
+		config.Value = req.Value
+		if _, err := gorm.G[models.Config](models.DB).Where("key = ?", key).Updates(c.Request.Context(), config); err != nil {
+			common.InternalServerError(c, "Failed to update config: "+err.Error())
+			return
+		}
+	}
+
+	common.Success(c, map[string]string{
+		"key":   config.Key,
+		"value": config.Value,
+	})
 }

@@ -46,8 +46,7 @@ func main() {
 	{
 		anthropic.GET("/models", handler.AnthropicModelsHandler)
 		anthropic.POST("/messages", handler.Messages)
-		// TODO
-		anthropic.POST("/messages/count_tokens", authAnthropic)
+		anthropic.POST("/messages/count_tokens", handler.CountTokens)
 	}
 
 	// 兼容性保留
@@ -57,8 +56,7 @@ func main() {
 		v1.POST("/chat/completions", authOpenAI, handler.ChatCompletionsHandler)
 		v1.POST("/responses", authOpenAI, handler.ResponsesHandler)
 		v1.POST("/messages", authAnthropic, handler.Messages)
-		// TODO
-		v1.POST("/messages/count_tokens", authAnthropic)
+		v1.POST("/messages/count_tokens", authAnthropic, handler.CountTokens)
 	}
 
 	api := router.Group("/api")
@@ -93,13 +91,14 @@ func main() {
 		api.GET("/logs/:id/chat-io", handler.GetChatIO)
 		api.GET("/user-agents", handler.GetUserAgents)
 
-		// System configuration
-		api.GET("/config", handler.GetSystemConfig)
-		api.PUT("/config", handler.UpdateSystemConfig)
+		// Config management
+		api.GET("/config/:key", handler.GetConfigByKey)
+		api.PUT("/config/:key", handler.UpdateConfigByKey)
 
 		// Provider connectivity test
 		api.GET("/test/:id", handler.ProviderTestHandler)
 		api.GET("/test/react/:id", handler.TestReactHandler)
+		api.GET("/test/count_tokens", handler.TestCountTokens)
 	}
 	setwebui(router)
 	router.Run(":7070")

@@ -249,17 +249,6 @@ export async function getProviderMetrics(): Promise<ProviderMetric[]> {
   return apiRequest<ProviderMetric[]>('/metrics/providers');
 }
 
-export async function getSystemConfig(): Promise<SystemConfig> {
-  return apiRequest<SystemConfig>('/config');
-}
-
-export async function updateSystemConfig(config: SystemConfig): Promise<SystemConfig> {
-  return apiRequest<SystemConfig>('/config', {
-    method: 'PUT',
-    body: JSON.stringify(config),
-  });
-}
-
 // Metrics API functions
 export interface MetricsData {
   reqs: number;
@@ -305,6 +294,35 @@ export interface ProviderModel {
 export async function getProviderModels(providerId: number): Promise<ProviderModel[]> {
   return apiRequest<ProviderModel[]>(`/providers/models/${providerId}`);
 }
+
+// Config API functions
+export interface ConfigResponse {
+  key: string;
+  value: string;
+}
+
+// Config API functions
+export interface AnthropicCountTokens {
+  base_url: string;
+  api_key: string;
+  version: string;
+}
+
+export interface ConfigResponse {
+  key: string;
+  value: string;
+}
+
+export const configAPI = {
+  getConfig: (key: string) =>
+    apiRequest<ConfigResponse>(`/config/${key}`),
+
+  updateConfig: (key: string, data: any) =>
+    apiRequest<ConfigResponse>(`/config/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value: JSON.stringify(data) }),
+    }),
+};
 
 // Logs API functions
 export interface ChatLog {
@@ -385,4 +403,9 @@ export async function getLogs(
 
 export async function getChatIO(logId: number): Promise<ChatIO> {
   return apiRequest<ChatIO>(`/logs/${logId}/chat-io`);
+}
+
+// Test API functions
+export async function testCountTokens(): Promise<void> {
+  return apiRequest<void>('/test/count_tokens');
 }

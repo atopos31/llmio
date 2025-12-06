@@ -27,6 +27,7 @@ func Init(ctx context.Context, path string) {
 		&ModelWithProvider{},
 		&ChatLog{},
 		&ChatIO{},
+		&Config{},
 	); err != nil {
 		panic(err)
 	}

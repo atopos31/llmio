@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { Link, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { 
-  FaHome, 
-  FaCloud, 
-  FaRobot, 
-  FaLink, 
-  FaFileAlt, 
+import {
+  FaHome,
+  FaCloud,
+  FaRobot,
+  FaLink,
+  FaFileAlt,
   FaSignOutAlt,
-  FaChevronLeft, 
-  FaChevronRight 
+  FaChevronLeft,
+  FaChevronRight,
+  FaCog
 } from "react-icons/fa";
 import { useTheme } from "@/components/theme-provider";
 
@@ -34,6 +35,7 @@ export default function Layout() {
     { to: "/models", label: "模型管理", icon: <FaRobot /> },
     { to: "/model-providers", label: "模型提供商关联", icon: <FaLink /> },
     { to: "/logs", label: "请求日志", icon: <FaFileAlt /> },
+    { to: "/config", label: "系统配置", icon: <FaCog /> },
   ];
 
   // 侧边栏宽度常量，方便统一管理

@@ -1,17 +1,17 @@
 # LLMIO
 
-LLMIO 是一个基于 Go 的多供应商大语言模型网关，提供统一的 REST API、权重调度与现代化管理界面，帮助你在一个服务中整合 OpenAI、Anthropic 等不同模型能力。
+LLMIO 是一个基于 Go 的多供应商大语言模型网关，可以为你的 LLM 客户端 ( claude code / codex / cherry studio ) 提供统一的 REST API、权重调度与现代化管理界面，帮助你在一个服务中整合 OpenAI、Anthropic 等不同模型能力。
 
 ## 架构图
 
 ![LLMIO 架构图](./docs/llmio.svg)
 
 ## 功能特性
-- **统一 API**：兼容 OpenAI Chat Completions、OpenAI Responses 与 Anthropic Messages 语义，支持流式与非流式响应。
-- **权重调度**：`balancers/` 提供多种调度策略，可按工具调用、结构化输出、多模态能力与权重做智能分发。
+- **统一 API**：兼容 OpenAI Chat Completions、OpenAI Responses 与 Anthropic Messages 语义，支持透传流式与非流式响应。
+- **权重调度**：`balancers/` 提供两种调度策略(根据权重大小随机/根据权重高低优先)，可按工具调用、结构化输出、多模态能力做智能分发。
 - **可视化管理后台**：Web UI（React + TypeScript + Tailwind + Vite）覆盖提供商、模型、关联、日志与指标。
 - **速率与失败处理**：内建速率限制兜底与提供商连通性检测，保证故障隔离。
-- **本地持久化**：通过 SQLite (`db/llmio.db`) 保存配置和调用记录，开箱即用。
+- **本地持久化**：通过纯 Go 实现的 SQLite (`db/llmio.db`) 保存配置和调用记录，开箱即用。
 
 ## 部署
 **llmio通过读取环境变量的TOKEN来配置控制台以及所有API接口的鉴权！**

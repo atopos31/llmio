@@ -46,7 +46,7 @@ export default function Layout() {
     <div className="flex flex-col h-screen w-full dark:bg-gray-900 transition-colors duration-300">
       
       {/* 1. 顶部栏 Header */}
-      <header className="h-16 border-b bg-background flex items-center justify-between px-6 flex-shrink-0 shadow-sm z-20">
+      <header className="border-b bg-background flex items-center justify-between p-3 flex-shrink-0 shadow-sm z-20">
         <div className="font-bold text-xl flex items-center gap-2">
           <span className="text-primary text-2xl">LLMIO</span> 
         </div>

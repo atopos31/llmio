@@ -24,6 +24,9 @@ go fmt ./...
 
 # Tidy dependencies
 go mod tidy
+
+# Create database directory
+make mkdb
 ```
 
 ### Frontend Development
@@ -34,7 +37,7 @@ cd webui
 # Install dependencies
 pnpm install
 
-# Run development server
+# Run development server (proxies /api to localhost:7070)
 pnpm run dev
 
 # Build for production
@@ -51,7 +54,10 @@ pnpm test
 ```bash
 # Build and run with Docker
 docker build -t llmio .
-docker run -p 8080:8080 -e TOKEN=your_token llmio
+docker run -p 7070:7070 -e TOKEN=your_token llmio
+
+# Using docker-compose
+docker-compose up -d
 ```
 
 ## Architecture Overview
@@ -63,21 +69,32 @@ The application follows a layered architecture pattern:
    - `api.go` - Main API routes and LLM endpoint compatibility
    - `chat.go` - Chat completion endpoints
    - `home.go` - Static file serving and embedded frontend
+   - `count_tokens.go` - Anthropic token counting interface
+   - `test.go` - Provider testing endpoints
 
 2. **Services** (`/service`) - Business logic layer
    - `chat.go` - Core chat processing and provider orchestration
    - `balancer.go` - Load balancing algorithms and provider selection
+   - `auth.go` - AuthKey management
+   - `process.go` - Request processing utilities
 
 3. **Providers** (`/providers`) - LLM provider implementations
    - `provider.go` - Provider interface definition
-   - `openai.go`, `anthropic.go` - Specific provider implementations
+   - `openai.go` - OpenAI provider
+   - `openai_res.go` - OpenAI responses provider
+   - `anthropic.go` - Anthropic provider
+   - `cache.go` - Provider caching
 
 4. **Middleware** (`/middleware`) - Cross-cutting concerns
-   - Authentication, rate limiting, CORS
+   - `auth.go` - Authentication (TOKEN validation, AuthKey support)
 
 5. **Models** (`/models`) - Data layer with GORM
-   - Provider configurations stored as JSON
-   - Chat history and usage tracking
+   - `model.go` - Provider, Model, ChatLog, ChatIO, AuthKey entities
+   - `init.go` - Database initialization
+   - `config.go` - Configuration storage
+
+6. **Balancers** (`/balancers`) - Load balancing strategies
+   - `balancers.go` - Lottery (weighted random) and Rotor (sequential) algorithms
 
 ### Frontend Structure (React/TypeScript)
 Modern React application with TypeScript:
@@ -98,7 +115,7 @@ Modern React application with TypeScript:
 ### Key Design Patterns
 
 1. **Provider Pattern**: Interface-based provider system allowing easy addition of new LLM providers
-2. **Weighted Load Balancing**: Capability-aware provider selection with health monitoring
+2. **Weighted Load Balancing**: Lottery (random weighted) and Rotor (sequential) strategies
 3. **Embedded Frontend**: Single binary deployment with embedded React build
 4. **Layered Architecture**: Clean separation between HTTP handling, business logic, and data access
 
@@ -112,14 +129,29 @@ Modern React application with TypeScript:
 ### Environment Configuration
 
 Key environment variables:
-- `TOKEN` - API authentication token (required)
+- `TOKEN` - API authentication token (required for secure mode)
 - `GIN_MODE` - Gin framework mode (debug/test/release)
 - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` - Provider API keys
 - Database stored in `/db/` directory
 
+### Authentication System
+
+- **Single TOKEN mode**: Environment variable `TOKEN` controls all API access
+- **AuthKey support**: Database-based per-project tokens with:
+  - Model restrictions (AllowAll, AllowModels)
+  - Expiry dates
+  - Usage tracking via AuthKeyID in ChatLog
+
+### Database
+
+- **Type**: SQLite with GORM
+- **Path**: `./db/llmio.db` (auto-created)
+- **Auto-migration**: On startup via `models.Init()`
+- **Key Tables**: Provider, Model, ChatLog, ChatIO, AuthKey, Config
+
 ### Development Notes
 
-1. **Database**: SQLite with GORM, automatic migration on startup
+1. **Port**: Application runs on port 7070 (hardcoded in main.go)
 2. **Frontend Build**: Embedded into Go binary via `//go:embed`
 3. **Provider Configuration**: JSON-based, supports multiple instances per provider type
 4. **Error Handling**: Structured logging with context, standardized API responses
@@ -141,3 +173,10 @@ When modifying the database:
 1. Update model in `/models/`
 2. GORM will auto-migrate on startup
 3. Consider data migration for production deployments
+
+### Recent Features
+
+- AuthKey ID tracking in chat logs
+- Anthropic token counting interface
+- OpenAI responses provider support
+- WeightedList balancer implementation with comprehensive tests

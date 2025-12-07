@@ -19,4 +19,5 @@ const (
 
 const (
 	KeyPrefix = "sk-llmio-"
+	KeyLength = 32
 )

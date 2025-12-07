@@ -16,3 +16,7 @@ const (
 	// 默认策略
 	BalancerDefault = BalancerLottery
 )
+
+const (
+	KeyPrefix = "sk-llmio-"
+)

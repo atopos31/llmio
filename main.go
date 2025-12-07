@@ -32,7 +32,7 @@ func main() {
 
 	token := os.Getenv("TOKEN")
 
-	authOpenAI := middleware.Auth(token)
+	authOpenAI := middleware.AuthOpenAI(token)
 	authAnthropic := middleware.AuthAnthropic(token)
 
 	openai := router.Group("/openai/v1", authOpenAI)

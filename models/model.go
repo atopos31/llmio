@@ -96,7 +96,19 @@ type OutputUnion struct {
 }
 
 type ReqMeta struct {
-	UserAgent string `gorm:"index"` // 用户代理
+	UserAgent string // 用户代理
 	RemoteIP  string // 访问ip
 	Header    http.Header
+}
+
+type AuthKey struct {
+	gorm.Model
+	Name       string // 项目名称
+	Key        string
+	Status     bool       // 是否启用
+	AllowAll   bool       // 是否允许所有模型
+	Models     []string   `gorm:"serializer:json"` // 允许的模型列表
+	ExpiresAt  *time.Time // nil=永不过期，有值=具体过期时间
+	UsageCount int64      // 使用次数统计
+	LastUsedAt *time.Time // 最后使用时间
 }

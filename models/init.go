@@ -28,6 +28,7 @@ func Init(ctx context.Context, path string) {
 		&ChatLog{},
 		&ChatIO{},
 		&Config{},
+		&AuthKey{},
 	); err != nil {
 		panic(err)
 	}

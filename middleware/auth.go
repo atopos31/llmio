@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/consts"
@@ -80,6 +81,12 @@ func checkAuthKey(c *gin.Context, key string, adminToken string) {
 	authKey, err := service.GetAuthKey(ctx, key)
 	if err != nil {
 		common.ErrorWithHttpStatus(c, http.StatusUnauthorized, http.StatusUnauthorized, "Invalid token")
+		c.Abort()
+		return
+	}
+	// 检查是否过期
+	if authKey.ExpiresAt != nil && authKey.ExpiresAt.Before(time.Now()) {
+		common.ErrorWithHttpStatus(c, http.StatusUnauthorized, http.StatusUnauthorized, "Token has expired")
 		c.Abort()
 		return
 	}

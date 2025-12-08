@@ -2,8 +2,10 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/atopos31/llmio/common"
@@ -39,8 +41,19 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 		common.InternalServerError(c, err.Error())
 		return
 	}
-	// 按模型获取可用 provider
+
 	ctx := c.Request.Context()
+	// 校验 authKey 是否有权限使用该模型
+	valid, err := validateAuthKey(ctx, before.Model)
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+	if !valid {
+		common.ErrorWithHttpStatus(c, http.StatusForbidden, http.StatusForbidden, "auth key has no permission to use this model")
+		return
+	}
+	// 按模型获取可用 provider
 	providersWithMeta, err := service.ProvidersWithMetaBymodelsName(ctx, style, *before)
 	if err != nil {
 		common.InternalServerError(c, err.Error())
@@ -89,4 +102,25 @@ func writeHeader(c *gin.Context, stream bool, header http.Header) {
 		c.Header("X-Accel-Buffering", "no")
 	}
 	c.Writer.Flush()
+}
+
+// 校验auhtKey的模型使用权限
+func validateAuthKey(ctx context.Context, model string) (bool, error) {
+	// 验证是否为允许全部模型
+	allowAll, ok := ctx.Value(consts.ContextKeyAllowAllModel).(bool)
+	if !ok {
+		return false, errors.New("invalid auth key")
+	}
+	if allowAll {
+		return true, nil
+	}
+	// 验证是否有权限使用该模型
+	allowedModels, ok := ctx.Value(consts.ContextKeyAllowModels).([]string)
+	if !ok {
+		return false, errors.New("invalid auth key")
+	}
+	if !slices.Contains(allowedModels, model) {
+		return false, nil
+	}
+	return true, nil
 }

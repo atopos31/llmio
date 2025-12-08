@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// 用于系统数据操作相关鉴权
 func Auth(token string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 不设置token，则不进行验证
@@ -40,51 +41,40 @@ func Auth(token string) gin.HandlerFunc {
 	}
 }
 
+// 用于OpenAI接口鉴权
 func AuthOpenAI(adminToken string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if adminToken == "" {
-			return
-		}
 		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			common.ErrorWithHttpStatus(c, http.StatusUnauthorized, http.StatusUnauthorized, "Authorization header is missing")
-			c.Abort()
-			return
-		}
-
 		parts := strings.SplitN(authHeader, " ", 2)
-		if !(len(parts) == 2 && parts[0] == "Bearer") {
-			common.ErrorWithHttpStatus(c, http.StatusUnauthorized, http.StatusUnauthorized, "Invalid authorization header")
-			c.Abort()
-			return
-		}
 
-		tokenString := parts[1]
+		var tokenString string
+		if len(parts) == 2 && parts[0] == "Bearer" {
+			tokenString = parts[1]
+		}
 		checkAuthKey(c, tokenString, adminToken)
 	}
 }
 
+// 用于Anthropic接口鉴权
 func AuthAnthropic(adminToken string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if adminToken == "" {
-			return
-		}
 		authHeader := c.GetHeader("x-api-key")
-		if authHeader == "" {
-			common.ErrorWithHttpStatus(c, http.StatusUnauthorized, http.StatusUnauthorized, "x-api-key header is missing")
-			c.Abort()
-			return
-		}
 		checkAuthKey(c, authHeader, adminToken)
 	}
 }
 
 func checkAuthKey(c *gin.Context, key string, adminToken string) {
 	ctx := c.Request.Context()
-	// 如果使用的是最高权限的token 则允许访问所有模型
-	if key == adminToken {
+	// 如果系统中未配置Token 或者使用的是最高权限的token 则允许访问所有模型
+	if adminToken == "" || key == adminToken {
 		ctx = context.WithValue(ctx, consts.ContextKeyAllowAllModel, true)
 		c.Request = c.Request.WithContext(ctx)
+		return
+	}
+	// 如果key为空 则拒绝访问
+	if key == "" {
+		common.ErrorWithHttpStatus(c, http.StatusUnauthorized, http.StatusUnauthorized, "Authorization key is missing")
+		c.Abort()
 		return
 	}
 	authKey, err := service.GetAuthKey(ctx, key)

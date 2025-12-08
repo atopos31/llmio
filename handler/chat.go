@@ -119,8 +119,5 @@ func validateAuthKey(ctx context.Context, model string) (bool, error) {
 	if !ok {
 		return false, errors.New("invalid auth key")
 	}
-	if !slices.Contains(allowedModels, model) {
-		return false, nil
-	}
-	return true, nil
+	return slices.Contains(allowedModels, model), nil
 }

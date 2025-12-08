@@ -1,6 +1,6 @@
 # LLMIO
 
-LLMIO 是一个基于 Go 的多供应商大语言模型网关，可以为你的 LLM 客户端 ( claude code / codex / cherry studio ) 提供统一的 REST API、权重调度与现代化管理界面，帮助你在一个服务中整合 OpenAI、Anthropic 等不同模型能力。
+LLMIO 是一个基于 Go 的大语言模型负载均衡网关，为你的 LLM 客户端 ( claude code / codex / cherry studio / open webui ) 提供统一的 REST API、权重调度、日志记录·与现代化管理界面，帮助你在一个服务中整合 OpenAI、Anthropic 等不同模型能力。
 
 ## 架构图
 

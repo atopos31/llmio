@@ -342,6 +342,7 @@ export interface ChatLog {
   ChunkTime: number;
   Tps: number;
   ChatIO: boolean;
+  Size: number;
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;

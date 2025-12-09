@@ -29,10 +29,12 @@ func ProcesserOpenAI(ctx context.Context, pr io.Reader, stream bool, start time.
 
 	var usageStr string
 	var output models.OutputUnion
+	var size int
 
 	scanner := bufio.NewScanner(pr)
 	scanner.Buffer(make([]byte, 0, InitScannerBufferSize), MaxScannerBufferSize)
-	for chunk := range ScannerToken(scanner) {
+	for chunk, chunkSize := range ScannerToken(scanner) {
+		size += chunkSize
 		once.Do(func() {
 			firstChunkTime = time.Since(start)
 		})
@@ -82,6 +84,7 @@ func ProcesserOpenAI(ctx context.Context, pr io.Reader, stream bool, start time.
 		ChunkTime:      chunkTime,
 		Usage:          openaiUsage,
 		Tps:            float64(openaiUsage.TotalTokens) / chunkTime.Seconds(),
+		Size:           size,
 	}, &output, nil
 }
 
@@ -111,11 +114,13 @@ func ProcesserOpenAiRes(ctx context.Context, pr io.Reader, stream bool, start ti
 
 	var usageStr string
 	var output models.OutputUnion
+	var size int
 
 	scanner := bufio.NewScanner(pr)
 	scanner.Buffer(make([]byte, 0, InitScannerBufferSize), MaxScannerBufferSize)
 	var event string
-	for chunk := range ScannerToken(scanner) {
+	for chunk, chunkSize := range ScannerToken(scanner) {
+		size += chunkSize
 		once.Do(func() {
 			firstChunkTime = time.Since(start)
 		})
@@ -163,7 +168,8 @@ func ProcesserOpenAiRes(ctx context.Context, pr io.Reader, stream bool, start ti
 				CachedTokens: openAIResUsage.InputTokensDetails.CachedTokens,
 			},
 		},
-		Tps: float64(openAIResUsage.TotalTokens) / chunkTime.Seconds(),
+		Tps:  float64(openAIResUsage.TotalTokens) / chunkTime.Seconds(),
+		Size: size,
 	}, &output, nil
 }
 
@@ -175,11 +181,13 @@ func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start ti
 	var usageStr string
 
 	var output models.OutputUnion
+	var size int
 
 	scanner := bufio.NewScanner(pr)
 	scanner.Buffer(make([]byte, 0, InitScannerBufferSize), MaxScannerBufferSize)
 	var event string
-	for chunk := range ScannerToken(scanner) {
+	for chunk, chunkSize := range ScannerToken(scanner) {
+		size += chunkSize
 		once.Do(func() {
 			firstChunkTime = time.Since(start)
 		})
@@ -230,18 +238,19 @@ func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start ti
 				CachedTokens: athropicUsage.CacheReadInputTokens,
 			},
 		},
-		Tps: float64(totalTokens) / chunkTime.Seconds(),
+		Tps:  float64(totalTokens) / chunkTime.Seconds(),
+		Size: size,
 	}, &output, nil
 }
 
-func ScannerToken(reader *bufio.Scanner) iter.Seq[string] {
-	return func(yield func(string) bool) {
+func ScannerToken(reader *bufio.Scanner) iter.Seq2[string, int] {
+	return func(yield func(string, int) bool) {
 		for reader.Scan() {
 			chunk := reader.Text()
 			if chunk == "" {
 				continue
 			}
-			if !yield(chunk) {
+			if !yield(chunk, len(reader.Bytes())) {
 				return
 			}
 		}

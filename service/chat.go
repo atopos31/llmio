@@ -45,7 +45,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		client = providers.GetClient(time.Second * time.Duration(providersWithMeta.TimeOut) / 3)
 	}
 
-	authKeyID := ctx.Value(consts.ContextKeyAuthKeyID).(uint)
+	authKeyID, _ := ctx.Value(consts.ContextKeyAuthKeyID).(uint)
 
 	timer := time.NewTimer(time.Second * time.Duration(providersWithMeta.TimeOut))
 	defer timer.Stop()

@@ -24,6 +24,15 @@ const formatTime = (nanoseconds: number): string => {
   return `${(nanoseconds / 1000000000).toFixed(2)} s`;
 };
 
+// 格式化字节大小显示
+const formatBytes = (bytes: number): string => {
+  if (bytes === 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
 type DetailCardProps = {
   label: string;
   value: ReactNode;
@@ -252,13 +261,14 @@ export default function LogsPage() {
           <div className="h-full flex flex-col">
             <div className="flex-1 overflow-y-auto">
               <div className="hidden sm:block w-full">
-                <Table className="min-w-[1100px]">
+                <Table className="min-w-[1200px]">
                   <TableHeader className="z-10 sticky top-0 bg-secondary/90 backdrop-blur text-secondary-foreground">
                     <TableRow className="hover:bg-secondary/90">
                       <TableHead>时间</TableHead>
                       <TableHead>模型名称</TableHead>
                       <TableHead>状态</TableHead>
                       <TableHead>Tokens</TableHead>
+                      <TableHead>响应大小</TableHead>
                       <TableHead>耗时</TableHead>
                       <TableHead>提供商模型</TableHead>
                       <TableHead>类型</TableHead>
@@ -281,6 +291,9 @@ export default function LogsPage() {
                           </span>
                         </TableCell>
                         <TableCell>{log.total_tokens}</TableCell>
+                        <TableCell className="text-xs">
+                          {log.Size ? formatBytes(log.Size) : '-'}
+                        </TableCell>
                         <TableCell>{formatTime(log.ChunkTime)}</TableCell>
                         <TableCell className="max-w-[120px] truncate text-xs" title={log.ProviderModel}>{log.ProviderModel}</TableCell>
                         <TableCell className="text-xs">{log.Style}</TableCell>
@@ -447,10 +460,13 @@ export default function LogsPage() {
                     <DetailCard label="提供商" value={selectedLog.ProviderName || '-'} />
                     <DetailCard label="提供商模型" value={selectedLog.ProviderModel || '-'} mono />
                     <DetailCard label="类型" value={selectedLog.Style || '-'} />
-                    <DetailCard label="用户代理" value={selectedLog.UserAgent || '-'} mono />
+                    <DetailCard label="响应大小" value={selectedLog.Size ? formatBytes(selectedLog.Size) : '-'} />
                     <DetailCard label="远端 IP" value={selectedLog.RemoteIP || '-'} mono />
                     <DetailCard label="记录 IO" value={selectedLog.ChatIO ? '是' : '否'} />
                     <DetailCard label="重试次数" value={selectedLog.Retry ?? 0} />
+                  </div>
+                  <div className="grid grid-cols-1 gap-4">
+                    <DetailCard label="用户代理" value={selectedLog.UserAgent || '-'} mono />
                   </div>
                 </div>
                 <div className="space-y-3">

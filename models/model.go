@@ -63,6 +63,7 @@ type ChatLog struct {
 	FirstChunkTime time.Duration // 首个chunk耗时
 	ChunkTime      time.Duration // chunk耗时
 	Tps            float64
+	Size           int // 响应大小 字节
 	Usage
 }
 

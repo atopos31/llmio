@@ -265,9 +265,9 @@ func TestCheckAuthKey_InvalidKey(t *testing.T) {
 
 	// Create only a valid key
 	authKey := models.AuthKey{
-		Name:   "Test Project",
-		Key:    "valid-key",
-		Status: true,
+		Name:     "Test Project",
+		Key:      "valid-key",
+		Status:   true,
 		AllowAll: true,
 	}
 	if err := db.Create(&authKey).Error; err != nil {
@@ -433,10 +433,10 @@ func TestCheckAuthKey_NilExpiry(t *testing.T) {
 
 	// Create an auth key with nil expiry (never expires)
 	authKey := models.AuthKey{
-		Name:     "Never Expire Project",
-		Key:      "never-expire-key",
-		Status:   true,
-		AllowAll: true,
+		Name:      "Never Expire Project",
+		Key:       "never-expire-key",
+		Status:    true,
+		AllowAll:  true,
 		ExpiresAt: nil, // Never expires
 	}
 	if err := db.Create(&authKey).Error; err != nil {

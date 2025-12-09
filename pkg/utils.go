@@ -7,12 +7,12 @@ import (
 
 const keyChars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
+var keyCharsMaxI = big.NewInt(int64(len(keyChars)))
 func GenerateRandomCharsKey(length int) (string, error) {
 	b := make([]byte, length)
-	maxI := big.NewInt(int64(len(keyChars)))
-
+	
 	for i := range b {
-		n, err := rand.Int(rand.Reader, maxI)
+		n, err := rand.Int(rand.Reader, keyCharsMaxI)
 		if err != nil {
 			return "", err
 		}

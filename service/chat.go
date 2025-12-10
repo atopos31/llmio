@@ -39,11 +39,14 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	default:
 		balancer = balancers.NewLottery(providersWithMeta.WeightItems)
 	}
-
-	client := http.DefaultClient
+	
+	// 设置请求超时
+	responseHeaderTimeout := time.Second * time.Duration(providersWithMeta.TimeOut)
+	// 流式超时时间缩短
 	if before.Stream {
-		client = providers.GetClient(time.Second * time.Duration(providersWithMeta.TimeOut) / 3)
+		responseHeaderTimeout = responseHeaderTimeout / 3
 	}
+	client := providers.GetClient(responseHeaderTimeout)
 
 	authKeyID, _ := ctx.Value(consts.ContextKeyAuthKeyID).(uint)
 

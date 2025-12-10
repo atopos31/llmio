@@ -37,6 +37,10 @@ func setupTestDB(t *testing.T) (*gorm.DB, func()) {
 	return db, cleanup
 }
 
+func boolPtr(v bool) *bool {
+	return &v
+}
+
 func TestCheckAuthKey_EmptyAdminToken(t *testing.T) {
 	// Setup test database
 	_, cleanup := setupTestDB(t)
@@ -151,8 +155,8 @@ func TestCheckAuthKey_ValidAuthKey_AllowAll(t *testing.T) {
 	authKey := models.AuthKey{
 		Name:     "Test Project",
 		Key:      "test-key-456",
-		Status:   true,
-		AllowAll: true,
+		Status:   boolPtr(true),
+		AllowAll: boolPtr(true),
 	}
 	if err := db.Create(&authKey).Error; err != nil {
 		t.Fatalf("failed to create test auth key: %v", err)
@@ -207,8 +211,8 @@ func TestCheckAuthKey_ValidAuthKey_RequireModel(t *testing.T) {
 	authKey := models.AuthKey{
 		Name:     "Test Project",
 		Key:      "test-key-789",
-		Status:   true,
-		AllowAll: false,
+		Status:   boolPtr(true),
+		AllowAll: boolPtr(false),
 		Models:   allowedModels,
 	}
 	if err := db.Create(&authKey).Error; err != nil {
@@ -267,8 +271,8 @@ func TestCheckAuthKey_InvalidKey(t *testing.T) {
 	authKey := models.AuthKey{
 		Name:     "Test Project",
 		Key:      "valid-key",
-		Status:   true,
-		AllowAll: true,
+		Status:   boolPtr(true),
+		AllowAll: boolPtr(true),
 	}
 	if err := db.Create(&authKey).Error; err != nil {
 		t.Fatalf("failed to create test auth key: %v", err)
@@ -308,7 +312,7 @@ func TestCheckAuthKey_DisabledKey(t *testing.T) {
 	authKey := models.AuthKey{
 		Name:   "Disabled Project",
 		Key:    "disabled-key",
-		Status: false, // Disabled
+		Status: boolPtr(false), // Disabled
 	}
 	if err := db.Create(&authKey).Error; err != nil {
 		t.Fatalf("failed to create test auth key: %v", err)
@@ -349,8 +353,8 @@ func TestCheckAuthKey_ExpiredKey(t *testing.T) {
 	authKey := models.AuthKey{
 		Name:      "Expired Project",
 		Key:       "expired-key",
-		Status:    true,
-		AllowAll:  true,
+		Status:    boolPtr(true),
+		AllowAll:  boolPtr(true),
 		ExpiresAt: &expiredTime,
 	}
 	if err := db.Create(&authKey).Error; err != nil {
@@ -392,8 +396,8 @@ func TestCheckAuthKey_NotExpiredKey(t *testing.T) {
 	authKey := models.AuthKey{
 		Name:      "Valid Project",
 		Key:       "valid-key",
-		Status:    true,
-		AllowAll:  true,
+		Status:    boolPtr(true),
+		AllowAll:  boolPtr(true),
 		ExpiresAt: &futureTime,
 	}
 	if err := db.Create(&authKey).Error; err != nil {
@@ -435,8 +439,8 @@ func TestCheckAuthKey_NilExpiry(t *testing.T) {
 	authKey := models.AuthKey{
 		Name:      "Never Expire Project",
 		Key:       "never-expire-key",
-		Status:    true,
-		AllowAll:  true,
+		Status:    boolPtr(true),
+		AllowAll:  boolPtr(true),
 		ExpiresAt: nil, // Never expires
 	}
 	if err := db.Create(&authKey).Error; err != nil {
@@ -454,7 +458,7 @@ func TestCheckAuthKey_NilExpiry(t *testing.T) {
 	ctx := c.Request.Context()
 	allowAll := ctx.Value(consts.ContextKeyAllowAllModel)
 	if allowAll == nil || allowAll != true {
-		t.Error("expected AllowAllModel to be true")
+		t.Error("expected AllowAllModel to be true", allowAll)
 	}
 
 	t.Log("✓ Nil expiry (never expires) key is accepted")

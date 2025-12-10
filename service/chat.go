@@ -197,6 +197,17 @@ func SaveChatLog(ctx context.Context, log models.ChatLog) (uint, error) {
 	if err := gorm.G[models.ChatLog](models.DB).Create(ctx, &log); err != nil {
 		return 0, err
 	}
+	if log.AuthKeyID != 0 && log.Status == "success" {
+		if err := models.DB.WithContext(ctx).
+			Model(&models.AuthKey{}).
+			Where("id = ?", log.AuthKeyID).
+			Updates(map[string]any{
+				"usage_count":  gorm.Expr("usage_count + ?", 1),
+				"last_used_at": time.Now(),
+			}).Error; err != nil {
+			return 0, err
+		}
+	}
 	return log.ID, nil
 }
 

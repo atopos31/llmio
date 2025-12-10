@@ -91,6 +91,12 @@ func main() {
 		api.GET("/logs/:id/chat-io", handler.GetChatIO)
 		api.GET("/user-agents", handler.GetUserAgents)
 
+		// Auth key management
+		api.GET("/auth-keys", handler.GetAuthKeys)
+		api.POST("/auth-keys", handler.CreateAuthKey)
+		api.PUT("/auth-keys/:id", handler.UpdateAuthKey)
+		api.DELETE("/auth-keys/:id", handler.DeleteAuthKey)
+
 		// Config management
 		api.GET("/config/:key", handler.GetConfigByKey)
 		api.PUT("/config/:key", handler.UpdateConfigByKey)

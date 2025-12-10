@@ -34,6 +34,29 @@ export interface ModelWithProvider {
   Weight: number;
 }
 
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  pages: number;
+}
+
+export interface AuthKey {
+  ID: number;
+  CreatedAt: string;
+  UpdatedAt: string;
+  DeletedAt?: string | null;
+  Name: string;
+  Key: string;
+  Status: boolean;
+  AllowAll: boolean;
+  Models: string[] | null;
+  ExpiresAt: string | null;
+  UsageCount: number;
+  LastUsedAt: string | null;
+}
+
 export interface SystemConfig {
   enable_smart_routing: boolean;
   success_rate_weight: number;
@@ -176,6 +199,55 @@ export async function updateModel(id: number, model: {
 export async function deleteModel(id: number): Promise<void> {
   await apiRequest<void>(`/models/${id}`, {
     method: 'DELETE',
+  });
+}
+
+// Auth key API
+export type AuthKeyPayload = {
+  name: string;
+  key?: string;
+  status: boolean;
+  allow_all: boolean;
+  models: string[];
+  expires_at?: string | null;
+};
+
+export async function getAuthKeys(params: {
+  page?: number;
+  page_size?: number;
+  status?: "active" | "inactive";
+  allow_all?: "true" | "false";
+  search?: string;
+} = {}): Promise<PaginatedResponse<AuthKey>> {
+  const searchParams = new URLSearchParams();
+
+  if (params.page) searchParams.append("page", params.page.toString());
+  if (params.page_size) searchParams.append("page_size", params.page_size.toString());
+  if (params.status) searchParams.append("status", params.status);
+  if (params.allow_all) searchParams.append("allow_all", params.allow_all);
+  if (params.search) searchParams.append("search", params.search);
+
+  const queryString = searchParams.toString();
+  return apiRequest<PaginatedResponse<AuthKey>>(queryString ? `/auth-keys?${queryString}` : "/auth-keys");
+}
+
+export async function createAuthKey(payload: AuthKeyPayload): Promise<AuthKey> {
+  return apiRequest<AuthKey>("/auth-keys", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAuthKey(id: number, payload: AuthKeyPayload): Promise<AuthKey> {
+  return apiRequest<AuthKey>(`/auth-keys/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteAuthKey(id: number): Promise<void> {
+  await apiRequest<void>(`/auth-keys/${id}`, {
+    method: "DELETE",
   });
 }
 

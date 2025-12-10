@@ -90,10 +90,11 @@ func checkAuthKey(c *gin.Context, key string, adminToken string) {
 		c.Abort()
 		return
 	}
+	allowAll := authKey.AllowAll != nil && *authKey.AllowAll
 	ctx = context.WithValue(ctx, consts.ContextKeyAuthKeyID, authKey.ID)
-	ctx = context.WithValue(ctx, consts.ContextKeyAllowAllModel, authKey.AllowAll)
+	ctx = context.WithValue(ctx, consts.ContextKeyAllowAllModel, allowAll)
 	// 如果不允许所有模型 则设置允许的模型列表
-	if !authKey.AllowAll {
+	if !allowAll {
 		ctx = context.WithValue(ctx, consts.ContextKeyAllowModels, authKey.Models)
 	}
 

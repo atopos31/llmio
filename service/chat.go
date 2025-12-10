@@ -39,7 +39,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	default:
 		balancer = balancers.NewLottery(providersWithMeta.WeightItems)
 	}
-	
+
 	// 设置请求超时
 	responseHeaderTimeout := time.Second * time.Duration(providersWithMeta.TimeOut)
 	// 流式超时时间缩短

@@ -50,11 +50,19 @@ const (
 
 	testAnthropic = `{
     	"model": "claude-sonnet-4-5",
-    	"max_tokens": 1000,
+    	"max_tokens": 1,
     	"messages": [
       		{
         		"role": "user", 
-        		"content": "Write a one-sentence bedtime story about a unicorn."
+        		"content": [
+					{
+						"type": "text",
+						"text": "Hi",
+						"cache_control": {
+							"type": "ephemeral"
+						}
+					}
+				]
       		}
     	]
  	}`

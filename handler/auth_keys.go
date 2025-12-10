@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -10,7 +8,9 @@ import (
 	"time"
 
 	"github.com/atopos31/llmio/common"
+	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
+	"github.com/atopos31/llmio/pkg"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -94,7 +94,7 @@ func CreateAuthKey(c *gin.Context) {
 		return
 	}
 
-	key, err := generateAuthKey()
+	key, err := pkg.GenerateRandomCharsKey(36)
 	if err != nil {
 		common.InternalServerError(c, "Failed to generate key: "+err.Error())
 		return
@@ -110,7 +110,7 @@ func CreateAuthKey(c *gin.Context) {
 
 	authKey := models.AuthKey{
 		Name:      req.Name,
-		Key:       key,
+		Key:       fmt.Sprintf("%s%s", consts.KeyPrefix, key),
 		Status:    req.Status,
 		AllowAll:  req.AllowAll,
 		Models:    sanitizeModels(req.Models),
@@ -203,7 +203,7 @@ func parsePagination(pageStr, pageSizeStr string) (int, int, error) {
 	if pageStr != "" {
 		p, err := strconv.Atoi(pageStr)
 		if err != nil || p < 1 {
-			return 0, 0, fmt.Errorf("Invalid page parameter")
+			return 0, 0, fmt.Errorf("invalid page parameter")
 		}
 		page = p
 	}
@@ -212,7 +212,7 @@ func parsePagination(pageStr, pageSizeStr string) (int, int, error) {
 	if pageSizeStr != "" {
 		ps, err := strconv.Atoi(pageSizeStr)
 		if err != nil || ps < 1 || ps > 100 {
-			return 0, 0, fmt.Errorf("Invalid page_size parameter (1-100)")
+			return 0, 0, fmt.Errorf("invalid page_size parameter (1-100)")
 		}
 		pageSize = ps
 	}
@@ -229,7 +229,7 @@ func parseExpiresAt(value *string) (*time.Time, error) {
 	}
 	t, err := time.Parse(time.RFC3339, trimmed)
 	if err != nil {
-		return nil, fmt.Errorf("Invalid expires_at format, expected RFC3339")
+		return nil, fmt.Errorf("invalid expires_at format, expected RFC3339")
 	}
 	return &t, nil
 }
@@ -256,12 +256,4 @@ func sanitizeModels(modelsList []string) []string {
 		result = append(result, trimmed)
 	}
 	return result
-}
-
-func generateAuthKey() (string, error) {
-	buf := make([]byte, 24)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(buf), nil
 }

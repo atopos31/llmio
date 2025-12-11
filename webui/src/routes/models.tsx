@@ -223,71 +223,73 @@ export default function ModelsPage() {
           </div>
         ) : (
           <div className="h-full flex flex-col">
-            <div className="hidden sm:block w-full overflow-x-auto">
-              <Table className="min-w-[1100px]">
-                <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>名称</TableHead>
-                    <TableHead>备注</TableHead>
-                    <TableHead>重试次数限制</TableHead>
-                    <TableHead>超时时间(秒)</TableHead>
-                    <TableHead>负载策略</TableHead>
-                    <TableHead>IO 记录</TableHead>
-                    <TableHead className="w-[220px]">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {models.map((model) => (
-                    <TableRow key={model.ID}>
-                      <TableCell className="font-mono text-xs text-muted-foreground">{model.ID}</TableCell>
-                      <TableCell className="font-medium">{model.Name}</TableCell>
-                      <TableCell className="max-w-[240px] truncate text-sm" title={model.Remark}>
-                        {model.Remark || "-"}
-                      </TableCell>
-                      <TableCell>{model.MaxRetry}</TableCell>
-                      <TableCell>{model.TimeOut}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{renderStrategy(model.Strategy)}</TableCell>
-                      <TableCell>
-                        <span className={model.IOLog ? "text-green-500" : "text-red-500"}>
-                          {model.IOLog ? '✓' : '✗'}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => navigate(`/model-providers?modelId=${model.ID}`)}
-                          >
-                            关联
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => openEditDialog(model)}>
-                            编辑
-                          </Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(model.ID)}>
-                                删除
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>确定要删除这个模型吗？</AlertDialogTitle>
-                                <AlertDialogDescription>此操作无法撤销。这将永久删除该模型。</AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </div>
-                      </TableCell>
+            <div className="flex-1 overflow-y-auto">
+              <div className="hidden sm:block w-full">
+                <Table className="min-w-[1100px]">
+                  <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>名称</TableHead>
+                      <TableHead>备注</TableHead>
+                      <TableHead>重试次数限制</TableHead>
+                      <TableHead>超时时间(秒)</TableHead>
+                      <TableHead>负载策略</TableHead>
+                      <TableHead>IO 记录</TableHead>
+                      <TableHead className="w-[220px]">操作</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {models.map((model) => (
+                      <TableRow key={model.ID}>
+                        <TableCell className="font-mono text-xs text-muted-foreground">{model.ID}</TableCell>
+                        <TableCell className="font-medium">{model.Name}</TableCell>
+                        <TableCell className="max-w-[240px] truncate text-sm" title={model.Remark}>
+                          {model.Remark || "-"}
+                        </TableCell>
+                        <TableCell>{model.MaxRetry}</TableCell>
+                        <TableCell>{model.TimeOut}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{renderStrategy(model.Strategy)}</TableCell>
+                        <TableCell>
+                          <span className={model.IOLog ? "text-green-500" : "text-red-500"}>
+                            {model.IOLog ? '✓' : '✗'}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => navigate(`/model-providers?modelId=${model.ID}`)}
+                            >
+                              关联
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => openEditDialog(model)}>
+                              编辑
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(model.ID)}>
+                                  删除
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>确定要删除这个模型吗？</AlertDialogTitle>
+                                  <AlertDialogDescription>此操作无法撤销。这将永久删除该模型。</AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
+                                  <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
             <div className="sm:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 divide-y divide-border">
               {models.map((model) => (

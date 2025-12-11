@@ -736,139 +736,141 @@ export default function ModelProvidersPage() {
           </div>
         ) : (
           <div className="h-full flex flex-col">
-            <div className="hidden sm:block w-full overflow-x-auto">
-              <Table className="min-w-[1200px]">
-                <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>提供商模型</TableHead>
-                    <TableHead>类型</TableHead>
-                    <TableHead>提供商</TableHead>
-                    <TableHead>工具调用</TableHead>
-                    <TableHead>结构化输出</TableHead>
-                    <TableHead>视觉</TableHead>
-                    <TableHead>请求头透传</TableHead>
-                    <TableHead>权重</TableHead>
-                    <TableHead>启用</TableHead>
-                    <TableHead>
-                      <div className="flex items-center gap-1">状态
-                        <Button
-                          onClick={() => loadProviderStatus(modelProviders, selectedModelId)}
-                          variant="ghost"
-                          size="icon"
-                          aria-label="刷新状态"
-                          title="刷新状态"
-                          className="rounded-full"
-                        >
-                          <RefreshCw className="size-4" />
-                        </Button>
-                      </div>
-                    </TableHead>
-                    <TableHead className="w-[220px]">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sortedModelProviders.map((association) => {
-                    const provider = providers.find(p => p.ID === association.ProviderID);
-                    const isAssociationEnabled = association.Status ?? false;
-                    const statusBars = providerStatus[association.ID];
-                    return (
-                      <TableRow key={association.ID}>
-                        <TableCell className="font-mono text-xs text-muted-foreground">{association.ID}</TableCell>
-                        <TableCell className="max-w-[200px] truncate" title={association.ProviderModel}>
-                          {association.ProviderModel}
-                        </TableCell>
-                        <TableCell>{provider?.Type ?? '未知'}</TableCell>
-                        <TableCell>{provider?.Name ?? '未知'}</TableCell>
-                        <TableCell>
-                          <span className={association.ToolCall ? "text-green-600" : "text-red-600"}>
-                            {association.ToolCall ? '✓' : '✗'}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span className={association.StructuredOutput ? "text-green-600" : "text-red-600"}>
-                            {association.StructuredOutput ? '✓' : '✗'}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span className={association.Image ? "text-green-600" : "text-red-600"}>
-                            {association.Image ? '✓' : '✗'}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span className={association.WithHeader ? "text-green-600" : "text-red-600"}>
-                            {association.WithHeader ? '✓' : '✗'}
-                          </span>
-                        </TableCell>
-                        <TableCell>{association.Weight}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Switch
-                              checked={isAssociationEnabled}
-                              disabled={!!statusUpdating[association.ID]}
-                              onCheckedChange={(value) => handleStatusToggle(association, value)}
-                              aria-label="切换启用状态"
-                            />
-                            <span className="text-xs text-muted-foreground">
-                              {isAssociationEnabled ? '已启用' : '已停用'}
+            <div className="flex-1 overflow-y-auto">
+              <div className="hidden sm:block w-full">
+                <Table className="min-w-[1200px]">
+                  <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>提供商模型</TableHead>
+                      <TableHead>类型</TableHead>
+                      <TableHead>提供商</TableHead>
+                      <TableHead>工具调用</TableHead>
+                      <TableHead>结构化输出</TableHead>
+                      <TableHead>视觉</TableHead>
+                      <TableHead>请求头透传</TableHead>
+                      <TableHead>权重</TableHead>
+                      <TableHead>启用</TableHead>
+                      <TableHead>
+                        <div className="flex items-center gap-1">状态
+                          <Button
+                            onClick={() => loadProviderStatus(modelProviders, selectedModelId)}
+                            variant="ghost"
+                            size="icon"
+                            aria-label="刷新状态"
+                            title="刷新状态"
+                            className="rounded-full"
+                          >
+                            <RefreshCw className="size-4" />
+                          </Button>
+                        </div>
+                      </TableHead>
+                      <TableHead className="w-[220px]">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sortedModelProviders.map((association) => {
+                      const provider = providers.find(p => p.ID === association.ProviderID);
+                      const isAssociationEnabled = association.Status ?? false;
+                      const statusBars = providerStatus[association.ID];
+                      return (
+                        <TableRow key={association.ID}>
+                          <TableCell className="font-mono text-xs text-muted-foreground">{association.ID}</TableCell>
+                          <TableCell className="max-w-[200px] truncate" title={association.ProviderModel}>
+                            {association.ProviderModel}
+                          </TableCell>
+                          <TableCell>{provider?.Type ?? '未知'}</TableCell>
+                          <TableCell>{provider?.Name ?? '未知'}</TableCell>
+                          <TableCell>
+                            <span className={association.ToolCall ? "text-green-600" : "text-red-600"}>
+                              {association.ToolCall ? '✓' : '✗'}
                             </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center space-x-4 w-20">
-                            {statusBars ? (
-                              statusBars.length > 0 ? (
-                                <div className="flex space-x-1 items-end h-6">
-                                  {statusBars.map((isSuccess, index) => (
-                                    <div
-                                      key={index}
-                                      className={`w-1 h-6 ${isSuccess ? 'bg-green-500' : 'bg-red-500'}`}
-                                      title={isSuccess ? '成功' : '失败'}
-                                    />
-                                  ))}
-                                </div>
+                          </TableCell>
+                          <TableCell>
+                            <span className={association.StructuredOutput ? "text-green-600" : "text-red-600"}>
+                              {association.StructuredOutput ? '✓' : '✗'}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <span className={association.Image ? "text-green-600" : "text-red-600"}>
+                              {association.Image ? '✓' : '✗'}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <span className={association.WithHeader ? "text-green-600" : "text-red-600"}>
+                              {association.WithHeader ? '✓' : '✗'}
+                            </span>
+                          </TableCell>
+                          <TableCell>{association.Weight}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Switch
+                                checked={isAssociationEnabled}
+                                disabled={!!statusUpdating[association.ID]}
+                                onCheckedChange={(value) => handleStatusToggle(association, value)}
+                                aria-label="切换启用状态"
+                              />
+                              <span className="text-xs text-muted-foreground">
+                                {isAssociationEnabled ? '已启用' : '已停用'}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center space-x-4 w-20">
+                              {statusBars ? (
+                                statusBars.length > 0 ? (
+                                  <div className="flex space-x-1 items-end h-6">
+                                    {statusBars.map((isSuccess, index) => (
+                                      <div
+                                        key={index}
+                                        className={`w-1 h-6 ${isSuccess ? 'bg-green-500' : 'bg-red-500'}`}
+                                        title={isSuccess ? '成功' : '失败'}
+                                      />
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-gray-400">无数据</div>
+                                )
                               ) : (
-                                <div className="text-xs text-gray-400">无数据</div>
-                              )
-                            ) : (
-                              <Spinner />
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-2">
-                            <Button variant="outline" size="sm" onClick={() => openEditDialog(association)}>
-                              编辑
-                            </Button>
-                            <AlertDialog open={deleteId === association.ID} onOpenChange={(open) => !open && setDeleteId(null)}>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(association.ID)}>
-                                  删除
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    此操作无法撤销。这将永久删除该模型提供商关联。
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
-                                  <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                            <Button variant="outline" size="sm" onClick={() => handleTest(association.ID)}>
-                              测试
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                                <Spinner />
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-2">
+                              <Button variant="outline" size="sm" onClick={() => openEditDialog(association)}>
+                                编辑
+                              </Button>
+                              <AlertDialog open={deleteId === association.ID} onOpenChange={(open) => !open && setDeleteId(null)}>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(association.ID)}>
+                                    删除
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      此操作无法撤销。这将永久删除该模型提供商关联。
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                              <Button variant="outline" size="sm" onClick={() => handleTest(association.ID)}>
+                                测试
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
             <div className="sm:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 divide-y divide-border">
               {sortedModelProviders.map((association) => {

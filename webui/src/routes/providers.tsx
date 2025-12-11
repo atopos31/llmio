@@ -377,9 +377,9 @@ export default function ProvidersPage() {
     const defaultType = firstTemplate?.type ?? "";
     const defaultConfig = firstTemplate
       ? (() => {
-          const parsed = parseConfigJson(firstTemplate.template);
-          return parsed ? stringifyConfigFields(parsed) : firstTemplate.template;
-        })()
+        const parsed = parseConfigJson(firstTemplate.template);
+        return parsed ? stringifyConfigFields(parsed) : firstTemplate.template;
+      })()
       : "";
     form.reset({
       name: "",
@@ -456,74 +456,76 @@ export default function ProvidersPage() {
           </div>
         ) : (
           <div className="h-full flex flex-col">
-            <div className="hidden sm:block w-full overflow-x-auto">
-              <Table className="min-w-[1200px]">
-                <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
-                  <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>名称</TableHead>
-                    <TableHead>类型</TableHead>
-                    <TableHead>配置</TableHead>
-                    <TableHead>控制台</TableHead>
-                    <TableHead className="w-[260px]">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {providers.map((provider) => (
-                    <TableRow key={provider.ID}>
-                      <TableCell className="font-mono text-xs text-muted-foreground">{provider.ID}</TableCell>
-                      <TableCell className="font-medium">{provider.Name}</TableCell>
-                    <TableCell className="text-sm">{provider.Type}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground font-mono">
-                      {getConfigBaseUrl(provider.Config)}
-                    </TableCell>
-                    <TableCell>
-                        {provider.Console ? (
-                          <Button
-                            title={provider.Console}
-                            variant="outline"
-                            size="sm"
-                            onClick={() => window.open(provider.Console, '_blank')}
-                          >
-                            前往
-                          </Button>
-                        ) : (
-                          <span className="text-muted-foreground">暂未设置</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-2">
-                          <Button variant="outline" size="sm" onClick={() => openEditDialog(provider)}>
-                            编辑
-                          </Button>
-                          <Button variant="secondary" size="sm" onClick={() => openModelsDialog(provider.ID)}>
-                            模型列表
-                          </Button>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(provider.ID)}>
-                                删除
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>确定要删除这个提供商吗？</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  此操作无法撤销。这将永久删除该提供商。
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </div>
-                      </TableCell>
+            <div className="flex-1 overflow-y-auto">
+              <div className="hidden sm:block w-full">
+                <Table className="min-w-[1200px]">
+                  <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>名称</TableHead>
+                      <TableHead>类型</TableHead>
+                      <TableHead>配置</TableHead>
+                      <TableHead>控制台</TableHead>
+                      <TableHead className="w-[260px]">操作</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {providers.map((provider) => (
+                      <TableRow key={provider.ID}>
+                        <TableCell className="font-mono text-xs text-muted-foreground">{provider.ID}</TableCell>
+                        <TableCell className="font-medium">{provider.Name}</TableCell>
+                        <TableCell className="text-sm">{provider.Type}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground font-mono">
+                          {getConfigBaseUrl(provider.Config)}
+                        </TableCell>
+                        <TableCell>
+                          {provider.Console ? (
+                            <Button
+                              title={provider.Console}
+                              variant="outline"
+                              size="sm"
+                              onClick={() => window.open(provider.Console, '_blank')}
+                            >
+                              前往
+                            </Button>
+                          ) : (
+                            <span className="text-muted-foreground">暂未设置</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-2">
+                            <Button variant="outline" size="sm" onClick={() => openEditDialog(provider)}>
+                              编辑
+                            </Button>
+                            <Button variant="secondary" size="sm" onClick={() => openModelsDialog(provider.ID)}>
+                              模型列表
+                            </Button>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(provider.ID)}>
+                                  删除
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>确定要删除这个提供商吗？</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    此操作无法撤销。这将永久删除该提供商。
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
+                                  <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
             <div className="sm:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 divide-y divide-border">
               {providers.map((provider) => (
@@ -618,12 +620,12 @@ export default function ProvidersPage() {
                   const templateOptions =
                     !hasCurrentValue && currentValue
                       ? [
-                          ...providerTemplates,
-                          {
-                            type: currentValue,
-                            template: "",
-                          } as ProviderTemplate,
-                        ]
+                        ...providerTemplates,
+                        {
+                          type: currentValue,
+                          template: "",
+                        } as ProviderTemplate,
+                      ]
                       : providerTemplates;
 
                   return (
@@ -647,11 +649,10 @@ export default function ProvidersPage() {
                                 <label
                                   key={template.type}
                                   htmlFor={radioId}
-                                  className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${
-                                    selected
+                                  className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${selected
                                       ? "border-primary bg-primary/10"
                                       : "border-border"
-                                  }`}
+                                    }`}
                                 >
                                   <RadioGroupItem
                                     id={radioId}

@@ -142,10 +142,10 @@ export default function ModelProvidersPage() {
       model_id: 0,
       provider_name: "",
       provider_id: 0,
-      tool_call: false,
-      structured_output: false,
+      tool_call: true,
+      structured_output: true,
       image: false,
-      with_header: false,
+      with_header: true,
       weight: 1,
       customer_headers: [],
     },
@@ -573,17 +573,6 @@ export default function ModelProvidersPage() {
 
   const openCreateDialog = () => {
     setEditingAssociation(null);
-    form.reset({
-      model_id: selectedModelId || 0,
-      provider_name: "",
-      provider_id: 0,
-      tool_call: false,
-      structured_output: false,
-      image: false,
-      with_header: false,
-      weight: 1,
-      customer_headers: []
-    });
     setOpen(true);
   };
 

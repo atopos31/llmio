@@ -177,6 +177,13 @@ func UpdateAuthKey(c *gin.Context) {
 		ExpiresAt: expiresAt,
 	}
 
+	if update.ExpiresAt == nil {
+		if _, err := gorm.G[models.AuthKey](models.DB).Where("id = ?", id).Update(ctx, "expires_at", nil); err != nil {
+			common.InternalServerError(c, "Failed to update expires_at: "+err.Error())
+			return
+		}
+	}
+
 	if _, err := gorm.G[models.AuthKey](models.DB).Where("id = ?", id).Updates(ctx, update); err != nil {
 		common.InternalServerError(c, "Failed to update auth key: "+err.Error())
 		return

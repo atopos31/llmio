@@ -24,19 +24,23 @@ type AuthKeyRequest struct {
 }
 
 func GetAuthKeys(c *gin.Context) {
-	page, pageSize, err := parsePagination(c.Query("page"), c.Query("page_size"))
+	// 解析分页参数
+	params, err := common.ParsePagination(c)
 	if err != nil {
 		common.BadRequest(c, err.Error())
 		return
 	}
 
+	// 构建查询
 	query := models.DB.Model(&models.AuthKey{})
 
+	// 搜索过滤
 	if search := strings.TrimSpace(c.Query("search")); search != "" {
 		like := "%" + search + "%"
 		query = query.Where("name LIKE ? OR key LIKE ?", like, like)
 	}
 
+	// 状态过滤
 	if status := strings.TrimSpace(c.Query("status")); status != "" {
 		switch status {
 		case "active":
@@ -49,6 +53,7 @@ func GetAuthKeys(c *gin.Context) {
 		}
 	}
 
+	// AllowAll 过滤
 	if allowAll := strings.TrimSpace(c.Query("allow_all")); allowAll != "" {
 		switch allowAll {
 		case "true":
@@ -61,25 +66,21 @@ func GetAuthKeys(c *gin.Context) {
 		}
 	}
 
-	var total int64
-	if err := query.Count(&total).Error; err != nil {
-		common.InternalServerError(c, "Failed to count auth keys: "+err.Error())
-		return
-	}
-
+	// 执行分页查询
 	var keys []models.AuthKey
-	if err := query.Order("id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&keys).Error; err != nil {
+	total, err := common.PaginateQuery(
+		query.Order("id DESC"),
+		params,
+		&keys,
+	)
+	if err != nil {
 		common.InternalServerError(c, "Failed to query auth keys: "+err.Error())
 		return
 	}
 
-	common.Success(c, map[string]any{
-		"data":      keys,
-		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
-		"pages":     (total + int64(pageSize) - 1) / int64(pageSize),
-	})
+	// 返回分页响应
+	response := common.NewPaginationResponse(keys, total, params)
+	common.Success(c, response)
 }
 
 func CreateAuthKey(c *gin.Context) {
@@ -196,27 +197,6 @@ func DeleteAuthKey(c *gin.Context) {
 		return
 	}
 	common.SuccessWithMessage(c, "Deleted", gin.H{"id": id})
-}
-
-func parsePagination(pageStr, pageSizeStr string) (int, int, error) {
-	page := 1
-	if pageStr != "" {
-		p, err := strconv.Atoi(pageStr)
-		if err != nil || p < 1 {
-			return 0, 0, fmt.Errorf("invalid page parameter")
-		}
-		page = p
-	}
-
-	pageSize := 20
-	if pageSizeStr != "" {
-		ps, err := strconv.Atoi(pageSizeStr)
-		if err != nil || ps < 1 || ps > 100 {
-			return 0, 0, fmt.Errorf("invalid page_size parameter (1-100)")
-		}
-		pageSize = ps
-	}
-	return page, pageSize, nil
 }
 
 func parseExpiresAt(value *string) (*time.Time, error) {

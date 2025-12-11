@@ -614,30 +614,14 @@ func DeleteModelProvider(c *gin.Context) {
 
 // GetRequestLogs 获取最近的请求日志（支持分页和筛选）
 func GetRequestLogs(c *gin.Context) {
-	// 分页参数
-	pageStr := c.Query("page")
-	page := 1
-	if pageStr != "" {
-		parsedPage, err := strconv.Atoi(pageStr)
-		if err != nil || parsedPage < 1 {
-			common.BadRequest(c, "Invalid page parameter")
-			return
-		}
-		page = parsedPage
+	// 解析分页参数
+	params, err := common.ParsePagination(c)
+	if err != nil {
+		common.BadRequest(c, err.Error())
+		return
 	}
 
-	pageSizeStr := c.Query("page_size")
-	pageSize := 20 // Default page size
-	if pageSizeStr != "" {
-		parsedPageSize, err := strconv.Atoi(pageSizeStr)
-		if err != nil || parsedPageSize < 1 || parsedPageSize > 100 {
-			common.BadRequest(c, "Invalid page_size parameter (must be between 1 and 100)")
-			return
-		}
-		pageSize = parsedPageSize
-	}
-
-	// 筛选参数
+	// 获取筛选参数
 	providerName := c.Query("provider_name")
 	name := c.Query("name")
 	status := c.Query("status")
@@ -667,30 +651,21 @@ func GetRequestLogs(c *gin.Context) {
 		query = query.Where("user_agent = ?", userAgent)
 	}
 
-	// 获取总数
-	var total int64
-	if err := query.Count(&total).Error; err != nil {
-		common.InternalServerError(c, "Failed to count logs: "+err.Error())
-		return
-	}
-
-	// 获取分页数据
+	// 执行分页查询
 	var logs []models.ChatLog
-	offset := (page - 1) * pageSize
-	if err := query.Order("id DESC").Offset(offset).Limit(pageSize).Find(&logs).Error; err != nil {
+	total, err := common.PaginateQuery(
+		query.Order("id DESC"),
+		params,
+		&logs,
+	)
+	if err != nil {
 		common.InternalServerError(c, "Failed to query logs: "+err.Error())
 		return
 	}
 
-	result := map[string]any{
-		"data":      logs,
-		"total":     total,
-		"page":      page,
-		"page_size": pageSize,
-		"pages":     (total + int64(pageSize) - 1) / int64(pageSize),
-	}
-
-	common.Success(c, result)
+	// 返回分页响应
+	response := common.NewPaginationResponse(logs, total, params)
+	common.Success(c, response)
 }
 
 // GetChatIO 查询指定日志的输入输出记录

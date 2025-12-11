@@ -229,7 +229,7 @@ export default function LogsPage() {
               </SelectContent>
             </Select>
           </div>
-                    <div className="flex flex-col gap-1 text-xs lg:min-w-0">
+          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商</Label>
             <Select value={providerNameFilter} onValueChange={setProviderNameFilter}>
               <SelectTrigger className="h-8 text-xs w-full px-2">
@@ -374,48 +374,48 @@ export default function LogsPage() {
         )}
       </div>
       {/* 分页区域 */}
-      
-        <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0 border-t pt-2">
-          <div className="text-sm text-muted-foreground whitespace-nowrap">
-            共 {total} 条，第 {page} / {pages} 页
+
+      <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0 border-t pt-2">
+        <div className="text-sm text-muted-foreground whitespace-nowrap">
+          共 {total} 条，第 {page} / {pages} 页
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Select value={String(pageSize)} onValueChange={(value) => handlePageSizeChange(Number(value))}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="条数" />
+              </SelectTrigger>
+              <SelectContent>
+                {[10, 20, 50].map((size) => (
+                  <SelectItem key={size} value={String(size)}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Select value={String(pageSize)} onValueChange={(value) => handlePageSizeChange(Number(value))}>
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="条数" />
-                </SelectTrigger>
-                <SelectContent>
-                  {[10, 20, 50].map((size) => (
-                    <SelectItem key={size} value={String(size)}>
-                      {size}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => handlePageChange(page - 1)}
-                disabled={page === 1}
-                aria-label="上一页"
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => handlePageChange(page + 1)}
-                disabled={page === pages}
-                aria-label="下一页"
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handlePageChange(page - 1)}
+              disabled={page === 1}
+              aria-label="上一页"
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handlePageChange(page + 1)}
+              disabled={page === pages}
+              aria-label="下一页"
+            >
+              <ChevronRight className="size-4" />
+            </Button>
           </div>
         </div>
+      </div>
       {/* 详情弹窗 */}
       {selectedLog && (
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

@@ -64,7 +64,7 @@ import {
   updateAuthKey,
   deleteAuthKey,
   toggleAuthKeyStatus,
-  getModels,
+  getModelOptions,
   type AuthKey,
   type Model
 } from "@/lib/api";
@@ -153,7 +153,7 @@ export default function AuthKeysPage() {
 
   const fetchModels = async () => {
     try {
-      const list = await getModels();
+	  const list = await getModelOptions();
       setModels(list);
     } catch (error) {
       console.error(error);

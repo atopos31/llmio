@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Loading from "@/components/loading";
-import { getLogs, getProviders, getModels, getAuthKeysList, type ChatLog, type Provider, type Model, type AuthKeyItem, getProviderTemplates } from "@/lib/api";
+import { getLogs, getProviders, getModelOptions, getAuthKeysList, type ChatLog, type Provider, type Model, type AuthKeyItem, getProviderTemplates } from "@/lib/api";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 
 // 格式化时间显示
@@ -87,7 +87,7 @@ export default function LogsPage() {
   };
   const fetchModels = async () => {
     try {
-      const modelList = await getModels();
+      const modelList = await getModelOptions();
       setModels(modelList);
     } catch (error) {
       console.error("Error fetching models:", error);

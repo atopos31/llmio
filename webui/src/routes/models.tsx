@@ -21,6 +21,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Form,
@@ -51,6 +53,7 @@ import {
 import type { Model } from "@/lib/api";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 
 type MobileInfoItemProps = {
   label: string;
@@ -66,6 +69,9 @@ const MobileInfoItem = ({ label, value }: MobileInfoItemProps) => (
 
 const renderStrategy = (strategy?: string) =>
   strategy === "rotor" ? "Rotor" : "Lottery";
+
+type StrategyFilter = "all" | "lottery" | "rotor";
+type IOLogFilter = "all" | "true" | "false";
 
 // 定义表单验证模式
 const formSchema = z.object({
@@ -84,6 +90,14 @@ export default function ModelsPage() {
   const [open, setOpen] = useState(false);
   const [editingModel, setEditingModel] = useState<Model | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(0);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [strategyFilter, setStrategyFilter] = useState<StrategyFilter>("all");
+  const [ioLogFilter, setIoLogFilter] = useState<IOLogFilter>("all");
 
   // 初始化表单
   const form = useForm<z.infer<typeof formSchema>>({
@@ -99,15 +113,32 @@ export default function ModelsPage() {
   });
 
   useEffect(() => {
-    console.log("Fetching models...");
-    fetchModels();
-  }, []);
+    const timer = setTimeout(() => {
+      setSearchTerm(searchInput.trim());
+      setPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const fetchModels = async () => {
     try {
       setLoading(true);
-      const data = await getModels();
-      setModels(data);
+      const response = await getModels({
+        page,
+        page_size: pageSize,
+        search: searchTerm || undefined,
+        strategy: strategyFilter === "all" ? undefined : strategyFilter,
+        io_log: ioLogFilter === "all" ? undefined : (ioLogFilter as "true" | "false"),
+      });
+      setModels(response.data);
+      setTotal(response.total);
+      setPages(response.pages);
+      const totalPages = response.pages || 0;
+      if (totalPages > 0 && page > totalPages) {
+        setPage(totalPages);
+      } else if (totalPages === 0 && page !== 1) {
+        setPage(1);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(`获取模型列表失败: ${message}`);
@@ -116,6 +147,10 @@ export default function ModelsPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchModels();
+  }, [page, pageSize, searchTerm, strategyFilter, ioLogFilter]);
 
   const handleCreate = async (values: z.infer<typeof formSchema>) => {
     try {
@@ -130,7 +165,7 @@ export default function ModelsPage() {
       setOpen(false);
       toast.success(`模型: ${values.name} 创建成功`);
       form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
-      fetchModels();
+      await fetchModels();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(`创建模型失败: ${message}`);
@@ -152,7 +187,7 @@ export default function ModelsPage() {
       toast.success(`模型: ${values.name} 更新成功`);
       setEditingModel(null);
       form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
-      fetchModels();
+      await fetchModels();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(`更新模型失败: ${message}`);
@@ -166,7 +201,7 @@ export default function ModelsPage() {
       const targetModel = models.find((model) => model.ID === deleteId);
       await deleteModel(deleteId);
       setDeleteId(null);
-      fetchModels();
+      await fetchModels();
       toast.success(`模型: ${targetModel?.Name ?? deleteId} 删除成功`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -198,18 +233,86 @@ export default function ModelsPage() {
     setDeleteId(id);
   };
 
+  const handlePageChange = (nextPage: number) => {
+    const maxPage = Math.max(pages, 1);
+    if (nextPage < 1 || nextPage > maxPage) return;
+    setPage(nextPage);
+  };
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setPage(1);
+  };
+
   return (
     <div className="h-full min-h-0 flex flex-col gap-4 p-1">
       <div className="flex flex-col gap-2 flex-shrink-0">
-        <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex items-start justify-between">
           <div className="min-w-0">
             <h2 className="text-2xl font-bold tracking-tight">模型管理</h2>
           </div>
-          <div className="flex w-full sm:w-auto items-center justify-end gap-2">
-            <Button onClick={openCreateDialog} className="w-full sm:w-auto sm:min-w-[120px]">
-              添加模型
-            </Button>
+        </div>
+        <div className="flex flex-col gap-2 flex-shrink-0">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
+            <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
+              <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">搜索</Label>
+              <div className="relative">
+                <Search className="size-4 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="按名称搜索"
+                  value={searchInput}
+                  onChange={(event) => setSearchInput(event.target.value)}
+                  className="h-9 pl-8 text-sm"
+                />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1 text-xs lg:min-w-0">
+              <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">负载策略</Label>
+              <Select
+                value={strategyFilter}
+                onValueChange={(value) => {
+                  setStrategyFilter(value as StrategyFilter);
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 text-sm px-2 w-full">
+                  <SelectValue placeholder="负载策略" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部</SelectItem>
+                  <SelectItem value="lottery">Lottery</SelectItem>
+                  <SelectItem value="rotor">Rotor</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end col-span-2 sm:col-span-2 lg:col-span-1 gap-2">
+              <div className="flex-1">
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">IO 记录</Label>
+                <Select
+                  value={ioLogFilter}
+                  onValueChange={(value) => {
+                    setIoLogFilter(value as IOLogFilter);
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-sm px-2 w-full">
+                    <SelectValue placeholder="IO 记录" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部</SelectItem>
+                    <SelectItem value="true">开启</SelectItem>
+                    <SelectItem value="false">关闭</SelectItem>
+                  </SelectContent>
+                </Select>
+
+              </div>
+              <Button onClick={openCreateDialog} className="h-8 text-xs">
+                添加模型
+              </Button>
+            </div>
+
           </div>
+
         </div>
       </div>
       <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
@@ -343,6 +446,47 @@ export default function ModelsPage() {
             </div>
           </div>
         )}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0 border-t pt-2">
+        <div className="text-sm text-muted-foreground whitespace-nowrap">
+          共 {total} 条，第 {page} / {Math.max(pages, 1)} 页
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Select value={String(pageSize)} onValueChange={(value) => handlePageSizeChange(Number(value))}>
+              <SelectTrigger className="h-8 w-[100px] text-xs">
+                <SelectValue placeholder="条数" />
+              </SelectTrigger>
+              <SelectContent>
+                {[10, 20, 50].map((size) => (
+                  <SelectItem key={size} value={String(size)}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handlePageChange(page - 1)}
+              disabled={page === 1}
+              aria-label="上一页"
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handlePageChange(page + 1)}
+              disabled={page === pages || pages === 0}
+              aria-label="下一页"
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        </div>
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>

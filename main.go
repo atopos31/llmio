@@ -74,6 +74,7 @@ func main() {
 
 		// Model management
 		api.GET("/models", handler.GetModels)
+		api.GET("/models/select", handler.GetModelList)
 		api.POST("/models", handler.CreateModel)
 		api.PUT("/models/:id", handler.UpdateModel)
 		api.DELETE("/models/:id", handler.DeleteModel)

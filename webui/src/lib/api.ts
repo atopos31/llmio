@@ -164,8 +164,27 @@ export async function deleteProvider(id: number): Promise<void> {
 }
 
 // Model API functions
-export async function getModels(): Promise<Model[]> {
-  return apiRequest<Model[]>('/models');
+export type ModelQuery = {
+  page?: number;
+  page_size?: number;
+  search?: string;
+  strategy?: string;
+  io_log?: 'true' | 'false';
+};
+
+export async function getModels(params: ModelQuery = {}): Promise<PaginatedResponse<Model>> {
+  const searchParams = new URLSearchParams();
+  if (params.page) searchParams.append('page', params.page.toString());
+  if (params.page_size) searchParams.append('page_size', params.page_size.toString());
+  if (params.search) searchParams.append('search', params.search);
+  if (params.strategy) searchParams.append('strategy', params.strategy);
+  if (params.io_log) searchParams.append('io_log', params.io_log);
+  const query = searchParams.toString();
+  return apiRequest<PaginatedResponse<Model>>(query ? `/models?${query}` : '/models');
+}
+
+export async function getModelOptions(): Promise<Model[]> {
+  return apiRequest<Model[]>('/models/select');
 }
 
 export async function createModel(model: {

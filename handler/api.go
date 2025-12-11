@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/consts"
@@ -222,11 +223,57 @@ func DeleteProvider(c *gin.Context) {
 	common.Success(c, nil)
 }
 
-// GetModels 获取所有模型列表
+// GetModels 获取模型列表（支持分页与筛选）
 func GetModels(c *gin.Context) {
-	modelsList, err := gorm.G[models.Model](models.DB).Find(c.Request.Context())
+	params, err := common.ParsePagination(c)
 	if err != nil {
-		common.InternalServerError(c, err.Error())
+		common.BadRequest(c, err.Error())
+		return
+	}
+
+	query := models.DB.Model(&models.Model{})
+
+	if search := strings.TrimSpace(c.Query("search")); search != "" {
+		like := "%" + search + "%"
+		query = query.Where("name LIKE ?", like)
+	}
+
+	if strategy := strings.TrimSpace(c.Query("strategy")); strategy != "" {
+		switch strategy {
+		case consts.BalancerLottery, consts.BalancerRotor:
+			query = query.Where("strategy = ?", strategy)
+		default:
+			common.BadRequest(c, "invalid strategy filter")
+			return
+		}
+	}
+
+	if ioLog := strings.TrimSpace(c.Query("io_log")); ioLog != "" {
+		switch ioLog {
+		case "true", "false":
+			query = query.Where("io_log = ?", ioLog == "true")
+		default:
+			common.BadRequest(c, "invalid io_log filter")
+			return
+		}
+	}
+
+	var list []models.Model
+	total, err := common.PaginateQuery(query.Order("id DESC"), params, &list)
+	if err != nil {
+		common.InternalServerError(c, "Failed to query models: "+err.Error())
+		return
+	}
+
+	response := common.NewPaginationResponse(list, total, params)
+	common.Success(c, response)
+}
+
+// GetModelList 返回所有模型列表用于下拉选择等场景
+func GetModelList(c *gin.Context) {
+	modelsList, err := gorm.G[models.Model](models.DB).Order("id DESC").Find(c.Request.Context())
+	if err != nil {
+		common.InternalServerError(c, "Failed to get models: "+err.Error())
 		return
 	}
 

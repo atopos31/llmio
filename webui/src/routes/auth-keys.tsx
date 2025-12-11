@@ -63,6 +63,7 @@ import {
   createAuthKey,
   updateAuthKey,
   deleteAuthKey,
+  toggleAuthKeyStatus,
   getModels,
   type AuthKey,
   type Model
@@ -253,19 +254,31 @@ export default function AuthKeysPage() {
   };
 
   const handleToggleStatus = async (item: AuthKey, next: boolean) => {
+    const previousStatus = item.Status;
     setToggleLoadingId(item.ID);
+
+    // 乐观更新：立即更新 UI
+    setAuthKeys(prev =>
+      prev.map(key =>
+        key.ID === item.ID ? { ...key, Status: next } : key
+      )
+    );
+
     try {
-      await updateAuthKey(item.ID, {
-        name: item.Name,
-        key: item.Key,
-        status: next,
-        allow_all: item.AllowAll,
-        models: item.Models ?? [],
-        expires_at: item.ExpiresAt ?? undefined,
-      });
-      toast.success(next ? "已启用" : "已禁用");
-      fetchAuthKeys();
+      const updated = await toggleAuthKeyStatus(item.ID);
+      // 用服务器返回的数据更新
+      setAuthKeys(prev =>
+        prev.map(key =>
+          key.ID === item.ID ? updated : key
+        )
+      );
     } catch (error) {
+      // 失败时回滚到之前的状态
+      setAuthKeys(prev =>
+        prev.map(key =>
+          key.ID === item.ID ? { ...key, Status: previousStatus } : key
+        )
+      );
       console.error(error);
       toast.error(error instanceof Error ? error.message : "更新状态失败");
     } finally {
@@ -474,9 +487,6 @@ export default function AuthKeysPage() {
                               disabled={toggleDisabled}
                               onCheckedChange={(checked) => handleToggleStatus(item, checked)}
                             />
-                            <span className="text-sm text-muted-foreground">
-                              {item.Status ? "启用" : "禁用"}
-                            </span>
                           </div>
                         </TableCell>
                         <TableCell>

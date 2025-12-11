@@ -260,6 +260,12 @@ export async function deleteAuthKey(id: number): Promise<void> {
   });
 }
 
+export async function toggleAuthKeyStatus(id: number): Promise<AuthKey> {
+  return apiRequest<AuthKey>(`/auth-keys/${id}/status`, {
+    method: "PATCH",
+  });
+}
+
 // Model-Provider API functions
 export async function getModelProviders(modelId: number): Promise<ModelWithProvider[]> {
   return apiRequest<ModelWithProvider[]>(`/model-providers?model_id=${modelId}`);

@@ -206,6 +206,44 @@ func DeleteAuthKey(c *gin.Context) {
 	common.SuccessWithMessage(c, "Deleted", gin.H{"id": id})
 }
 
+// ToggleAuthKeyStatus 切换 AuthKey 状态
+func ToggleAuthKeyStatus(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		common.BadRequest(c, "Invalid ID")
+		return
+	}
+
+	ctx := c.Request.Context()
+
+	// 获取当前的 AuthKey
+	authKey, err := gorm.G[models.AuthKey](models.DB).Where("id = ?", id).First(ctx)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.NotFound(c, "Auth key not found")
+			return
+		}
+		common.InternalServerError(c, "Failed to load auth key: "+err.Error())
+		return
+	}
+
+	// 切换状态
+	newStatus := !*authKey.Status
+	update := models.AuthKey{
+		Status: &newStatus,
+	}
+
+	if _, err := gorm.G[models.AuthKey](models.DB).Where("id = ?", id).Updates(ctx, update); err != nil {
+		common.InternalServerError(c, "Failed to update status: "+err.Error())
+		return
+	}
+
+	// 返回更新后的记录
+	authKey.Status = &newStatus
+	common.Success(c, authKey)
+}
+
 // GetAuthKeysList 获取所有项目（AuthKey）的简化列表（ID 和 Name）
 func GetAuthKeysList(c *gin.Context) {
 	ctx := c.Request.Context()

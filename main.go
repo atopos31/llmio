@@ -96,6 +96,7 @@ func main() {
 		api.GET("/auth-keys/list", handler.GetAuthKeysList)
 		api.POST("/auth-keys", handler.CreateAuthKey)
 		api.PUT("/auth-keys/:id", handler.UpdateAuthKey)
+		api.PATCH("/auth-keys/:id/status", handler.ToggleAuthKeyStatus)
 		api.DELETE("/auth-keys/:id", handler.DeleteAuthKey)
 
 		// Config management

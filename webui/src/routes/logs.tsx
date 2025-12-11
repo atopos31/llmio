@@ -154,7 +154,7 @@ export default function LogsPage() {
   };
   // 布局开始
   return (
-    <div className="h-full min-h-0 flex flex-col gap-4 p-1">
+    <div className="h-full min-h-0 flex flex-col gap-2 p-1">
       {/* 顶部标题和刷新 */}
       <div className="flex flex-col gap-2 flex-shrink-0">
         <div className="flex flex-wrap items-start justify-between gap-2">

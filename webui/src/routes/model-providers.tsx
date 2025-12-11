@@ -638,73 +638,72 @@ export default function ModelProvidersPage() {
   if (loading && models.length === 0 && providers.length === 0) return <Loading message="加载模型和提供商" />;
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-4 p-1">
+    <div className="h-full min-h-0 flex flex-col gap-2 p-1">
       <div className="flex flex-col gap-2 flex-shrink-0">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <h2 className="text-2xl font-bold tracking-tight">模型提供商关联</h2>
           </div>
-          <div className="flex w-full sm:w-auto items-center justify-end gap-2">
-          </div>
         </div>
-      </div>
-      <div className="flex flex-col gap-2 flex-shrink-0">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
-          <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">关联模型</Label>
-            <Select value={selectedModelId?.toString() || ""} onValueChange={handleModelChange}>
-              <SelectTrigger className="h-8 w-full text-xs px-2">
-                <SelectValue placeholder="选择模型" />
-              </SelectTrigger>
-              <SelectContent>
-                {models.map((model) => (
-                  <SelectItem key={model.ID} value={model.ID.toString()}>
-                    {model.Name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1 lg:col-span-1">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商类型</Label>
-            <Select value={selectedProviderType} onValueChange={setSelectedProviderType}>
-              <SelectTrigger className="h-8 w-full text-xs px-2">
-                <SelectValue placeholder="按类型筛选" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部</SelectItem>
-                {providerTypes.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {type}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-end col-span-2 sm:col-span-2 lg:col-span-1 gap-2">
-            <div className="flex-1">
-              <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">权重排序</Label>
-              <Select value={weightSortOrder} onValueChange={(value) => setWeightSortOrder(value as "asc" | "desc" | "none")}>
+        <div className="flex flex-col gap-2 flex-shrink-0">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
+            <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
+              <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">关联模型</Label>
+              <Select value={selectedModelId?.toString() || ""} onValueChange={handleModelChange}>
                 <SelectTrigger className="h-8 w-full text-xs px-2">
-                  <SelectValue placeholder="选择排序方式" />
+                  <SelectValue placeholder="选择模型" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">默认顺序</SelectItem>
-                  <SelectItem value="asc">权重升序</SelectItem>
-                  <SelectItem value="desc">权重降序</SelectItem>
+                  {models.map((model) => (
+                    <SelectItem key={model.ID} value={model.ID.toString()}>
+                      {model.Name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
-            <Button
-              onClick={openCreateDialog}
-              disabled={!selectedModelId}
-              className="h-8 text-xs"
-            >
-              添加关联
-            </Button>
+            <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1 lg:col-span-1">
+              <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商类型</Label>
+              <Select value={selectedProviderType} onValueChange={setSelectedProviderType}>
+                <SelectTrigger className="h-8 w-full text-xs px-2">
+                  <SelectValue placeholder="按类型筛选" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部</SelectItem>
+                  {providerTypes.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-end col-span-2 sm:col-span-2 lg:col-span-1 gap-2">
+              <div className="flex-1">
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">权重排序</Label>
+                <Select value={weightSortOrder} onValueChange={(value) => setWeightSortOrder(value as "asc" | "desc" | "none")}>
+                  <SelectTrigger className="h-8 w-full text-xs px-2">
+                    <SelectValue placeholder="选择排序方式" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">默认顺序</SelectItem>
+                    <SelectItem value="asc">权重升序</SelectItem>
+                    <SelectItem value="desc">权重降序</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                onClick={openCreateDialog}
+                disabled={!selectedModelId}
+                className="h-8 text-xs"
+              >
+                添加关联
+              </Button>
+            </div>
           </div>
         </div>
       </div>
+
       {statusError && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {statusError}

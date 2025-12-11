@@ -322,7 +322,7 @@ export default function AuthKeysPage() {
 
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-4 p-1">
+    <div className="h-full min-h-0 flex flex-col gap-2 p-1">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h2 className="text-2xl font-bold tracking-tight">API Key 管理</h2>
@@ -342,7 +342,7 @@ export default function AuthKeysPage() {
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
                 placeholder="名称或 Key"
-                className="h-8 text-xs pl-8"
+                className="h-9 text-xs pl-8"
               />
             </div>
           </div>

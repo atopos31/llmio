@@ -11,6 +11,7 @@ import (
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
 	"github.com/gin-gonic/gin"
+	"github.com/samber/lo"
 	"gorm.io/gorm"
 )
 
@@ -612,6 +613,11 @@ func DeleteModelProvider(c *gin.Context) {
 	common.Success(c, nil)
 }
 
+type WrapLog struct {
+	models.ChatLog
+	KeyName string `json:"key_name"`
+}
+
 // GetRequestLogs 获取最近的请求日志（支持分页和筛选）
 func GetRequestLogs(c *gin.Context) {
 	// 解析分页参数
@@ -626,7 +632,7 @@ func GetRequestLogs(c *gin.Context) {
 	name := c.Query("name")
 	status := c.Query("status")
 	style := c.Query("style")
-	userAgent := c.Query("user_agent")
+	authKeyID := c.Query("auth_key_id")
 
 	// 构建查询条件
 	query := models.DB.Model(&models.ChatLog{})
@@ -647,8 +653,8 @@ func GetRequestLogs(c *gin.Context) {
 		query = query.Where("style = ?", style)
 	}
 
-	if userAgent != "" {
-		query = query.Where("user_agent = ?", userAgent)
+	if authKeyID != "" {
+		query = query.Where("auth_key_id = ?", authKeyID)
 	}
 
 	// 执行分页查询
@@ -663,8 +669,31 @@ func GetRequestLogs(c *gin.Context) {
 		return
 	}
 
+	keys, err := gorm.G[models.AuthKey](models.DB).Where("id IN ?", lo.Map(logs, func(log models.ChatLog, _ int) uint { return log.AuthKeyID })).Find(c.Request.Context())
+	if err != nil {
+		common.InternalServerError(c, "Failed to query auth keys: "+err.Error())
+		return
+	}
+
+	keyMap := lo.KeyBy(keys, func(key models.AuthKey) uint { return key.ID })
+
+	var wrapLogs []WrapLog
+	for _, log := range logs {
+		var keyName string
+		if key, ok := keyMap[log.AuthKeyID]; ok {
+			keyName = key.Name
+		}
+		if log.AuthKeyID == 0 {
+			keyName = "admin"
+		}
+		wrapLogs = append(wrapLogs, WrapLog{
+			ChatLog: log,
+			KeyName: keyName,
+		})
+	}
+
 	// 返回分页响应
-	response := common.NewPaginationResponse(logs, total, params)
+	response := common.NewPaginationResponse(wrapLogs, total, params)
 	common.Success(c, response)
 }
 

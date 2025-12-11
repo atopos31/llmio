@@ -199,6 +199,34 @@ func DeleteAuthKey(c *gin.Context) {
 	common.SuccessWithMessage(c, "Deleted", gin.H{"id": id})
 }
 
+// GetAuthKeysList 获取所有项目（AuthKey）的简化列表（ID 和 Name）
+func GetAuthKeysList(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	keys, err := gorm.G[models.AuthKey](models.DB).Select("id", "name").Find(ctx)
+	if err != nil {
+		common.InternalServerError(c, "Failed to query auth keys: "+err.Error())
+		return
+	}
+
+	// 构建简化的返回结果
+	type KeyItem struct {
+		ID   uint   `json:"id"`
+		Name string `json:"name"`
+	}
+
+	result := make([]KeyItem, len(keys))
+	for i, key := range keys {
+		result[i] = KeyItem{
+			ID:   key.ID,
+			Name: key.Name,
+		}
+	}
+	result = append(result, KeyItem{ID: 0, Name: "admin"})
+
+	common.Success(c, result)
+}
+
 func parseExpiresAt(value *string) (*time.Time, error) {
 	if value == nil {
 		return nil, nil

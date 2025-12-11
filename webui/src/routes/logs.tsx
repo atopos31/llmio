@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import Loading from "@/components/loading";
-import { getLogs, getProviders, getModels, getUserAgents, type ChatLog, type Provider, type Model, getProviderTemplates } from "@/lib/api";
+import { getLogs, getProviders, getModels, getAuthKeysList, type ChatLog, type Provider, type Model, type AuthKeyItem, getProviderTemplates } from "@/lib/api";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 
 // 格式化时间显示
@@ -61,13 +61,13 @@ export default function LogsPage() {
   const [pages, setPages] = useState(0);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [models, setModels] = useState<Model[]>([]);
-  const [userAgents, setUserAgents] = useState<string[]>([]);
+  const [authKeys, setAuthKeys] = useState<AuthKeyItem[]>([]);
   // 筛选条件
   const [providerNameFilter, setProviderNameFilter] = useState<string>("all");
   const [modelFilter, setModelFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [styleFilter, setStyleFilter] = useState<string>("all");
-  const [userAgentFilter, setUserAgentFilter] = useState<string>("all");
+  const [authKeyFilter, setAuthKeyFilter] = useState<string>("all");
   const [availableStyles, setAvailableStyles] = useState<string[]>([]);
   const navigate = useNavigate();
   // 详情弹窗
@@ -93,12 +93,12 @@ export default function LogsPage() {
       console.error("Error fetching models:", error);
     }
   };
-  const fetchUserAgents = async () => {
+  const fetchAuthKeys = async () => {
     try {
-      const userAgentList = await getUserAgents();
-      setUserAgents(userAgentList);
+      const authKeyList = await getAuthKeysList();
+      setAuthKeys(authKeyList);
     } catch (error) {
-      console.error("Error fetching user agents:", error);
+      console.error("Error fetching auth keys:", error);
     }
   };
   const fetchLogs = async () => {
@@ -109,7 +109,7 @@ export default function LogsPage() {
         name: modelFilter === "all" ? undefined : modelFilter,
         status: statusFilter === "all" ? undefined : statusFilter,
         style: styleFilter === "all" ? undefined : styleFilter,
-        userAgent: userAgentFilter === "all" ? undefined : userAgentFilter
+        authKeyId: authKeyFilter === "all" ? undefined : authKeyFilter
       });
       setLogs(result.data);
       setTotal(result.total);
@@ -123,15 +123,15 @@ export default function LogsPage() {
   useEffect(() => {
     fetchProviders();
     fetchModels();
-    fetchUserAgents();
+    fetchAuthKeys();
     fetchLogs();
-  }, [page, pageSize, providerNameFilter, modelFilter, statusFilter, styleFilter, userAgentFilter]);
+  }, [page, pageSize, providerNameFilter, modelFilter, statusFilter, styleFilter, authKeyFilter]);
   const handleFilterChange = () => {
     setPage(1);
   };
   useEffect(() => {
     handleFilterChange();
-  }, [providerNameFilter, modelFilter, statusFilter, styleFilter, userAgentFilter]);
+  }, [providerNameFilter, modelFilter, statusFilter, styleFilter, authKeyFilter]);
   const handlePageChange = (newPage: number) => {
     if (newPage >= 1 && newPage <= pages) setPage(newPage);
   };
@@ -191,6 +191,20 @@ export default function LogsPage() {
             </Select>
           </div>
           <div className="flex flex-col gap-1 text-xs lg:min-w-0">
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">项目</Label>
+            <Select value={authKeyFilter} onValueChange={setAuthKeyFilter}>
+              <SelectTrigger className="h-8 text-xs w-full px-2">
+                <SelectValue placeholder="选择项目" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部</SelectItem>
+                {authKeys.map((key) => (
+                  <SelectItem key={key.id} value={key.id.toString()}>{key.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商</Label>
             <Select value={providerNameFilter} onValueChange={setProviderNameFilter}>
               <SelectTrigger className="h-8 text-xs w-full px-2">
@@ -229,22 +243,6 @@ export default function LogsPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1 lg:col-span-1 lg:min-w-0">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">用户代理</Label>
-            <Select value={userAgentFilter} onValueChange={setUserAgentFilter}>
-              <SelectTrigger className="h-8 text-xs w-full px-2">
-                <SelectValue placeholder="User Agent" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部</SelectItem>
-                {userAgents.map((ua) => (
-                  <SelectItem key={ua} value={ua}>
-                    <span className="truncate block sm:max-w-[260px] max-w-[360px]">{ua}</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
         </div>
       </div>
       {/* 列表区域 */}
@@ -265,7 +263,8 @@ export default function LogsPage() {
                   <TableHeader className="z-10 sticky top-0 bg-secondary/90 backdrop-blur text-secondary-foreground">
                     <TableRow className="hover:bg-secondary/90">
                       <TableHead>时间</TableHead>
-                      <TableHead>模型名称</TableHead>
+                      <TableHead>模型</TableHead>
+                      <TableHead>项目</TableHead>
                       <TableHead>状态</TableHead>
                       <TableHead>Tokens</TableHead>
                       <TableHead>响应大小</TableHead>
@@ -273,7 +272,6 @@ export default function LogsPage() {
                       <TableHead>提供商模型</TableHead>
                       <TableHead>类型</TableHead>
                       <TableHead>提供商</TableHead>
-                      <TableHead>UA</TableHead>
                       <TableHead className="w-[140px]">操作</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -284,6 +282,7 @@ export default function LogsPage() {
                           {new Date(log.CreatedAt).toLocaleString()}
                         </TableCell>
                         <TableCell className="font-medium">{log.Name}</TableCell>
+                        <TableCell className="text-xs">{log.key_name || '-'}</TableCell>
                         <TableCell>
                           <span className={`inline-flex items-center px-2 py-1 ${log.Status === 'success' ? 'text-green-500' : 'text-red-500 '
                             }`}>
@@ -298,9 +297,6 @@ export default function LogsPage() {
                         <TableCell className="max-w-[120px] truncate text-xs" title={log.ProviderModel}>{log.ProviderModel}</TableCell>
                         <TableCell className="text-xs">{log.Style}</TableCell>
                         <TableCell className="text-xs">{log.ProviderName}</TableCell>
-                        <TableCell className="max-w-[100px] truncate text-xs" title={log.UserAgent}>
-                          {log.UserAgent || '-'}
-                        </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
                             <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => openDetailDialog(log)}>

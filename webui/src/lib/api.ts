@@ -231,6 +231,15 @@ export async function getAuthKeys(params: {
   return apiRequest<PaginatedResponse<AuthKey>>(queryString ? `/auth-keys?${queryString}` : "/auth-keys");
 }
 
+export interface AuthKeyItem {
+  id: number;
+  name: string;
+}
+
+export async function getAuthKeysList(): Promise<AuthKeyItem[]> {
+  return apiRequest<AuthKeyItem[]>("/auth-keys/list");
+}
+
 export async function createAuthKey(payload: AuthKeyPayload): Promise<AuthKey> {
   return apiRequest<AuthKey>("/auth-keys", {
     method: "POST",
@@ -419,6 +428,7 @@ export interface ChatLog {
   completion_tokens: number;
   total_tokens: number;
   prompt_tokens_details: PromptTokensDetails;
+  key_name: string;
 }
 
 export interface PromptTokensDetails {
@@ -457,7 +467,7 @@ export async function getLogs(
     providerName?: string;
     status?: string;
     style?: string;
-    userAgent?: string;
+    authKeyId?: string;
   } = {}
 ): Promise<LogsResponse> {
   const params = new URLSearchParams();
@@ -469,7 +479,7 @@ export async function getLogs(
   if (filters.providerName) params.append("provider_name", filters.providerName);
   if (filters.status) params.append("status", filters.status);
   if (filters.style) params.append("style", filters.style);
-  if (filters.userAgent) params.append("user_agent", filters.userAgent);
+  if (filters.authKeyId) params.append("auth_key_id", filters.authKeyId);
 
   return apiRequest<LogsResponse>(`/logs?${params.toString()}`);
 }

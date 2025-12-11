@@ -205,20 +205,6 @@ export default function LogsPage() {
             </Select>
           </div>
           <div className="flex flex-col gap-1 text-xs lg:min-w-0">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商</Label>
-            <Select value={providerNameFilter} onValueChange={setProviderNameFilter}>
-              <SelectTrigger className="h-8 text-xs w-full px-2">
-                <SelectValue placeholder="选择提供商" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部</SelectItem>
-                {providers.map((p) => (
-                  <SelectItem key={p.ID} value={p.Name}>{p.Name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">状态</Label>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="h-8 text-xs w-full px-2">
@@ -240,6 +226,20 @@ export default function LogsPage() {
               <SelectContent>
                 <SelectItem value="all">全部</SelectItem>
                 {availableStyles.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+                    <div className="flex flex-col gap-1 text-xs lg:min-w-0">
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商</Label>
+            <Select value={providerNameFilter} onValueChange={setProviderNameFilter}>
+              <SelectTrigger className="h-8 text-xs w-full px-2">
+                <SelectValue placeholder="选择提供商" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部</SelectItem>
+                {providers.map((p) => (
+                  <SelectItem key={p.ID} value={p.Name}>{p.Name}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

@@ -91,12 +91,6 @@ const defaultFormValues: AuthKeyFormValues = {
   expires_at: null,
 };
 
-const formatDateTime = (value?: string | null) => {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString();
-};
 
 export default function AuthKeysPage() {
   const [authKeys, setAuthKeys] = useState<AuthKey[]>([]);
@@ -377,8 +371,9 @@ export default function AuthKeysPage() {
                   <TableHead>项目</TableHead>
                   <TableHead className="min-w-64">Key</TableHead>
                   <TableHead>使用范围</TableHead>
-                  <TableHead>有效期</TableHead>
+                  <TableHead>有效期至</TableHead>
                   <TableHead>使用次数</TableHead>
+                  <TableHead>最后使用时间</TableHead>
                   <TableHead>状态</TableHead>
                   <TableHead>操作</TableHead>
                 </TableRow>
@@ -461,13 +456,16 @@ export default function AuthKeysPage() {
                             "text-sm",
                             expired ? "text-destructive font-medium" : ""
                           )}>
-                            {item.ExpiresAt ? formatDateTime(item.ExpiresAt) : "永不过期"}
+                            {item.ExpiresAt ? new Date(item.ExpiresAt).toLocaleDateString() : "永久有效"}
                           </span>
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-col">
-                            <span>{item.UsageCount.toLocaleString()}</span>
+                            <span>{item.UsageCount}</span>
                           </div>
+                        </TableCell>
+                        <TableCell>
+                          {item.LastUsedAt ? new Date(item.LastUsedAt).toLocaleString() : "未使用"}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
@@ -647,57 +645,57 @@ export default function AuthKeysPage() {
                   const selected = field.value ? new Date(field.value) : undefined;
                   const isValidDate = selected && !Number.isNaN(selected.getTime()) ? selected : undefined;
                   return (
-                  <FormItem className="grid gap-2">
-                    <FormLabel>有效期至（可选）</FormLabel>
-                    <FormControl>
-                      <div className="flex flex-col gap-3">
-                        <div className="flex items-center gap-2">
-                          <Popover open={open} onOpenChange={setOpen} modal={true}>
-                            <PopoverTrigger asChild>
-                              <Button
-                                variant="outline"
-                                id="date"
-                                className="w-48 justify-between font-normal"
-                              >
-                                {isValidDate ? isValidDate.toLocaleDateString() : "Select date"}
-                                <ChevronDownIcon />
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto overflow-hidden p-0" align="start">
-                              <Calendar
-                                mode="single"
-                                selected={isValidDate}
-                                captionLayout="dropdown"
-                                startMonth={new Date()}
-                                disabled={{before: new Date(new Date().setDate(new Date().getDate() + 1))}}
-                                endMonth={new Date(new Date().getFullYear() + 10, 11, 31)}
-                                onSelect={(date) => {
-                                  field.onChange(date ? date.toISOString() : null);
-                                  setOpen(false);
-                                }}
-                              />
-                            </PopoverContent>
-                          </Popover>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="ml-auto text-muted-foreground"
-                            onClick={() => {
-                              field.onChange(null);
-                              setOpen(false);
-                            }}
-                            disabled={!field.value}
-                          >
-                            重置
-                          </Button>
+                    <FormItem className="grid gap-2">
+                      <FormLabel>有效期至（可选）</FormLabel>
+                      <FormControl>
+                        <div className="flex flex-col gap-3">
+                          <div className="flex items-center gap-2">
+                            <Popover open={open} onOpenChange={setOpen} modal={true}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  id="date"
+                                  className="w-48 justify-between font-normal"
+                                >
+                                  {isValidDate ? isValidDate.toLocaleDateString() : "Select date"}
+                                  <ChevronDownIcon />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto overflow-hidden p-0" align="start">
+                                <Calendar
+                                  mode="single"
+                                  selected={isValidDate}
+                                  captionLayout="dropdown"
+                                  startMonth={new Date()}
+                                  disabled={{ before: new Date(new Date().setDate(new Date().getDate() + 1)) }}
+                                  endMonth={new Date(new Date().getFullYear() + 10, 11, 31)}
+                                  onSelect={(date) => {
+                                    field.onChange(date ? date.toISOString() : null);
+                                    setOpen(false);
+                                  }}
+                                />
+                              </PopoverContent>
+                            </Popover>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="ml-auto text-muted-foreground"
+                              onClick={() => {
+                                field.onChange(null);
+                                setOpen(false);
+                              }}
+                              disabled={!field.value}
+                            >
+                              重置
+                            </Button>
+                          </div>
                         </div>
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                );
-              }}
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }}
               />
 
               <DialogFooter>

@@ -100,11 +100,14 @@ func CreateAuthKey(c *gin.Context) {
 		common.InternalServerError(c, "Failed to generate key: "+err.Error())
 		return
 	}
-
-	expiresAt, err := parseExpiresAt(req.ExpiresAt)
-	if err != nil {
-		common.BadRequest(c, err.Error())
-		return
+	var expiresAt *time.Time
+	if req.ExpiresAt != nil {
+		parsedExpiresAt, err := time.Parse(time.RFC3339, *req.ExpiresAt)
+		if err != nil {
+			common.BadRequest(c, "Invalid expires_at format, must be RFC3339")
+			return
+		}
+		expiresAt = &parsedExpiresAt
 	}
 
 	ctx := c.Request.Context()
@@ -156,10 +159,14 @@ func UpdateAuthKey(c *gin.Context) {
 		return
 	}
 
-	expiresAt, err := parseExpiresAt(req.ExpiresAt)
-	if err != nil {
-		common.BadRequest(c, err.Error())
-		return
+	var expiresAt *time.Time
+	if req.ExpiresAt != nil {
+		parsedExpiresAt, err := time.Parse(time.RFC3339, *req.ExpiresAt)
+		if err != nil {
+			common.BadRequest(c, "Invalid expires_at format, must be RFC3339")
+			return
+		}
+		expiresAt = &parsedExpiresAt
 	}
 
 	update := models.AuthKey{
@@ -225,21 +232,6 @@ func GetAuthKeysList(c *gin.Context) {
 	result = append(result, KeyItem{ID: 0, Name: "admin"})
 
 	common.Success(c, result)
-}
-
-func parseExpiresAt(value *string) (*time.Time, error) {
-	if value == nil {
-		return nil, nil
-	}
-	trimmed := strings.TrimSpace(*value)
-	if trimmed == "" {
-		return nil, nil
-	}
-	t, err := time.Parse(time.RFC3339, trimmed)
-	if err != nil {
-		return nil, fmt.Errorf("invalid expires_at format, expected RFC3339")
-	}
-	return &t, nil
 }
 
 func validateAuthKeyRequest(req AuthKeyRequest) error {

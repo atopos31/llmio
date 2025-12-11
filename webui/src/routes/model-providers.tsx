@@ -1087,7 +1087,7 @@ export default function ModelProvidersPage() {
                               setShowProviderModels(true);
                             }}
                           />
-                          {showProviderModels && selectedProviderId && (providerModelsMap[selectedProviderId] || []).length > 0 && (
+                          {showProviderModels && (providerModelsMap[selectedProviderId] || []).length > 0 && (
                             <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-sm max-h-52 overflow-y-auto">
                               {sortProviderModels(selectedProviderId, field.value || "").map((model) => (
                                 <button

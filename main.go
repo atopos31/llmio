@@ -35,18 +35,29 @@ func main() {
 	authOpenAI := middleware.AuthOpenAI(token)
 	authAnthropic := middleware.AuthAnthropic(token)
 
-	openai := router.Group("/openai/v1", authOpenAI)
+	// openai
+	openai := router.Group("/openai", authOpenAI)
 	{
-		openai.GET("/models", handler.OpenAIModelsHandler)
-		openai.POST("/chat/completions", handler.ChatCompletionsHandler)
-		openai.POST("/responses", handler.ResponsesHandler)
+		v1 := openai.Group("/v1")
+		{
+			v1.GET("/models", handler.OpenAIModelsHandler)
+			v1.POST("/chat/completions", handler.ChatCompletionsHandler)
+			v1.POST("/responses", handler.ResponsesHandler)
+		}
 	}
 
-	anthropic := router.Group("/anthropic/v1", authAnthropic)
+	// anthropic
+	anthropic := router.Group("/anthropic", authAnthropic)
 	{
-		anthropic.GET("/models", handler.AnthropicModelsHandler)
-		anthropic.POST("/messages", handler.Messages)
-		anthropic.POST("/messages/count_tokens", handler.CountTokens)
+		// claude code logging
+		anthropic.POST("/api/event_logging/batch", handler.EventLogging)
+
+		v1 := anthropic.Group("/v1")
+		{
+			v1.GET("/models", handler.AnthropicModelsHandler)
+			v1.POST("/messages", handler.Messages)
+			v1.POST("/messages/count_tokens", handler.CountTokens)
+		}
 	}
 
 	// 兼容性保留

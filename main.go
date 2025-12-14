@@ -11,6 +11,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/handler"
 	"github.com/atopos31/llmio/middleware"
 	"github.com/atopos31/llmio/models"
@@ -35,18 +36,29 @@ func main() {
 	authOpenAI := middleware.AuthOpenAI(token)
 	authAnthropic := middleware.AuthAnthropic(token)
 
-	openai := router.Group("/openai/v1", authOpenAI)
+	// openai
+	openai := router.Group("/openai", authOpenAI)
 	{
-		openai.GET("/models", handler.OpenAIModelsHandler)
-		openai.POST("/chat/completions", handler.ChatCompletionsHandler)
-		openai.POST("/responses", handler.ResponsesHandler)
+		v1 := openai.Group("/v1")
+		{
+			v1.GET("/models", handler.OpenAIModelsHandler)
+			v1.POST("/chat/completions", handler.ChatCompletionsHandler)
+			v1.POST("/responses", handler.ResponsesHandler)
+		}
 	}
 
-	anthropic := router.Group("/anthropic/v1", authAnthropic)
+	// anthropic
+	anthropic := router.Group("/anthropic", authAnthropic)
 	{
-		anthropic.GET("/models", handler.AnthropicModelsHandler)
-		anthropic.POST("/messages", handler.Messages)
-		anthropic.POST("/messages/count_tokens", handler.CountTokens)
+		// claude code logging
+		anthropic.POST("/api/event_logging/batch", handler.EventLogging)
+
+		v1 := anthropic.Group("/v1")
+		{
+			v1.GET("/models", handler.AnthropicModelsHandler)
+			v1.POST("/messages", handler.Messages)
+			v1.POST("/messages/count_tokens", handler.CountTokens)
+		}
 	}
 
 	// 兼容性保留
@@ -110,7 +122,12 @@ func main() {
 		api.GET("/test/count_tokens", handler.TestCountTokens)
 	}
 	setwebui(router)
-	router.Run(":7070")
+
+	port := os.Getenv("LLMIO_PORT")
+	if port == "" {
+		port = consts.DefaultPort
+	}
+	router.Run(":" + port)
 }
 
 //go:embed webui/dist

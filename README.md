@@ -14,7 +14,7 @@ LLMIO 是一个基于 Go 的 LLM 负载均衡网关，为你的 LLM 客户端 ( 
 - **本地持久化**：通过纯 Go 实现的 SQLite (`db/llmio.db`) 保存配置和调用记录，开箱即用。
 
 ## 部署
-**llmio通过读取环境变量的TOKEN来配置控制台以及所有API接口的鉴权！**
+
 ### Docker Compose (推荐)
 ```yaml
 services:
@@ -59,6 +59,15 @@ tar -xzf ./llmio_0.5.13_linux_amd64.tar.gz
 GIN_MODE=release TOKEN=<YOUR_TOKEN> ./llmio
 ```
 运行后会自动在当前目录下创建 `./db/llmio.db` 作为 `sqlite` 持久化数据文件。
+
+## 环境变量
+
+| 变量 | 说明 | 默认值 | 备注 |
+|------|------|--------|------|
+| `TOKEN` | 控制台登录与 `/openai` `/anthropic` `/v1` 等 API 鉴权凭证 | 无 | 公网访问必填 |
+| `GIN_MODE` | 控制 Gin 运行模式 | `debug` | 线上请设置为 `release` 获得最佳性能 |
+| `LLMIO_PORT` | 服务监听端口 | `7070` | 服务监听端口 |
+| `TZ` | 时区设置，用于日志与任务调度 | 宿主机默认值 | 建议在容器环境中显式指定，如 `Asia/Shanghai` |
 
 ## 开发
 

@@ -14,6 +14,7 @@ export interface Model {
   ID: number;
   Name: string;
   Remark: string;
+  MatchPattern: string;
   MaxRetry: number;
   TimeOut: number;
   IOLog: boolean;
@@ -190,6 +191,7 @@ export async function getModelOptions(): Promise<Model[]> {
 export async function createModel(model: {
   name: string;
   remark: string;
+  match_pattern: string;
   max_retry: number;
   time_out: number;
   io_log: boolean;
@@ -204,6 +206,7 @@ export async function createModel(model: {
 export async function updateModel(id: number, model: {
   name?: string;
   remark?: string;
+  match_pattern?: string;
   max_retry?: number;
   time_out?: number;
   io_log?: boolean;

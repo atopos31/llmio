@@ -77,6 +77,7 @@ type IOLogFilter = "all" | "true" | "false";
 const formSchema = z.object({
   name: z.string().min(1, { message: "模型名称不能为空" }),
   remark: z.string(),
+  match_pattern: z.string(),
   max_retry: z.number().min(0, { message: "重试次数限制不能为负数" }),
   time_out: z.number().min(0, { message: "超时时间不能为负数" }),
   io_log: z.boolean(),
@@ -105,6 +106,7 @@ export default function ModelsPage() {
     defaultValues: {
       name: "",
       remark: "",
+      match_pattern: "",
       max_retry: 10,
       time_out: 60,
       io_log: false,
@@ -152,11 +154,28 @@ export default function ModelsPage() {
     fetchModels();
   }, [page, pageSize, searchTerm, strategyFilter, ioLogFilter]);
 
+  // Auto-fill match_pattern when name changes
+  const nameValue = form.watch("name");
+  useEffect(() => {
+    if (!editingModel && nameValue) {
+      // Check if match_pattern has been manually modified by user
+      const isDirty = form.getFieldState("match_pattern").isDirty;
+
+      if (!isDirty) {
+        const escapedName = nameValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        form.setValue("match_pattern", `^${escapedName}.*`, {
+          shouldDirty: false, // Important: Don't mark as dirty when auto-filling
+        });
+      }
+    }
+  }, [nameValue, editingModel, form]);
+
   const handleCreate = async (values: z.infer<typeof formSchema>) => {
     try {
       await createModel({
         name: values.name,
         remark: values.remark,
+        match_pattern: values.match_pattern,
         max_retry: values.max_retry,
         time_out: values.time_out,
         io_log: values.io_log,
@@ -164,7 +183,7 @@ export default function ModelsPage() {
       });
       setOpen(false);
       toast.success(`模型: ${values.name} 创建成功`);
-      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
+      form.reset({ name: "", remark: "", match_pattern: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
       await fetchModels();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -178,6 +197,7 @@ export default function ModelsPage() {
       await updateModel(editingModel.ID, {
         name: values.name,
         remark: values.remark,
+        match_pattern: values.match_pattern,
         max_retry: values.max_retry,
         time_out: values.time_out,
         io_log: values.io_log,
@@ -186,7 +206,7 @@ export default function ModelsPage() {
       setOpen(false);
       toast.success(`模型: ${values.name} 更新成功`);
       setEditingModel(null);
-      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
+      form.reset({ name: "", remark: "", match_pattern: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
       await fetchModels();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -215,6 +235,7 @@ export default function ModelsPage() {
     form.reset({
       name: model.Name,
       remark: model.Remark,
+      match_pattern: model.MatchPattern || "",
       max_retry: model.MaxRetry,
       time_out: model.TimeOut,
       io_log: model.IOLog,
@@ -225,7 +246,7 @@ export default function ModelsPage() {
 
   const openCreateDialog = () => {
     setEditingModel(null);
-    form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
+    form.reset({ name: "", remark: "", match_pattern: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
     setOpen(true);
   };
 
@@ -525,6 +546,22 @@ export default function ModelsPage() {
                     <FormLabel>备注</FormLabel>
                     <FormControl>
                       <Textarea {...field} rows={3} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="match_pattern"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>匹配模板 (正则，每行一个)</FormLabel>
+                    <FormControl>
+                      <Textarea {...field} rows={3} placeholder="每行一个正则表达式，例如:
+^gpt-4.*
+^gpt-4o.*" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

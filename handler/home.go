@@ -2,7 +2,9 @@ package handler
 
 import (
 	"database/sql"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/atopos31/llmio/common"
@@ -50,8 +52,14 @@ type Count struct {
 
 func Counts(c *gin.Context) {
 	results := make([]Count, 0)
-	if err := models.DB.Raw("SELECT name as model,COUNT(*) as calls FROM `chat_logs` WHERE `chat_logs`.`deleted_at` IS NULL  GROUP BY `name` ORDER BY `calls` DESC").Scan(&results).Error; err != nil {
+	if err := models.DB.
+		Model(&models.ChatLog{}).
+		Select("name as model, COUNT(*) as calls").
+		Group("name").
+		Order("calls DESC").
+		Scan(&results).Error; err != nil {
 		common.InternalServerError(c, err.Error())
+		return
 	}
 	const topN = 5
 	if len(results) > topN {
@@ -62,6 +70,88 @@ func Counts(c *gin.Context) {
 		othersCount := Count{
 			Model: "others",
 			Calls: othersCalls,
+		}
+		results = append(results[:topN], othersCount)
+	}
+
+	common.Success(c, results)
+}
+
+type ProjectCount struct {
+	Project string `json:"project"`
+	Calls   int64  `json:"calls"`
+}
+
+func ProjectCounts(c *gin.Context) {
+	type authKeyCount struct {
+		AuthKeyID uint  `gorm:"column:auth_key_id"`
+		Calls     int64 `gorm:"column:calls"`
+	}
+
+	rows := make([]authKeyCount, 0)
+	if err := models.DB.
+		Model(&models.ChatLog{}).
+		Select("auth_key_id, COUNT(*) as calls").
+		Group("auth_key_id").
+		Order("calls DESC").
+		Scan(&rows).Error; err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+
+	ids := make([]uint, 0)
+	for _, row := range rows {
+		if row.AuthKeyID == 0 {
+			continue
+		}
+		ids = append(ids, row.AuthKeyID)
+	}
+
+	keys := make([]models.AuthKey, 0)
+	if len(ids) > 0 {
+		if err := models.DB.
+			Model(&models.AuthKey{}).
+			Where("id IN ?", ids).
+			Find(&keys).Error; err != nil {
+			common.InternalServerError(c, err.Error())
+			return
+		}
+	}
+
+	keyMap := make(map[uint]string, len(keys))
+	for _, key := range keys {
+		keyMap[key.ID] = strings.TrimSpace(key.Name)
+	}
+
+	projectCalls := make(map[string]int64)
+	for _, row := range rows {
+		project := "-"
+		if row.AuthKeyID == 0 {
+			project = "admin"
+		} else if name, ok := keyMap[row.AuthKeyID]; ok && name != "" {
+			project = name
+		}
+		projectCalls[project] += row.Calls
+	}
+
+	results := make([]ProjectCount, 0, len(projectCalls))
+	for project, calls := range projectCalls {
+		results = append(results, ProjectCount{
+			Project: project,
+			Calls:   calls,
+		})
+	}
+	sort.Slice(results, func(i, j int) bool { return results[i].Calls > results[j].Calls })
+
+	const topN = 5
+	if len(results) > topN {
+		var othersCalls int64
+		for _, item := range results[topN:] {
+			othersCalls += item.Calls
+		}
+		othersCount := ProjectCount{
+			Project: "others",
+			Calls:   othersCalls,
 		}
 		results = append(results[:topN], othersCount)
 	}

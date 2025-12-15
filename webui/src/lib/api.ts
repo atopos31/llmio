@@ -366,12 +366,21 @@ export interface ModelCount {
   calls: number;
 }
 
+export interface ProjectCount {
+  project: string;
+  calls: number;
+}
+
 export async function getMetrics(days: number): Promise<MetricsData> {
   return apiRequest<MetricsData>(`/metrics/use/${days}`);
 }
 
 export async function getModelCounts(): Promise<ModelCount[]> {
   return apiRequest<ModelCount[]>('/metrics/counts');
+}
+
+export async function getProjectCounts(): Promise<ProjectCount[]> {
+  return apiRequest<ProjectCount[]>('/metrics/projects');
 }
 
 // Test API functions

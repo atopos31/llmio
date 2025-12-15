@@ -479,7 +479,7 @@ export default function ProvidersPage() {
                       <TableHead>类型</TableHead>
                       <TableHead>配置</TableHead>
                       <TableHead>控制台</TableHead>
-                      <TableHead className="w-[260px]">操作</TableHead>
+                      <TableHead className="w-[280px]">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

@@ -29,11 +29,13 @@ import { Badge } from "@/components/ui/badge";
 import {
     getProviderModels,
     getModelOptions,
+    getModelProviders,
     createModelProvider,
-    updateModel, // Import updateModel
+    updateModel,
     type Provider,
     type ProviderModel,
     type Model,
+    type ModelWithProvider,
 } from "@/lib/api";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -113,7 +115,7 @@ export function AutoSyncDialog({
             setMappings(initialMappings);
 
         } catch (err) {
-            toast.error("Failed to fetch models: " + (err instanceof Error ? err.message : String(err)));
+            toast.error("获取模型失败: " + (err instanceof Error ? err.message : String(err)));
             onOpenChange(false);
         } finally {
             setLoading(false);
@@ -170,9 +172,9 @@ export function AutoSyncDialog({
             });
 
             setMappings(newMappings);
-            toast.success("Selected " + matchCount + " models matching pattern");
+            toast.success("已选中 " + matchCount + " 个匹配的模型");
         } catch {
-            toast.error("Invalid Regular Expression");
+            toast.error("正则表达式无效");
         }
     };
 
@@ -207,18 +209,45 @@ export function AutoSyncDialog({
         );
 
         if (toCreate.length === 0) {
-            toast.warning("No valid mappings selected");
+            toast.warning("未选择有效的映射");
             return;
         }
 
         setSubmitting(true);
         let successCount = 0;
         let failCount = 0;
+        let skippedCount = 0;
 
         try {
+            // Fetch existing mappings for deduplication
+            const modelIds = [...new Set(toCreate.map(m => m.internalModelId!))];
+            const existingMappingsMap = new Map<number, ModelWithProvider[]>();
+
+            await Promise.all(modelIds.map(async (modelId) => {
+                try {
+                    const existing = await getModelProviders(modelId);
+                    existingMappingsMap.set(modelId, existing);
+                } catch {
+                    existingMappingsMap.set(modelId, []);
+                }
+            }));
+
+            // Filter out already existing mappings
+            const toCreateFiltered = toCreate.filter(m => {
+                const existing = existingMappingsMap.get(m.internalModelId!) || [];
+                const isDuplicate = existing.some(
+                    e => e.ProviderID === provider.ID && e.ProviderModel === m.providerModelId
+                );
+                if (isDuplicate) {
+                    skippedCount++;
+                    return false;
+                }
+                return true;
+            });
+
             const batchSize = 5;
-            for (let i = 0; i < toCreate.length; i += batchSize) {
-                const batch = toCreate.slice(i, i + batchSize);
+            for (let i = 0; i < toCreateFiltered.length; i += batchSize) {
+                const batch = toCreateFiltered.slice(i, i + batchSize);
                 await Promise.all(batch.map(async (m) => {
                     try {
                         await createModelProvider({
@@ -241,12 +270,15 @@ export function AutoSyncDialog({
             }
 
             if (successCount > 0) {
-                toast.success("Successfully created " + successCount + " mappings");
+                toast.success("成功创建 " + successCount + " 个模型映射");
                 if (onSuccess) onSuccess();
                 onOpenChange(false);
             }
+            if (skippedCount > 0) {
+                toast.info("跳过 " + skippedCount + " 个已存在的映射");
+            }
             if (failCount > 0) {
-                toast.error("Failed to create " + failCount + " mappings");
+                toast.error("创建 " + failCount + " 个映射失败");
             }
 
             // Auto-update regex patterns for manual mappings
@@ -295,18 +327,18 @@ export function AutoSyncDialog({
                             });
                             patternUpdateCount++;
                         } catch (e) {
-                            console.error("Failed to update pattern for model", model.Name, e);
+                            console.error("更新模型正则失败", model.Name, e);
                         }
                     }
                 }
             }
 
             if (patternUpdateCount > 0) {
-                toast.success(`Updated regex patterns for ${patternUpdateCount} models`);
+                toast.success(`已为 ${patternUpdateCount} 个模型更新正则模板`);
             }
 
         } catch (err) {
-            toast.error("Failed to create mappings: " + (err instanceof Error ? err.message : String(err)));
+            toast.error("创建映射失败: " + (err instanceof Error ? err.message : String(err)));
         } finally {
             setSubmitting(false);
         }
@@ -320,28 +352,28 @@ export function AutoSyncDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
+            <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-[20px]">
                 <DialogHeader>
-                    <DialogTitle>Auto Sync Models - {provider?.Name}</DialogTitle>
+                    <DialogTitle>自动同步模型 - {provider?.Name}</DialogTitle>
                     <DialogDescription>
-                        Match provider models to internal models.
+                        将提供商模型映射到内部模型。
                     </DialogDescription>
                 </DialogHeader>
 
                 <div className="flex items-center gap-2 py-2">
                     <div className="flex-1 flex items-center gap-2">
                         <Input
-                            placeholder="Filter/Select by Regex (e.g. ^gpt-4.*)"
+                            placeholder="使用正则筛选/选中 (如 ^gpt-4.*)"
                             value={regexPattern}
                             onChange={(e) => setRegexPattern(e.target.value)}
                             className="h-8 text-sm"
                         />
                         <Button variant="secondary" size="sm" onClick={handleRegexApply} disabled={!regexPattern}>
-                            Select matches
+                            选中匹配项
                         </Button>
                     </div>
                     <div className="text-xs text-muted-foreground whitespace-nowrap">
-                        {stats.selected} / {stats.total} selected
+                        已选 {stats.selected} / {stats.total}
                     </div>
                 </div>
 
@@ -354,15 +386,15 @@ export function AutoSyncDialog({
                         <Table>
                             <TableHeader className="bg-secondary/50">
                                 <TableRow>
-                                    <TableHead className="w-[50px]">
+                                    <TableHead className="w-[60px]">
                                         <Checkbox
                                             checked={stats.selected === stats.total && stats.total > 0}
                                             onCheckedChange={(c) => handleSelectAll(!!c)}
                                         />
                                     </TableHead>
-                                    <TableHead>Provider Model ID</TableHead>
-                                    <TableHead>Map To Internal Model</TableHead>
-                                    <TableHead className="w-[100px]">Status</TableHead>
+                                    <TableHead>提供商模型 ID</TableHead>
+                                    <TableHead>映射到内部模型</TableHead>
+                                    <TableHead className="w-[100px]">状态</TableHead>
                                 </TableRow>
                             </TableHeader>
                         </Table>
@@ -387,10 +419,10 @@ export function AutoSyncDialog({
                                                         onValueChange={(val) => updateMapping(pm.id, parseInt(val))}
                                                     >
                                                         <SelectTrigger className="h-7 text-xs w-full max-w-[250px]">
-                                                            <SelectValue placeholder="Select Model" />
+                                                            <SelectValue placeholder="选择模型" />
                                                         </SelectTrigger>
                                                         <SelectContent>
-                                                            <SelectItem value="0">Unmapped</SelectItem>
+                                                            <SelectItem value="0">未映射</SelectItem>
                                                             {internalModels.map((im) => (
                                                                 <SelectItem key={im.ID} value={im.ID.toString()}>
                                                                     {im.Name}
@@ -401,9 +433,9 @@ export function AutoSyncDialog({
                                                 </TableCell>
                                                 <TableCell>
                                                     {m.internalModelId ? (
-                                                        <Badge variant="outline" className="text-green-600 bg-green-50 border-green-200">Mapped</Badge>
+                                                        <Badge variant="outline" className="text-green-600 bg-green-50 border-green-200">已映射</Badge>
                                                     ) : (
-                                                        <Badge variant="outline" className="text-yellow-600 bg-yellow-50 border-yellow-200">Unmapped</Badge>
+                                                        <Badge variant="outline" className="text-yellow-600 bg-yellow-50 border-yellow-200">未映射</Badge>
                                                     )}
                                                 </TableCell>
                                             </TableRow>
@@ -412,7 +444,7 @@ export function AutoSyncDialog({
                                     {providerModels.length === 0 && (
                                         <TableRow>
                                             <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                                                No models found from provider.
+                                                未从提供商获取到模型。
                                             </TableCell>
                                         </TableRow>
                                     )}
@@ -424,11 +456,11 @@ export function AutoSyncDialog({
 
                 <DialogFooter className="mt-4">
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
-                        Cancel
+                        取消
                     </Button>
                     <Button onClick={handleConfirm} disabled={submitting || stats.selected === 0}>
                         {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Sync Selected ({stats.selected})
+                        同步选中项 ({stats.selected})
                     </Button>
                 </DialogFooter>
             </DialogContent>

@@ -66,7 +66,7 @@ GIN_MODE=release TOKEN=<YOUR_TOKEN> ./llmio
 |------|------|--------|------|
 | `TOKEN` | 控制台登录与 `/openai` `/anthropic` `/v1` 等 API 鉴权凭证 | 无 | 公网访问必填 |
 | `GIN_MODE` | 控制 Gin 运行模式 | `debug` | 线上请设置为 `release` 获得最佳性能 |
-| `LLMIO_PORT` | 服务监听端口 | `7070` | 服务监听端口 |
+| `LLMIO_SERVER_PORT` | 服务监听端口 | `7070` | 服务监听端口 |
 | `TZ` | 时区设置，用于日志与任务调度 | 宿主机默认值 | 建议在容器环境中显式指定，如 `Asia/Shanghai` |
 
 ## 开发

@@ -87,7 +87,7 @@ export function ProjectChartPieDonutText({ data }: ProjectChartPieDonutTextProps
             />
             <ChartLegend
               content={<ChartLegendContent nameKey="project" payload={undefined} />}
-              className="-translate-y-2 flex-wrap gap-2 *:basis-1/4 *:justify-center"
+              className="-translate-y-2 flex-wrap gap-2 min-h-12 *:basis-1/4 *:justify-center"
             />
           </PieChart>
         </ChartContainer>
@@ -95,4 +95,3 @@ export function ProjectChartPieDonutText({ data }: ProjectChartPieDonutTextProps
     </Card>
   )
 }
-

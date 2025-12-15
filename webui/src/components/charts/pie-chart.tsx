@@ -90,7 +90,7 @@ export function ChartPieDonutText({ data }: ChartPieDonutTextProps) {
             />
             <ChartLegend
               content={<ChartLegendContent nameKey="model" payload={undefined} />}
-              className="-translate-y-2 flex-wrap gap-2 *:basis-1/4 *:justify-center"
+              className="-translate-y-2 flex-wrap gap-2 min-h-12 *:basis-1/4 *:justify-center"
             />
           </PieChart>
         </ChartContainer>

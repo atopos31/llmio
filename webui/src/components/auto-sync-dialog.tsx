@@ -25,7 +25,6 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
     getProviderModels,
     getModelOptions,
@@ -102,14 +101,13 @@ export function AutoSyncDialog({
             setProviderModels(pModels);
             setInternalModels(iModels);
 
-            // Initial Auto Match
+            // Initialize mappings without auto-matching (user triggers manually)
             const initialMappings: Record<string, MappingItem> = {};
             pModels.forEach((pm) => {
-                const matchedModel = findBestMatch(pm.id, iModels);
                 initialMappings[pm.id] = {
                     providerModelId: pm.id,
-                    internalModelId: matchedModel?.ID || null,
-                    isSelected: !!matchedModel,
+                    internalModelId: null,
+                    isSelected: false,
                 };
             });
             setMappings(initialMappings);
@@ -200,6 +198,48 @@ export function AutoSyncDialog({
             });
             return next;
         });
+    };
+
+    // Auto-match a single provider model
+    const handleAutoMatchSingle = (providerModelId: string) => {
+        const matched = findBestMatch(providerModelId, internalModels);
+        if (matched) {
+            setMappings(prev => ({
+                ...prev,
+                [providerModelId]: {
+                    ...prev[providerModelId],
+                    internalModelId: matched.ID,
+                    isSelected: true,
+                }
+            }));
+            toast.success(`已匹配: ${providerModelId} → ${matched.Name}`);
+        } else {
+            toast.info(`未找到匹配: ${providerModelId}`);
+        }
+    };
+
+    // Auto-match all provider models
+    const handleAutoMatchAll = () => {
+        const newMappings = { ...mappings };
+        let matchedCount = 0;
+        let unmatchedCount = 0;
+
+        Object.keys(newMappings).forEach(providerModelId => {
+            const matched = findBestMatch(providerModelId, internalModels);
+            if (matched) {
+                newMappings[providerModelId] = {
+                    ...newMappings[providerModelId],
+                    internalModelId: matched.ID,
+                    isSelected: true,
+                };
+                matchedCount++;
+            } else {
+                unmatchedCount++;
+            }
+        });
+
+        setMappings(newMappings);
+        toast.success(`已匹配 ${matchedCount} 个模型，${unmatchedCount} 个未匹配`);
     };
 
     const handleConfirm = async () => {
@@ -371,6 +411,9 @@ export function AutoSyncDialog({
                         <Button variant="secondary" size="sm" onClick={handleRegexApply} disabled={!regexPattern}>
                             选中匹配项
                         </Button>
+                        <Button variant="default" size="sm" onClick={handleAutoMatchAll}>
+                            全部自动匹配
+                        </Button>
                     </div>
                     <div className="text-xs text-muted-foreground whitespace-nowrap">
                         已选 {stats.selected} / {stats.total}
@@ -394,7 +437,7 @@ export function AutoSyncDialog({
                                     </TableHead>
                                     <TableHead>提供商模型 ID</TableHead>
                                     <TableHead>映射到内部模型</TableHead>
-                                    <TableHead className="w-[100px]">状态</TableHead>
+                                    <TableHead className="w-[80px]">操作</TableHead>
                                 </TableRow>
                             </TableHeader>
                         </Table>
@@ -432,11 +475,14 @@ export function AutoSyncDialog({
                                                     </Select>
                                                 </TableCell>
                                                 <TableCell>
-                                                    {m.internalModelId ? (
-                                                        <Badge variant="outline" className="text-green-600 bg-green-50 border-green-200">已映射</Badge>
-                                                    ) : (
-                                                        <Badge variant="outline" className="text-yellow-600 bg-yellow-50 border-yellow-200">未映射</Badge>
-                                                    )}
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-6 px-2 text-xs"
+                                                        onClick={() => handleAutoMatchSingle(pm.id)}
+                                                    >
+                                                        匹配
+                                                    </Button>
                                                 </TableCell>
                                             </TableRow>
                                         );

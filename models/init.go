@@ -44,6 +44,9 @@ func Init(ctx context.Context, path string) {
 	if _, err := gorm.G[Model](DB).Where("strategy = '' OR strategy IS NULL").Update(ctx, "strategy", consts.BalancerDefault); err != nil {
 		panic(err)
 	}
+	if _, err := gorm.G[ChatLog](DB).Where("auth_key_id IS NULL").Update(ctx, "auth_key_id", 0); err != nil {
+		panic(err)
+	}
 }
 
 func ensureDBFile(path string) error {

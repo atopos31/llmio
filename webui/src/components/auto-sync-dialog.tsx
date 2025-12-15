@@ -24,7 +24,6 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
 import {
     getProviderModels,
     getModelOptions,
@@ -77,7 +76,6 @@ export function AutoSyncDialog({
     const [providerModels, setProviderModels] = useState<ProviderModel[]>([]);
     const [internalModels, setInternalModels] = useState<Model[]>([]);
     const [mappings, setMappings] = useState<Record<string, MappingItem>>({});
-    const [regexPattern, setRegexPattern] = useState<string>("");
 
     useEffect(() => {
         if (open && provider) {
@@ -171,26 +169,7 @@ export function AutoSyncDialog({
         return undefined;
     };
 
-    const handleRegexApply = () => {
-        if (!regexPattern) return;
-        try {
-            const re = new RegExp(regexPattern, 'i');
-            const newMappings = { ...mappings };
-            let matchCount = 0;
 
-            Object.values(newMappings).forEach(item => {
-                if (re.test(item.providerModelId)) {
-                    item.isSelected = true;
-                    matchCount++;
-                }
-            });
-
-            setMappings(newMappings);
-            toast.success("已选中 " + matchCount + " 个匹配的模型");
-        } catch {
-            toast.error("正则表达式无效");
-        }
-    };
 
     const toggleSelection = (id: string) => {
         setMappings((prev) => ({
@@ -487,15 +466,6 @@ export function AutoSyncDialog({
 
                 <div className="flex items-center gap-2 py-2">
                     <div className="flex-1 flex items-center gap-2">
-                        <Input
-                            placeholder="使用正则筛选/选中 (如 ^gpt-4.*)"
-                            value={regexPattern}
-                            onChange={(e) => setRegexPattern(e.target.value)}
-                            className="h-8 text-sm"
-                        />
-                        <Button variant="secondary" size="sm" onClick={handleRegexApply} disabled={!regexPattern}>
-                            选中匹配项
-                        </Button>
                         <Button variant="default" size="sm" onClick={handleAutoMatchAll}>
                             全部自动匹配
                         </Button>

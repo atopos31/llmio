@@ -251,7 +251,7 @@ export default function LogsPage() {
           <div className="flex h-full items-center justify-center">
             <Loading message="加载日志数据" />
           </div>
-        ) : logs.length === 0 ? (
+        ) : logs?.length === 0 ? (
           <div className="flex h-full items-center justify-center text-muted-foreground">
             暂无请求日志
           </div>
@@ -276,7 +276,7 @@ export default function LogsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {logs.map((log) => (
+                    {logs?.map((log) => (
                       <TableRow key={log.ID}>
                         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                           {new Date(log.CreatedAt).toLocaleString()}
@@ -319,7 +319,7 @@ export default function LogsPage() {
                 </Table>
               </div>
               <div className="sm:hidden px-2 py-3 divide-y divide-border">
-                {logs.map((log) => (
+                {logs?.map((log) => (
                   <div key={log.ID} className="py-3 space-y-2 my-1 px-1">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">

@@ -30,14 +30,14 @@ const AnimatedCounter = ({ value, duration = 1000 }: { value: number; duration?:
       const progress = timestamp - startTime;
       const progressRatio = Math.min(progress / duration, 1);
       const currentValue = Math.floor(progressRatio * value);
-      
+
       setCount(currentValue);
-      
+
       if (progress < duration) {
         requestAnimationFrame(animateCount);
       }
     };
-    
+
     requestAnimationFrame(animateCount);
   }, [value, duration]);
 
@@ -73,7 +73,7 @@ const HomeHeader = memo(({ onRefresh }: HomeHeaderProps) => {
 export default function Home() {
   const [loading, setLoading] = useState(true);
   const [activeRankingChart, setActiveRankingChart] = useState<"model" | "project">("model");
-  
+
   // Real data from APIs
   const [todayMetrics, setTodayMetrics] = useState<MetricsData>({ reqs: 0, tokens: 0 });
   const [totalMetrics, setTotalMetrics] = useState<MetricsData>({ reqs: 0, tokens: 0 });
@@ -90,7 +90,7 @@ export default function Home() {
       console.error(err);
     }
   }, []);
-  
+
   const fetchTotalMetrics = useCallback(async () => {
     try {
       const data = await getMetrics(30); // Get last 30 days for "total" metrics
@@ -101,7 +101,7 @@ export default function Home() {
       console.error(err);
     }
   }, []);
-  
+
   const fetchModelCounts = useCallback(async () => {
     try {
       const data = await getModelCounts();
@@ -145,100 +145,94 @@ export default function Home() {
           </div>
         ) : (
           <div className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>今日请求</CardTitle>
-              <CardDescription>今日处理的请求总数</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AnimatedCounter value={todayMetrics.reqs} />
-            </CardContent>
-          </Card>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>今日请求</CardTitle>
+                  <CardDescription>今日处理的请求总数</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <AnimatedCounter value={todayMetrics.reqs} />
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>今日Tokens</CardTitle>
-              <CardDescription>今日处理的Tokens总数</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AnimatedCounter value={todayMetrics.tokens} />
-            </CardContent>
-          </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>今日Tokens</CardTitle>
+                  <CardDescription>今日处理的Tokens总数</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <AnimatedCounter value={todayMetrics.tokens} />
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>本月请求</CardTitle>
-              <CardDescription>最近30天处理的请求总数</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AnimatedCounter value={totalMetrics.reqs} />
-            </CardContent>
-          </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>本月请求</CardTitle>
+                  <CardDescription>最近30天处理的请求总数</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <AnimatedCounter value={totalMetrics.reqs} />
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>本月Tokens</CardTitle>
-              <CardDescription>最近30天处理的Tokens总数</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AnimatedCounter value={totalMetrics.tokens} />
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Suspense fallback={<div className="h-64 flex items-center justify-center">
-            <Loading message="加载图表..." />
-          </div>}>
-            <ChartPieDonutText data={modelCounts} />
-          </Suspense>
-
-          {projectCounts.length === 0 ? (
-            <div className="h-64 flex items-center justify-center text-muted-foreground border rounded-md bg-background shadow-sm">
-              暂无项目调用数据
+              <Card>
+                <CardHeader>
+                  <CardTitle>本月Tokens</CardTitle>
+                  <CardDescription>最近30天处理的Tokens总数</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <AnimatedCounter value={totalMetrics.tokens} />
+                </CardContent>
+              </Card>
             </div>
-          ) : (
-            <Suspense fallback={<div className="h-64 flex items-center justify-center">
-              <Loading message="加载图表..." />
-            </div>}>
-              <ProjectChartPieDonutText data={projectCounts} />
-            </Suspense>
-          )}
-        </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>调用排行</CardTitle>
-            <CardDescription>在模型与项目维度切换查看排行</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-2 mb-4">
-              <Button
-                variant={activeRankingChart === "model" ? "default" : "outline"}
-                onClick={() => setActiveRankingChart("model")}
-              >
-                模型排行
-              </Button>
-              <Button
-                variant={activeRankingChart === "project" ? "default" : "outline"}
-                onClick={() => setActiveRankingChart("project")}
-                disabled={projectCounts.length === 0}
-              >
-                项目排行
-              </Button>
-            </div>
-            <div className="mt-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <Suspense fallback={<div className="h-64 flex items-center justify-center">
                 <Loading message="加载图表..." />
               </div>}>
-                {activeRankingChart === "model"
-                  ? <ModelRankingChart data={modelCounts} />
-                  : <ProjectRankingChart data={projectCounts} />}
+                <ChartPieDonutText data={modelCounts} />
+              </Suspense>
+
+              <Suspense fallback={<div className="h-64 flex items-center justify-center">
+                <Loading message="加载图表..." />
+              </div>}>
+                <ProjectChartPieDonutText data={projectCounts} />
               </Suspense>
             </div>
-          </CardContent>
-        </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>调用排行</CardTitle>
+                <CardDescription>在模型与项目维度切换查看排行</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex gap-2 mb-4">
+                  <Button
+                    variant={activeRankingChart === "model" ? "default" : "outline"}
+                    onClick={() => setActiveRankingChart("model")}
+                  >
+                    模型排行
+                  </Button>
+                  <Button
+                    variant={activeRankingChart === "project" ? "default" : "outline"}
+                    onClick={() => setActiveRankingChart("project")}
+                    disabled={projectCounts.length === 0}
+                  >
+                    项目排行
+                  </Button>
+                </div>
+                <div className="mt-4">
+                  <Suspense fallback={<div className="h-64 flex items-center justify-center">
+                    <Loading message="加载图表..." />
+                  </div>}>
+                    {activeRankingChart === "model"
+                      ? <ModelRankingChart data={modelCounts} />
+                      : <ProjectRankingChart data={projectCounts} />}
+                  </Suspense>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         )}
       </div>

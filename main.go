@@ -124,7 +124,7 @@ func main() {
 	}
 	setwebui(router)
 
-	port := os.Getenv("LLMIO_PORT")
+	port := os.Getenv("LLMIO_SERVER_PORT")
 	if port == "" {
 		port = consts.DefaultPort
 	}

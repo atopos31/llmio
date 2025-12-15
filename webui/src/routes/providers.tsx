@@ -306,7 +306,7 @@ export default function ProvidersPage() {
 
   const handleCreate = async (values: z.infer<typeof formSchema>) => {
     try {
-      const newProvider = await createProvider({
+      await createProvider({
         name: values.name,
         type: values.type,
         config: values.config,
@@ -316,9 +316,6 @@ export default function ProvidersPage() {
       toast.success(`提供商: ${values.name} 创建成功`);
       form.reset({ name: "", type: "", config: "", console: "" });
       await fetchProviders();
-
-      // Auto open Auto-Sync dialog for new provider
-      openAutoSyncDialog(newProvider);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(`创建提供商失败: ${message}`);
@@ -510,11 +507,8 @@ export default function ProvidersPage() {
                             <Button variant="outline" size="sm" onClick={() => openEditDialog(provider)}>
                               编辑
                             </Button>
-                            <Button variant="secondary" size="sm" onClick={() => openModelsDialog(provider.ID)}>
+                            <Button variant="secondary" size="sm" onClick={() => openAutoSyncDialog(provider)}>
                               模型列表
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => openAutoSyncDialog(provider)} title="自动同步模型">
-                              同步
                             </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>

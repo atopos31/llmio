@@ -465,11 +465,7 @@ export function AutoSyncDialog({
                 </DialogHeader>
 
                 <div className="flex items-center gap-2 py-2">
-                    <div className="flex-1 flex items-center gap-2">
-                        <Button variant="default" size="sm" onClick={handleAutoMatchAll}>
-                            全部自动匹配
-                        </Button>
-                    </div>
+                    <div className="flex-1"></div>
                     <div className="text-xs text-muted-foreground whitespace-nowrap">
                         已选 {stats.selected} / {stats.total}
                     </div>
@@ -556,6 +552,9 @@ export function AutoSyncDialog({
                 )}
 
                 <DialogFooter className="mt-4">
+                    <Button variant="secondary" onClick={handleAutoMatchAll} disabled={submitting}>
+                        自动匹配
+                    </Button>
                     <Button variant="outline" onClick={() => onOpenChange(false)}>
                         取消
                     </Button>

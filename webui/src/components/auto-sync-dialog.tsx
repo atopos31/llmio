@@ -101,12 +101,28 @@ export function AutoSyncDialog({
             setProviderModels(pModels);
             setInternalModels(iModels);
 
-            // Initialize mappings without auto-matching (user triggers manually)
+            // Fetch existing mappings from DB for all internal models
+            const existingMap = new Map<string, number>();
+            await Promise.all(iModels.map(async (model) => {
+                try {
+                    const mappingsFromDB = await getModelProviders(model.ID);
+                    mappingsFromDB.forEach(m => {
+                        if (m.ProviderID === provider.ID) {
+                            existingMap.set(m.ProviderModel, model.ID);
+                        }
+                    });
+                } catch {
+                    // Ignore errors
+                }
+            }));
+
+            // Initialize mappings: DB matches are pre-filled but NOT selected (since they already exist)
             const initialMappings: Record<string, MappingItem> = {};
             pModels.forEach((pm) => {
+                const existingModelId = existingMap.get(pm.id);
                 initialMappings[pm.id] = {
                     providerModelId: pm.id,
-                    internalModelId: null,
+                    internalModelId: existingModelId || null,
                     isSelected: false,
                 };
             });
@@ -200,8 +216,55 @@ export function AutoSyncDialog({
         });
     };
 
-    // Auto-match a single provider model
-    const handleAutoMatchSingle = (providerModelId: string) => {
+    // Build existing mappings map from DB (provider_model -> internal_model_id)
+    const buildExistingMappingsMap = async (): Promise<Map<string, number>> => {
+        const existingMap = new Map<string, number>();
+        if (!provider) return existingMap;
+
+        // Fetch mappings for all internal models in parallel
+        await Promise.all(internalModels.map(async (model) => {
+            try {
+                const mappingsFromDB = await getModelProviders(model.ID);
+                mappingsFromDB.forEach(m => {
+                    if (m.ProviderID === provider.ID) {
+                        existingMap.set(m.ProviderModel, model.ID);
+                    }
+                });
+            } catch {
+                // Ignore errors for individual models
+            }
+        }));
+
+        return existingMap;
+    };
+
+    // Auto-match a single provider model (DB first, then regex/name match)
+    const handleAutoMatchSingle = async (providerModelId: string) => {
+        // First, check if there's an existing mapping in DB
+        for (const model of internalModels) {
+            try {
+                const existingMappings = await getModelProviders(model.ID);
+                const existing = existingMappings.find(
+                    m => m.ProviderID === provider?.ID && m.ProviderModel === providerModelId
+                );
+                if (existing) {
+                    setMappings(prev => ({
+                        ...prev,
+                        [providerModelId]: {
+                            ...prev[providerModelId],
+                            internalModelId: model.ID,
+                            isSelected: true,
+                        }
+                    }));
+                    toast.success(`已从数据库匹配: ${providerModelId} → ${model.Name}`);
+                    return;
+                }
+            } catch {
+                // Continue to next model
+            }
+        }
+
+        // Fallback to regex/name match
         const matched = findBestMatch(providerModelId, internalModels);
         if (matched) {
             setMappings(prev => ({
@@ -218,28 +281,50 @@ export function AutoSyncDialog({
         }
     };
 
-    // Auto-match all provider models
-    const handleAutoMatchAll = () => {
-        const newMappings = { ...mappings };
-        let matchedCount = 0;
-        let unmatchedCount = 0;
+    // Auto-match all provider models (DB first, then regex/name match)
+    const handleAutoMatchAll = async () => {
+        setSubmitting(true);
+        try {
+            // Build existing mappings from DB
+            const existingMap = await buildExistingMappingsMap();
 
-        Object.keys(newMappings).forEach(providerModelId => {
-            const matched = findBestMatch(providerModelId, internalModels);
-            if (matched) {
-                newMappings[providerModelId] = {
-                    ...newMappings[providerModelId],
-                    internalModelId: matched.ID,
-                    isSelected: true,
-                };
-                matchedCount++;
-            } else {
-                unmatchedCount++;
-            }
-        });
+            const newMappings = { ...mappings };
+            let dbMatchedCount = 0;
+            let regexMatchedCount = 0;
+            let unmatchedCount = 0;
 
-        setMappings(newMappings);
-        toast.success(`已匹配 ${matchedCount} 个模型，${unmatchedCount} 个未匹配`);
+            Object.keys(newMappings).forEach(providerModelId => {
+                // First check DB
+                const existingModelId = existingMap.get(providerModelId);
+                if (existingModelId) {
+                    newMappings[providerModelId] = {
+                        ...newMappings[providerModelId],
+                        internalModelId: existingModelId,
+                        isSelected: true,
+                    };
+                    dbMatchedCount++;
+                    return;
+                }
+
+                // Fallback to regex/name match
+                const matched = findBestMatch(providerModelId, internalModels);
+                if (matched) {
+                    newMappings[providerModelId] = {
+                        ...newMappings[providerModelId],
+                        internalModelId: matched.ID,
+                        isSelected: true,
+                    };
+                    regexMatchedCount++;
+                } else {
+                    unmatchedCount++;
+                }
+            });
+
+            setMappings(newMappings);
+            toast.success(`匹配完成: 数据库 ${dbMatchedCount} 个，智能匹配 ${regexMatchedCount} 个，未匹配 ${unmatchedCount} 个`);
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     const handleConfirm = async () => {
@@ -476,9 +561,9 @@ export function AutoSyncDialog({
                                                 </TableCell>
                                                 <TableCell>
                                                     <Button
-                                                        variant="ghost"
+                                                        variant="outline"
                                                         size="sm"
-                                                        className="h-6 px-2 text-xs"
+                                                        className="h-6 px-3 text-xs text-blue-600 border-blue-300 hover:bg-blue-50 hover:text-blue-700"
                                                         onClick={() => handleAutoMatchSingle(pm.id)}
                                                     >
                                                         匹配

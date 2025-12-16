@@ -409,7 +409,7 @@ export default function ProvidersPage() {
       </div>
       <div className="flex flex-col gap-2 flex-shrink-0">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:gap-4">
-          <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
+          <div className="flex flex-col gap-1 text-xs">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商名称</Label>
             <Input
               placeholder="输入名称"
@@ -418,7 +418,7 @@ export default function ProvidersPage() {
               className="h-8 w-full text-xs px-2"
             />
           </div>
-          <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
+          <div className="flex flex-col gap-1 text-xs">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">类型</Label>
             <Select value={typeFilter} onValueChange={setTypeFilter}>
               <SelectTrigger className="h-8 w-full text-xs px-2">

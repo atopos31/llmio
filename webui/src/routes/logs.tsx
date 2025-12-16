@@ -229,7 +229,7 @@ export default function LogsPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
+          <div className="col-span-2 flex flex-col gap-1 text-xs lg:min-w-0 sm:col-span-1">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商</Label>
             <Select value={providerNameFilter} onValueChange={setProviderNameFilter}>
               <SelectTrigger className="h-8 text-xs w-full px-2">

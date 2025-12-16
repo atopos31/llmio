@@ -254,7 +254,7 @@ export default function ModelsPage() {
         </div>
         <div className="flex flex-col gap-2 flex-shrink-0">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
-            <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
+            <div className="flex flex-col gap-1 text-xs lg:min-w-0">
               <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">搜索</Label>
               <div className="relative">
                 <Search className="size-4 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />

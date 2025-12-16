@@ -647,7 +647,7 @@ export default function ModelProvidersPage() {
         </div>
         <div className="flex flex-col gap-2 flex-shrink-0">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
-            <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
+            <div className="flex flex-col gap-1 text-xs">
               <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">关联模型</Label>
               <Select value={selectedModelId?.toString() || ""} onValueChange={handleModelChange}>
                 <SelectTrigger className="h-8 w-full text-xs px-2">
@@ -662,7 +662,7 @@ export default function ModelProvidersPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1 lg:col-span-1">
+            <div className="flex flex-col gap-1 text-xs">
               <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商类型</Label>
               <Select value={selectedProviderType} onValueChange={setSelectedProviderType}>
                 <SelectTrigger className="h-8 w-full text-xs px-2">

@@ -374,7 +374,7 @@ export default function AuthKeysPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
+          <div className="col-span-2 flex flex-col gap-1 text-xs lg:min-w-0 sm:col-span-1">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">访问范围</Label>
             <Select value={allowAllFilter} onValueChange={(value: "all" | "allow" | "restricted") => setAllowAllFilter(value)}>
               <SelectTrigger className="h-8 text-xs w-full px-2">
@@ -386,9 +386,9 @@ export default function AuthKeysPage() {
                 <SelectItem value="restricted">指定模型</SelectItem>
               </SelectContent>
             </Select>
-            </div>
           </div>
         </div>
+      </div>
 
         <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
           {loading ? (

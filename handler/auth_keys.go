@@ -67,7 +67,7 @@ func GetAuthKeys(c *gin.Context) {
 	}
 
 	// 执行分页查询
-	var keys []models.AuthKey
+	keys := make([]models.AuthKey, 0)
 	total, err := common.PaginateQuery(
 		query.Order("id DESC"),
 		params,

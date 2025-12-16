@@ -258,7 +258,7 @@ func GetModels(c *gin.Context) {
 		}
 	}
 
-	var list []models.Model
+	list := make([]models.Model, 0)
 	total, err := common.PaginateQuery(query.Order("id DESC"), params, &list)
 	if err != nil {
 		common.InternalServerError(c, "Failed to query models: "+err.Error())
@@ -724,7 +724,7 @@ func GetRequestLogs(c *gin.Context) {
 
 	keyMap := lo.KeyBy(keys, func(key models.AuthKey) uint { return key.ID })
 
-	var wrapLogs []WrapLog
+	wrapLogs := make([]WrapLog, 0)
 	for _, log := range logs {
 		var keyName string
 		if key, ok := keyMap[log.AuthKeyID]; ok {

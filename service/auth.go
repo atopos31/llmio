@@ -11,15 +11,15 @@ import (
 
 var singleFlightGroup singleflight.Group
 
-func GetAuthKey(ctx context.Context, key string) (models.AuthKey, error) {
-	result, err, _ := singleFlightGroup.Do(key, func() (any, error) {
-		var resAuthKey models.AuthKey
+func GetAuthKey(ctx context.Context, key string) (*models.AuthKey, error) {
+	ch := singleFlightGroup.DoChan(key, func() (any, error) {
+		var resAuthKey *models.AuthKey
 		err := models.DB.Transaction(func(tx *gorm.DB) error {
 			authKey, err := gorm.G[models.AuthKey](tx).Where("key = ?", key).Where("status = ?", true).First(ctx)
 			if err != nil {
 				return err
 			}
-			resAuthKey = authKey
+			resAuthKey = &authKey
 
 			return tx.Model(&authKey).Updates(map[string]any{
 				// "usage_count":  gorm.Expr("usage_count + 1"),
@@ -28,5 +28,11 @@ func GetAuthKey(ctx context.Context, key string) (models.AuthKey, error) {
 		})
 		return resAuthKey, err
 	})
-	return result.(models.AuthKey), err
+
+	select {
+	case r := <-ch:
+		return r.Val.(*models.AuthKey), r.Err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -15,20 +16,8 @@ var singleFlightGroup singleflight.Group
 
 func GetAuthKey(ctx context.Context, key string) (*models.AuthKey, error) {
 	ch := singleFlightGroup.DoChan(key, func() (any, error) {
-		var resAuthKey models.AuthKey
-		err := models.DB.Transaction(func(tx *gorm.DB) error {
-			authKey, err := gorm.G[models.AuthKey](tx).Where("key = ?", key).Where("status = ?", true).First(ctx)
-			if err != nil {
-				return err
-			}
-			resAuthKey = authKey
-
-			return tx.Model(&authKey).Updates(map[string]any{
-				// "usage_count":  gorm.Expr("usage_count + 1"),
-				"last_used_at": time.Now(),
-			}).Error
-		})
-		return &resAuthKey, err
+		authKey, err := gorm.G[models.AuthKey](models.DB).Where("key = ?", key).Where("status = ?", true).First(ctx)
+		return &authKey, err
 	})
 
 	select {
@@ -39,15 +28,23 @@ func GetAuthKey(ctx context.Context, key string) (*models.AuthKey, error) {
 	}
 }
 
+type KeyUpdateItem struct {
+	Count  int
+	UsedAt time.Time
+}
+
 var (
-	updateCounts = make(map[uint]int)
+	updateCounts = make(map[uint]KeyUpdateItem)
 	mu           sync.Mutex
 	startOnce    sync.Once
 )
 
-func KeyUsageAdd(keyID uint) {
+func KeyUpdate(keyID uint, usedAt time.Time) {
 	mu.Lock()
-	updateCounts[keyID]++
+	updateCounts[keyID] = KeyUpdateItem{
+		Count:  updateCounts[keyID].Count + 1,
+		UsedAt: usedAt,
+	}
 	mu.Unlock()
 
 	// 确保后台刷新协程只启动一次
@@ -58,12 +55,17 @@ func KeyUsageAdd(keyID uint) {
 
 func backgroundFlush() {
 	for range time.Tick(10 * time.Second) {
-		mu.Lock()
 		ctx := context.Background()
-		for keyID, count := range updateCounts {
-			gorm.G[models.AuthKey](models.DB).Where("id = ?", keyID).Update(ctx, "usage_count", gorm.Expr(fmt.Sprintf("usage_count + %d", count)))
+		mu.Lock()
+		for keyID, item := range updateCounts {
+			if err := models.DB.Model(&models.AuthKey{}).WithContext(ctx).Where("id = ?", keyID).Updates(map[string]any{
+				"usage_count":  gorm.Expr(fmt.Sprintf("usage_count + %d", item.Count)),
+				"last_used_at": item.UsedAt,
+			}).Error; err != nil {
+				slog.Error("Failed to update auth key usage count", "error", err)
+			}
 		}
-		updateCounts = make(map[uint]int) // 清空计数
+		updateCounts = make(map[uint]KeyUpdateItem) // 清空计数
 		mu.Unlock()
 	}
 }

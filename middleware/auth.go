@@ -90,6 +90,7 @@ func checkAuthKey(c *gin.Context, key string, adminToken string) {
 		c.Abort()
 		return
 	}
+	service.KeyUsageAdd(authKey.ID)
 	allowAll := authKey.AllowAll != nil && *authKey.AllowAll
 	ctx = context.WithValue(ctx, consts.ContextKeyAuthKeyID, authKey.ID)
 	ctx = context.WithValue(ctx, consts.ContextKeyAllowAllModel, allowAll)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"slices"
 	"time"
@@ -62,7 +63,7 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 
 	startReq := time.Now()
 	// 调用负载均衡后的 provider 并转发
-	res, logId, err := service.BalanceChat(ctx, startReq, style, *before, *providersWithMeta, models.ReqMeta{
+	res, log, err := service.BalanceChat(ctx, startReq, style, *before, *providersWithMeta, models.ReqMeta{
 		Header:    c.Request.Header,
 		RemoteIP:  c.ClientIP(),
 		UserAgent: c.Request.UserAgent(),
@@ -73,6 +74,12 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	}
 	defer res.Body.Close()
 
+	logId, err := service.SaveChatLog(ctx, *log)
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+
 	pr, pw := io.Pipe()
 	tee := io.TeeReader(res.Body, pw)
 	// 异步处理输出并记录 tokens
@@ -81,7 +88,7 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	writeHeader(c, before.Stream, res.Header)
 	if _, err := io.Copy(c.Writer, tee); err != nil {
 		pw.CloseWithError(err)
-		common.InternalServerError(c, err.Error())
+		slog.Error("io copy", "err:", err)
 		return
 	}
 

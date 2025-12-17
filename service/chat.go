@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func BalanceChat(ctx context.Context, start time.Time, style string, before Before, providersWithMeta ProvidersWithMeta, reqMeta models.ReqMeta) (*http.Response, uint, error) {
+func BalanceChat(ctx context.Context, start time.Time, style string, before Before, providersWithMeta ProvidersWithMeta, reqMeta models.ReqMeta) (*http.Response, *models.ChatLog, error) {
 	slog.Info("request", "model", before.Model, "stream", before.Stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
 
 	providerMap := providersWithMeta.ProviderMap
@@ -55,14 +55,14 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	for retry := range providersWithMeta.MaxRetry {
 		select {
 		case <-ctx.Done():
-			return nil, 0, ctx.Err()
+			return nil, nil, ctx.Err()
 		case <-timer.C:
-			return nil, 0, errors.New("retry time out")
+			return nil, nil, errors.New("retry time out")
 		default:
 			// 加权负载均衡
 			id, err := balancer.Pop()
 			if err != nil {
-				return nil, 0, err
+				return nil, nil, err
 			}
 
 			modelWithProvider, ok := providersWithMeta.ModelWithProviderMap[id]
@@ -76,7 +76,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 			chatModel, err := providers.New(style, provider.Config)
 			if err != nil {
-				return nil, 0, err
+				return nil, nil, err
 			}
 
 			slog.Info("using provider", "provider", provider.Name, "model", modelWithProvider.ProviderModel)
@@ -142,17 +142,11 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				continue
 			}
 
-			logId, err := SaveChatLog(ctx, log)
-			if err != nil {
-				res.Body.Close()
-				return nil, 0, err
-			}
-
-			return res, logId, nil
+			return res, &log, nil
 		}
 	}
 
-	return nil, 0, errors.New("maximum retry attempts reached")
+	return nil, nil, errors.New("maximum retry attempts reached")
 }
 
 func RecordRetryLog(ctx context.Context, retryLog chan models.ChatLog) {

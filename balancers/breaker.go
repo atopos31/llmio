@@ -62,10 +62,7 @@ func (b *Breaker) Pop() (uint, error) {
 	mu.Lock()
 	defer mu.Unlock()
 	if _, ok := nodes[key]; !ok {
-		nodes[key] = &Node{
-			failCount: 0,
-			state:     StateClosed,
-		}
+		nodes[key] = &Node{state: StateClosed}
 	}
 	return key, nil
 }

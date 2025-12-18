@@ -77,6 +77,7 @@ func (b *Breaker) Reduce(key uint) {
 
 func (b *Breaker) failCountAdd(key uint) {
 	mu.Lock()
+	defer mu.Unlock()
 	if node, ok := nodes[key]; ok {
 		node.failCount += 1
 		if node.state == StateClosed && node.failCount >= MaxFailures {
@@ -89,11 +90,11 @@ func (b *Breaker) failCountAdd(key uint) {
 			node.expiry = time.Now().Add(SleepWindow)
 		}
 	}
-	mu.Unlock()
 }
 
 func (b *Breaker) Success(key uint) {
 	mu.Lock()
+	defer mu.Unlock()
 	if node, ok := nodes[key]; ok {
 		if node.state == StateHalfOpen {
 			node.successCount += 1
@@ -102,6 +103,5 @@ func (b *Breaker) Success(key uint) {
 			}
 		}
 	}
-	mu.Unlock()
 	b.Balancer.Success(key)
 }

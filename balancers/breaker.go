@@ -49,9 +49,7 @@ func BalancerWrapperBreaker(balancer Balancer) *Breaker {
 			balancer.Delete(key)
 		}
 	}
-	return &Breaker{
-		Balancer: balancer,
-	}
+	return &Breaker{Balancer: balancer}
 }
 
 func (b *Breaker) Pop() (uint, error) {

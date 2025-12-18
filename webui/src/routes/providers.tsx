@@ -60,6 +60,8 @@ import {
 } from "@/lib/api";
 import type { Provider, ProviderTemplate, ProviderModel } from "@/lib/api";
 import { toast } from "sonner";
+import { AutoSyncDialog } from "@/components/auto-sync-dialog";
+
 
 type ConfigFieldMap = Record<string, string>;
 
@@ -137,6 +139,9 @@ export default function ProvidersPage() {
   const [configFields, setConfigFields] = useState<ConfigFieldMap>({});
   const [structuredConfigEnabled, setStructuredConfigEnabled] = useState(false);
   const configCacheRef = useRef<Record<string, ConfigFieldMap>>({});
+
+  const [autoSyncOpen, setAutoSyncOpen] = useState(false);
+  const [autoSyncProvider, setAutoSyncProvider] = useState<Provider | null>(null);
 
   // 筛选条件
   const [nameFilter, setNameFilter] = useState<string>("");
@@ -305,12 +310,12 @@ export default function ProvidersPage() {
         name: values.name,
         type: values.type,
         config: values.config,
-        console: values.console || ""
+        console: values.console || "",
       });
       setOpen(false);
-      toast.success(`提供商 ${values.name} 创建成功`);
+      toast.success(`提供商: ${values.name} 创建成功`);
       form.reset({ name: "", type: "", config: "", console: "" });
-      fetchProviders();
+      await fetchProviders();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(`创建提供商失败: ${message}`);
@@ -394,6 +399,11 @@ export default function ProvidersPage() {
     setDeleteId(id);
   };
 
+  const openAutoSyncDialog = (provider: Provider) => {
+    setAutoSyncProvider(provider);
+    setAutoSyncOpen(true);
+  };
+
   const hasFilter = nameFilter.trim() !== "" || typeFilter !== "all";
 
   return (
@@ -466,7 +476,7 @@ export default function ProvidersPage() {
                       <TableHead>类型</TableHead>
                       <TableHead>配置</TableHead>
                       <TableHead>控制台</TableHead>
-                      <TableHead className="w-[260px]">操作</TableHead>
+                      <TableHead className="w-[280px]">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -497,7 +507,7 @@ export default function ProvidersPage() {
                             <Button variant="outline" size="sm" onClick={() => openEditDialog(provider)}>
                               编辑
                             </Button>
-                            <Button variant="secondary" size="sm" onClick={() => openModelsDialog(provider.ID)}>
+                            <Button variant="secondary" size="sm" onClick={() => openAutoSyncDialog(provider)}>
                               模型列表
                             </Button>
                             <AlertDialog>
@@ -650,8 +660,8 @@ export default function ProvidersPage() {
                                   key={template.type}
                                   htmlFor={radioId}
                                   className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${selected
-                                      ? "border-primary bg-primary/10"
-                                      : "border-border"
+                                    ? "border-primary bg-primary/10"
+                                    : "border-border"
                                     }`}
                                 >
                                   <RadioGroupItem
@@ -829,6 +839,13 @@ export default function ProvidersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AutoSyncDialog
+        open={autoSyncOpen}
+        onOpenChange={setAutoSyncOpen}
+        provider={autoSyncProvider}
+        onSuccess={() => { }}
+      />
     </div>
   );
 }

@@ -26,12 +26,13 @@ type ProviderRequest struct {
 
 // ModelRequest represents the request body for creating/updating a model
 type ModelRequest struct {
-	Name     string `json:"name"`
-	Remark   string `json:"remark"`
-	MaxRetry int    `json:"max_retry"`
-	TimeOut  int    `json:"time_out"`
-	IOLog    bool   `json:"io_log"`
-	Strategy string `json:"strategy"`
+	Name         string `json:"name"`
+	Remark       string `json:"remark"`
+	MatchPattern string `json:"match_pattern"`
+	MaxRetry     int    `json:"max_retry"`
+	TimeOut      int    `json:"time_out"`
+	IOLog        bool   `json:"io_log"`
+	Strategy     string `json:"strategy"`
 }
 
 // ModelWithProviderRequest represents the request body for creating/updating a model-provider association
@@ -304,12 +305,13 @@ func CreateModel(c *gin.Context) {
 	}
 
 	model := models.Model{
-		Name:     req.Name,
-		Remark:   req.Remark,
-		MaxRetry: req.MaxRetry,
-		TimeOut:  req.TimeOut,
-		IOLog:    &req.IOLog,
-		Strategy: strategy,
+		Name:         req.Name,
+		Remark:       req.Remark,
+		MatchPattern: req.MatchPattern,
+		MaxRetry:     req.MaxRetry,
+		TimeOut:      req.TimeOut,
+		IOLog:        &req.IOLog,
+		Strategy:     strategy,
 	}
 
 	if err := gorm.G[models.Model](models.DB).Create(c.Request.Context(), &model); err != nil {
@@ -353,12 +355,13 @@ func UpdateModel(c *gin.Context) {
 
 	// Update fields
 	updates := models.Model{
-		Name:     req.Name,
-		Remark:   req.Remark,
-		MaxRetry: req.MaxRetry,
-		TimeOut:  req.TimeOut,
-		IOLog:    &req.IOLog,
-		Strategy: strategy,
+		Name:         req.Name,
+		Remark:       req.Remark,
+		MatchPattern: req.MatchPattern,
+		MaxRetry:     req.MaxRetry,
+		TimeOut:      req.TimeOut,
+		IOLog:        &req.IOLog,
+		Strategy:     strategy,
 	}
 
 	if _, err := gorm.G[models.Model](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {

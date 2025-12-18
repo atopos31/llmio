@@ -142,6 +142,8 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				continue
 			}
 
+			balancer.Success(id)
+
 			return res, &log, nil
 		}
 	}

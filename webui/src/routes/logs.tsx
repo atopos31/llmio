@@ -293,7 +293,7 @@ export default function LogsPage() {
                         <TableCell className="text-xs">
                           {log.Size ? formatBytes(log.Size) : '-'}
                         </TableCell>
-                        <TableCell>{formatTime(log.ChunkTime)}</TableCell>
+                        <TableCell>{formatTime(log.ChunkTime + log.FirstChunkTime + log.ProxyTime)}</TableCell>
                         <TableCell className="max-w-[120px] truncate text-xs" title={log.ProviderModel}>{log.ProviderModel}</TableCell>
                         <TableCell className="text-xs">{log.Style}</TableCell>
                         <TableCell className="text-xs">{log.ProviderName}</TableCell>

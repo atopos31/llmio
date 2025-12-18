@@ -32,6 +32,7 @@ type ModelRequest struct {
 	TimeOut  int    `json:"time_out"`
 	IOLog    bool   `json:"io_log"`
 	Strategy string `json:"strategy"`
+	Breaker  bool   `json:"breaker"`
 }
 
 // ModelWithProviderRequest represents the request body for creating/updating a model-provider association
@@ -310,6 +311,7 @@ func CreateModel(c *gin.Context) {
 		TimeOut:  req.TimeOut,
 		IOLog:    &req.IOLog,
 		Strategy: strategy,
+		Breaker:  &req.Breaker,
 	}
 
 	if err := gorm.G[models.Model](models.DB).Create(c.Request.Context(), &model); err != nil {
@@ -359,6 +361,7 @@ func UpdateModel(c *gin.Context) {
 		TimeOut:  req.TimeOut,
 		IOLog:    &req.IOLog,
 		Strategy: strategy,
+		Breaker:  &req.Breaker,
 	}
 
 	if _, err := gorm.G[models.Model](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {

@@ -18,6 +18,7 @@ export interface Model {
   TimeOut: number;
   IOLog: boolean;
   Strategy: string;
+  Breaker?: boolean | null;
 }
 
 export interface ModelWithProvider {
@@ -194,6 +195,7 @@ export async function createModel(model: {
   time_out: number;
   io_log: boolean;
   strategy: string;
+  breaker: boolean;
 }): Promise<Model> {
   return apiRequest<Model>('/models', {
     method: 'POST',
@@ -208,6 +210,7 @@ export async function updateModel(id: number, model: {
   time_out?: number;
   io_log?: boolean;
   strategy?: string;
+  breaker?: boolean;
 }): Promise<Model> {
   return apiRequest<Model>(`/models/${id}`, {
     method: 'PUT',

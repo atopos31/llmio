@@ -81,6 +81,7 @@ const formSchema = z.object({
   time_out: z.number().min(0, { message: "超时时间不能为负数" }),
   io_log: z.boolean(),
   strategy: z.enum(["lottery", "rotor"]),
+  breaker: z.boolean(),
 });
 
 export default function ModelsPage() {
@@ -109,6 +110,7 @@ export default function ModelsPage() {
       time_out: 60,
       io_log: false,
       strategy: "lottery",
+      breaker: false,
     },
   });
 
@@ -161,10 +163,11 @@ export default function ModelsPage() {
         time_out: values.time_out,
         io_log: values.io_log,
         strategy: values.strategy,
+        breaker: values.breaker,
       });
       setOpen(false);
       toast.success(`模型: ${values.name} 创建成功`);
-      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
+      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery", breaker: false });
       await fetchModels();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -182,11 +185,12 @@ export default function ModelsPage() {
         time_out: values.time_out,
         io_log: values.io_log,
         strategy: values.strategy,
+        breaker: values.breaker,
       });
       setOpen(false);
       toast.success(`模型: ${values.name} 更新成功`);
       setEditingModel(null);
-      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
+      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery", breaker: false });
       await fetchModels();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -219,13 +223,14 @@ export default function ModelsPage() {
       time_out: model.TimeOut,
       io_log: model.IOLog,
       strategy: model.Strategy === "rotor" ? "rotor" : "lottery",
+      breaker: model.Breaker ?? false,
     });
     setOpen(true);
   };
 
   const openCreateDialog = () => {
     setEditingModel(null);
-    form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
+    form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery", breaker: false });
     setOpen(true);
   };
 
@@ -582,6 +587,21 @@ export default function ModelsPage() {
                         checked={field.value}
                         onCheckedChange={field.onChange}
                       />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="breaker"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base">熔断</FormLabel>
+                    </div>
+                    <FormControl>
+                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                     </FormControl>
                   </FormItem>
                 )}

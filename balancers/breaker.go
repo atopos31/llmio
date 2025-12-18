@@ -71,6 +71,16 @@ func (b *Breaker) Pop() (uint, error) {
 }
 
 func (b *Breaker) Delete(key uint) {
+	b.failCountAdd(key)
+	b.Balancer.Delete(key)
+}
+
+func (b *Breaker) Reduce(key uint) {
+	b.failCountAdd(key)
+	b.Balancer.Reduce(key)
+}
+
+func (b *Breaker) failCountAdd(key uint) {
 	mu.Lock()
 	if node, ok := nodes[key]; ok {
 		node.failCount += 1
@@ -85,11 +95,6 @@ func (b *Breaker) Delete(key uint) {
 		}
 	}
 	mu.Unlock()
-	b.Balancer.Delete(key)
-}
-
-func (b *Breaker) Reduce(key uint) {
-	b.Balancer.Reduce(key)
 }
 
 func (b *Breaker) Success(key uint) {

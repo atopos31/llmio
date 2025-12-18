@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/http/httptrace"
 	"time"
 
 	"github.com/atopos31/llmio/balancers"
@@ -38,6 +37,10 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		balancer = balancers.NewRotor(providersWithMeta.WeightItems)
 	default:
 		balancer = balancers.NewLottery(providersWithMeta.WeightItems)
+	}
+
+	if providersWithMeta.Breaker {
+		balancer = balancers.BalancerWrapperBreaker(balancer)
 	}
 
 	// 设置请求超时
@@ -101,14 +104,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			}
 			header := buildHeaders(reqMeta.Header, withHeader, modelWithProvider.CustomerHeaders, before.Stream)
 
-			reqStart := time.Now()
-			trace := &httptrace.ClientTrace{
-				GotFirstResponseByte: func() {
-					fmt.Printf("响应时间: %v", time.Since(reqStart))
-				},
-			}
-
-			req, err := chatModel.BuildReq(httptrace.WithClientTrace(ctx, trace), header, modelWithProvider.ProviderModel, before.raw)
+			req, err := chatModel.BuildReq(ctx, header, modelWithProvider.ProviderModel, before.raw)
 			if err != nil {
 				retryLog <- log.WithError(err)
 				// 构建请求失败 移除待选
@@ -224,6 +220,7 @@ type ProvidersWithMeta struct {
 	TimeOut              int
 	IOLog                bool
 	Strategy             string // 负载均衡策略
+	Breaker              bool   // 是否开启熔断
 }
 
 func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Before) (*ProvidersWithMeta, error) {
@@ -290,6 +287,11 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 		model.IOLog = new(bool)
 	}
 
+	breaker := false
+	if model.Breaker != nil {
+		breaker = *model.Breaker
+	}
+
 	return &ProvidersWithMeta{
 		ModelWithProviderMap: modelWithProviderMap,
 		WeightItems:          weightItems,
@@ -298,5 +300,6 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 		TimeOut:              model.TimeOut,
 		IOLog:                *model.IOLog,
 		Strategy:             model.Strategy,
+		Breaker:              breaker,
 	}, nil
 }

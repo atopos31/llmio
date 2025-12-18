@@ -26,7 +26,7 @@ type Lottery struct {
 
 func NewLottery(items map[uint]int) *Lottery {
 	return &Lottery{
-		store: items,
+		store:   items,
 		fails:   map[uint]struct{}{},
 		reduces: map[uint]struct{}{},
 	}

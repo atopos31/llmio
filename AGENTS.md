@@ -10,6 +10,7 @@
 - `go run main.go` 本地启动 REST API 与管理后台，默认读取 `TOKEN` 等环境变量。
 - `make run` 依次执行 `go fmt` `go mod tidy` `go run .` ，确保代码格式与依赖同步后再启动。
 - `go test ./...` 跑通所有 Go 单元测试，目前集中在 `handler/test_test.go` ，每次提交前需保持通过。
+- 使用 `go test ./...` 若遇到权限不足，请在当前目录下设置 `GOCACHE=$PWD/.gocache` 后重试，测试结束立刻删除 `.gocache` 目录。
 - `cd webui && pnpm install && pnpm run dev` 开启 Vite HMR ，`pnpm run build` 生成生产静态资源。
 
 ## 代码风格与命名约定
@@ -21,6 +22,7 @@
 - Go 测试文件与实现同目录，文件名追加 `_test.go` ，函数命名 `Test<Feature>` 并优先采用表驱动验证路由、限流与供应商切换逻辑。
 - 增量功能需补充针对中间件（鉴权、速率限制、流式响应）的覆盖；出现 bug 时先写回归测试再修复。
 - 前端改动至少通过 `pnpm run build` 或 `pnpm run preview` 做冒烟验证，并在 PR 中记录手动检查步骤。
+- 如果可用 `gopls` MCP，每次代码编写完成后运行一次 `gopls` 检查，确保无诊断错误。
 
 ## 提交与 PR 指南
 - 沿用 Conventional Commits 前缀，如 `feat:` `fix:` `refactor:` ，必要时追加模块范围（例如 `feat(webui): adjust theme`）。

@@ -7,7 +7,7 @@ LLMIO 是一个基于 Go 的 LLM 负载均衡网关，为你的 LLM 客户端 ( 
 ![LLMIO 架构图](./docs/llmio.svg)
 
 ## 功能特性
-- **统一 API**：兼容 OpenAI Chat Completions、OpenAI Responses 、Gemini Native与 Anthropic Messages 格式，支持透传流式与非流式响应。
+- **统一 API**：兼容 OpenAI Chat Completions、OpenAI Responses 、Gemini Native 与 Anthropic Messages 格式，支持透传流式与非流式响应。
 - **权重调度**：`balancers/` 提供两种调度策略(根据权重大小随机/根据权重高低优先)，可按工具调用、结构化输出、多模态能力做智能分发。
 - **可视化管理后台**：Web UI（React + TypeScript + Tailwind + Vite）覆盖提供商、模型、关联、日志与指标。
 - **速率与失败处理**：内建速率限制兜底与提供商连通性检测，保证故障隔离。
@@ -64,7 +64,7 @@ GIN_MODE=release TOKEN=<YOUR_TOKEN> ./llmio
 
 | 变量 | 说明 | 默认值 | 备注 |
 |------|------|--------|------|
-| `TOKEN` | 控制台登录与 `/openai` `/anthropic` `/v1` 等 API 鉴权凭证 | 无 | 公网访问必填 |
+| `TOKEN` | 控制台登录与 `/openai` `/anthropic` `/gemini` `/v1` 等 API 鉴权凭证 | 无 | 公网访问必填 |
 | `GIN_MODE` | 控制 Gin 运行模式 | `debug` | 线上请设置为 `release` 获得最佳性能 |
 | `LLMIO_SERVER_PORT` | 服务监听端口 | `7070` | 服务监听端口 |
 | `TZ` | 时区设置，用于日志与任务调度 | 宿主机默认值 | 建议在容器环境中显式指定，如 `Asia/Shanghai` |
@@ -98,6 +98,9 @@ LLMIO 提供多供应商兼容的 REST API，支持以下端点：
 | Anthropic | `/anthropic/v1/models` | GET | 获取可用模型列表 | x-api-key |
 | Anthropic | `/anthropic/v1/messages` | POST | 创建消息 | x-api-key |
 | Anthropic | `/anthropic/v1/messages/count_tokens` | POST | 计算Token数量 | x-api-key |
+| Gemini | `/gemini/v1beta/models` | GET | 获取可用模型列表 | x-goog-api-key |
+| Gemini | `/gemini/v1beta/models/{model}:generateContent` | POST | 生成内容 | x-goog-api-key |
+| Gemini | `/gemini/v1beta/models/{model}:streamGenerateContent` | POST | 流式生成内容 | x-goog-api-key |
 | 通用 | `/v1/models` | GET | 获取模型列表（兼容） | Bearer Token |
 | 通用 | `/v1/chat/completions` | POST | 创建聊天完成（兼容） | Bearer Token |
 | 通用 | `/v1/responses` | POST | 创建响应（兼容） | Bearer Token |
@@ -120,10 +123,17 @@ curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:7070/openai/v1/model
 curl -H "x-api-key: YOUR_TOKEN" http://localhost:7070/anthropic/v1/messages
 ```
 
+#### 3. Gemini Native 端点（x-goog-api-key）
+适用于：`/gemini/v1beta/*` 中的 Gemini 原生端点
+```bash
+curl -H "x-goog-api-key: YOUR_TOKEN" http://localhost:7070/gemini/v1beta/models
+```
+
 对于cc或者codex, 使用如下环境变量接入鉴权
 ```bash
 export OPENAI_API_KEY=<YOUR_TOKEN>
 export ANTHROPIC_API_KEY=<YOUR_TOKEN>
+export GEMINI_API_KEY=<YOUR_TOKEN>
 ```
 > **注意**：`/v1/*` 路径为兼容性保留，建议使用新的供应商特定路径。
 

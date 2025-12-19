@@ -107,7 +107,9 @@ func checkAuthKey(c *gin.Context, key string, adminToken string) {
 		c.Abort()
 		return
 	}
-	service.KeyUpdate(authKey.ID, time.Now())
+	// 异步更新使用次数
+	go service.KeyUpdate(authKey.ID, time.Now())
+
 	allowAll := authKey.AllowAll != nil && *authKey.AllowAll
 	ctx = context.WithValue(ctx, consts.ContextKeyAuthKeyID, authKey.ID)
 	ctx = context.WithValue(ctx, consts.ContextKeyAllowAllModel, allowAll)

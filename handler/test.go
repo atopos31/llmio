@@ -14,6 +14,7 @@ import (
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
+	"github.com/atopos31/llmio/service"
 	"github.com/atopos31/nsxno/react"
 	"github.com/gin-gonic/gin"
 	"github.com/openai/openai-go/v2"
@@ -66,6 +67,18 @@ const (
       		}
     	]
  	}`
+
+	testGemini = `{
+		"contents": [
+			{
+				"parts": [
+					{
+						"text": "Explain how AI works in a few words"
+					}
+				]
+			}
+		]
+	}`
 )
 
 func ProviderTestHandler(c *gin.Context) {
@@ -103,11 +116,17 @@ func ProviderTestHandler(c *gin.Context) {
 		testBody = []byte(testAnthropic)
 	case consts.StyleOpenAIRes:
 		testBody = []byte(testOpenAIRes)
+	case consts.StyleGemini:
+		testBody = []byte(testGemini)
 	default:
 		common.BadRequest(c, "Invalid provider type")
 		return
 	}
-	header := buildTestHeaders(c.Request.Header, chatModel.WithHeader, chatModel.CustomerHeaders)
+	withHeader := false
+	if chatModel.WithHeader != nil {
+		withHeader = *chatModel.WithHeader
+	}
+	header := service.BuildHeaders(c.Request.Header, withHeader, chatModel.CustomerHeaders, false)
 	req, err := providerInstance.BuildReq(ctx, header, chatModel.Model, []byte(testBody))
 	if err != nil {
 		common.ErrorWithHttpStatus(c, http.StatusOK, 502, "Failed to connect to provider: "+err.Error())
@@ -152,7 +171,7 @@ func TestReactHandler(c *gin.Context) {
 		return
 	}
 
-	if chatModel.Type != "openai" {
+	if chatModel.Type != consts.StyleOpenAI {
 		c.SSEvent("error", "该测试仅支持 OpenAI 类型")
 		return
 	}
@@ -305,18 +324,4 @@ func FindChatModel(ctx context.Context, id string) (*ChatModel, error) {
 		WithHeader:      modelWithProvider.WithHeader,
 		CustomerHeaders: modelWithProvider.CustomerHeaders,
 	}, nil
-}
-
-func buildTestHeaders(source http.Header, withHeader *bool, customHeaders map[string]string) http.Header {
-	header := http.Header{}
-
-	if withHeader != nil && *withHeader {
-		header = source.Clone()
-	}
-
-	for key, value := range customHeaders {
-		header.Set(key, value)
-	}
-
-	return header
 }

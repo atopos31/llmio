@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/atopos31/llmio/common"
@@ -26,6 +27,32 @@ func ResponsesHandler(c *gin.Context) {
 
 func Messages(c *gin.Context) {
 	chatHandler(c, service.BeforerAnthropic, service.ProcesserAnthropic, consts.StyleAnthropic)
+}
+
+// GeminiGenerateContentHandler 转发 Gemini 原生接口:
+// POST /v1beta/models/{model}:generateContent
+func GeminiGenerateContentHandler(c *gin.Context) {
+	modelAction := strings.TrimPrefix(c.Param("modelAction"), "/")
+	model, method, ok := strings.Cut(modelAction, ":")
+	if !ok || model == "" || method == "" {
+		common.BadRequest(c, "Invalid Gemini model action")
+		return
+	}
+	stream := false
+	switch method {
+	case "generateContent":
+		stream = false
+	case "streamGenerateContent":
+		stream = true
+	default:
+		common.BadRequest(c, "Unsupported Gemini method: "+method)
+		return
+	}
+
+	ctx := context.WithValue(c.Request.Context(), consts.ContextKeyGeminiStream, stream)
+	c.Request = c.Request.WithContext(ctx)
+
+	chatHandler(c, service.NewBeforerGemini(model, stream), service.ProcesserGemini, consts.StyleGemini)
 }
 
 func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor service.Processer, style string) {

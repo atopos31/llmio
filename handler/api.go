@@ -416,6 +416,13 @@ var template = []ProviderTemplate{
 		}`,
 	},
 	{
+		Type: "gemini",
+		Template: `{
+			"base_url": "https://generativelanguage.googleapis.com/v1beta",
+			"api_key": "YOUR_GEMINI_API_KEY"
+		}`,
+	},
+	{
 		Type: "openai-res",
 		Template: `{
 			"base_url": "https://api.openai.com/v1",

@@ -51,3 +51,37 @@ func AnthropicModelsHandler(c *gin.Context) {
 		HasMore: false,
 	})
 }
+
+type GeminiModelsResponse struct {
+	Models []GeminiModel `json:"models"`
+}
+
+type GeminiModel struct {
+	Name                       string   `json:"name"`
+	DisplayName                string   `json:"displayName,omitempty"`
+	SupportedGenerationMethods []string `json:"supportedGenerationMethods,omitempty"`
+}
+
+func GeminiModelsHandler(c *gin.Context) {
+	ctx := c.Request.Context()
+	models, err := service.ModelsByTypes(ctx, consts.StyleGemini)
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+
+	resModels := make([]GeminiModel, 0, len(models))
+	for _, model := range models {
+		resModels = append(resModels, GeminiModel{
+			Name:        "models/" + model.Name,
+			DisplayName: model.Name,
+			SupportedGenerationMethods: []string{
+				"generateContent",
+				"streamGenerateContent",
+			},
+		})
+	}
+	common.SuccessRaw(c, GeminiModelsResponse{
+		Models: resModels,
+	})
+}

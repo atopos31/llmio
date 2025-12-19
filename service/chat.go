@@ -77,7 +77,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 			provider := providerMap[modelWithProvider.ProviderID]
 
-			chatModel, err := providers.New(style, provider.Config)
+			chatModel, err := providers.New(provider.Type, provider.Config)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -102,7 +102,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			if modelWithProvider.WithHeader != nil {
 				withHeader = *modelWithProvider.WithHeader
 			}
-			header := buildHeaders(reqMeta.Header, withHeader, modelWithProvider.CustomerHeaders, before.Stream)
+			header := BuildHeaders(reqMeta.Header, withHeader, modelWithProvider.CustomerHeaders, before.Stream)
 
 			req, err := chatModel.BuildReq(ctx, header, modelWithProvider.ProviderModel, before.raw)
 			if err != nil {
@@ -192,7 +192,7 @@ func SaveChatLog(ctx context.Context, log models.ChatLog) (uint, error) {
 	return log.ID, nil
 }
 
-func buildHeaders(source http.Header, withHeader bool, customHeaders map[string]string, stream bool) http.Header {
+func BuildHeaders(source http.Header, withHeader bool, customHeaders map[string]string, stream bool) http.Header {
 	header := http.Header{}
 	if withHeader {
 		header = source.Clone()
@@ -204,6 +204,7 @@ func buildHeaders(source http.Header, withHeader bool, customHeaders map[string]
 
 	header.Del("Authorization")
 	header.Del("X-Api-Key")
+	header.Del("X-Goog-Api-Key")
 
 	for key, value := range customHeaders {
 		header.Set(key, value)

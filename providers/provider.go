@@ -48,6 +48,12 @@ func New(Type, providerConfig string) (Provider, error) {
 			return nil, errors.New("invalid anthropic config")
 		}
 		return &anthropic, nil
+	case consts.StyleGemini:
+		var gemini Gemini
+		if err := json.Unmarshal([]byte(providerConfig), &gemini); err != nil {
+			return nil, errors.New("invalid gemini config")
+		}
+		return &gemini, nil
 	default:
 		return nil, errors.New("unknown provider")
 	}

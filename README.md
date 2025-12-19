@@ -7,7 +7,7 @@ LLMIO 是一个基于 Go 的 LLM 负载均衡网关，为你的 LLM 客户端 ( 
 ![LLMIO 架构图](./docs/llmio.svg)
 
 ## 功能特性
-- **统一 API**：兼容 OpenAI Chat Completions、OpenAI Responses 与 Anthropic Messages 语义，支持透传流式与非流式响应。
+- **统一 API**：兼容 OpenAI Chat Completions、OpenAI Responses 、Gemini Native与 Anthropic Messages 格式，支持透传流式与非流式响应。
 - **权重调度**：`balancers/` 提供两种调度策略(根据权重大小随机/根据权重高低优先)，可按工具调用、结构化输出、多模态能力做智能分发。
 - **可视化管理后台**：Web UI（React + TypeScript + Tailwind + Vite）覆盖提供商、模型、关联、日志与指标。
 - **速率与失败处理**：内建速率限制兜底与提供商连通性检测，保证故障隔离。

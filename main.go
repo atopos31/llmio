@@ -62,6 +62,7 @@ func main() {
 		}
 	}
 
+	// gemini
 	gemini := router.Group("/gemini", authGemini)
 	{
 		v1beta := gemini.Group("/v1beta")

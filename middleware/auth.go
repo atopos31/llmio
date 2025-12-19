@@ -65,18 +65,9 @@ func AuthAnthropic(adminToken string) gin.HandlerFunc {
 }
 
 // 用于Gemini原生接口鉴权
-// - 优先读取 x-goog-api-key
-// - 兼容 Authorization: Bearer <token>
 func AuthGemini(adminToken string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := c.GetHeader("x-goog-api-key")
-		if key == "" {
-			authHeader := c.GetHeader("Authorization")
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) == 2 && parts[0] == "Bearer" {
-				key = parts[1]
-			}
-		}
 		checkAuthKey(c, key, adminToken)
 	}
 }

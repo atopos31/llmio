@@ -160,9 +160,12 @@ export default function ProvidersPage() {
     fetchProviderTemplates();
   }, []);
 
-  // 监听筛选条件变化
+  // 监听筛选条件变化（跳过初始渲染）
   useEffect(() => {
-    fetchProviders();
+    // 只在筛选条件实际变化时才重新获取
+    if (nameFilter !== "" || typeFilter !== "all") {
+      fetchProviders();
+    }
   }, [nameFilter, typeFilter]);
 
   useEffect(() => {

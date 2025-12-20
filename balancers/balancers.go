@@ -2,11 +2,11 @@ package balancers
 
 import (
 	"container/list"
-	"fmt"
 	"math/rand/v2"
 	"slices"
 	"sync"
 
+	"github.com/atopos31/llmio/common"
 	"github.com/samber/lo"
 )
 
@@ -39,14 +39,14 @@ func (w *Lottery) Pop() (uint, error) {
 	defer w.mu.RUnlock()
 
 	if len(w.store) == 0 {
-		return 0, fmt.Errorf("no provide items or all items are disabled")
+		return 0, common.NewBalancerError("lottery", "no provide items or all items are disabled")
 	}
 	total := 0
 	for _, v := range w.store {
 		total += v
 	}
 	if total <= 0 {
-		return 0, fmt.Errorf("total provide weight must be greater than 0")
+		return 0, common.NewBalancerError("lottery", "total provide weight must be greater than 0")
 	}
 	r := rand.IntN(total)
 	for k, v := range w.store {
@@ -55,7 +55,7 @@ func (w *Lottery) Pop() (uint, error) {
 		}
 		r -= v
 	}
-	return 0, fmt.Errorf("unexpected error")
+	return 0, common.NewBalancerError("lottery", "unexpected error in weight calculation")
 }
 
 func (w *Lottery) Delete(key uint) {
@@ -111,7 +111,7 @@ func (w *Rotor) Pop() (uint, error) {
 	defer w.mu.RUnlock()
 
 	if w.Len() == 0 {
-		return 0, fmt.Errorf("no provide items")
+		return 0, common.NewBalancerError("rotor", "no provide items")
 	}
 	e := w.Front()
 	return e.Value.(uint), nil

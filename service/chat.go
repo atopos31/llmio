@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/atopos31/llmio/balancers"
+	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
@@ -249,17 +250,18 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 	model, err := gorm.G[models.Model](models.DB).Where("name = ?", before.Model).First(ctx)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			modelErr := common.NewModelError(before.Model, "model not found")
 			if _, err := SaveChatLog(ctx, models.ChatLog{
 				Name:   before.Model,
 				Status: "error",
 				Style:  style,
-				Error:  err.Error(),
+				Error:  modelErr.Error(),
 			}); err != nil {
 				return nil, err
 			}
-			return nil, errors.New("not found model " + before.Model)
+			return nil, modelErr
 		}
-		return nil, err
+		return nil, fmt.Errorf("database error when querying model %s: %w", before.Model, err)
 	}
 
 	modelWithProviderChain := gorm.G[models.ModelWithProvider](models.DB).Where("model_id = ?", model.ID).Where("status = ?", true)
@@ -282,7 +284,7 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 	}
 
 	if len(modelWithProviders) == 0 {
-		return nil, errors.New("not provider for model " + before.Model)
+		return nil, common.NewModelError(before.Model, "no available providers for this model")
 	}
 
 	modelWithProviderMap := lo.KeyBy(modelWithProviders, func(mp models.ModelWithProvider) uint { return mp.ID })

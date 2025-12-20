@@ -525,6 +525,21 @@ export async function getChatIO(logId: number): Promise<ChatIO> {
   return apiRequest<ChatIO>(`/logs/${logId}/chat-io`);
 }
 
+// Clean logs API
+export interface CleanLogsResult {
+  deleted_count: number;
+}
+
+export async function cleanLogs(params: {
+  type: 'count' | 'days';
+  value: number;
+}): Promise<CleanLogsResult> {
+  return apiRequest<CleanLogsResult>('/logs/cleanup', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}
+
 // Test API functions
 export async function testCountTokens(): Promise<void> {
   return apiRequest<void>('/test/count_tokens');

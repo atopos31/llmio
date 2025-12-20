@@ -1,5 +1,6 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -12,9 +13,20 @@ import {
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import Loading from "@/components/loading";
-import { getLogs, getProviders, getModelOptions, getAuthKeysList, type ChatLog, type Provider, type Model, type AuthKeyItem, getProviderTemplates } from "@/lib/api";
-import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { getLogs, getProviders, getModelOptions, getAuthKeysList, type ChatLog, type Provider, type Model, type AuthKeyItem, getProviderTemplates, cleanLogs } from "@/lib/api";
+import { ChevronLeft, ChevronRight, RefreshCw, Trash2 } from "lucide-react";
 
 // 格式化时间显示
 const formatTime = (nanoseconds: number): string => {
@@ -73,6 +85,11 @@ export default function LogsPage() {
   // 详情弹窗
   const [selectedLog, setSelectedLog] = useState<ChatLog | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  // 清理弹窗
+  const [cleanType, setCleanType] = useState<'count' | 'days'>('count');
+  const [cleanValue, setCleanValue] = useState<string>('1000');
+  const [isCleanDialogOpen, setIsCleanDialogOpen] = useState(false);
+  const [cleanLoading, setCleanLoading] = useState(false);
   // 获取数据
   const fetchProviders = async () => {
     try {
@@ -143,6 +160,27 @@ export default function LogsPage() {
   const handleRefresh = () => {
     fetchLogs();
   };
+  const handleCleanTypeChange = (type: 'count' | 'days') => {
+    setCleanType(type);
+    setCleanValue(type === 'count' ? '1000' : '30');
+  };
+  const handleCleanLogs = async () => {
+    const value = parseInt(cleanValue);
+    if (isNaN(value) || value <= 0) return;
+
+    setCleanLoading(true);
+    try {
+      const result = await cleanLogs({ type: cleanType, value });
+      toast.success(`已清理 ${result.deleted_count} 条日志`);
+      fetchLogs();
+    } catch (error) {
+      console.error("Error cleaning logs:", error);
+      toast.error('清理失败');
+    } finally {
+      setCleanLoading(false);
+      setIsCleanDialogOpen(false);
+    }
+  };
   const openDetailDialog = (log: ChatLog) => {
     setSelectedLog(log);
     setIsDialogOpen(true);
@@ -161,16 +199,28 @@ export default function LogsPage() {
           <div className="min-w-0">
             <h2 className="text-2xl font-bold tracking-tight">请求日志</h2>
           </div>
-          <Button
-            onClick={handleRefresh}
-            variant="outline"
-            size="icon"
-            className="ml-auto shrink-0"
-            aria-label="刷新列表"
-            title="刷新列表"
-          >
-            <RefreshCw className="size-4" />
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => setIsCleanDialogOpen(true)}
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              aria-label="清理日志"
+              title="清理日志"
+            >
+              <Trash2 className="size-4" />
+            </Button>
+            <Button
+              onClick={handleRefresh}
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              aria-label="刷新列表"
+              title="刷新列表"
+            >
+              <RefreshCw className="size-4" />
+            </Button>
+          </div>
         </div>
       </div>
       {/* 筛选区域 */}
@@ -488,6 +538,59 @@ export default function LogsPage() {
           </DialogContent>
         </Dialog>
       )}
+      {/* 清理日志弹窗 */}
+      <Dialog open={isCleanDialogOpen} onOpenChange={setIsCleanDialogOpen}>
+        <DialogContent className="w-[92vw] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>清理日志</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="flex gap-2">
+              <Button
+                variant={cleanType === 'count' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleCleanTypeChange('count')}
+                className="flex-1"
+              >
+                保留条数
+              </Button>
+              <Button
+                variant={cleanType === 'days' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleCleanTypeChange('days')}
+                className="flex-1"
+              >
+                保留天数
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min="1"
+                value={cleanValue}
+                onChange={(e) => setCleanValue(e.target.value)}
+                placeholder={cleanType === 'count' ? '输入保留条数' : '输入保留天数'}
+                className="h-10"
+              />
+              <span className="text-sm text-muted-foreground whitespace-nowrap">
+                {cleanType === 'count' ? '条' : '天'}
+              </span>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setIsCleanDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCleanLogs}
+              disabled={cleanLoading || !cleanValue || parseInt(cleanValue) <= 0}
+            >
+              {cleanLoading ? '清理中...' : '确定清理'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

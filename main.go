@@ -113,6 +113,7 @@ func main() {
 		api.GET("/logs", handler.GetRequestLogs)
 		api.GET("/logs/:id/chat-io", handler.GetChatIO)
 		api.GET("/user-agents", handler.GetUserAgents)
+		api.POST("/logs/cleanup", handler.CleanLogs)
 
 		// Auth key management
 		api.GET("/auth-keys", handler.GetAuthKeys)

@@ -30,6 +30,7 @@ type Model struct {
 	TimeOut      int    // 超时时间 单位秒
 	IOLog        *bool  // 是否记录IO
 	Strategy     string // 负载均衡策略 默认 lottery
+	Breaker      *bool  // 是否开启熔断
 }
 
 type ModelWithProvider struct {

@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/http/httptrace"
 	"time"
 
 	"github.com/atopos31/llmio/balancers"
@@ -18,7 +17,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func BalanceChat(ctx context.Context, start time.Time, style string, before Before, providersWithMeta ProvidersWithMeta, reqMeta models.ReqMeta) (*http.Response, uint, error) {
+func BalanceChat(ctx context.Context, start time.Time, style string, before Before, providersWithMeta ProvidersWithMeta, reqMeta models.ReqMeta) (*http.Response, *models.ChatLog, error) {
 	slog.Info("request", "model", before.Model, "stream", before.Stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
 
 	providerMap := providersWithMeta.ProviderMap
@@ -40,6 +39,10 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		balancer = balancers.NewLottery(providersWithMeta.WeightItems)
 	}
 
+	if providersWithMeta.Breaker {
+		balancer = balancers.BalancerWrapperBreaker(balancer)
+	}
+
 	// 设置请求超时
 	responseHeaderTimeout := time.Second * time.Duration(providersWithMeta.TimeOut)
 	// 流式超时时间缩短
@@ -55,14 +58,14 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	for retry := range providersWithMeta.MaxRetry {
 		select {
 		case <-ctx.Done():
-			return nil, 0, ctx.Err()
+			return nil, nil, ctx.Err()
 		case <-timer.C:
-			return nil, 0, errors.New("retry time out")
+			return nil, nil, errors.New("retry time out")
 		default:
 			// 加权负载均衡
 			id, err := balancer.Pop()
 			if err != nil {
-				return nil, 0, err
+				return nil, nil, err
 			}
 
 			modelWithProvider, ok := providersWithMeta.ModelWithProviderMap[id]
@@ -74,9 +77,9 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 			provider := providerMap[modelWithProvider.ProviderID]
 
-			chatModel, err := providers.New(style, provider.Config)
+			chatModel, err := providers.New(provider.Type, provider.Config)
 			if err != nil {
-				return nil, 0, err
+				return nil, nil, err
 			}
 
 			slog.Info("using provider", "provider", provider.Name, "model", modelWithProvider.ProviderModel)
@@ -99,16 +102,9 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			if modelWithProvider.WithHeader != nil {
 				withHeader = *modelWithProvider.WithHeader
 			}
-			header := buildHeaders(reqMeta.Header, withHeader, modelWithProvider.CustomerHeaders, before.Stream)
+			header := BuildHeaders(reqMeta.Header, withHeader, modelWithProvider.CustomerHeaders, before.Stream)
 
-			reqStart := time.Now()
-			trace := &httptrace.ClientTrace{
-				GotFirstResponseByte: func() {
-					fmt.Printf("响应时间: %v", time.Since(reqStart))
-				},
-			}
-
-			req, err := chatModel.BuildReq(httptrace.WithClientTrace(ctx, trace), header, modelWithProvider.ProviderModel, before.raw)
+			req, err := chatModel.BuildReq(ctx, header, modelWithProvider.ProviderModel, before.raw)
 			if err != nil {
 				retryLog <- log.WithError(err)
 				// 构建请求失败 移除待选
@@ -142,17 +138,13 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				continue
 			}
 
-			logId, err := SaveChatLog(ctx, log)
-			if err != nil {
-				res.Body.Close()
-				return nil, 0, err
-			}
+			balancer.Success(id)
 
-			return res, logId, nil
+			return res, &log, nil
 		}
 	}
 
-	return nil, 0, errors.New("maximum retry attempts reached")
+	return nil, nil, errors.New("maximum retry attempts reached")
 }
 
 func RecordRetryLog(ctx context.Context, retryLog chan models.ChatLog) {
@@ -200,7 +192,7 @@ func SaveChatLog(ctx context.Context, log models.ChatLog) (uint, error) {
 	return log.ID, nil
 }
 
-func buildHeaders(source http.Header, withHeader bool, customHeaders map[string]string, stream bool) http.Header {
+func BuildHeaders(source http.Header, withHeader bool, customHeaders map[string]string, stream bool) http.Header {
 	header := http.Header{}
 	if withHeader {
 		header = source.Clone()
@@ -212,6 +204,7 @@ func buildHeaders(source http.Header, withHeader bool, customHeaders map[string]
 
 	header.Del("Authorization")
 	header.Del("X-Api-Key")
+	header.Del("X-Goog-Api-Key")
 
 	for key, value := range customHeaders {
 		header.Set(key, value)
@@ -228,6 +221,7 @@ type ProvidersWithMeta struct {
 	TimeOut              int
 	IOLog                bool
 	Strategy             string // 负载均衡策略
+	Breaker              bool   // 是否开启熔断
 }
 
 func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Before) (*ProvidersWithMeta, error) {
@@ -294,6 +288,11 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 		model.IOLog = new(bool)
 	}
 
+	breaker := false
+	if model.Breaker != nil {
+		breaker = *model.Breaker
+	}
+
 	return &ProvidersWithMeta{
 		ModelWithProviderMap: modelWithProviderMap,
 		WeightItems:          weightItems,
@@ -302,5 +301,6 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 		TimeOut:              model.TimeOut,
 		IOLog:                *model.IOLog,
 		Strategy:             model.Strategy,
+		Breaker:              breaker,
 	}, nil
 }

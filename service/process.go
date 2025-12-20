@@ -243,6 +243,95 @@ func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start ti
 	}, &output, nil
 }
 
+func ProcesserGemini(ctx context.Context, pr io.Reader, stream bool, start time.Time) (*models.ChatLog, *models.OutputUnion, error) {
+	// 首字时延
+	var firstChunkTime time.Duration
+	var once sync.Once
+
+	var usageStr string
+	var output models.OutputUnion
+	var size int
+
+	if !stream {
+		bodyBytes, err := io.ReadAll(pr)
+		if err != nil {
+			return nil, nil, err
+		}
+		size += len(bodyBytes)
+		once.Do(func() {
+			firstChunkTime = time.Since(start)
+		})
+		output.OfString = string(bodyBytes)
+
+		usageStr = gjson.GetBytes(bodyBytes, "usageMetadata").String()
+
+	} else {
+		scanner := bufio.NewScanner(pr)
+		scanner.Buffer(make([]byte, 0, InitScannerBufferSize), MaxScannerBufferSize)
+		for chunk, chunkSize := range ScannerToken(scanner) {
+			size += chunkSize
+			once.Do(func() {
+				firstChunkTime = time.Since(start)
+			})
+
+			if strings.HasPrefix(chunk, "event:") {
+				continue
+			}
+
+			payload := ""
+			if after, ok := strings.CutPrefix(chunk, "data: "); ok {
+				payload = after
+			} else if strings.HasPrefix(chunk, "{") || strings.HasPrefix(chunk, "[") {
+				payload = chunk
+			} else {
+				continue
+			}
+			if payload == "" {
+				continue
+			}
+			if payload == "[DONE]" {
+				break
+			}
+
+			// 流式过程中错误
+			errStr := gjson.Get(payload, "error")
+			if errStr.Exists() {
+				return nil, nil, errors.New(errStr.String())
+			}
+
+			output.OfStringArray = append(output.OfStringArray, payload)
+			usageMetadata := gjson.Get(payload, "usageMetadata")
+			if usageMetadata.Exists() && usageMetadata.Get("totalTokenCount").Int() != 0 {
+				usageStr = usageMetadata.String()
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	var usage models.Usage
+	usageMetadata := gjson.Parse(usageStr)
+	if usageMetadata.Exists() {
+		usage.PromptTokens = usageMetadata.Get("promptTokenCount").Int()
+		usage.CompletionTokens = usageMetadata.Get("candidatesTokenCount").Int() + usageMetadata.Get("thoughtsTokenCount").Int()
+		usage.TotalTokens = usageMetadata.Get("totalTokenCount").Int()
+		if usage.TotalTokens == 0 {
+			usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+		}
+	}
+
+	chunkTime := time.Since(start) - firstChunkTime
+
+	return &models.ChatLog{
+		FirstChunkTime: firstChunkTime,
+		ChunkTime:      chunkTime,
+		Usage:          usage,
+		Tps:            float64(usage.TotalTokens) / chunkTime.Seconds(),
+		Size:           size,
+	}, &output, nil
+}
+
 func ScannerToken(reader *bufio.Scanner) iter.Seq2[string, int] {
 	return func(yield func(string, int) bool) {
 		for reader.Scan() {

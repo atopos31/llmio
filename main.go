@@ -29,12 +29,13 @@ func init() {
 func main() {
 	router := gin.Default()
 
-	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/v1"})))
+	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1"})))
 
 	token := os.Getenv("TOKEN")
 
 	authOpenAI := middleware.AuthOpenAI(token)
 	authAnthropic := middleware.AuthAnthropic(token)
+	authGemini := middleware.AuthGemini(token)
 
 	// openai
 	openai := router.Group("/openai", authOpenAI)
@@ -59,6 +60,14 @@ func main() {
 			v1.POST("/messages", handler.Messages)
 			v1.POST("/messages/count_tokens", handler.CountTokens)
 		}
+	}
+
+	// gemini
+	gemini := router.Group("/gemini", authGemini)
+	{
+		v1beta := gemini.Group("/v1beta")
+		v1beta.GET("/models", handler.GeminiModelsHandler)
+		v1beta.POST("/models/*modelAction", handler.GeminiGenerateContentHandler)
 	}
 
 	// 兼容性保留
@@ -104,6 +113,7 @@ func main() {
 		api.GET("/logs", handler.GetRequestLogs)
 		api.GET("/logs/:id/chat-io", handler.GetChatIO)
 		api.GET("/user-agents", handler.GetUserAgents)
+		api.POST("/logs/cleanup", handler.CleanLogs)
 
 		// Auth key management
 		api.GET("/auth-keys", handler.GetAuthKeys)
@@ -124,7 +134,7 @@ func main() {
 	}
 	setwebui(router)
 
-	port := os.Getenv("LLMIO_PORT")
+	port := os.Getenv("LLMIO_SERVER_PORT")
 	if port == "" {
 		port = consts.DefaultPort
 	}

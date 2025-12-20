@@ -82,6 +82,7 @@ const formSchema = z.object({
   time_out: z.number().min(0, { message: "超时时间不能为负数" }),
   io_log: z.boolean(),
   strategy: z.enum(["lottery", "rotor"]),
+  breaker: z.boolean(),
 });
 
 export default function ModelsPage() {
@@ -111,6 +112,7 @@ export default function ModelsPage() {
       time_out: 60,
       io_log: false,
       strategy: "lottery",
+      breaker: false,
     },
   });
 
@@ -180,10 +182,11 @@ export default function ModelsPage() {
         time_out: values.time_out,
         io_log: values.io_log,
         strategy: values.strategy,
+        breaker: values.breaker,
       });
       setOpen(false);
       toast.success(`模型: ${values.name} 创建成功`);
-      form.reset({ name: "", remark: "", match_pattern: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
+      form.reset({ name: "", remark: "", match_pattern: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery", breaker: false });
       await fetchModels();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -202,11 +205,12 @@ export default function ModelsPage() {
         time_out: values.time_out,
         io_log: values.io_log,
         strategy: values.strategy,
+        breaker: values.breaker,
       });
       setOpen(false);
       toast.success(`模型: ${values.name} 更新成功`);
       setEditingModel(null);
-      form.reset({ name: "", remark: "", match_pattern: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
+      form.reset({ name: "", remark: "", match_pattern: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery", breaker: false });
       await fetchModels();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -240,13 +244,14 @@ export default function ModelsPage() {
       time_out: model.TimeOut,
       io_log: model.IOLog,
       strategy: model.Strategy === "rotor" ? "rotor" : "lottery",
+      breaker: model.Breaker ?? false,
     });
     setOpen(true);
   };
 
   const openCreateDialog = () => {
     setEditingModel(null);
-    form.reset({ name: "", remark: "", match_pattern: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery" });
+    form.reset({ name: "", remark: "", match_pattern: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery", breaker: false });
     setOpen(true);
   };
 
@@ -275,7 +280,7 @@ export default function ModelsPage() {
         </div>
         <div className="flex flex-col gap-2 flex-shrink-0">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
-            <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
+            <div className="flex flex-col gap-1 text-xs lg:min-w-0">
               <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">搜索</Label>
               <div className="relative">
                 <Search className="size-4 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -347,8 +352,8 @@ export default function ModelsPage() {
           </div>
         ) : (
           <div className="h-full flex flex-col">
-            <div className="flex-1 overflow-y-auto">
-              <div className="hidden sm:block w-full">
+            <div className="hidden sm:block flex-1 overflow-y-auto">
+              <div className="w-full">
                 <Table className="min-w-[1100px]">
                   <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
                     <TableRow>
@@ -619,6 +624,21 @@ export default function ModelsPage() {
                         checked={field.value}
                         onCheckedChange={field.onChange}
                       />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="breaker"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base">熔断</FormLabel>
+                    </div>
+                    <FormControl>
+                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                     </FormControl>
                   </FormItem>
                 )}

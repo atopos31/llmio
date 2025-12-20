@@ -64,6 +64,14 @@ func AuthAnthropic(adminToken string) gin.HandlerFunc {
 	}
 }
 
+// 用于Gemini原生接口鉴权
+func AuthGemini(adminToken string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		key := c.GetHeader("x-goog-api-key")
+		checkAuthKey(c, key, adminToken)
+	}
+}
+
 func checkAuthKey(c *gin.Context, key string, adminToken string) {
 	ctx := c.Request.Context()
 	// 如果系统中未配置Token 或者使用的是最高权限的token 则允许访问所有模型
@@ -90,6 +98,9 @@ func checkAuthKey(c *gin.Context, key string, adminToken string) {
 		c.Abort()
 		return
 	}
+	// 异步更新使用次数
+	go service.KeyUpdate(authKey.ID, time.Now())
+
 	allowAll := authKey.AllowAll != nil && *authKey.AllowAll
 	ctx = context.WithValue(ctx, consts.ContextKeyAuthKeyID, authKey.ID)
 	ctx = context.WithValue(ctx, consts.ContextKeyAllowAllModel, allowAll)

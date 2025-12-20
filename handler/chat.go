@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/atopos31/llmio/common"
@@ -25,6 +27,32 @@ func ResponsesHandler(c *gin.Context) {
 
 func Messages(c *gin.Context) {
 	chatHandler(c, service.BeforerAnthropic, service.ProcesserAnthropic, consts.StyleAnthropic)
+}
+
+// GeminiGenerateContentHandler 转发 Gemini 原生接口:
+// POST /v1beta/models/{model}:generateContent
+func GeminiGenerateContentHandler(c *gin.Context) {
+	modelAction := strings.TrimPrefix(c.Param("modelAction"), "/")
+	model, method, ok := strings.Cut(modelAction, ":")
+	if !ok || model == "" || method == "" {
+		common.BadRequest(c, "Invalid Gemini model action")
+		return
+	}
+	stream := false
+	switch method {
+	case "generateContent":
+		stream = false
+	case "streamGenerateContent":
+		stream = true
+	default:
+		common.BadRequest(c, "Unsupported Gemini method: "+method)
+		return
+	}
+
+	ctx := context.WithValue(c.Request.Context(), consts.ContextKeyGeminiStream, stream)
+	c.Request = c.Request.WithContext(ctx)
+
+	chatHandler(c, service.NewBeforerGemini(model, stream), service.ProcesserGemini, consts.StyleGemini)
 }
 
 func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor service.Processer, style string) {
@@ -62,7 +90,7 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 
 	startReq := time.Now()
 	// 调用负载均衡后的 provider 并转发
-	res, logId, err := service.BalanceChat(ctx, startReq, style, *before, *providersWithMeta, models.ReqMeta{
+	res, log, err := service.BalanceChat(ctx, startReq, style, *before, *providersWithMeta, models.ReqMeta{
 		Header:    c.Request.Header,
 		RemoteIP:  c.ClientIP(),
 		UserAgent: c.Request.UserAgent(),
@@ -73,6 +101,12 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	}
 	defer res.Body.Close()
 
+	logId, err := service.SaveChatLog(ctx, *log)
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+
 	pr, pw := io.Pipe()
 	tee := io.TeeReader(res.Body, pw)
 	// 异步处理输出并记录 tokens
@@ -81,7 +115,7 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	writeHeader(c, before.Stream, res.Header)
 	if _, err := io.Copy(c.Writer, tee); err != nil {
 		pw.CloseWithError(err)
-		common.InternalServerError(c, err.Error())
+		slog.Error("io copy", "err:", err)
 		return
 	}
 

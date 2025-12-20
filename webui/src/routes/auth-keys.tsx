@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -92,6 +92,21 @@ const defaultFormValues: AuthKeyFormValues = {
   expires_at: null,
 };
 
+type MobileInfoItemProps = {
+  label: string;
+  value: ReactNode;
+  mono?: boolean;
+};
+
+const MobileInfoItem = ({ label, value, mono = false }: MobileInfoItemProps) => (
+  <div className="space-y-1">
+    <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</p>
+    <div className={cn("text-sm font-medium break-words", mono ? "font-mono text-xs" : "")}>
+      {value}
+    </div>
+  </div>
+);
+
 
 export default function AuthKeysPage() {
   const [authKeys, setAuthKeys] = useState<AuthKey[]>([]);
@@ -153,7 +168,7 @@ export default function AuthKeysPage() {
 
   const fetchModels = async () => {
     try {
-	  const list = await getModelOptions();
+    const list = await getModelOptions();
       setModels(list);
     } catch (error) {
       console.error(error);
@@ -359,7 +374,7 @@ export default function AuthKeysPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
+          <div className="col-span-2 flex flex-col gap-1 text-xs lg:min-w-0 sm:col-span-1">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">访问范围</Label>
             <Select value={allowAllFilter} onValueChange={(value: "all" | "allow" | "restricted") => setAllowAllFilter(value)}>
               <SelectTrigger className="h-8 text-xs w-full px-2">
@@ -375,60 +390,167 @@ export default function AuthKeysPage() {
         </div>
       </div>
 
-      <div className="h-full flex flex-col">
-        <div className="flex-1 overflow-y-auto">
-          <div className="hidden sm:block w-full">
-            <Table className="min-w-[960px]">
-              <TableHeader className="z-10 sticky top-0 bg-secondary/90 backdrop-blur text-secondary-foreground">
-                <TableRow>
-                  <TableHead>项目</TableHead>
-                  <TableHead className="min-w-64">Key</TableHead>
-                  <TableHead>使用范围</TableHead>
-                  <TableHead>有效期至</TableHead>
-                  <TableHead>使用次数</TableHead>
-                  <TableHead>最后使用时间</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead>操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={7}>
-                      <div className="flex h-24 items-center justify-center">
-                        <Loading />
+        <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
+          {loading ? (
+            <div className="flex h-full items-center justify-center">
+              <Loading message="加载 API Key 列表" />
+            </div>
+          ) : authKeys.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-muted-foreground">
+              暂无 API Key
+            </div>
+          ) : (
+            <div className="h-full flex flex-col">
+              <div className="hidden sm:block flex-1 overflow-y-auto">
+                <div className="w-full">
+                  <Table className="min-w-[960px]">
+                    <TableHeader className="z-10 sticky top-0 bg-secondary/90 backdrop-blur text-secondary-foreground">
+                      <TableRow>
+                        <TableHead>项目</TableHead>
+                        <TableHead className="min-w-64">Key</TableHead>
+                        <TableHead>使用范围</TableHead>
+                        <TableHead>有效期至</TableHead>
+                        <TableHead>使用次数</TableHead>
+                        <TableHead>最后使用时间</TableHead>
+                        <TableHead>状态</TableHead>
+                        <TableHead>操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {authKeys.map((item) => {
+                        const modelsToShow = item.Models ?? [];
+                        const hasMoreModels = modelsToShow.length > 3;
+                        const expired = item.ExpiresAt ? new Date(item.ExpiresAt) < new Date() : false;
+                        const toggleDisabled = toggleLoadingId === item.ID;
+                        const isKeyVisible = Boolean(revealedKeys[item.ID]);
+                        const lastSix = item.Key.slice(-6);
+                        const hiddenLength = Math.max(0, item.Key.length - 6);
+                        const maskedKey = `${"*".repeat(hiddenLength)}${lastSix}`;
+                        const displayKey = isKeyVisible ? item.Key : maskedKey;
+                        return (
+                          <TableRow key={item.ID}>
+                            <TableCell>
+                              <div className="flex flex-col gap-1">
+                                <span className="font-medium">{item.Name}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="align-top">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-sm break-all">{displayKey}</span>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-8"
+                                  onClick={() => toggleKeyVisibility(item.ID)}
+                                  aria-label={isKeyVisible ? "隐藏 Key" : "显示 Key"}
+                                >
+                                  {isKeyVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="size-8"
+                                  onClick={() => handleCopyKey(item.Key)}
+                                >
+                                  <Copy className="size-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {item.AllowAll ? (
+                                <Badge>全部模型</Badge>
+                              ) : (
+                                <div>
+                                  {modelsToShow.slice(0, 3).map((model) => (
+                                    <Badge key={model} variant="outline">
+                                      {model}
+                                    </Badge>
+                                  ))}
+                                  {hasMoreModels && (
+                                    <Badge variant="outline">+{modelsToShow.length - 3}</Badge>
+                                  )}
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <span className={cn(
+                                "text-sm",
+                                expired ? "text-destructive font-medium" : ""
+                              )}>
+                                {item.ExpiresAt ? new Date(item.ExpiresAt).toLocaleDateString() : "永久有效"}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col">
+                                <span>{item.UsageCount}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {item.LastUsedAt ? new Date(item.LastUsedAt).toLocaleString() : "未使用"}
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Switch
+                                  checked={item.Status}
+                                  disabled={toggleDisabled}
+                                  onCheckedChange={(checked) => handleToggleStatus(item, checked)}
+                                />
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Button variant="outline" size="icon" onClick={() => handleEdit(item)}>
+                                  <Pencil />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="text-destructive"
+                                  onClick={() => setPendingDelete(item)}
+                                >
+                                  <Trash2 />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+              <div className="sm:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 divide-y divide-border">
+                {authKeys.map((item) => {
+                  const modelsToShow = item.Models ?? [];
+                  const hasMoreModels = modelsToShow.length > 3;
+                  const expired = item.ExpiresAt ? new Date(item.ExpiresAt) < new Date() : false;
+                  const toggleDisabled = toggleLoadingId === item.ID;
+                  const isKeyVisible = Boolean(revealedKeys[item.ID]);
+                  const lastSix = item.Key.slice(-6);
+                  const hiddenLength = Math.max(0, item.Key.length - 6);
+                  const maskedKey = `${"*".repeat(hiddenLength)}${lastSix}`;
+                  const displayKey = isKeyVisible ? item.Key : maskedKey;
+
+                  return (
+                    <div key={item.ID} className="py-3 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-semibold text-sm truncate">{item.Name}</h3>
+                          <p className="text-[11px] text-muted-foreground">ID: {item.ID}</p>
+                        </div>
+                        <span
+                          className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${item.Status ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
+                        >
+                          {item.Status ? '启用' : '禁用'}
+                        </span>
                       </div>
-                    </TableCell>
-                  </TableRow>
-                ) : authKeys.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7}>
-                      <div className="flex h-24 items-center justify-center text-muted-foreground">
-                        暂无记录
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  authKeys.map((item) => {
-                    const modelsToShow = item.Models ?? [];
-                    const hasMoreModels = modelsToShow.length > 3;
-                    const expired = item.ExpiresAt ? new Date(item.ExpiresAt) < new Date() : false;
-                    const toggleDisabled = toggleLoadingId === item.ID;
-                    const isKeyVisible = Boolean(revealedKeys[item.ID]);
-                    const lastSix = item.Key.slice(-6);
-                    const hiddenLength = Math.max(0, item.Key.length - 6);
-                    const maskedKey = `${"*".repeat(hiddenLength)}${lastSix}`;
-                    const displayKey = isKeyVisible ? item.Key : maskedKey;
-                    return (
-                      <TableRow key={item.ID}>
-                        <TableCell>
-                          <div className="flex flex-col gap-1">
-                            <span className="font-medium">{item.Name}</span>
+                      <div className="rounded-md border bg-muted/20 px-3 py-2 space-y-2">
+                        <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Key</p>
+                        <div className="flex items-start gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-mono text-xs break-all">{displayKey}</p>
                           </div>
-                        </TableCell>
-                        <TableCell className="align-top">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-sm break-all">{displayKey}</span>
+                          <div className="flex items-center gap-1 shrink-0">
                             <Button
                               size="icon"
                               variant="ghost"
@@ -443,80 +565,80 @@ export default function AuthKeysPage() {
                               variant="ghost"
                               className="size-8"
                               onClick={() => handleCopyKey(item.Key)}
+                              aria-label="复制 Key"
                             >
                               <Copy className="size-4" />
                             </Button>
                           </div>
-                        </TableCell>
-                        <TableCell>
-                          {item.AllowAll ? (
-                            <Badge>全部模型</Badge>
-                          ) : (
-                            <div>
-                              {modelsToShow.slice(0, 3).map((model) => (
-                                <Badge key={model} variant="outline">
-                                  {model}
-                                </Badge>
-                              ))}
-                              {hasMoreModels && (
-                                <Badge variant="outline">+{modelsToShow.length - 3}</Badge>
-                              )}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <span className={cn(
-                            "text-sm",
-                            expired ? "text-destructive font-medium" : ""
-                          )}>
-                            {item.ExpiresAt ? new Date(item.ExpiresAt).toLocaleDateString() : "永久有效"}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <span>{item.UsageCount}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {item.LastUsedAt ? new Date(item.LastUsedAt).toLocaleString() : "未使用"}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Switch
-                              checked={item.Status}
-                              disabled={toggleDisabled}
-                              onCheckedChange={(checked) => handleToggleStatus(item, checked)}
-                            />
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button variant="outline" size="icon" onClick={() => handleEdit(item)}>
-                              <Pencil />
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="text-destructive"
-                              onClick={() => setPendingDelete(item)}
-                            >
-                              <Trash2 />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        <MobileInfoItem
+                          label="使用范围"
+                          value={item.AllowAll ? <Badge>全部模型</Badge> : <Badge variant="outline">指定模型</Badge>}
+                        />
+                        <MobileInfoItem
+                          label="有效期至"
+                          value={
+                            <span className={expired ? "text-destructive font-medium" : ""}>
+                              {item.ExpiresAt ? new Date(item.ExpiresAt).toLocaleDateString() : "永久有效"}
+                            </span>
+                          }
+                        />
+                        <MobileInfoItem label="使用次数" value={item.UsageCount} />
+                        <MobileInfoItem label="最后使用" value={item.LastUsedAt ? new Date(item.LastUsedAt).toLocaleString() : "未使用"} />
+                      </div>
+                      {!item.AllowAll && modelsToShow.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {modelsToShow.slice(0, 3).map((model) => (
+                            <Badge key={model} variant="outline">
+                              {model}
+                            </Badge>
+                          ))}
+                          {hasMoreModels && <Badge variant="outline">+{modelsToShow.length - 3}</Badge>}
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
+                        <p className="text-xs text-muted-foreground">启用状态</p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">{item.Status ? "启用" : "禁用"}</span>
+                          <Switch
+                            checked={item.Status}
+                            disabled={toggleDisabled}
+                            onCheckedChange={(checked) => handleToggleStatus(item, checked)}
+                            aria-label="切换启用状态"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => handleEdit(item)}
+                        >
+                          编辑
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setPendingDelete(item)}
+                        >
+                          删除
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
-      </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0 border-t pt-2">
-        <div className="text-sm text-muted-foreground whitespace-nowrap">
-          共 {total} 条，第 {page} / {Math.max(pages, 1)} 页
+        <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0 border-t pt-2">
+          <div className="text-sm text-muted-foreground whitespace-nowrap">
+            共 {total} 条，第 {page} / {Math.max(pages, 1)} 页
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -543,15 +665,15 @@ export default function AuthKeysPage() {
             >
               <ChevronLeft className="size-4" />
             </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => handlePageChange(page + 1)}
-              disabled={page === pages}
-              aria-label="下一页"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => handlePageChange(page + 1)}
+                disabled={page === pages || pages === 0}
+                aria-label="下一页"
+              >
+                <ChevronRight className="size-4" />
+              </Button>
           </div>
         </div>
       </div>

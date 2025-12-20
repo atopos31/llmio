@@ -647,7 +647,7 @@ export default function ModelProvidersPage() {
         </div>
         <div className="flex flex-col gap-2 flex-shrink-0">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
-            <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1">
+            <div className="flex flex-col gap-1 text-xs">
               <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">关联模型</Label>
               <Select value={selectedModelId?.toString() || ""} onValueChange={handleModelChange}>
                 <SelectTrigger className="h-8 w-full text-xs px-2">
@@ -662,7 +662,7 @@ export default function ModelProvidersPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex flex-col gap-1 text-xs col-span-2 sm:col-span-1 lg:col-span-1">
+            <div className="flex flex-col gap-1 text-xs">
               <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商类型</Label>
               <Select value={selectedProviderType} onValueChange={setSelectedProviderType}>
                 <SelectTrigger className="h-8 w-full text-xs px-2">
@@ -724,8 +724,8 @@ export default function ModelProvidersPage() {
           </div>
         ) : (
           <div className="h-full flex flex-col">
-            <div className="flex-1 overflow-y-auto">
-              <div className="hidden sm:block w-full">
+            <div className="hidden sm:block flex-1 overflow-y-auto">
+              <div className="w-full">
                 <Table className="min-w-[1200px]">
                   <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
                     <TableRow>
@@ -988,76 +988,73 @@ export default function ModelProvidersPage() {
             <DialogTitle>
               {editingAssociation ? "编辑关联" : "添加关联"}
             </DialogTitle>
-            <DialogDescription>
-              {editingAssociation
-                ? "修改模型提供商关联"
-                : "添加一个新的模型提供商关联"}
-            </DialogDescription>
           </DialogHeader>
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(editingAssociation ? handleUpdate : handleCreate)} className="flex flex-col gap-4 flex-1 min-h-0">
               <div className="space-y-4 overflow-y-auto pr-1 sm:pr-2 max-h-[60vh] flex-1 min-h-0">
-                <FormField
-                  control={form.control}
-                  name="model_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>模型</FormLabel>
-                      <Select
-                        value={field.value.toString()}
-                        onValueChange={(value) => field.onChange(parseInt(value))}
-                        disabled={!!editingAssociation}
-                      >
-                        <FormControl>
-                          <SelectTrigger className="form-select">
-                            <SelectValue placeholder="选择模型" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {models.map((model) => (
-                            <SelectItem key={model.ID} value={model.ID.toString()}>
-                              {model.Name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField
+                    control={form.control}
+                    name="model_id"
+                    render={({ field }) => (
+                      <FormItem className="min-w-0">
+                        <FormLabel>模型</FormLabel>
+                        <Select
+                          value={field.value.toString()}
+                          onValueChange={(value) => field.onChange(parseInt(value))}
+                          disabled={!!editingAssociation}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="form-select w-full">
+                              <SelectValue placeholder="选择模型" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {models.map((model) => (
+                              <SelectItem key={model.ID} value={model.ID.toString()}>
+                                {model.Name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                <FormField
-                  control={form.control}
-                  name="provider_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>提供商</FormLabel>
-                      <Select
-                        value={field.value ? field.value.toString() : ""}
-                        onValueChange={(value) => {
-                          const parsed = parseInt(value);
-                          field.onChange(parsed);
-                          form.setValue("provider_name", "");
-                        }}
-                      >
-                        <FormControl>
-                          <SelectTrigger className="form-select">
-                            <SelectValue placeholder="选择提供商" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {providers.map((provider) => (
-                            <SelectItem key={provider.ID} value={provider.ID.toString()}>
-                              {provider.Name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                  <FormField
+                    control={form.control}
+                    name="provider_id"
+                    render={({ field }) => (
+                      <FormItem className="min-w-0">
+                        <FormLabel>提供商</FormLabel>
+                        <Select
+                          value={field.value ? field.value.toString() : ""}
+                          onValueChange={(value) => {
+                            const parsed = parseInt(value);
+                            field.onChange(parsed);
+                            form.setValue("provider_name", "");
+                          }}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="form-select w-full">
+                              <SelectValue placeholder="选择提供商" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {providers.map((provider) => (
+                              <SelectItem key={provider.ID} value={provider.ID.toString()}>
+                                {provider.Name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
                 <FormField
                   control={form.control}

@@ -5,21 +5,21 @@ import (
 )
 
 func TestLotteryPopEmpty(t *testing.T) {
-	w := Lottery{}
+	w := NewLottery(map[uint]int{})
 	if _, err := w.Pop(); err == nil {
 		t.Fatalf("expected error on empty set")
 	}
 }
 
 func TestLotteryPopZeroTotal(t *testing.T) {
-	w := Lottery{1: 0, 2: 0}
+	w := NewLottery(map[uint]int{1: 0, 2: 0})
 	if _, err := w.Pop(); err == nil {
 		t.Fatalf("expected error when total weight is zero")
 	}
 }
 
 func TestLotteryPopSingle(t *testing.T) {
-	w := Lottery{5: 3}
+	w := NewLottery(map[uint]int{5: 3})
 	for i := 0; i < 5; i++ {
 		id, err := w.Pop()
 		if err != nil {
@@ -32,10 +32,10 @@ func TestLotteryPopSingle(t *testing.T) {
 }
 
 func TestLotteryDelete(t *testing.T) {
-	w := Lottery{1: 1}
+	w := NewLottery(map[uint]int{1: 1})
 	w.Delete(1)
-	if _, ok := w[1]; ok {
-		t.Fatalf("expected key 1 to be removed")
+	if _, err := w.Pop(); err == nil {
+		t.Fatalf("expected error after deleting the only key")
 	}
 }
 

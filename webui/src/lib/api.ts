@@ -19,6 +19,7 @@ export interface Model {
   TimeOut: number;
   IOLog: boolean;
   Strategy: string;
+  Breaker?: boolean | null;
 }
 
 export interface ModelWithProvider {
@@ -196,6 +197,7 @@ export async function createModel(model: {
   time_out: number;
   io_log: boolean;
   strategy: string;
+  breaker: boolean;
 }): Promise<Model> {
   return apiRequest<Model>('/models', {
     method: 'POST',
@@ -211,6 +213,7 @@ export async function updateModel(id: number, model: {
   time_out?: number;
   io_log?: boolean;
   strategy?: string;
+  breaker?: boolean;
 }): Promise<Model> {
   return apiRequest<Model>(`/models/${id}`, {
     method: 'PUT',
@@ -523,6 +526,21 @@ export async function getLogs(
 
 export async function getChatIO(logId: number): Promise<ChatIO> {
   return apiRequest<ChatIO>(`/logs/${logId}/chat-io`);
+}
+
+// Clean logs API
+export interface CleanLogsResult {
+  deleted_count: number;
+}
+
+export async function cleanLogs(params: {
+  type: 'count' | 'days';
+  value: number;
+}): Promise<CleanLogsResult> {
+  return apiRequest<CleanLogsResult>('/logs/cleanup', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
 }
 
 // Test API functions

@@ -44,7 +44,14 @@ func Init(ctx context.Context, path string) {
 	if _, err := gorm.G[Model](DB).Where("strategy = '' OR strategy IS NULL").Update(ctx, "strategy", consts.BalancerDefault); err != nil {
 		panic(err)
 	}
+	if _, err := gorm.G[Model](DB).Where("breaker IS NULL").Update(ctx, "breaker", false); err != nil {
+		panic(err)
+	}
 	if _, err := gorm.G[ChatLog](DB).Where("auth_key_id IS NULL").Update(ctx, "auth_key_id", 0); err != nil {
+		panic(err)
+	}
+	// 启动时执行 VACUUM 回收空间
+	if err := db.Exec("VACUUM").Error; err != nil {
 		panic(err)
 	}
 }

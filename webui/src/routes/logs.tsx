@@ -1,5 +1,6 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -12,9 +13,10 @@ import {
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import Loading from "@/components/loading";
-import { getLogs, getProviders, getModelOptions, getAuthKeysList, type ChatLog, type Provider, type Model, type AuthKeyItem, getProviderTemplates } from "@/lib/api";
-import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { getLogs, getProviders, getModelOptions, getAuthKeysList, type ChatLog, type Provider, type Model, type AuthKeyItem, getProviderTemplates, cleanLogs } from "@/lib/api";
+import { ChevronLeft, ChevronRight, RefreshCw, Trash2 } from "lucide-react";
 
 // 格式化时间显示
 const formatTime = (nanoseconds: number): string => {
@@ -73,6 +75,11 @@ export default function LogsPage() {
   // 详情弹窗
   const [selectedLog, setSelectedLog] = useState<ChatLog | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  // 清理弹窗
+  const [cleanType, setCleanType] = useState<'count' | 'days'>('count');
+  const [cleanValue, setCleanValue] = useState<string>('1000');
+  const [isCleanDialogOpen, setIsCleanDialogOpen] = useState(false);
+  const [cleanLoading, setCleanLoading] = useState(false);
   // 获取数据
   const fetchProviders = async () => {
     try {
@@ -143,6 +150,27 @@ export default function LogsPage() {
   const handleRefresh = () => {
     fetchLogs();
   };
+  const handleCleanTypeChange = (type: 'count' | 'days') => {
+    setCleanType(type);
+    setCleanValue(type === 'count' ? '1000' : '30');
+  };
+  const handleCleanLogs = async () => {
+    const value = parseInt(cleanValue);
+    if (isNaN(value) || value <= 0) return;
+
+    setCleanLoading(true);
+    try {
+      const result = await cleanLogs({ type: cleanType, value });
+      toast.success(`已清理 ${result.deleted_count} 条日志`);
+      fetchLogs();
+    } catch (error) {
+      console.error("Error cleaning logs:", error);
+      toast.error('清理失败');
+    } finally {
+      setCleanLoading(false);
+      setIsCleanDialogOpen(false);
+    }
+  };
   const openDetailDialog = (log: ChatLog) => {
     setSelectedLog(log);
     setIsDialogOpen(true);
@@ -161,16 +189,28 @@ export default function LogsPage() {
           <div className="min-w-0">
             <h2 className="text-2xl font-bold tracking-tight">请求日志</h2>
           </div>
-          <Button
-            onClick={handleRefresh}
-            variant="outline"
-            size="icon"
-            className="ml-auto shrink-0"
-            aria-label="刷新列表"
-            title="刷新列表"
-          >
-            <RefreshCw className="size-4" />
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => setIsCleanDialogOpen(true)}
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              aria-label="清理日志"
+              title="清理日志"
+            >
+              <Trash2 className="size-4" />
+            </Button>
+            <Button
+              onClick={handleRefresh}
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              aria-label="刷新列表"
+              title="刷新列表"
+            >
+              <RefreshCw className="size-4" />
+            </Button>
+          </div>
         </div>
       </div>
       {/* 筛选区域 */}
@@ -229,7 +269,7 @@ export default function LogsPage() {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
+          <div className="col-span-2 flex flex-col gap-1 text-xs lg:min-w-0 sm:col-span-1">
             <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商</Label>
             <Select value={providerNameFilter} onValueChange={setProviderNameFilter}>
               <SelectTrigger className="h-8 text-xs w-full px-2">
@@ -251,7 +291,7 @@ export default function LogsPage() {
           <div className="flex h-full items-center justify-center">
             <Loading message="加载日志数据" />
           </div>
-        ) : logs.length === 0 ? (
+        ) : logs?.length === 0 ? (
           <div className="flex h-full items-center justify-center text-muted-foreground">
             暂无请求日志
           </div>
@@ -276,7 +316,7 @@ export default function LogsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {logs.map((log) => (
+                    {logs?.map((log) => (
                       <TableRow key={log.ID}>
                         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                           {new Date(log.CreatedAt).toLocaleString()}
@@ -293,7 +333,7 @@ export default function LogsPage() {
                         <TableCell className="text-xs">
                           {log.Size ? formatBytes(log.Size) : '-'}
                         </TableCell>
-                        <TableCell>{formatTime(log.ChunkTime)}</TableCell>
+                        <TableCell>{formatTime(log.ChunkTime + log.FirstChunkTime + log.ProxyTime)}</TableCell>
                         <TableCell className="max-w-[120px] truncate text-xs" title={log.ProviderModel}>{log.ProviderModel}</TableCell>
                         <TableCell className="text-xs">{log.Style}</TableCell>
                         <TableCell className="text-xs">{log.ProviderName}</TableCell>
@@ -319,7 +359,7 @@ export default function LogsPage() {
                 </Table>
               </div>
               <div className="sm:hidden px-2 py-3 divide-y divide-border">
-                {logs.map((log) => (
+                {logs?.map((log) => (
                   <div key={log.ID} className="py-3 space-y-2 my-1 px-1">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
@@ -488,6 +528,59 @@ export default function LogsPage() {
           </DialogContent>
         </Dialog>
       )}
+      {/* 清理日志弹窗 */}
+      <Dialog open={isCleanDialogOpen} onOpenChange={setIsCleanDialogOpen}>
+        <DialogContent className="w-[92vw] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>清理日志</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="flex gap-2">
+              <Button
+                variant={cleanType === 'count' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleCleanTypeChange('count')}
+                className="flex-1"
+              >
+                保留条数
+              </Button>
+              <Button
+                variant={cleanType === 'days' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleCleanTypeChange('days')}
+                className="flex-1"
+              >
+                保留天数
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                min="1"
+                value={cleanValue}
+                onChange={(e) => setCleanValue(e.target.value)}
+                placeholder={cleanType === 'count' ? '输入保留条数' : '输入保留天数'}
+                className="h-10"
+              />
+              <span className="text-sm text-muted-foreground whitespace-nowrap">
+                {cleanType === 'count' ? '条' : '天'}
+              </span>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setIsCleanDialogOpen(false)}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCleanLogs}
+              disabled={cleanLoading || !cleanValue || parseInt(cleanValue) <= 0}
+            >
+              {cleanLoading ? '清理中...' : '确定清理'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

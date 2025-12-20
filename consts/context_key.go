@@ -7,3 +7,7 @@ const (
 	ContextKeyAllowModels   ContextKey = "allow_models"
 	ContextKeyAuthKeyID     ContextKey = "auth_key_id"
 )
+
+const (
+	ContextKeyGeminiStream ContextKey = "gemini_stream"
+)

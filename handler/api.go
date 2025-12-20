@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/consts"
@@ -33,6 +34,7 @@ type ModelRequest struct {
 	TimeOut      int    `json:"time_out"`
 	IOLog        bool   `json:"io_log"`
 	Strategy     string `json:"strategy"`
+	Breaker      bool   `json:"breaker"`
 }
 
 // ModelWithProviderRequest represents the request body for creating/updating a model-provider association
@@ -259,7 +261,7 @@ func GetModels(c *gin.Context) {
 		}
 	}
 
-	var list []models.Model
+	list := make([]models.Model, 0)
 	total, err := common.PaginateQuery(query.Order("id DESC"), params, &list)
 	if err != nil {
 		common.InternalServerError(c, "Failed to query models: "+err.Error())
@@ -312,6 +314,7 @@ func CreateModel(c *gin.Context) {
 		TimeOut:      req.TimeOut,
 		IOLog:        &req.IOLog,
 		Strategy:     strategy,
+		Breaker:      &req.Breaker,
 	}
 
 	if err := gorm.G[models.Model](models.DB).Create(c.Request.Context(), &model); err != nil {
@@ -362,6 +365,7 @@ func UpdateModel(c *gin.Context) {
 		TimeOut:      req.TimeOut,
 		IOLog:        &req.IOLog,
 		Strategy:     strategy,
+		Breaker:      &req.Breaker,
 	}
 
 	if _, err := gorm.G[models.Model](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {
@@ -413,6 +417,13 @@ var template = []ProviderTemplate{
 		Template: `{
 			"base_url": "https://api.openai.com/v1",
 			"api_key": "YOUR_API_KEY"
+		}`,
+	},
+	{
+		Type: "gemini",
+		Template: `{
+			"base_url": "https://generativelanguage.googleapis.com/v1beta",
+			"api_key": "YOUR_GEMINI_API_KEY"
 		}`,
 	},
 	{
@@ -727,7 +738,7 @@ func GetRequestLogs(c *gin.Context) {
 
 	keyMap := lo.KeyBy(keys, func(key models.AuthKey) uint { return key.ID })
 
-	var wrapLogs []WrapLog
+	wrapLogs := make([]WrapLog, 0)
 	for _, log := range logs {
 		var keyName string
 		if key, ok := keyMap[log.AuthKeyID]; ok {
@@ -841,4 +852,83 @@ func UpdateConfigByKey(c *gin.Context) {
 		"key":   config.Key,
 		"value": config.Value,
 	})
+}
+
+// CleanLogsRequest 清理日志请求
+type CleanLogsRequest struct {
+	Type  string `json:"type"`  // "count" 或 "days"
+	Value int    `json:"value"` // 数量或天数
+}
+
+// CleanLogs 清理日志
+func CleanLogs(c *gin.Context) {
+	var req CleanLogsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	if req.Value <= 0 {
+		common.BadRequest(c, "Value must be greater than 0")
+		return
+	}
+
+	var deletedCount int64
+
+	switch req.Type {
+	case "count":
+		// 获取要保留的最小 ID
+		var minID uint
+		if err := models.DB.Model(&models.ChatLog{}).
+			Order("id DESC").
+			Limit(req.Value).
+			Pluck("id", &[]uint{}).
+			Scan(&minID).Error; err != nil {
+			common.InternalServerError(c, "Failed to query min ID: "+err.Error())
+			return
+		}
+
+		if minID == 0 {
+			common.Success(c, map[string]any{"deleted_count": 0})
+			return
+		}
+
+		// 先删除关联的 ChatIO
+		if err := models.DB.Unscoped().Where("log_id IN (SELECT id FROM chat_logs WHERE id < ?)", minID).Delete(&models.ChatIO{}).Error; err != nil {
+			common.InternalServerError(c, "Failed to delete chat IO: "+err.Error())
+			return
+		}
+
+		// 删除日志
+		result := models.DB.Unscoped().Where("id < ?", minID).Delete(&models.ChatLog{})
+		if result.Error != nil {
+			common.InternalServerError(c, "Failed to delete logs: "+result.Error.Error())
+			return
+		}
+		deletedCount = result.RowsAffected
+
+	case "days":
+		// 计算 N 天前的时间
+		cutoffTime := time.Now().AddDate(0, 0, -req.Value)
+
+		// 先删除关联的 ChatIO
+		if err := models.DB.Unscoped().Where("log_id IN (SELECT id FROM chat_logs WHERE created_at < ?)", cutoffTime).Delete(&models.ChatIO{}).Error; err != nil {
+			common.InternalServerError(c, "Failed to delete chat IO: "+err.Error())
+			return
+		}
+
+		// 删除日志
+		result := models.DB.Unscoped().Where("created_at < ?", cutoffTime).Delete(&models.ChatLog{})
+		if result.Error != nil {
+			common.InternalServerError(c, "Failed to delete logs: "+result.Error.Error())
+			return
+		}
+		deletedCount = result.RowsAffected
+
+	default:
+		common.BadRequest(c, "Invalid type: must be 'count' or 'days'")
+		return
+	}
+
+	common.Success(c, map[string]interface{}{"deleted_count": deletedCount})
 }

@@ -105,7 +105,7 @@ export function AutoSyncDialog({
         iModels.map(async (model) => {
           try {
             const mappingsFromDB = await getModelProviders(model.ID);
-            mappingsFromDB.forEach((m) => {
+            mappingsFromDB.data.forEach((m) => {
               if (m.ProviderID === provider.ID) {
                 existingMap.set(m.ProviderModel, model.ID);
               }
@@ -213,7 +213,7 @@ export function AutoSyncDialog({
       internalModels.map(async (model) => {
         try {
           const mappingsFromDB = await getModelProviders(model.ID);
-          mappingsFromDB.forEach((m) => {
+          mappingsFromDB.data.forEach((m) => {
             if (m.ProviderID === provider.ID) {
               existingMap.set(m.ProviderModel, model.ID);
             }
@@ -233,7 +233,7 @@ export function AutoSyncDialog({
     for (const model of internalModels) {
       try {
         const existingMappings = await getModelProviders(model.ID);
-        const existing = existingMappings.find(
+        const existing = existingMappings.data.find(
           (m) =>
             m.ProviderID === provider?.ID &&
             m.ProviderModel === providerModelId,
@@ -345,7 +345,7 @@ export function AutoSyncDialog({
         modelIds.map(async (modelId) => {
           try {
             const existing = await getModelProviders(modelId);
-            existingMappingsMap.set(modelId, existing);
+            existingMappingsMap.set(modelId, existing.data);
           } catch {
             existingMappingsMap.set(modelId, []);
           }

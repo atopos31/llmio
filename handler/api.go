@@ -69,29 +69,34 @@ type ConfigValueRequest struct {
 	Value string `json:"value" binding:"required"`
 }
 
-// GetProviders 获取所有提供商列表（支持名称搜索和类型筛选）
+// GetProviders 获取提供商列表（支持分页与筛选）
 func GetProviders(c *gin.Context) {
-	// 筛选参数
-	name := c.Query("name")
-	providerType := c.Query("type")
-
-	// 构建查询条件
-	query := models.DB.Model(&models.Provider{}).WithContext(c.Request.Context())
-
-	if name != "" {
-		query = query.Where("name LIKE ?", "%"+name+"%")
-	}
-
-	if providerType != "" {
-		query = query.Where("type = ?", providerType)
-	}
-	var providers []models.Provider
-	if err := query.Find(&providers).Error; err != nil {
-		common.InternalServerError(c, err.Error())
+	params, err := common.ParsePagination(c)
+	if err != nil {
+		common.BadRequest(c, err.Error())
 		return
 	}
 
-	common.Success(c, providers)
+	query := models.DB.Model(&models.Provider{})
+
+	// 筛选参数
+	if name := strings.TrimSpace(c.Query("name")); name != "" {
+		query = query.Where("name LIKE ?", "%"+name+"%")
+	}
+
+	if providerType := strings.TrimSpace(c.Query("type")); providerType != "" {
+		query = query.Where("type = ?", providerType)
+	}
+
+	list := make([]models.Provider, 0)
+	total, err := common.PaginateQuery(query.Order("id DESC"), params, &list)
+	if err != nil {
+		common.InternalServerError(c, "Failed to query providers: "+err.Error())
+		return
+	}
+
+	response := common.NewPaginationResponse(list, total, params)
+	common.Success(c, response)
 }
 
 func GetProviderModels(c *gin.Context) {
@@ -447,7 +452,7 @@ func GetProviderTemplates(c *gin.Context) {
 	common.Success(c, template)
 }
 
-// GetModelProviders 获取模型的提供商关联列表
+// GetModelProviders 获取模型的提供商关联列表（支持分页）
 func GetModelProviders(c *gin.Context) {
 	modelIDStr := c.Query("model_id")
 	if modelIDStr == "" {
@@ -461,13 +466,24 @@ func GetModelProviders(c *gin.Context) {
 		return
 	}
 
-	modelProviders, err := gorm.G[models.ModelWithProvider](models.DB).Where("model_id = ?", modelID).Find(c.Request.Context())
+	// 解析分页参数
+	params, err := common.ParsePagination(c)
 	if err != nil {
-		common.InternalServerError(c, err.Error())
+		common.BadRequest(c, err.Error())
 		return
 	}
 
-	common.Success(c, modelProviders)
+	query := models.DB.Model(&models.ModelWithProvider{}).Where("model_id = ?", modelID)
+
+	list := make([]models.ModelWithProvider, 0)
+	total, err := common.PaginateQuery(query.Order("id DESC"), params, &list)
+	if err != nil {
+		common.InternalServerError(c, "Failed to query model providers: "+err.Error())
+		return
+	}
+
+	response := common.NewPaginationResponse(list, total, params)
+	common.Success(c, response)
 }
 
 // BatchStatusRequest 批量状态查询请求

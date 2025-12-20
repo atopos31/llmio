@@ -60,6 +60,7 @@ import {
 } from "@/lib/api";
 import type { Provider, ProviderTemplate, ProviderModel } from "@/lib/api";
 import { toast } from "sonner";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { AutoSyncDialog } from "@/components/auto-sync-dialog";
 
 
@@ -143,6 +144,12 @@ export default function ProvidersPage() {
   const [autoSyncOpen, setAutoSyncOpen] = useState(false);
   const [autoSyncProvider, setAutoSyncProvider] = useState<Provider | null>(null);
 
+  // 分页状态
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(0);
+
   // 筛选条件
   const [nameFilter, setNameFilter] = useState<string>("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -164,9 +171,15 @@ export default function ProvidersPage() {
   useEffect(() => {
     // 只在筛选条件实际变化时才重新获取
     if (nameFilter !== "" || typeFilter !== "all") {
+      setPage(1); // 重置到第一页
       fetchProviders();
     }
   }, [nameFilter, typeFilter]);
+
+  // 监听分页变化
+  useEffect(() => {
+    fetchProviders();
+  }, [page, pageSize]);
 
   useEffect(() => {
     if (!open) {
@@ -231,8 +244,24 @@ export default function ProvidersPage() {
       const name = nameFilter.trim() || undefined;
       const type = typeFilter === "all" ? undefined : typeFilter;
 
-      const data = await getProviders({ name, type });
-      setProviders(data);
+      const response = await getProviders({ 
+        name, 
+        type, 
+        page, 
+        page_size: pageSize 
+      });
+      
+      setProviders(response.data);
+      setTotal(response.total);
+      setPages(response.pages);
+      
+      // 处理页码越界情况
+      const totalPages = response.pages || 0;
+      if (totalPages > 0 && page > totalPages) {
+        setPage(totalPages);
+      } else if (totalPages === 0 && page !== 1) {
+        setPage(1);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(`获取提供商列表失败: ${message}`);
@@ -400,6 +429,17 @@ export default function ProvidersPage() {
 
   const openDeleteDialog = (id: number) => {
     setDeleteId(id);
+  };
+
+  const handlePageChange = (nextPage: number) => {
+    const maxPage = Math.max(pages, 1);
+    if (nextPage < 1 || nextPage > maxPage) return;
+    setPage(nextPage);
+  };
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setPage(1);
   };
 
   const openAutoSyncDialog = (provider: Provider) => {
@@ -591,6 +631,47 @@ export default function ProvidersPage() {
             </div>
           </div>
         )}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0 border-t pt-2">
+        <div className="text-sm text-muted-foreground whitespace-nowrap">
+          共 {total} 条，第 {page} / {Math.max(pages, 1)} 页
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Select value={String(pageSize)} onValueChange={(value) => handlePageSizeChange(Number(value))}>
+              <SelectTrigger className="h-8 w-[100px] text-xs">
+                <SelectValue placeholder="条数" />
+              </SelectTrigger>
+              <SelectContent>
+                {[10, 20, 50].map((size) => (
+                  <SelectItem key={size} value={String(size)}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handlePageChange(page - 1)}
+              disabled={page === 1}
+              aria-label="上一页"
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handlePageChange(page + 1)}
+              disabled={page === pages || pages === 0}
+              aria-label="下一页"
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        </div>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>

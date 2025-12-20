@@ -62,7 +62,7 @@ import type { ModelWithProvider, Model, Provider, ProviderModel } from "@/lib/ap
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 
 type MobileInfoItemProps = {
@@ -131,6 +131,12 @@ export default function ModelProvidersPage() {
   const [statusUpdating, setStatusUpdating] = useState<Record<number, boolean>>({});
   const [statusError, setStatusError] = useState<string | null>(null);
 
+  // 分页状态
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(0);
+
   const dialogClose = () => {
     setTestDialogOpen(false)
   };
@@ -197,7 +203,7 @@ export default function ModelProvidersPage() {
     if (selectedModelId) {
       fetchModelProviders(selectedModelId);
     }
-  }, [selectedModelId]);
+  }, [selectedModelId, page, pageSize]);
 
   const buildPayload = (values: FormValues) => {
     const headers: Record<string, string> = {};
@@ -235,7 +241,7 @@ export default function ModelProvidersPage() {
   const fetchProviders = async () => {
     try {
       const data = await getProviders();
-      setProviders(data);
+      setProviders(data.data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(`获取提供商列表失败: ${message}`);
@@ -246,13 +252,28 @@ export default function ModelProvidersPage() {
   const fetchModelProviders = async (modelId: number) => {
     try {
       setLoading(true);
-      const data = await getModelProviders(modelId);
-      setModelProviders(data.map(item => ({
+      const response = await getModelProviders(modelId, { 
+        page, 
+        page_size: pageSize 
+      });
+      
+      setModelProviders(response.data.map(item => ({
         ...item,
         CustomerHeaders: item.CustomerHeaders || {}
       })));
+      setTotal(response.total);
+      setPages(response.pages);
+      
+      // 处理页码越界情况
+      const totalPages = response.pages || 0;
+      if (totalPages > 0 && page > totalPages) {
+        setPage(totalPages);
+      } else if (totalPages === 0 && page !== 1) {
+        setPage(1);
+      }
+      
       // 异步加载状态数据
-      loadProviderStatus(data, modelId);
+      loadProviderStatus(response.data, modelId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(`获取模型提供商关联列表失败: ${message}`);
@@ -594,6 +615,19 @@ export default function ModelProvidersPage() {
     nextParams.set("modelId", id.toString());
     setSearchParams(nextParams);
     form.setValue("model_id", id);
+    // 切换模型时重置分页
+    setPage(1);
+  };
+
+  const handlePageChange = (nextPage: number) => {
+    const maxPage = Math.max(pages, 1);
+    if (nextPage < 1 || nextPage > maxPage) return;
+    setPage(nextPage);
+  };
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setPage(1);
   };
 
   const selectedProviderId = form.watch("provider_id");
@@ -987,6 +1021,47 @@ export default function ModelProvidersPage() {
             </div>
           </div>
         )}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0 border-t pt-2">
+        <div className="text-sm text-muted-foreground whitespace-nowrap">
+          共 {total} 条，第 {page} / {Math.max(pages, 1)} 页
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Select value={String(pageSize)} onValueChange={(value) => handlePageSizeChange(Number(value))}>
+              <SelectTrigger className="h-8 w-[100px] text-xs">
+                <SelectValue placeholder="条数" />
+              </SelectTrigger>
+              <SelectContent>
+                {[10, 20, 50].map((size) => (
+                  <SelectItem key={size} value={String(size)}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handlePageChange(page - 1)}
+              disabled={page === 1}
+              aria-label="上一页"
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handlePageChange(page + 1)}
+              disabled={page === pages || pages === 0}
+              aria-label="下一页"
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        </div>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>

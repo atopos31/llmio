@@ -44,6 +44,8 @@ export interface PaginatedResponse<T> {
   pages: number;
 }
 
+export type PaginationResponse<T> = PaginatedResponse<T>;
+
 export interface AuthKey {
   ID: number;
   CreatedAt: string;
@@ -123,16 +125,20 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
 export async function getProviders(filters: {
   name?: string;
   type?: string;
-} = {}): Promise<Provider[]> {
+  page?: number;
+  page_size?: number;
+} = {}): Promise<PaginationResponse<Provider>> {
   const params = new URLSearchParams();
 
   if (filters.name) params.append("name", filters.name);
   if (filters.type) params.append("type", filters.type);
+  if (filters.page) params.append("page", filters.page.toString());
+  if (filters.page_size) params.append("page_size", filters.page_size.toString());
 
   const queryString = params.toString();
   const endpoint = queryString ? `/providers?${queryString}` : '/providers';
 
-  return apiRequest<Provider[]>(endpoint);
+  return apiRequest<PaginationResponse<Provider>>(endpoint);
 }
 
 export async function createProvider(provider: {
@@ -292,8 +298,20 @@ export async function toggleAuthKeyStatus(id: number): Promise<AuthKey> {
 }
 
 // Model-Provider API functions
-export async function getModelProviders(modelId: number): Promise<ModelWithProvider[]> {
-  return apiRequest<ModelWithProvider[]>(`/model-providers?model_id=${modelId}`);
+export async function getModelProviders(
+  modelId: number,
+  params: {
+    page?: number;
+    page_size?: number;
+  } = {}
+): Promise<PaginatedResponse<ModelWithProvider>> {
+  const searchParams = new URLSearchParams();
+  searchParams.append("model_id", modelId.toString());
+  
+  if (params.page) searchParams.append("page", params.page.toString());
+  if (params.page_size) searchParams.append("page_size", params.page_size.toString());
+
+  return apiRequest<PaginatedResponse<ModelWithProvider>>(`/model-providers?${searchParams.toString()}`);
 }
 
 // 批量状态查询接口

@@ -48,9 +48,9 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 	// 设置请求超时
 	responseHeaderTimeout := time.Second * time.Duration(providersWithMeta.TimeOut)
-	// 流式超时时间缩短
+	// 流式超时时间缩短，提供更快的首字节响应
 	if before.Stream {
-		responseHeaderTimeout = responseHeaderTimeout / 3
+		responseHeaderTimeout = responseHeaderTimeout / consts.StreamTimeoutDivisor
 	}
 	client := providers.GetClient(responseHeaderTimeout)
 

@@ -161,8 +161,8 @@ func main() {
 	<-quit
 	slog.Info("Shutting down server...")
 
-	// 优雅关闭，给予 30 秒时间完成现有请求
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// 优雅关闭，给予配置的时间完成现有请求
+	ctx, cancel := context.WithTimeout(context.Background(), consts.GracefulShutdownTimeout*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {

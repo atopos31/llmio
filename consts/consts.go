@@ -22,3 +22,11 @@ const (
 	KeyPrefix = "sk-llmio-"
 	KeyLength = 32
 )
+
+const (
+	// 流式请求超时时间缩短比例
+	// 流式请求需要更快的首字节响应，因此超时时间设置为普通请求的 1/3
+	StreamTimeoutDivisor = 3
+	// 优雅关闭超时时间（秒）
+	GracefulShutdownTimeout = 30
+)

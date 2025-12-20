@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/atopos31/llmio/balancers"
@@ -14,7 +15,6 @@ import (
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
-	"github.com/samber/lo"
 	"gorm.io/gorm"
 )
 
@@ -264,47 +264,72 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 		return nil, fmt.Errorf("database error when querying model %s: %w", before.Model, err)
 	}
 
-	modelWithProviderChain := gorm.G[models.ModelWithProvider](models.DB).Where("model_id = ?", model.ID).Where("status = ?", true)
+	// 使用原始 SQL 查询优化，一次性获取所需数据
+	type ModelWithProviderJoined struct {
+		models.ModelWithProvider
+		ProviderName string `gorm:"column:provider_name"`
+		ProviderType string `gorm:"column:provider_type"`
+		Config       string `gorm:"column:config"`
+	}
+
+	var joinedResults []ModelWithProviderJoined
+
+	// 构建基础查询条件
+	whereConditions := []string{
+		"model_with_providers.model_id = ?",
+		"model_with_providers.status = ?",
+		"providers.type = ?",
+	}
+	args := []interface{}{model.ID, true, style}
 
 	if before.toolCall {
-		modelWithProviderChain = modelWithProviderChain.Where("tool_call = ?", true)
+		whereConditions = append(whereConditions, "model_with_providers.tool_call = ?")
+		args = append(args, true)
 	}
 
 	if before.structuredOutput {
-		modelWithProviderChain = modelWithProviderChain.Where("structured_output = ?", true)
+		whereConditions = append(whereConditions, "model_with_providers.structured_output = ?")
+		args = append(args, true)
 	}
 
 	if before.image {
-		modelWithProviderChain = modelWithProviderChain.Where("image = ?", true)
+		whereConditions = append(whereConditions, "model_with_providers.image = ?")
+		args = append(args, true)
 	}
 
-	modelWithProviders, err := modelWithProviderChain.Find(ctx)
+	whereClause := strings.Join(whereConditions, " AND ")
+
+	err = models.DB.Raw(`
+		SELECT model_with_providers.*, 
+		       providers.name as provider_name, 
+		       providers.type as provider_type, 
+		       providers.config
+		FROM model_with_providers 
+		JOIN providers ON model_with_providers.provider_id = providers.id 
+		WHERE `+whereClause, args...).Scan(&joinedResults).Error
+
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error when querying model providers: %w", err)
 	}
 
-	if len(modelWithProviders) == 0 {
+	if len(joinedResults) == 0 {
 		return nil, common.NewModelError(before.Model, "no available providers for this model")
 	}
 
-	modelWithProviderMap := lo.KeyBy(modelWithProviders, func(mp models.ModelWithProvider) uint { return mp.ID })
-
-	providers, err := gorm.G[models.Provider](models.DB).
-		Where("id IN ?", lo.Map(modelWithProviders, func(mp models.ModelWithProvider, _ int) uint { return mp.ProviderID })).
-		Where("type = ?", style).
-		Find(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	providerMap := lo.KeyBy(providers, func(p models.Provider) uint { return p.ID })
-
+	// 构建结果映射
+	modelWithProviderMap := make(map[uint]models.ModelWithProvider)
+	providerMap := make(map[uint]models.Provider)
 	weightItems := make(map[uint]int)
-	for _, mp := range modelWithProviders {
-		if _, ok := providerMap[mp.ProviderID]; !ok {
-			continue
+
+	for _, result := range joinedResults {
+		modelWithProviderMap[result.ID] = result.ModelWithProvider
+		providerMap[result.ProviderID] = models.Provider{
+			Model:  gorm.Model{ID: result.ProviderID},
+			Name:   result.ProviderName,
+			Type:   result.ProviderType,
+			Config: result.Config,
 		}
-		weightItems[mp.ID] = mp.Weight
+		weightItems[result.ID] = result.Weight
 	}
 
 	if model.IOLog == nil {

@@ -296,13 +296,24 @@ export async function getModelProviders(modelId: number): Promise<ModelWithProvi
   return apiRequest<ModelWithProvider[]>(`/model-providers?model_id=${modelId}`);
 }
 
-export async function getModelProviderStatus(providerId: number, modelName: string, providerModel: string): Promise<boolean[]> {
-  const params = new URLSearchParams({
-    provider_id: providerId.toString(),
-    model_name: modelName,
-    provider_model: providerModel
+// 批量状态查询接口
+export interface BatchStatusRequest {
+  model_provider_ids: number[];
+}
+
+export interface BatchStatusResponse {
+  model_provider_id: number;
+  status: boolean[];
+}
+
+export async function getModelProviderStatusBatch(modelProviderIds: number[]): Promise<BatchStatusResponse[]> {
+  return apiRequest<BatchStatusResponse[]>('/model-providers/status', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ model_provider_ids: modelProviderIds }),
   });
-  return apiRequest<boolean[]>(`/model-providers/status?${params.toString()}`);
 }
 
 export async function createModelProvider(association: {

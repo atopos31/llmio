@@ -48,7 +48,7 @@ import {
 import Loading from "@/components/loading";
 import {
   getModelProviders,
-  getModelProviderStatus,
+  getModelProviderStatusBatch,
   createModelProvider,
   updateModelProvider,
   updateModelProviderStatus,
@@ -269,22 +269,29 @@ export default function ModelProvidersPage() {
 
     const newStatus: Record<number, boolean[]> = {};
 
-    // 并行加载所有状态数据
-    await Promise.all(
-      providers.map(async (provider) => {
-        try {
-          const status = await getModelProviderStatus(
-            provider.ProviderID,
-            selectedModel.Name,
-            provider.ProviderModel
-          );
-          newStatus[provider.ID] = status;
-        } catch (error) {
-          console.error(`Failed to load status for provider ${provider.ID}:`, error);
+    try {
+      // 使用批量接口一次性获取所有状态
+      const modelProviderIds = providers.map(provider => provider.ID);
+      const batchResults = await getModelProviderStatusBatch(modelProviderIds);
+      
+      // 将结果映射到 newStatus
+      batchResults.forEach(result => {
+        newStatus[result.model_provider_id] = result.status;
+      });
+      
+      // 为没有返回结果的 provider 设置空数组
+      providers.forEach(provider => {
+        if (!newStatus[provider.ID]) {
           newStatus[provider.ID] = [];
         }
-      })
-    );
+      });
+    } catch (error) {
+      console.error('Failed to load provider status:', error);
+      // 出错时为所有 provider 设置空状态
+      providers.forEach(provider => {
+        newStatus[provider.ID] = [];
+      });
+    }
 
     setProviderStatus(newStatus);
   };

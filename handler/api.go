@@ -470,49 +470,146 @@ func GetModelProviders(c *gin.Context) {
 	common.Success(c, modelProviders)
 }
 
-// GetModelProviderStatus 获取提供商状态信息
+// BatchStatusRequest 批量状态查询请求
+type BatchStatusRequest struct {
+	ModelProviderIDs []uint `json:"model_provider_ids"`
+}
+
+// BatchStatusResponse 批量状态查询响应
+type BatchStatusResponse struct {
+	ModelProviderID uint   `json:"model_provider_id"`
+	Status          []bool `json:"status"`
+}
+
+// GetModelProviderStatus 批量获取提供商状态信息
 func GetModelProviderStatus(c *gin.Context) {
-	providerIDStr := c.Query("provider_id")
-	modelName := c.Query("model_name")
-	providerModel := c.Query("provider_model")
-
-	if providerIDStr == "" || modelName == "" || providerModel == "" {
-		common.BadRequest(c, "provider_id, model_name and provider_model query parameters are required")
+	var req BatchStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.BadRequest(c, "Invalid request body: "+err.Error())
 		return
 	}
 
-	providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
+	if len(req.ModelProviderIDs) == 0 {
+		common.BadRequest(c, "model_provider_ids cannot be empty")
+		return
+	}
+
+	if len(req.ModelProviderIDs) > 100 {
+		common.BadRequest(c, "Too many IDs, maximum 100 allowed")
+		return
+	}
+
+	ctx := c.Request.Context()
+	responses := make([]BatchStatusResponse, 0, len(req.ModelProviderIDs))
+
+	// 批量查询 ModelWithProvider 信息
+	modelProviders, err := gorm.G[models.ModelWithProvider](models.DB).
+		Where("id IN ?", req.ModelProviderIDs).
+		Find(ctx)
 	if err != nil {
-		common.BadRequest(c, "Invalid provider_id format")
+		common.InternalServerError(c, "Failed to retrieve model providers: "+err.Error())
 		return
 	}
 
-	// 获取提供商信息
-	provider, err := gorm.G[models.Provider](models.DB).Where("id = ?", providerID).First(c.Request.Context())
+	// 收集所有需要查询的 provider_id 和 model_id
+	providerIDs := make([]uint, 0)
+	modelIDs := make([]uint, 0)
+	for _, mp := range modelProviders {
+		providerIDs = append(providerIDs, mp.ProviderID)
+		modelIDs = append(modelIDs, mp.ModelID)
+	}
+
+	// 批量查询 Provider 和 Model 信息
+	providers, err := gorm.G[models.Provider](models.DB).
+		Where("id IN ?", providerIDs).
+		Find(ctx)
 	if err != nil {
-		common.InternalServerError(c, "Failed to retrieve provider: "+err.Error())
+		common.InternalServerError(c, "Failed to retrieve providers: "+err.Error())
 		return
 	}
 
-	// 获取最近10次请求状态
-	logs, err := gorm.G[models.ChatLog](models.DB).
-		Where("provider_name = ?", provider.Name).
-		Where("provider_model = ?", providerModel).
-		Where("name = ?", modelName).
-		Limit(10).
-		Order("created_at DESC").
-		Find(c.Request.Context())
+	modelList, err := gorm.G[models.Model](models.DB).
+		Where("id IN ?", modelIDs).
+		Find(ctx)
 	if err != nil {
-		common.InternalServerError(c, "Failed to retrieve chat log: "+err.Error())
+		common.InternalServerError(c, "Failed to retrieve models: "+err.Error())
 		return
 	}
 
-	status := make([]bool, 0)
-	for _, log := range logs {
-		status = append(status, log.Status == "success")
+	// 构建映射
+	providerMap := make(map[uint]models.Provider)
+	for _, provider := range providers {
+		providerMap[provider.ID] = provider
 	}
-	slices.Reverse(status)
-	common.Success(c, status)
+
+	modelMap := make(map[uint]models.Model)
+	for _, model := range modelList {
+		modelMap[model.ID] = model
+	}
+
+	// 为每个 ModelProvider 查询状态
+	for _, mpID := range req.ModelProviderIDs {
+		// 查找对应的 ModelWithProvider
+		var mp *models.ModelWithProvider
+		for _, modelProvider := range modelProviders {
+			if modelProvider.ID == mpID {
+				mp = &modelProvider
+				break
+			}
+		}
+
+		if mp == nil {
+			// ModelProvider 不存在，返回空状态
+			responses = append(responses, BatchStatusResponse{
+				ModelProviderID: mpID,
+				Status:          []bool{},
+			})
+			continue
+		}
+
+		provider, providerExists := providerMap[mp.ProviderID]
+		model, modelExists := modelMap[mp.ModelID]
+
+		if !providerExists || !modelExists {
+			// Provider 或 Model 不存在，返回空状态
+			responses = append(responses, BatchStatusResponse{
+				ModelProviderID: mpID,
+				Status:          []bool{},
+			})
+			continue
+		}
+
+		// 获取最近10次请求状态
+		logs, err := gorm.G[models.ChatLog](models.DB).
+			Where("provider_name = ?", provider.Name).
+			Where("provider_model = ?", mp.ProviderModel).
+			Where("name = ?", model.Name).
+			Limit(10).
+			Order("created_at DESC").
+			Find(ctx)
+
+		if err != nil {
+			// 查询失败，返回空状态
+			responses = append(responses, BatchStatusResponse{
+				ModelProviderID: mpID,
+				Status:          []bool{},
+			})
+			continue
+		}
+
+		status := make([]bool, 0, len(logs))
+		for _, log := range logs {
+			status = append(status, log.Status == "success")
+		}
+		slices.Reverse(status)
+
+		responses = append(responses, BatchStatusResponse{
+			ModelProviderID: mpID,
+			Status:          status,
+		})
+	}
+
+	common.Success(c, responses)
 }
 
 // CreateModelProvider 创建模型提供商关联

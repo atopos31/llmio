@@ -84,7 +84,7 @@ export default function LogsPage() {
   const fetchProviders = async () => {
     try {
       const providerList = await getProviders();
-      setProviders(providerList);
+      setProviders(providerList.data);
       const templates = await getProviderTemplates();
       const styleTypes = templates.map(template => template.type);
       setAvailableStyles(styleTypes);

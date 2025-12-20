@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"slices"
+	"sync"
 
 	"github.com/samber/lo"
 )
@@ -18,6 +19,7 @@ type Balancer interface {
 
 // 按权重概率抽取，类似抽签。
 type Lottery struct {
+	mu      sync.RWMutex
 	store   map[uint]int
 	success uint
 	fails   map[uint]struct{}
@@ -33,6 +35,9 @@ func NewLottery(items map[uint]int) *Lottery {
 }
 
 func (w *Lottery) Pop() (uint, error) {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
 	if len(w.store) == 0 {
 		return 0, fmt.Errorf("no provide items or all items are disabled")
 	}
@@ -54,21 +59,31 @@ func (w *Lottery) Pop() (uint, error) {
 }
 
 func (w *Lottery) Delete(key uint) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	w.fails[key] = struct{}{}
 	delete(w.store, key)
 }
 
 func (w *Lottery) Reduce(key uint) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	w.reduces[key] = struct{}{}
 	w.store[key] -= w.store[key] / 3
 }
 
 func (w *Lottery) Success(key uint) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	w.success = key
 }
 
 // 按顺序循环轮转，每次降低权重后移到队尾
 type Rotor struct {
+	mu sync.RWMutex
 	*list.List
 	success uint
 	fails   map[uint]struct{}
@@ -92,6 +107,9 @@ func NewRotor(items map[uint]int) *Rotor {
 }
 
 func (w *Rotor) Pop() (uint, error) {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
 	if w.Len() == 0 {
 		return 0, fmt.Errorf("no provide items")
 	}
@@ -100,6 +118,9 @@ func (w *Rotor) Pop() (uint, error) {
 }
 
 func (w *Rotor) Delete(key uint) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	w.fails[key] = struct{}{}
 	for e := w.Front(); e != nil; e = e.Next() {
 		if e.Value.(uint) == key {
@@ -110,6 +131,9 @@ func (w *Rotor) Delete(key uint) {
 }
 
 func (w *Rotor) Reduce(key uint) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	w.reduces[key] = struct{}{}
 	for e := w.Front(); e != nil; e = e.Next() {
 		if e.Value.(uint) == key {
@@ -120,5 +144,8 @@ func (w *Rotor) Reduce(key uint) {
 }
 
 func (w *Rotor) Success(key uint) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	w.success = key
 }

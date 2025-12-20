@@ -564,9 +564,13 @@ export default function ModelsPage() {
                   <FormItem>
                     <FormLabel>匹配模板 (正则，每行一个)</FormLabel>
                     <FormControl>
-                      <Textarea {...field} rows={3} placeholder="每行一个正则表达式，例如:
+                      <Textarea 
+                        {...field} 
+                        className="h-[120px] resize-none overflow-y-auto" 
+                        placeholder="每行一个正则表达式，例如:
 ^gpt-4.*
-^gpt-4o.*" />
+^gpt-4o.*" 
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

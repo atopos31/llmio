@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 	_ "time/tzdata"
 
@@ -138,7 +140,37 @@ func main() {
 	if port == "" {
 		port = consts.DefaultPort
 	}
-	router.Run(":" + port)
+
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: router,
+	}
+
+	// 启动服务器
+	go func() {
+		slog.Info("Starting server", "port", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("Server failed to start", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// 等待中断信号
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	slog.Info("Shutting down server...")
+
+	// 优雅关闭，给予 30 秒时间完成现有请求
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("Server forced to shutdown", "error", err)
+		os.Exit(1)
+	}
+
+	slog.Info("Server exited")
 }
 
 //go:embed webui/dist

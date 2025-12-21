@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -628,10 +629,84 @@ func GetModelProviderStatus(c *gin.Context) {
 	common.Success(c, responses)
 }
 
-// CreateModelProvider 创建模型提供商关联
+// CreateModelProvider 创建模型提供商关联（支持单个或批量）
 func CreateModelProvider(c *gin.Context) {
+	var body json.RawMessage
+	if err := c.ShouldBindJSON(&body); err != nil {
+		common.BadRequest(c, "Invalid request body: "+err.Error())
+		return
+	}
+
+	// 尝试解析为数组
+	var reqArray []ModelWithProviderRequest
+	if err := json.Unmarshal(body, &reqArray); err == nil {
+		// 批量创建
+		if len(reqArray) == 0 {
+			common.BadRequest(c, "Mappings cannot be empty")
+			return
+		}
+
+		if len(reqArray) > 100 {
+			common.BadRequest(c, "Too many mappings, maximum 100 allowed")
+			return
+		}
+
+		ctx := c.Request.Context()
+		var createdMappings []models.ModelWithProvider
+		var errors []string
+
+		for i, req := range reqArray {
+			customerHeaders := req.CustomerHeaders
+			if customerHeaders == nil {
+				customerHeaders = map[string]string{}
+			}
+
+			modelProvider := models.ModelWithProvider{
+				ModelID:          req.ModelID,
+				ProviderModel:    req.ProviderModel,
+				ProviderID:       req.ProviderID,
+				ToolCall:         &req.ToolCall,
+				StructuredOutput: &req.StructuredOutput,
+				Image:            &req.Image,
+				WithHeader:       &req.WithHeader,
+				CustomerHeaders:  customerHeaders,
+				Weight:           req.Weight,
+			}
+
+			defaultStatus := true
+			modelProvider.Status = &defaultStatus
+
+			err := gorm.G[models.ModelWithProvider](models.DB).Create(ctx, &modelProvider)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("Mapping %d failed: %s", i+1, err.Error()))
+				continue
+			}
+
+			createdMappings = append(createdMappings, modelProvider)
+		}
+
+		// 构建响应
+		response := map[string]interface{}{
+			"created_count": len(createdMappings),
+			"error_count":   len(errors),
+			"created":       createdMappings,
+		}
+
+		if len(errors) > 0 {
+			response["errors"] = errors
+		}
+
+		if len(createdMappings) > 0 {
+			common.Success(c, response)
+		} else {
+			common.InternalServerError(c, "All mappings failed to create")
+		}
+		return
+	}
+
+	// 尝试解析为单个对象（保持向后兼容）
 	var req ModelWithProviderRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		common.BadRequest(c, "Invalid request body: "+err.Error())
 		return
 	}
@@ -1044,4 +1119,51 @@ func CleanLogs(c *gin.Context) {
 	}
 
 	common.Success(c, map[string]interface{}{"deleted_count": deletedCount})
+}
+
+// ProviderModelMappingResponse 供应商模型映射响应结构
+type ProviderModelMappingResponse struct {
+	ModelID       uint   `json:"model_id"`
+	MappedModelID string `json:"mapped_model_id"`
+}
+
+// GetProviderModelMappings 通过供应商ID查询模型ID和映射模型关联关系列表
+func GetProviderModelMappings(c *gin.Context) {
+	providerIDStr := c.Param("id")
+	providerID, err := strconv.ParseUint(providerIDStr, 10, 64)
+	if err != nil {
+		common.BadRequest(c, "Invalid provider ID format")
+		return
+	}
+
+	// 验证供应商是否存在
+	_, err = gorm.G[models.Provider](models.DB).Where("id = ?", providerID).First(c.Request.Context())
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			common.NotFound(c, "Provider not found")
+			return
+		}
+		common.InternalServerError(c, "Database error: "+err.Error())
+		return
+	}
+
+	// 查询该供应商下的所有模型映射关系
+	modelProviders, err := gorm.G[models.ModelWithProvider](models.DB).
+		Where("provider_id = ?", providerID).
+		Find(c.Request.Context())
+	if err != nil {
+		common.InternalServerError(c, "Failed to query model mappings: "+err.Error())
+		return
+	}
+
+	// 构建响应数据
+	mappings := make([]ProviderModelMappingResponse, 0, len(modelProviders))
+	for _, mp := range modelProviders {
+		mappings = append(mappings, ProviderModelMappingResponse{
+			ModelID:       mp.ModelID,
+			MappedModelID: mp.ProviderModel,
+		})
+	}
+
+	common.Success(c, mappings)
 }

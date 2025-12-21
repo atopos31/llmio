@@ -344,8 +344,18 @@ export async function createModelProvider(association: {
   with_header: boolean;
   customer_headers: Record<string, string>;
   weight: number;
-}): Promise<ModelWithProvider> {
-  return apiRequest<ModelWithProvider>('/model-providers', {
+} | Array<{
+  model_id: number;
+  provider_name: string;
+  provider_id: number;
+  tool_call: boolean;
+  structured_output: boolean;
+  image: boolean;
+  with_header: boolean;
+  customer_headers: Record<string, string>;
+  weight: number;
+}>): Promise<ModelWithProvider | any> {
+  return apiRequest<ModelWithProvider | any>('/model-providers', {
     method: 'POST',
     body: JSON.stringify(association),
   });
@@ -443,6 +453,16 @@ export interface ProviderModel {
 
 export async function getProviderModels(providerId: number): Promise<ProviderModel[]> {
   return apiRequest<ProviderModel[]>(`/providers/models/${providerId}`);
+}
+
+// Provider Model Mappings API functions
+export interface ProviderModelMapping {
+  model_id: number;
+  mapped_model_id: string;
+}
+
+export async function getProviderModelMappings(providerId: number): Promise<ProviderModelMapping[]> {
+  return apiRequest<ProviderModelMapping[]>(`/providers/${providerId}/model-mappings`);
 }
 
 // Config API functions

@@ -27,13 +27,13 @@ import {
 import {
   getProviderModels,
   getModelOptions,
-  getModelProviders,
+  getProviderModelMappings,
   createModelProvider,
   updateModel,
   type Provider,
   type ProviderModel,
   type Model,
-  type ModelWithProvider,
+  type ProviderModelMapping,
 } from "@/lib/api";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -99,22 +99,16 @@ export function AutoSyncDialog({
       setProviderModels(pModels);
       setInternalModels(iModels);
 
-      // Fetch existing mappings from DB for all internal models
+      // Fetch existing mappings from DB using new API
       const existingMap = new Map<string, number>();
-      await Promise.all(
-        iModels.map(async (model) => {
-          try {
-            const mappingsFromDB = await getModelProviders(model.ID);
-            mappingsFromDB.data.forEach((m) => {
-              if (m.ProviderID === provider.ID) {
-                existingMap.set(m.ProviderModel, model.ID);
-              }
-            });
-          } catch {
-            // Ignore errors
-          }
-        }),
-      );
+      try {
+        const mappingsFromDB: ProviderModelMapping[] = await getProviderModelMappings(provider.ID);
+        mappingsFromDB.forEach((mapping: ProviderModelMapping) => {
+          existingMap.set(mapping.mapped_model_id, mapping.model_id);
+        });
+      } catch (err) {
+        console.error("获取模型映射失败:", err);
+      }
 
       // Initialize mappings: DB matches are pre-filled but NOT selected (since they already exist)
       const initialMappings: Record<string, MappingItem> = {};
@@ -203,56 +197,46 @@ export function AutoSyncDialog({
     });
   };
 
-  // Build existing mappings map from DB (provider_model -> internal_model_id)
+  // Build existing mappings map from DB using new API
   const buildExistingMappingsMap = async (): Promise<Map<string, number>> => {
     const existingMap = new Map<string, number>();
     if (!provider) return existingMap;
 
-    // Fetch mappings for all internal models in parallel
-    await Promise.all(
-      internalModels.map(async (model) => {
-        try {
-          const mappingsFromDB = await getModelProviders(model.ID);
-          mappingsFromDB.data.forEach((m) => {
-            if (m.ProviderID === provider.ID) {
-              existingMap.set(m.ProviderModel, model.ID);
-            }
-          });
-        } catch {
-          // Ignore errors for individual models
-        }
-      }),
-    );
+    try {
+      const mappingsFromDB: ProviderModelMapping[] = await getProviderModelMappings(provider.ID);
+      mappingsFromDB.forEach((mapping: ProviderModelMapping) => {
+        existingMap.set(mapping.mapped_model_id, mapping.model_id);
+      });
+    } catch (err) {
+      console.error("获取模型映射失败:", err);
+    }
 
     return existingMap;
   };
 
   // Auto-match a single provider model (DB first, then regex/name match)
   const handleAutoMatchSingle = async (providerModelId: string) => {
-    // First, check if there's an existing mapping in DB
-    for (const model of internalModels) {
-      try {
-        const existingMappings = await getModelProviders(model.ID);
-        const existing = existingMappings.data.find(
-          (m) =>
-            m.ProviderID === provider?.ID &&
-            m.ProviderModel === providerModelId,
-        );
-        if (existing) {
-          setMappings((prev) => ({
-            ...prev,
-            [providerModelId]: {
-              ...prev[providerModelId],
-              internalModelId: model.ID,
-              isSelected: true,
-            },
-          }));
-          toast.success(`已从数据库匹配: ${providerModelId} → ${model.Name}`);
-          return;
-        }
-      } catch {
-        // Continue to next model
+    // First, check if there's an existing mapping in DB using new API
+    try {
+      const existingMappings: ProviderModelMapping[] = await getProviderModelMappings(provider?.ID || 0);
+      const existing = existingMappings.find(
+        (mapping: ProviderModelMapping) => mapping.mapped_model_id === providerModelId
+      );
+      if (existing) {
+        setMappings((prev) => ({
+          ...prev,
+          [providerModelId]: {
+            ...prev[providerModelId],
+            internalModelId: existing.model_id,
+            isSelected: true,
+          },
+        }));
+        const modelName = internalModels.find(m => m.ID === existing.model_id)?.Name || existing.model_id;
+        toast.success(`已从数据库匹配: ${providerModelId} → ${modelName}`);
+        return;
       }
+    } catch (err) {
+      console.error("查询映射失败:", err);
     }
 
     // Fallback to regex/name match
@@ -337,29 +321,16 @@ export function AutoSyncDialog({
     let skippedCount = 0;
 
     try {
-      // Fetch existing mappings for deduplication
-      const modelIds = [...new Set(toCreate.map((m) => m.internalModelId!))];
-      const existingMappingsMap = new Map<number, ModelWithProvider[]>();
-
-      await Promise.all(
-        modelIds.map(async (modelId) => {
-          try {
-            const existing = await getModelProviders(modelId);
-            existingMappingsMap.set(modelId, existing.data);
-          } catch {
-            existingMappingsMap.set(modelId, []);
-          }
-        }),
+      // Fetch existing mappings for deduplication using new API
+      const existingMappingsArray: ProviderModelMapping[] = await getProviderModelMappings(provider.ID);
+      const existingMappingsSet = new Set(
+        existingMappingsArray.map((m: ProviderModelMapping) => `${m.model_id}-${m.mapped_model_id}`)
       );
 
       // Filter out already existing mappings
       const toCreateFiltered = toCreate.filter((m) => {
-        const existing = existingMappingsMap.get(m.internalModelId!) || [];
-        const isDuplicate = existing.some(
-          (e) =>
-            e.ProviderID === provider.ID &&
-            e.ProviderModel === m.providerModelId,
-        );
+        const key = `${m.internalModelId}-${m.providerModelId}`;
+        const isDuplicate = existingMappingsSet.has(key);
         if (isDuplicate) {
           skippedCount++;
           return false;
@@ -367,30 +338,30 @@ export function AutoSyncDialog({
         return true;
       });
 
-      const batchSize = 5;
-      for (let i = 0; i < toCreateFiltered.length; i += batchSize) {
-        const batch = toCreateFiltered.slice(i, i + batchSize);
-        await Promise.all(
-          batch.map(async (m) => {
-            try {
-              await createModelProvider({
-                model_id: m.internalModelId!,
-                provider_id: provider.ID,
-                provider_name: m.providerModelId,
-                tool_call: true,
-                structured_output: true,
-                image: false,
-                with_header: true,
-                customer_headers: {},
-                weight: 1,
-              });
-              successCount++;
-            } catch (e) {
-              console.error(e);
-              failCount++;
-            }
-          }),
-        );
+      // 一次性批量创建所有映射
+      try {
+        const batchData = toCreateFiltered.map((m) => ({
+          model_id: m.internalModelId!,
+          provider_id: provider.ID,
+          provider_name: m.providerModelId,
+          tool_call: true,
+          structured_output: true,
+          image: false,
+          with_header: true,
+          customer_headers: {},
+          weight: 1,
+        }));
+
+        const result = await createModelProvider(batchData);
+        if (result.created_count) {
+          successCount += result.created_count;
+        }
+        if (result.error_count) {
+          failCount += result.error_count;
+        }
+      } catch (e) {
+        console.error(e);
+        failCount += toCreateFiltered.length;
       }
 
       if (successCount > 0) {

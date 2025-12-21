@@ -25,20 +25,9 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 	// 收集重试过程中的err日志
 	retryLog := make(chan models.ChatLog, providersWithMeta.MaxRetry)
+	defer close(retryLog)
 
-	// 使用带超时的 context 来避免 goroutine 泄漏
-	logCtx, logCancel := context.WithTimeout(ctx, time.Second*time.Duration(providersWithMeta.TimeOut))
-	defer logCancel()
-
-	// 启动日志记录 goroutine
-	go RecordRetryLog(logCtx, retryLog)
-
-	// 确保函数退出时关闭 channel 并等待 goroutine 结束
-	defer func() {
-		close(retryLog)
-		// 给 goroutine 一点时间来处理剩余的日志
-		time.Sleep(10 * time.Millisecond)
-	}()
+	go RecordRetryLog(context.Background(), retryLog)
 
 	// 选择负载均衡策略
 	var balancer balancers.Balancer
@@ -160,33 +149,9 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 }
 
 func RecordRetryLog(ctx context.Context, retryLog chan models.ChatLog) {
-	for {
-		select {
-		case <-ctx.Done():
-			// context 被取消，清空剩余日志并退出
-			for {
-				select {
-				case log := <-retryLog:
-					// 只保存有效的日志记录
-					if log.Name != "" || log.Error != "" {
-						if _, err := SaveChatLog(context.Background(), log); err != nil {
-							slog.Error("save chat log error", "error", err)
-						}
-					}
-				default:
-					return
-				}
-			}
-		case log, ok := <-retryLog:
-			if !ok {
-				return
-			}
-			// 只保存有效的日志记录
-			if log.Name != "" || log.Error != "" {
-				if _, err := SaveChatLog(ctx, log); err != nil {
-					slog.Error("save chat log error", "error", err)
-				}
-			}
+	for log := range retryLog {
+		if _, err := SaveChatLog(ctx, log); err != nil {
+			slog.Error("save chat log error", "error", err)
 		}
 	}
 }

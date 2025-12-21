@@ -79,11 +79,17 @@ func ProcesserOpenAI(ctx context.Context, pr io.Reader, stream bool, start time.
 
 	chunkTime := time.Since(start) - firstChunkTime
 
+	// 计算 TPS，避免除零产生无穷大值
+	var tps float64
+	if chunkTime.Seconds() > 0 {
+		tps = float64(openaiUsage.TotalTokens) / chunkTime.Seconds()
+	}
+
 	return &models.ChatLog{
 		FirstChunkTime: firstChunkTime,
 		ChunkTime:      chunkTime,
 		Usage:          openaiUsage,
-		Tps:            float64(openaiUsage.TotalTokens) / chunkTime.Seconds(),
+		Tps:            tps,
 		Size:           size,
 	}, &output, nil
 }
@@ -157,6 +163,12 @@ func ProcesserOpenAiRes(ctx context.Context, pr io.Reader, stream bool, start ti
 
 	chunkTime := time.Since(start) - firstChunkTime
 
+	// 计算 TPS，避免除零产生无穷大值
+	var tps float64
+	if chunkTime.Seconds() > 0 {
+		tps = float64(openAIResUsage.TotalTokens) / chunkTime.Seconds()
+	}
+
 	return &models.ChatLog{
 		FirstChunkTime: firstChunkTime,
 		ChunkTime:      chunkTime,
@@ -168,7 +180,7 @@ func ProcesserOpenAiRes(ctx context.Context, pr io.Reader, stream bool, start ti
 				CachedTokens: openAIResUsage.InputTokensDetails.CachedTokens,
 			},
 		},
-		Tps:  float64(openAIResUsage.TotalTokens) / chunkTime.Seconds(),
+		Tps:  tps,
 		Size: size,
 	}, &output, nil
 }
@@ -227,6 +239,12 @@ func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start ti
 	chunkTime := time.Since(start) - firstChunkTime
 	totalTokens := athropicUsage.InputTokens + athropicUsage.OutputTokens
 
+	// 计算 TPS，避免除零产生无穷大值
+	var tps float64
+	if chunkTime.Seconds() > 0 {
+		tps = float64(totalTokens) / chunkTime.Seconds()
+	}
+
 	return &models.ChatLog{
 		FirstChunkTime: firstChunkTime,
 		ChunkTime:      chunkTime,
@@ -238,7 +256,7 @@ func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start ti
 				CachedTokens: athropicUsage.CacheReadInputTokens,
 			},
 		},
-		Tps:  float64(totalTokens) / chunkTime.Seconds(),
+		Tps:  tps,
 		Size: size,
 	}, &output, nil
 }
@@ -323,11 +341,17 @@ func ProcesserGemini(ctx context.Context, pr io.Reader, stream bool, start time.
 
 	chunkTime := time.Since(start) - firstChunkTime
 
+	// 计算 TPS，避免除零产生无穷大值
+	var tps float64
+	if chunkTime.Seconds() > 0 {
+		tps = float64(usage.TotalTokens) / chunkTime.Seconds()
+	}
+
 	return &models.ChatLog{
 		FirstChunkTime: firstChunkTime,
 		ChunkTime:      chunkTime,
 		Usage:          usage,
-		Tps:            float64(usage.TotalTokens) / chunkTime.Seconds(),
+		Tps:            tps,
 		Size:           size,
 	}, &output, nil
 }

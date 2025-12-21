@@ -72,7 +72,6 @@ const HomeHeader = memo(({ onRefresh }: HomeHeaderProps) => {
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
-  const [activeRankingChart, setActiveRankingChart] = useState<"model" | "project">("model");
 
   // Real data from APIs
   const [todayMetrics, setTodayMetrics] = useState<MetricsData>({ reqs: 0, tokens: 0 });
@@ -201,38 +200,19 @@ export default function Home() {
               </Suspense>
             </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>调用排行</CardTitle>
-                <CardDescription>在模型与项目维度切换查看排行</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex gap-2 mb-4">
-                  <Button
-                    variant={activeRankingChart === "model" ? "default" : "outline"}
-                    onClick={() => setActiveRankingChart("model")}
-                  >
-                    模型排行
-                  </Button>
-                  <Button
-                    variant={activeRankingChart === "project" ? "default" : "outline"}
-                    onClick={() => setActiveRankingChart("project")}
-                    disabled={projectCounts.length === 0}
-                  >
-                    项目排行
-                  </Button>
-                </div>
-                <div className="mt-4">
-                  <Suspense fallback={<div className="h-64 flex items-center justify-center">
-                    <Loading message="加载图表..." />
-                  </div>}>
-                    {activeRankingChart === "model"
-                      ? <ModelRankingChart data={modelCounts} />
-                      : <ProjectRankingChart data={projectCounts} />}
-                  </Suspense>
-                </div>
-              </CardContent>
-            </Card>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <Suspense fallback={<div className="h-64 flex items-center justify-center">
+                <Loading message="加载图表..." />
+              </div>}>
+                <ModelRankingChart data={modelCounts} />
+              </Suspense>
+
+              <Suspense fallback={<div className="h-64 flex items-center justify-center">
+                <Loading message="加载图表..." />
+              </div>}>
+                <ProjectRankingChart data={projectCounts} />
+              </Suspense>
+            </div>
           </div>
         )}
       </div>

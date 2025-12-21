@@ -68,48 +68,42 @@ export function ProjectRankingChart({ data }: ProjectRankingChartProps) {
         <CardTitle>项目调用排行</CardTitle>
       </CardHeader>
       <CardContent>
-        <ChartContainer config={chartConfig} className="max-h-[500px] sm:max-h-[390px]">
+        <ChartContainer config={chartConfig} className="aspect-auto h-[320px] w-full">
           <BarChart
             accessibilityLayer
             data={chartData}
-            layout="vertical"
-            margin={{
-              right: 16,
-            }}
+            barSize={32}
           >
-            <CartesianGrid horizontal={false} />
-            <YAxis
+            <CartesianGrid vertical={false} />
+            <XAxis
               dataKey="project"
-              type="category"
               tickLine={false}
-              tickMargin={10}
               axisLine={false}
-              tickFormatter={(value) => value.slice(0, 10)}
-              hide
+              tickMargin={16}
+              interval={0}
+              tickFormatter={(value) => String(value)}
             />
-            <XAxis dataKey="calls" type="number" hide />
+            <YAxis
+              dataKey="calls"
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(value) => Number(value).toLocaleString()}
+              width={60}
+            />
             <ChartTooltip
               cursor={false}
               content={<ChartTooltipContent indicator="line" hideLabel />}
             />
             <Bar
               dataKey="calls"
-              layout="vertical"
               fill="var(--color-calls)"
-              radius={4}
+              radius={[8, 8, 0, 0]}
             >
               <LabelList
-                dataKey="project"
-                position="insideLeft"
-                offset={8}
-                className="fill-white font-medium"
-                fontSize={12}
-              />
-              <LabelList
                 dataKey="calls"
-                position="right"
-                offset={8}
-                className="fill-foreground"
+                position="top"
+                offset={12}
+                className="fill-foreground font-medium"
                 fontSize={12}
               />
             </Bar>
@@ -119,4 +113,3 @@ export function ProjectRankingChart({ data }: ProjectRankingChartProps) {
     </Card>
   )
 }
-

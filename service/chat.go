@@ -39,6 +39,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		balancer = balancers.NewLottery(providersWithMeta.WeightItems)
 	}
 
+	// 是否开启熔断
 	if providersWithMeta.Breaker {
 		balancer = balancers.BalancerWrapperBreaker(balancer)
 	}

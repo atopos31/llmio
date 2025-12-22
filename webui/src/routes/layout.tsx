@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   FaHome,
   FaCloud,
@@ -14,9 +15,11 @@ import {
   FaKey
 } from "react-icons/fa";
 import { useTheme } from "@/components/theme-provider";
+import { getVersion } from "@/lib/api";
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [version, setVersion] = useState("dev");
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation(); // 用于高亮当前选中的菜单
@@ -24,6 +27,22 @@ export default function Layout() {
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
   };
+
+  useEffect(() => {
+    let active = true;
+    getVersion()
+      .then((value) => {
+        if (active && value) {
+          setVersion(value);
+        }
+      })
+      .catch(() => {
+        // Keep default version when API is unreachable or unauthorized.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleLogout = () => {
     localStorage.removeItem("authToken");
@@ -54,6 +73,9 @@ export default function Layout() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-muted-foreground">
+            {version}
+          </Badge>
           <Button 
             variant="ghost" 
             size="icon"

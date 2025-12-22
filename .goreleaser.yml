@@ -1,0 +1,13 @@
+version: 2
+
+project_name: llmio
+
+builds:
+  - id: llmio
+    main: .
+    binary: llmio
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+      - -X github.com/atopos31/llmio/consts.Version={{ .Tag }}

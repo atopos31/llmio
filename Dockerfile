@@ -9,13 +9,14 @@ RUN pnpm run build
 
 # Build stage for the backend
 FROM golang:latest AS backend-build
+ARG VERSION=dev
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN GOPROXY=https://goproxy.io,direct go mod download
 COPY . .
 # Copy the built frontend from frontend build stage
 COPY --from=frontend-build /app/dist ./webui/dist
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o llmio .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/atopos31/llmio/consts.Version=${VERSION}" -o llmio .
 
 # Final stage
 FROM alpine:latest

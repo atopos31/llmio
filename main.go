@@ -110,6 +110,7 @@ func main() {
 		api.DELETE("/model-providers/:id", handler.DeleteModelProvider)
 
 		// System status and monitoring
+		api.GET("/version", handler.GetVersion)
 		api.GET("/logs", handler.GetRequestLogs)
 		api.GET("/logs/:id/chat-io", handler.GetChatIO)
 		api.GET("/user-agents", handler.GetUserAgents)

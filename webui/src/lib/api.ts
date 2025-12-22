@@ -118,6 +118,10 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
   return data.data as T;
 }
 
+export async function getVersion(): Promise<string> {
+  return apiRequest<string>('/version');
+}
+
 // Provider API functions
 export async function getProviders(filters: {
   name?: string;

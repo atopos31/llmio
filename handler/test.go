@@ -28,7 +28,7 @@ const (
         "messages": [
             {
                 "role": "user",
-                "content": "Hi"
+                "content": "Please reply me yes or no"
             }
         ]
     }`
@@ -41,7 +41,7 @@ const (
 				"content": [
 					{
 						"type": "input_text",
-						"text": "Hi"
+						"text": "Please reply me yes or no"
 					}
 				]
 			}
@@ -56,7 +56,7 @@ const (
         		"content": [
 					{
 						"type": "text",
-						"text": "Hi",
+						"text": "Please reply me yes or no",
 						"cache_control": {
 							"type": "ephemeral"
 						}
@@ -71,7 +71,7 @@ const (
 			{
 				"parts": [
 					{
-						"text": "Hi"
+						"text": "Please reply me yes or no"
 					}
 				]
 			}

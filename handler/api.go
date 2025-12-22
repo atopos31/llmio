@@ -927,5 +927,5 @@ func CleanLogs(c *gin.Context) {
 		return
 	}
 
-	common.Success(c, map[string]interface{}{"deleted_count": deletedCount})
+	common.Success(c, map[string]any{"deleted_count": deletedCount})
 }

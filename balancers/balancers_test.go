@@ -20,7 +20,7 @@ func TestLotteryPopZeroTotal(t *testing.T) {
 
 func TestLotteryPopSingle(t *testing.T) {
 	w := NewLottery(map[uint]int{5: 3})
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		id, err := w.Pop()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

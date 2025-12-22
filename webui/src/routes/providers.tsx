@@ -60,6 +60,7 @@ import {
 } from "@/lib/api";
 import type { Provider, ProviderTemplate, ProviderModel } from "@/lib/api";
 import { toast } from "sonner";
+import { ExternalLink, Pencil, Trash2, Boxes } from "lucide-react";
 
 type ConfigFieldMap = Record<string, string>;
 
@@ -466,7 +467,7 @@ export default function ProvidersPage() {
                       <TableHead>类型</TableHead>
                       <TableHead>配置</TableHead>
                       <TableHead>控制台</TableHead>
-                      <TableHead className="w-[260px]">操作</TableHead>
+                      <TableHead>操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -482,28 +483,30 @@ export default function ProvidersPage() {
                           {provider.Console ? (
                             <Button
                               title={provider.Console}
-                              variant="outline"
-                              size="sm"
+                              variant="ghost"
+                              size="icon"
                               onClick={() => window.open(provider.Console, '_blank')}
                             >
-                              前往
+                              <ExternalLink className="h-2 w-2" />
                             </Button>
                           ) : (
-                            <span className="text-muted-foreground">暂未设置</span>
+                            <Button variant="ghost" size="icon" disabled>
+                              <ExternalLink className="h-2 w-2 opacity-50" />
+                            </Button>
                           )}
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-2">
-                            <Button variant="outline" size="sm" onClick={() => openEditDialog(provider)}>
-                              编辑
+                            <Button variant="outline" size="icon" onClick={() => openEditDialog(provider)}>
+                              <Pencil className="h-4 w-4" />
                             </Button>
-                            <Button variant="secondary" size="sm" onClick={() => openModelsDialog(provider.ID)}>
-                              模型列表
+                            <Button variant="secondary" size="icon" onClick={() => openModelsDialog(provider.ID)}>
+                              <Boxes className="h-4 w-4" />
                             </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(provider.ID)}>
-                                  删除
+                                <Button variant="destructive" size="icon" onClick={() => openDeleteDialog(provider.ID)}>
+                                  <Trash2 className="h-4 w-4" />
                                 </Button>
                               </AlertDialogTrigger>
                               <AlertDialogContent>
@@ -532,30 +535,39 @@ export default function ProvidersPage() {
                 <div key={provider.ID} className="py-3 space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <h3 className="font-semibold text-sm truncate">{provider.Name}</h3>
-                      <p className="text-[11px] text-muted-foreground">ID: {provider.ID}</p>
-                      <p className="text-[11px] text-muted-foreground">类型: {provider.Type || "未知"}</p>
-                      {provider.Console && (
-                        <Button
-                          variant="link"
-                          className="px-0 h-auto text-[11px]"
-                          onClick={() => window.open(provider.Console, '_blank')}
-                        >
-                          控制台
-                        </Button>
-                      )}
+                      <div className="flex items-center gap-1">
+                        <h3 className="font-semibold text-sm truncate">{provider.Name}</h3>
+                        {provider.Console ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5"
+                            onClick={() => window.open(provider.Console, '_blank')}
+                          >
+                            <ExternalLink className="h-2.5 w-2.5" />
+                          </Button>
+                        ) : (
+                          <Button variant="ghost" size="icon" disabled className="h-5 w-5">
+                            <ExternalLink className="h-2.5 w-2.5 opacity-50" />
+                          </Button>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-[11px] text-muted-foreground">ID: {provider.ID}</p>
+                        <p className="text-[11px] text-muted-foreground">类型: {provider.Type || "未知"}</p>
+                      </div>
                     </div>
                     <div className="flex flex-wrap justify-end gap-1.5">
-                      <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialog(provider)}>
-                        编辑
+                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => openEditDialog(provider)}>
+                        <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => openModelsDialog(provider.ID)}>
-                        模型
+                      <Button variant="secondary" size="icon" className="h-7 w-7" onClick={() => openModelsDialog(provider.ID)}>
+                        <Boxes className="h-3.5 w-3.5" />
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="destructive" size="sm" className="h-7 px-2 text-xs" onClick={() => openDeleteDialog(provider.ID)}>
-                            删除
+                          <Button variant="destructive" size="icon" className="h-7 w-7" onClick={() => openDeleteDialog(provider.ID)}>
+                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/atopos31/llmio/balancers"
-	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
@@ -229,18 +228,17 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 	model, err := gorm.G[models.Model](models.DB).Where("name = ?", before.Model).First(ctx)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			modelErr := common.NewModelError(before.Model, "model not found")
 			if _, err := SaveChatLog(ctx, models.ChatLog{
 				Name:   before.Model,
 				Status: "error",
 				Style:  style,
-				Error:  modelErr.Error(),
+				Error:  err.Error(),
 			}); err != nil {
 				return nil, err
 			}
-			return nil, modelErr
+			return nil, fmt.Errorf("not found model: %s" + before.Model)
 		}
-		return nil, fmt.Errorf("database error when querying model %s: %w", before.Model, err)
+		return nil, err
 	}
 
 	// 使用原始 SQL 查询优化，一次性获取所需数据
@@ -292,7 +290,7 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 	}
 
 	if len(joinedResults) == 0 {
-		return nil, common.NewModelError(before.Model, "no available providers for this model")
+		return nil, fmt.Errorf("no available providers for this model: %s" + before.Model)
 	}
 
 	// 构建结果映射

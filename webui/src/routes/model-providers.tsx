@@ -62,7 +62,7 @@ import type { ModelWithProvider, Model, Provider, ProviderModel } from "@/lib/ap
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Pencil, Trash2, Zap } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 
 type MobileInfoItemProps = {
@@ -753,7 +753,7 @@ export default function ModelProvidersPage() {
                           </Button>
                         </div>
                       </TableHead>
-                      <TableHead className="w-[220px]">操作</TableHead>
+                      <TableHead>操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -826,13 +826,16 @@ export default function ModelProvidersPage() {
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-2">
-                              <Button variant="outline" size="sm" onClick={() => openEditDialog(association)}>
-                                编辑
+                              <Button variant="outline" size="icon" onClick={() => openEditDialog(association)}>
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button variant="outline" size="icon" onClick={() => handleTest(association.ID)}>
+                                <Zap className="h-4 w-4" />
                               </Button>
                               <AlertDialog open={deleteId === association.ID} onOpenChange={(open) => !open && setDeleteId(null)}>
                                 <AlertDialogTrigger asChild>
-                                  <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(association.ID)}>
-                                    删除
+                                  <Button variant="destructive" size="icon" onClick={() => openDeleteDialog(association.ID)}>
+                                    <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
@@ -848,9 +851,6 @@ export default function ModelProvidersPage() {
                                   </AlertDialogFooter>
                                 </AlertDialogContent>
                               </AlertDialog>
-                              <Button variant="outline" size="sm" onClick={() => handleTest(association.ID)}>
-                                测试
-                              </Button>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -937,20 +937,28 @@ export default function ModelProvidersPage() {
                     <div className="flex flex-wrap justify-end gap-1.5">
                       <Button
                         variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
+                        size="icon"
+                        className="h-7 w-7"
                         onClick={() => openEditDialog(association)}
                       >
-                        编辑
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => handleTest(association.ID)}
+                      >
+                        <Zap className="h-3.5 w-3.5" />
                       </Button>
                       <AlertDialog open={deleteId === association.ID} onOpenChange={(open) => !open && setDeleteId(null)}>
                         <Button
                           variant="destructive"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
+                          size="icon"
+                          className="h-7 w-7"
                           onClick={() => openDeleteDialog(association.ID)}
                         >
-                          删除
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                         <AlertDialogContent>
                           <AlertDialogHeader>
@@ -965,14 +973,6 @@ export default function ModelProvidersPage() {
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => handleTest(association.ID)}
-                      >
-                        测试
-                      </Button>
                     </div>
                   </div>
                 );

@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import Loading from "@/components/loading";
 import { getLogs, getProviders, getModelOptions, getAuthKeysList, type ChatLog, type Provider, type Model, type AuthKeyItem, getProviderTemplates, cleanLogs } from "@/lib/api";
-import { ChevronLeft, ChevronRight, RefreshCw, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw, Trash2, Eye, EyeOff } from "lucide-react";
 
 // 格式化时间显示
 const formatTime = (nanoseconds: number): string => {
@@ -312,7 +312,7 @@ export default function LogsPage() {
                       <TableHead>提供商模型</TableHead>
                       <TableHead>类型</TableHead>
                       <TableHead>提供商</TableHead>
-                      <TableHead className="w-[140px]">操作</TableHead>
+                      <TableHead>操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -339,17 +339,17 @@ export default function LogsPage() {
                         <TableCell className="text-xs">{log.ProviderName}</TableCell>
                         <TableCell>
                           <div className="flex gap-2">
-                            <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => openDetailDialog(log)}>
-                              详情
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openDetailDialog(log)}>
+                              <Eye className="h-4 w-4" />
                             </Button>
                             <Button
                               variant="ghost"
-                              size="sm"
-                              className="h-8 px-2"
+                              size="icon"
+                              className="h-8 w-8"
                               onClick={() => handleViewChatIO(log)}
                               disabled={!canViewChatIO(log)}
                             >
-                              会话
+                              <EyeOff className="h-4 w-4" />
                             </Button>
                           </div>
                         </TableCell>
@@ -374,16 +374,16 @@ export default function LogsPage() {
                           {log.Status}
                         </span>
                         <div className="flex gap-1.5">
-                          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openDetailDialog(log)}>
-                            详情
+                          <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => openDetailDialog(log)}>
+                            <Eye className="h-3.5 w-3.5" />
                           </Button>
                           <Button
-                            size="sm"
-                            className="h-7 px-2 text-xs"
+                            size="icon"
+                            className="h-7 w-7"
                             onClick={() => handleViewChatIO(log)}
                             disabled={!canViewChatIO(log)}
                           >
-                            会话
+                            <EyeOff className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </div>

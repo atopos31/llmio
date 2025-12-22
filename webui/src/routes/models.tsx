@@ -53,7 +53,7 @@ import {
 import type { Model } from "@/lib/api";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search, Pencil, Trash2, Link } from "lucide-react";
 
 type MobileInfoItemProps = {
   label: string;
@@ -343,7 +343,7 @@ export default function ModelsPage() {
                       <TableHead>超时时间(秒)</TableHead>
                       <TableHead>负载策略</TableHead>
                       <TableHead>IO 记录</TableHead>
-                      <TableHead className="w-[220px]">操作</TableHead>
+                      <TableHead>操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -366,18 +366,18 @@ export default function ModelsPage() {
                           <div className="flex flex-wrap gap-2">
                             <Button
                               variant="secondary"
-                              size="sm"
+                              size="icon"
                               onClick={() => navigate(`/model-providers?modelId=${model.ID}`)}
                             >
-                              关联
+                              <Link className="h-4 w-4" />
                             </Button>
-                            <Button variant="outline" size="sm" onClick={() => openEditDialog(model)}>
-                              编辑
+                            <Button variant="outline" size="icon" onClick={() => openEditDialog(model)}>
+                              <Pencil className="h-4 w-4" />
                             </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="sm" onClick={() => openDeleteDialog(model.ID)}>
-                                  删除
+                                <Button variant="destructive" size="icon" onClick={() => openDeleteDialog(model.ID)}>
+                                  <Trash2 className="h-4 w-4" />
                                 </Button>
                               </AlertDialogTrigger>
                               <AlertDialogContent>
@@ -408,16 +408,16 @@ export default function ModelsPage() {
                       <p className="text-[11px] text-muted-foreground">ID: {model.ID}</p>
                     </div>
                     <div className="flex flex-wrap justify-end gap-1.5">
-                      <Button variant="secondary" size="sm" className="h-7 px-2 text-xs" onClick={() => navigate(`/model-providers?modelId=${model.ID}`)}>
-                        关联
+                      <Button variant="secondary" size="icon" className="h-7 w-7" onClick={() => navigate(`/model-providers?modelId=${model.ID}`)}>
+                        <Link className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => openEditDialog(model)}>
-                        编辑
+                      <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => openEditDialog(model)}>
+                        <Pencil className="h-3.5 w-3.5" />
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button variant="destructive" size="sm" className="h-7 px-2 text-xs" onClick={() => openDeleteDialog(model.ID)}>
-                            删除
+                          <Button variant="destructive" size="icon" className="h-7 w-7" onClick={() => openDeleteDialog(model.ID)}>
+                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/atopos31/llmio/common"
@@ -29,7 +28,7 @@ const (
         "messages": [
             {
                 "role": "user",
-                "content": "Write a one-sentence bedtime story about a unicorn."
+                "content": "Hi"
             }
         ]
     }`
@@ -42,7 +41,7 @@ const (
 				"content": [
 					{
 						"type": "input_text",
-						"text": "Write a one-sentence bedtime story about a unicorn."
+						"text": "Hi"
 					}
 				]
 			}
@@ -51,7 +50,6 @@ const (
 
 	testAnthropic = `{
     	"model": "claude-sonnet-4-5",
-    	"max_tokens": 1,
     	"messages": [
       		{
         		"role": "user", 
@@ -73,7 +71,7 @@ const (
 			{
 				"parts": [
 					{
-						"text": "Explain how AI works in a few words"
+						"text": "Hi"
 					}
 				]
 			}
@@ -139,14 +137,14 @@ func ProviderTestHandler(c *gin.Context) {
 	}
 	defer res.Body.Close()
 
-	if res.StatusCode != http.StatusOK {
-		common.ErrorWithHttpStatus(c, http.StatusOK, res.StatusCode, "Provider returned non-200 status code: "+strconv.Itoa(res.StatusCode))
+	content, err := io.ReadAll(res.Body)
+	if err != nil {
+		common.ErrorWithHttpStatus(c, http.StatusOK, res.StatusCode, "Failed to send request: "+err.Error())
 		return
 	}
 
-	content, err := io.ReadAll(res.Body)
-	if err != nil {
-		common.ErrorWithHttpStatus(c, http.StatusOK, res.StatusCode, "Failed to read res body: "+err.Error())
+	if res.StatusCode != http.StatusOK {
+		common.ErrorWithHttpStatus(c, http.StatusOK, res.StatusCode, fmt.Sprintf("code: %d body: %s", res.StatusCode, string(content)))
 		return
 	}
 

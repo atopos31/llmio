@@ -1,0 +1,7 @@
+{
+  "gin_mode": "release",
+  "token": "your_secure_token_here",
+  "port": "8080",
+  "timezone": "Asia/Shanghai",
+  "db_path": "./db/llmio.db"
+}

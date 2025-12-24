@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -12,19 +13,30 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/handler"
 	"github.com/atopos31/llmio/middleware"
 	"github.com/atopos31/llmio/models"
+	"github.com/atopos31/llmio/systray"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	_ "golang.org/x/crypto/x509roots/fallback"
 	"gorm.io/gorm"
 )
 
+var appConfig *common.AppConfig
+
 func init() {
+	// 加载配置并立即应用(必须在 gin.Default() 之前)
+	appConfig = common.LoadConfig()
+	appConfig.ApplyConfig()
+	if err := appConfig.Validate(); err != nil {
+		slog.Error("Configuration validation failed", "error", err)
+	}
+
 	ctx := context.Background()
-	models.Init(ctx, "./db/llmio.db")
+	models.Init(ctx, appConfig.DBPath)
 	slog.Info("TZ", "time.Local", time.Local.String())
 }
 
@@ -73,136 +85,154 @@ func main() {
 	// 启动时异步清理过期日志
 	go cleanExpiredLogs()
 
-	router := gin.Default()
-
-	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1"})))
-
-	token := os.Getenv("TOKEN")
-
-	authOpenAI := middleware.AuthOpenAI(token)
-	authAnthropic := middleware.AuthAnthropic(token)
-	authGemini := middleware.AuthGemini(token)
-
-	// openai
-	openai := router.Group("/openai", authOpenAI)
-	{
-		v1 := openai.Group("/v1")
-		{
-			v1.GET("/models", handler.OpenAIModelsHandler)
-			v1.POST("/chat/completions", handler.ChatCompletionsHandler)
-			v1.POST("/responses", handler.ResponsesHandler)
-		}
-	}
-
-	// anthropic
-	anthropic := router.Group("/anthropic", authAnthropic)
-	{
-		// claude code logging
-		anthropic.POST("/api/event_logging/batch", handler.EventLogging)
-
-		v1 := anthropic.Group("/v1")
-		{
-			v1.GET("/models", handler.AnthropicModelsHandler)
-			v1.POST("/messages", handler.Messages)
-			v1.POST("/messages/count_tokens", handler.CountTokens)
-		}
-	}
-
-	// gemini
-	gemini := router.Group("/gemini", authGemini)
-	{
-		v1beta := gemini.Group("/v1beta")
-		v1beta.GET("/models", handler.GeminiModelsHandler)
-		v1beta.POST("/models/*modelAction", handler.GeminiGenerateContentHandler)
-	}
-
-	// 兼容性保留
-	v1 := router.Group("/v1")
-	{
-		v1.GET("/models", authOpenAI, handler.OpenAIModelsHandler)
-		v1.POST("/chat/completions", authOpenAI, handler.ChatCompletionsHandler)
-		v1.POST("/responses", authOpenAI, handler.ResponsesHandler)
-		v1.POST("/messages", authAnthropic, handler.Messages)
-		v1.POST("/messages/count_tokens", authAnthropic, handler.CountTokens)
-	}
-
-	api := router.Group("/api")
-	{
-		api.Use(middleware.Auth(token))
-		api.GET("/metrics/use/:days", handler.Metrics)
-		api.GET("/metrics/counts", handler.Counts)
-		api.GET("/metrics/projects", handler.ProjectCounts)
-		// Provider management
-		api.GET("/providers/template", handler.GetProviderTemplates)
-		api.GET("/providers", handler.GetProviders)
-		api.GET("/providers/models/:id", handler.GetProviderModels)
-		api.POST("/providers/models/:id/refresh", handler.RefreshProviderModels)
-		api.POST("/providers/models/refresh-all", handler.RefreshAllProviderModels)
-		api.POST("/providers", handler.CreateProvider)
-		api.PUT("/providers/:id", handler.UpdateProvider)
-		api.DELETE("/providers/:id", handler.DeleteProvider)
-
-		// Model management
-		api.GET("/models", handler.GetModels)
-		api.GET("/models/select", handler.GetModelList)
-		api.POST("/models", handler.CreateModel)
-		api.PUT("/models/:id", handler.UpdateModel)
-		api.DELETE("/models/:id", handler.DeleteModel)
-
-		// Model-provider association management
-		api.GET("/model-providers", handler.GetModelProviders)
-		api.GET("/model-providers/status", handler.GetModelProviderStatus)
-		api.POST("/model-providers", handler.CreateModelProvider)
-		api.PUT("/model-providers/:id", handler.UpdateModelProvider)
-		api.PATCH("/model-providers/:id/status", handler.UpdateModelProviderStatus)
-		api.DELETE("/model-providers/:id", handler.DeleteModelProvider)
-
-		// System status and monitoring
-		api.GET("/version", handler.GetVersion)
-		api.GET("/logs", handler.GetRequestLogs)
-		api.GET("/logs/:id/chat-io", handler.GetChatIO)
-		api.GET("/user-agents", handler.GetUserAgents)
-		api.POST("/logs/cleanup", handler.CleanLogs)
-
-		// Auth key management
-		api.GET("/auth-keys", handler.GetAuthKeys)
-		api.GET("/auth-keys/list", handler.GetAuthKeysList)
-		api.POST("/auth-keys", handler.CreateAuthKey)
-		api.PUT("/auth-keys/:id", handler.UpdateAuthKey)
-		api.PATCH("/auth-keys/:id/status", handler.ToggleAuthKeyStatus)
-		api.DELETE("/auth-keys/:id", handler.DeleteAuthKey)
-
-		// Config management
-		api.GET("/config/:key", handler.GetConfigByKey)
-		api.PUT("/config/:key", handler.UpdateConfigByKey)
-
-		// Backup and restore
-		api.GET("/backup/export", handler.ExportData)
-		api.POST("/backup/import", handler.ImportData)
-		api.POST("/backup/preview", handler.GetBackupInfo)
-
-		// WebDAV backup
-		api.GET("/webdav/config", handler.GetWebDAVConfig)
-		api.PUT("/webdav/config", handler.UpdateWebDAVConfig)
-		api.GET("/webdav/auto-sync/config", handler.GetWebDAVAutoSyncConfig)
-		api.PUT("/webdav/auto-sync/config", handler.UpdateWebDAVAutoSyncConfig)
-		api.POST("/webdav/test", handler.TestWebDAVConnection)
-		api.POST("/webdav/upload", handler.UploadWebDAVBackup)
-		api.POST("/webdav/download", handler.DownloadWebDAVBackup)
-		api.POST("/webdav/sync-now", handler.SyncNowWebDAV)
-
-		// Provider connectivity test
-		api.GET("/test/:id", handler.ProviderTestHandler)
-		api.GET("/test/react/:id", handler.TestReactHandler)
-		api.GET("/test/count_tokens", handler.TestCountTokens)
-	}
-	setwebui(router)
-
-	port := os.Getenv("LLMIO_SERVER_PORT")
+	// 获取端口配置
+	port := appConfig.Port
 	if port == "" {
 		port = consts.DefaultPort
 	}
-	router.Run(":" + port)
+
+	// 构建服务器 URL
+	serverURL := fmt.Sprintf("http://localhost:%s", port)
+
+	// 在单独的 goroutine 中启动 HTTP 服务器
+	go func() {
+		router := gin.Default()
+
+		router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1"})))
+
+		token := appConfig.Token
+
+		authOpenAI := middleware.AuthOpenAI(token)
+		authAnthropic := middleware.AuthAnthropic(token)
+		authGemini := middleware.AuthGemini(token)
+
+		// openai
+		openai := router.Group("/openai", authOpenAI)
+		{
+			v1 := openai.Group("/v1")
+			{
+				v1.GET("/models", handler.OpenAIModelsHandler)
+				v1.POST("/chat/completions", handler.ChatCompletionsHandler)
+				v1.POST("/responses", handler.ResponsesHandler)
+			}
+		}
+
+		// anthropic
+		anthropic := router.Group("/anthropic", authAnthropic)
+		{
+			// claude code logging
+			anthropic.POST("/api/event_logging/batch", handler.EventLogging)
+
+			v1 := anthropic.Group("/v1")
+			{
+				v1.GET("/models", handler.AnthropicModelsHandler)
+				v1.POST("/messages", handler.Messages)
+				v1.POST("/messages/count_tokens", handler.CountTokens)
+			}
+		}
+
+		// gemini
+		gemini := router.Group("/gemini", authGemini)
+		{
+			v1beta := gemini.Group("/v1beta")
+			v1beta.GET("/models", handler.GeminiModelsHandler)
+			v1beta.POST("/models/*modelAction", handler.GeminiGenerateContentHandler)
+		}
+
+		// 兼容性保留
+		v1 := router.Group("/v1")
+		{
+			v1.GET("/models", authOpenAI, handler.OpenAIModelsHandler)
+			v1.POST("/chat/completions", authOpenAI, handler.ChatCompletionsHandler)
+			v1.POST("/responses", authOpenAI, handler.ResponsesHandler)
+			v1.POST("/messages", authAnthropic, handler.Messages)
+			v1.POST("/messages/count_tokens", authAnthropic, handler.CountTokens)
+		}
+
+		api := router.Group("/api")
+		{
+			api.Use(middleware.Auth(token))
+			api.GET("/metrics/use/:days", handler.Metrics)
+			api.GET("/metrics/counts", handler.Counts)
+			api.GET("/metrics/projects", handler.ProjectCounts)
+			// Provider management
+			api.GET("/providers/template", handler.GetProviderTemplates)
+			api.GET("/providers", handler.GetProviders)
+			api.GET("/providers/models/:id", handler.GetProviderModels)
+			api.POST("/providers/models/:id/refresh", handler.RefreshProviderModels)
+			api.POST("/providers/models/refresh-all", handler.RefreshAllProviderModels)
+			api.POST("/providers", handler.CreateProvider)
+			api.PUT("/providers/:id", handler.UpdateProvider)
+			api.DELETE("/providers/:id", handler.DeleteProvider)
+
+			// Model management
+			api.GET("/models", handler.GetModels)
+			api.GET("/models/select", handler.GetModelList)
+			api.POST("/models", handler.CreateModel)
+			api.PUT("/models/:id", handler.UpdateModel)
+			api.DELETE("/models/:id", handler.DeleteModel)
+
+			// Model-provider association management
+			api.GET("/model-providers", handler.GetModelProviders)
+			api.GET("/model-providers/status", handler.GetModelProviderStatus)
+			api.POST("/model-providers", handler.CreateModelProvider)
+			api.PUT("/model-providers/:id", handler.UpdateModelProvider)
+			api.PATCH("/model-providers/:id/status", handler.UpdateModelProviderStatus)
+			api.DELETE("/model-providers/:id", handler.DeleteModelProvider)
+
+			// System status and monitoring
+			api.GET("/version", handler.GetVersion)
+			api.GET("/logs", handler.GetRequestLogs)
+			api.GET("/logs/:id/chat-io", handler.GetChatIO)
+			api.GET("/user-agents", handler.GetUserAgents)
+			api.POST("/logs/cleanup", handler.CleanLogs)
+
+			// Auth key management
+			api.GET("/auth-keys", handler.GetAuthKeys)
+			api.GET("/auth-keys/list", handler.GetAuthKeysList)
+			api.POST("/auth-keys", handler.CreateAuthKey)
+			api.PUT("/auth-keys/:id", handler.UpdateAuthKey)
+			api.PATCH("/auth-keys/:id/status", handler.ToggleAuthKeyStatus)
+			api.DELETE("/auth-keys/:id", handler.DeleteAuthKey)
+
+			// Config management
+			api.GET("/config/:key", handler.GetConfigByKey)
+			api.PUT("/config/:key", handler.UpdateConfigByKey)
+
+			// Backup and restore
+			api.GET("/backup/export", handler.ExportData)
+			api.POST("/backup/import", handler.ImportData)
+			api.POST("/backup/preview", handler.GetBackupInfo)
+
+			// WebDAV backup
+			api.GET("/webdav/config", handler.GetWebDAVConfig)
+			api.PUT("/webdav/config", handler.UpdateWebDAVConfig)
+			api.GET("/webdav/auto-sync/config", handler.GetWebDAVAutoSyncConfig)
+			api.PUT("/webdav/auto-sync/config", handler.UpdateWebDAVAutoSyncConfig)
+			api.POST("/webdav/test", handler.TestWebDAVConnection)
+			api.POST("/webdav/upload", handler.UploadWebDAVBackup)
+			api.POST("/webdav/download", handler.DownloadWebDAVBackup)
+			api.POST("/webdav/sync-now", handler.SyncNowWebDAV)
+
+			// Provider connectivity test
+			api.GET("/test/:id", handler.ProviderTestHandler)
+			api.GET("/test/react/:id", handler.TestReactHandler)
+			api.GET("/test/count_tokens", handler.TestCountTokens)
+		}
+		setwebui(router)
+
+		slog.Info("Starting server", "port", port, "mode", appConfig.GinMode)
+		if err := router.Run(":" + port); err != nil {
+			slog.Error("Failed to start server", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// 启动系统托盘（阻塞主线程）
+	systray.Run(serverURL, func() {
+		slog.Info("应用程序退出")
+		os.Exit(0)
+	})
 }
 
 //go:embed webui/dist

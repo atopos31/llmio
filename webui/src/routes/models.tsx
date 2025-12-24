@@ -108,9 +108,9 @@ export default function ModelsPage() {
       remark: "",
       max_retry: 10,
       time_out: 60,
-      io_log: false,
+      io_log: true,
       strategy: "lottery",
-      breaker: false,
+      breaker: true,
     },
   });
 
@@ -167,7 +167,7 @@ export default function ModelsPage() {
       });
       setOpen(false);
       toast.success(`模型: ${values.name} 创建成功`);
-      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery", breaker: false });
+      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: true, strategy: "lottery", breaker: true });
       await fetchModels();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -190,7 +190,7 @@ export default function ModelsPage() {
       setOpen(false);
       toast.success(`模型: ${values.name} 更新成功`);
       setEditingModel(null);
-      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery", breaker: false });
+      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: true, strategy: "lottery", breaker: true });
       await fetchModels();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -230,7 +230,7 @@ export default function ModelsPage() {
 
   const openCreateDialog = () => {
     setEditingModel(null);
-    form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery", breaker: false });
+    form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: true, strategy: "lottery", breaker: true });
     setOpen(true);
   };
 

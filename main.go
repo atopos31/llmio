@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 	_ "time/tzdata"
@@ -18,6 +19,7 @@ import (
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	_ "golang.org/x/crypto/x509roots/fallback"
+	"gorm.io/gorm"
 )
 
 func init() {
@@ -26,7 +28,51 @@ func init() {
 	slog.Info("TZ", "time.Local", time.Local.String())
 }
 
+// cleanExpiredLogs 清理过期日志
+func cleanExpiredLogs() {
+	// 延迟 10 秒执行，等待系统完全启动
+	time.Sleep(10 * time.Second)
+
+	ctx := context.Background()
+
+	// 获取日志保留天数配置
+	config, err := gorm.G[models.Config](models.DB).Where("key = ?", "log_retention_days").First(ctx)
+	if err != nil {
+		slog.Info("Log retention config not found, skipping cleanup")
+		return
+	}
+
+	days, err := strconv.Atoi(config.Value)
+	if err != nil || days <= 0 {
+		slog.Info("Log retention days is 0 or invalid, logs will be kept permanently")
+		return
+	}
+
+	// 计算截止时间
+	cutoffTime := time.Now().AddDate(0, 0, -days)
+	slog.Info("Starting log cleanup", "retention_days", days, "cutoff_time", cutoffTime)
+
+	// 先删除关联的 ChatIO
+	chatIOResult := models.DB.Unscoped().Where("log_id IN (SELECT id FROM chat_logs WHERE created_at < ?)", cutoffTime).Delete(&models.ChatIO{})
+	if chatIOResult.Error != nil {
+		slog.Error("Failed to delete expired chat IO", "error", chatIOResult.Error)
+		return
+	}
+
+	// 删除过期日志
+	logResult := models.DB.Unscoped().Where("created_at < ?", cutoffTime).Delete(&models.ChatLog{})
+	if logResult.Error != nil {
+		slog.Error("Failed to delete expired logs", "error", logResult.Error)
+		return
+	}
+
+	slog.Info("Log cleanup completed", "deleted_chat_io", chatIOResult.RowsAffected, "deleted_logs", logResult.RowsAffected)
+}
+
 func main() {
+	// 启动时异步清理过期日志
+	go cleanExpiredLogs()
+
 	router := gin.Default()
 
 	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1"})))
@@ -90,6 +136,8 @@ func main() {
 		api.GET("/providers/template", handler.GetProviderTemplates)
 		api.GET("/providers", handler.GetProviders)
 		api.GET("/providers/models/:id", handler.GetProviderModels)
+		api.POST("/providers/models/:id/refresh", handler.RefreshProviderModels)
+		api.POST("/providers/models/refresh-all", handler.RefreshAllProviderModels)
 		api.POST("/providers", handler.CreateProvider)
 		api.PUT("/providers/:id", handler.UpdateProvider)
 		api.DELETE("/providers/:id", handler.DeleteProvider)
@@ -127,6 +175,21 @@ func main() {
 		// Config management
 		api.GET("/config/:key", handler.GetConfigByKey)
 		api.PUT("/config/:key", handler.UpdateConfigByKey)
+
+		// Backup and restore
+		api.GET("/backup/export", handler.ExportData)
+		api.POST("/backup/import", handler.ImportData)
+		api.POST("/backup/preview", handler.GetBackupInfo)
+
+		// WebDAV backup
+		api.GET("/webdav/config", handler.GetWebDAVConfig)
+		api.PUT("/webdav/config", handler.UpdateWebDAVConfig)
+		api.GET("/webdav/auto-sync/config", handler.GetWebDAVAutoSyncConfig)
+		api.PUT("/webdav/auto-sync/config", handler.UpdateWebDAVAutoSyncConfig)
+		api.POST("/webdav/test", handler.TestWebDAVConnection)
+		api.POST("/webdav/upload", handler.UploadWebDAVBackup)
+		api.POST("/webdav/download", handler.DownloadWebDAVBackup)
+		api.POST("/webdav/sync-now", handler.SyncNowWebDAV)
 
 		// Provider connectivity test
 		api.GET("/test/:id", handler.ProviderTestHandler)

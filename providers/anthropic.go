@@ -74,10 +74,14 @@ func (a *Anthropic) Models(ctx context.Context) ([]Model, error) {
 
 	var modelList ModelList
 	for _, model := range anthropicModels.Data {
-		modelList.Data = append(modelList.Data, Model{
+		m := Model{
 			ID:      model.ID,
 			Created: model.CreatedAt.Unix(),
-		})
+		}
+		// 为每个模型推断能力和分组
+		m.Capabilities = InferModelCapabilities(model.ID)
+		m.Group = InferModelGroup(model.ID)
+		modelList.Data = append(modelList.Data, m)
 	}
 	return modelList.Data, nil
 }

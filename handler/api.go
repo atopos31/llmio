@@ -19,10 +19,11 @@ import (
 
 // ProviderRequest represents the request body for creating/updating a provider
 type ProviderRequest struct {
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	Config  string `json:"config"`
-	Console string `json:"console"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Config     string `json:"config"`
+	Console    string `json:"console"`
+	SyncModels *bool  `json:"sync_models,omitempty"` // 是否同步拉取模型列表，默认 true
 }
 
 // ModelRequest represents the request body for creating/updating a model
@@ -100,17 +101,170 @@ func GetProviderModels(c *gin.Context) {
 		common.InternalServerError(c, err.Error())
 		return
 	}
+	
+	// 返回缓存的模型列表（包含能力信息和分组）
+	modelList := make([]providers.Model, len(provider.CachedModels))
+	for i, cachedModel := range provider.CachedModels {
+		model := providers.Model{
+			ID:      cachedModel.ID,
+			Object:  "model",
+			OwnedBy: provider.Name,
+			Group:   providers.InferModelGroup(cachedModel.ID), // 推断模型分组
+		}
+		// 转换能力信息
+		if cachedModel.Capabilities != nil {
+			model.Capabilities = &providers.ModelCapabilities{
+				Vision:           cachedModel.Capabilities.Vision,
+				FunctionCalling:  cachedModel.Capabilities.FunctionCalling,
+				StructuredOutput: cachedModel.Capabilities.StructuredOutput,
+			}
+		}
+		modelList[i] = model
+	}
+	common.Success(c, modelList)
+}
+
+// RefreshProviderModels 刷新提供商的模型列表
+func RefreshProviderModels(c *gin.Context) {
+	id := c.Param("id")
+	provider, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).First(c.Request.Context())
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+	
 	chatModel, err := providers.New(provider.Type, provider.Config)
 	if err != nil {
-		common.InternalServerError(c, "Failed to get models: "+err.Error())
+		common.InternalServerError(c, "Failed to create provider client: "+err.Error())
 		return
 	}
-	models, err := chatModel.Models(c.Request.Context())
+	
+	modelList, err := chatModel.Models(c.Request.Context())
 	if err != nil {
-		common.NotFound(c, "Failed to get models: "+err.Error())
+		common.BadRequest(c, "Failed to fetch models from provider: "+err.Error())
 		return
 	}
-	common.Success(c, models)
+	
+	// 提取模型信息列表（包含能力）
+	cachedModels := make([]models.CachedModel, len(modelList))
+	for i, m := range modelList {
+		cachedModel := models.CachedModel{
+			ID: m.ID,
+		}
+		// 转换能力信息
+		if m.Capabilities != nil {
+			cachedModel.Capabilities = &models.CachedModelCapabilities{
+				Vision:           m.Capabilities.Vision,
+				FunctionCalling:  m.Capabilities.FunctionCalling,
+				StructuredOutput: m.Capabilities.StructuredOutput,
+			}
+		}
+		cachedModels[i] = cachedModel
+	}
+	
+	// 更新数据库
+	if _, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).Updates(c.Request.Context(), models.Provider{
+		CachedModels: cachedModels,
+	}); err != nil {
+		common.InternalServerError(c, "Failed to update cached models: "+err.Error())
+		return
+	}
+	
+	common.Success(c, modelList)
+}
+
+// RefreshAllProviderModelsResult 批量刷新结果
+type RefreshAllProviderModelsResult struct {
+	Total     int                          `json:"total"`
+	Success   int                          `json:"success"`
+	Failed    int                          `json:"failed"`
+	Details   []RefreshProviderModelDetail `json:"details"`
+}
+
+// RefreshProviderModelDetail 单个提供商刷新详情
+type RefreshProviderModelDetail struct {
+	ProviderID   uint   `json:"provider_id"`
+	ProviderName string `json:"provider_name"`
+	Success      bool   `json:"success"`
+	ModelsCount  int    `json:"models_count"`
+	Error        string `json:"error,omitempty"`
+}
+
+// RefreshAllProviderModels 批量刷新所有提供商的模型列表
+func RefreshAllProviderModels(c *gin.Context) {
+	// 获取所有提供商
+	providerList, err := gorm.G[models.Provider](models.DB).Find(c.Request.Context())
+	if err != nil {
+		common.InternalServerError(c, "Failed to get providers: "+err.Error())
+		return
+	}
+
+	result := RefreshAllProviderModelsResult{
+		Total:   len(providerList),
+		Details: make([]RefreshProviderModelDetail, 0, len(providerList)),
+	}
+
+	for _, provider := range providerList {
+		detail := RefreshProviderModelDetail{
+			ProviderID:   provider.ID,
+			ProviderName: provider.Name,
+		}
+
+		// 创建提供商客户端
+		chatModel, err := providers.New(provider.Type, provider.Config)
+		if err != nil {
+			detail.Success = false
+			detail.Error = "Failed to create provider client: " + err.Error()
+			result.Failed++
+			result.Details = append(result.Details, detail)
+			continue
+		}
+
+		// 获取模型列表
+		modelList, err := chatModel.Models(c.Request.Context())
+		if err != nil {
+			detail.Success = false
+			detail.Error = "Failed to fetch models: " + err.Error()
+			result.Failed++
+			result.Details = append(result.Details, detail)
+			continue
+		}
+
+		// 提取模型信息列表（包含能力）
+		cachedModels := make([]models.CachedModel, len(modelList))
+		for i, m := range modelList {
+			cachedModel := models.CachedModel{
+				ID: m.ID,
+			}
+			// 转换能力信息
+			if m.Capabilities != nil {
+				cachedModel.Capabilities = &models.CachedModelCapabilities{
+					Vision:           m.Capabilities.Vision,
+					FunctionCalling:  m.Capabilities.FunctionCalling,
+					StructuredOutput: m.Capabilities.StructuredOutput,
+				}
+			}
+			cachedModels[i] = cachedModel
+		}
+
+		// 更新数据库
+		if _, err := gorm.G[models.Provider](models.DB).Where("id = ?", provider.ID).Updates(c.Request.Context(), models.Provider{
+			CachedModels: cachedModels,
+		}); err != nil {
+			detail.Success = false
+			detail.Error = "Failed to update cached models: " + err.Error()
+			result.Failed++
+			result.Details = append(result.Details, detail)
+			continue
+		}
+
+		detail.Success = true
+		detail.ModelsCount = len(cachedModels)
+		result.Success++
+		result.Details = append(result.Details, detail)
+	}
+
+	common.Success(c, result)
 }
 
 // CreateProvider 创建提供商
@@ -133,11 +287,52 @@ func CreateProvider(c *gin.Context) {
 		return
 	}
 
+	// 默认同步拉取模型列表
+	syncModels := true
+	if req.SyncModels != nil {
+		syncModels = *req.SyncModels
+	}
+
+	var cachedModels []models.CachedModel
+
+	if syncModels {
+		// 尝试拉取模型列表
+		chatModel, err := providers.New(req.Type, req.Config)
+		if err != nil {
+			common.BadRequest(c, "Invalid provider config: "+err.Error())
+			return
+		}
+
+		modelList, err := chatModel.Models(c.Request.Context())
+		if err != nil {
+			common.BadRequest(c, "Failed to fetch models from provider: "+err.Error())
+			return
+		}
+
+		// 提取模型信息列表（包含能力）
+		cachedModels = make([]models.CachedModel, len(modelList))
+		for i, m := range modelList {
+			cachedModel := models.CachedModel{
+				ID: m.ID,
+			}
+			// 转换能力信息
+			if m.Capabilities != nil {
+				cachedModel.Capabilities = &models.CachedModelCapabilities{
+					Vision:           m.Capabilities.Vision,
+					FunctionCalling:  m.Capabilities.FunctionCalling,
+					StructuredOutput: m.Capabilities.StructuredOutput,
+				}
+			}
+			cachedModels[i] = cachedModel
+		}
+	}
+
 	provider := models.Provider{
-		Name:    req.Name,
-		Type:    req.Type,
-		Config:  req.Config,
-		Console: req.Console,
+		Name:         req.Name,
+		Type:         req.Type,
+		Config:       req.Config,
+		Console:      req.Console,
+		CachedModels: cachedModels,
 	}
 
 	if err := gorm.G[models.Provider](models.DB).Create(c.Request.Context(), &provider); err != nil {

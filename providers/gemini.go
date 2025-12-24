@@ -84,11 +84,15 @@ func (g *Gemini) Models(ctx context.Context) ([]Model, error) {
 
 	var models []Model
 	for _, m := range resp.Models {
-		models = append(models, Model{
+		model := Model{
 			ID:      m.Name,
 			Object:  "model",
 			OwnedBy: "google",
-		})
+		}
+		// 为每个模型推断能力和分组
+		model.Capabilities = InferModelCapabilities(m.Name)
+		model.Group = InferModelGroup(m.Name)
+		models = append(models, model)
 	}
 	return models, nil
 }

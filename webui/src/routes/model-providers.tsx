@@ -62,8 +62,25 @@ import type { ModelWithProvider, Model, Provider, ProviderModel } from "@/lib/ap
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { RefreshCw, Pencil, Trash2, Zap } from "lucide-react";
+import { RefreshCw, Pencil, Trash2, Zap, Eye, Wrench, FileJson, ChevronRight, X, Plus } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
+
+// 将模型列表按分组整理（使用后端返回的 group 字段）
+const groupProviderModels = (models: ProviderModel[]): Map<string, ProviderModel[]> => {
+  const groups = new Map<string, ProviderModel[]>();
+
+  for (const model of models) {
+    // 使用后端返回的 group 字段，如果不存在则使用 "Other" 作为默认分组
+    const groupName = model.group || 'Other';
+    if (!groups.has(groupName)) {
+      groups.set(groupName, []);
+    }
+    groups.get(groupName)!.push(model);
+  }
+
+  // 按分组名称排序
+  return new Map([...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])));
+};
 
 type MobileInfoItemProps = {
   label: string;
@@ -104,6 +121,7 @@ export default function ModelProvidersPage() {
   const [providerModelsMap, setProviderModelsMap] = useState<Record<number, ProviderModel[]>>({});
   const [providerModelsLoading, setProviderModelsLoading] = useState<Record<number, boolean>>({});
   const [showProviderModels, setShowProviderModels] = useState(false);
+  const [expandedModelGroups, setExpandedModelGroups] = useState<Set<string>>(new Set());
   const [searchParams, setSearchParams] = useSearchParams();
   const [providerStatus, setProviderStatus] = useState<Record<number, boolean[]>>({});
   const [loading, setLoading] = useState(true);
@@ -131,9 +149,39 @@ export default function ModelProvidersPage() {
   const [statusUpdating, setStatusUpdating] = useState<Record<number, boolean>>({});
   const [statusError, setStatusError] = useState<string | null>(null);
 
+  // 批量关联相关状态
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const [batchProviderFilter, setBatchProviderFilter] = useState<string>("all");
+  const [batchSearchTerm, setBatchSearchTerm] = useState("");
+  const [batchWeight, setBatchWeight] = useState<number>(1);
+  const [selectedBatchModels, setSelectedBatchModels] = useState<Set<string>>(new Set());
+  const [batchCreating, setBatchCreating] = useState(false);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchGroupBy, setBatchGroupBy] = useState<"provider" | "group">("provider");
+
   const dialogClose = () => {
     setTestDialogOpen(false)
   };
+
+  // 当批量关联对话框打开时，检查并加载缺失的提供商模型列表
+  useEffect(() => {
+    if (batchDialogOpen && providers.length > 0) {
+      // 检查是否有提供商的模型列表为空
+      const providersNeedingLoad = providers.filter(p => !providerModelsMap[p.ID]);
+
+      if (providersNeedingLoad.length > 0) {
+        setBatchLoading(true);
+        const loadAllProviderModels = async () => {
+          const promises = providersNeedingLoad.map(provider =>
+            loadProviderModels(provider.ID, false)
+          );
+          await Promise.all(promises);
+          setBatchLoading(false);
+        };
+        loadAllProviderModels();
+      }
+    }
+  }, [batchDialogOpen, providers]);
 
   // 初始化表单
   const form = useForm<FormValues>({
@@ -616,6 +664,26 @@ export default function ModelProvidersPage() {
     return [...models].sort((a, b) => score(b.id) - score(a.id));
   };
 
+  const toggleModelGroup = (groupName: string) => {
+    setExpandedModelGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupName)) {
+        next.delete(groupName);
+      } else {
+        next.add(groupName);
+      }
+      return next;
+    });
+  };
+
+  // 当提供商模型列表加载完成时，默认展开所有分组
+  useEffect(() => {
+    if (selectedProviderId && providerModelsMap[selectedProviderId]) {
+      const groups = groupProviderModels(providerModelsMap[selectedProviderId]);
+      setExpandedModelGroups(new Set(groups.keys()));
+    }
+  }, [selectedProviderId, providerModelsMap]);
+
   // 获取唯一的提供商类型列表
   const providerTypes = Array.from(new Set(providers.map(p => p.Type).filter(Boolean)));
 
@@ -698,6 +766,15 @@ export default function ModelProvidersPage() {
                 className="h-8 text-xs"
               >
                 添加关联
+              </Button>
+              <Button
+                onClick={() => setBatchDialogOpen(true)}
+                disabled={!selectedModelId}
+                variant="secondary"
+                className="h-8 text-xs"
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                批量关联
               </Button>
             </div>
           </div>
@@ -1067,6 +1144,7 @@ export default function ModelProvidersPage() {
                           <Input
                             {...field}
                             placeholder="输入或选择提供商模型"
+                            autoComplete="off"
                             onFocus={() => setShowProviderModels(true)}
                             onBlur={() => setTimeout(() => setShowProviderModels(false), 100)}
                             onChange={(e) => {
@@ -1074,22 +1152,132 @@ export default function ModelProvidersPage() {
                               setShowProviderModels(true);
                             }}
                           />
+                          {field.value && (
+                            <button
+                              type="button"
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                              onClick={() => {
+                                field.onChange("");
+                                setShowProviderModels(false);
+                              }}
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          )}
                           {showProviderModels && (providerModelsMap[selectedProviderId] || []).length > 0 && (
-                            <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-sm max-h-52 overflow-y-auto">
-                              {sortProviderModels(selectedProviderId, field.value || "").map((model) => (
-                                <button
-                                  key={model.id}
-                                  type="button"
-                                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground"
-                                  onMouseDown={(e) => {
-                                    e.preventDefault();
-                                    field.onChange(model.id);
-                                    setShowProviderModels(false);
-                                  }}
-                                >
-                                  {model.id}
-                                </button>
-                              ))}
+                            <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-sm max-h-64 overflow-y-auto pb-1">
+                              {field.value ? (
+                                // 有搜索词时，显示扁平列表
+                                sortProviderModels(selectedProviderId, field.value).map((model) => (
+                                  <button
+                                    key={model.id}
+                                    type="button"
+                                    className="w-full text-left px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground"
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      field.onChange(model.id);
+                                      setShowProviderModels(false);
+                                      if (model.capabilities) {
+                                        form.setValue("tool_call", model.capabilities.function_calling);
+                                        form.setValue("structured_output", model.capabilities.structured_output);
+                                        form.setValue("image", model.capabilities.vision);
+                                      }
+                                    }}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span className="truncate flex-1">{model.id}</span>
+                                      {model.capabilities && (
+                                        <div className="flex gap-1 flex-shrink-0">
+                                          {model.capabilities.vision && (
+                                            <span className="inline-flex items-center justify-center h-4 w-4 rounded bg-blue-100 text-blue-600" title="视觉">
+                                              <Eye className="h-2.5 w-2.5" />
+                                            </span>
+                                          )}
+                                          {model.capabilities.function_calling && (
+                                            <span className="inline-flex items-center justify-center h-4 w-4 rounded bg-amber-100 text-amber-600" title="工具调用">
+                                              <Wrench className="h-2.5 w-2.5" />
+                                            </span>
+                                          )}
+                                          {model.capabilities.structured_output && (
+                                            <span className="inline-flex items-center justify-center h-4 w-4 rounded bg-green-100 text-green-600" title="结构化输出">
+                                              <FileJson className="h-2.5 w-2.5" />
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </button>
+                                ))
+                              ) : (
+                                // 无搜索词时，显示分组列表
+                                Array.from(groupProviderModels(providerModelsMap[selectedProviderId] || []).entries()).map(([groupName, groupModels]) => {
+                                  const isCollapsed = !expandedModelGroups.has(groupName);
+                                  return (
+                                    <div key={groupName} className="mb-1">
+                                      <button
+                                        type="button"
+                                        className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs font-bold bg-muted/50 hover:bg-muted transition-colors ${isCollapsed ? 'rounded' : 'rounded-t'}`}
+                                        onMouseDown={(e) => {
+                                          e.preventDefault();
+                                          toggleModelGroup(groupName);
+                                        }}
+                                      >
+                                        <ChevronRight
+                                          className={`h-3 w-3 text-muted-foreground transition-transform ${expandedModelGroups.has(groupName) ? 'rotate-90' : ''}`}
+                                        />
+                                        <span>{groupName}</span>
+                                        <span className="inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-green-100 text-green-700">
+                                          {groupModels.length}
+                                        </span>
+                                      </button>
+                                      {expandedModelGroups.has(groupName) && (
+                                        <div className="border-x border-b rounded-b">
+                                          {groupModels.map((model, index) => (
+                                            <button
+                                              key={model.id}
+                                              type="button"
+                                              className={`w-full text-left pl-8 pr-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground ${index < groupModels.length - 1 ? 'border-b' : ''}`}
+                                              onMouseDown={(e) => {
+                                                e.preventDefault();
+                                                field.onChange(model.id);
+                                                setShowProviderModels(false);
+                                                if (model.capabilities) {
+                                                  form.setValue("tool_call", model.capabilities.function_calling);
+                                                  form.setValue("structured_output", model.capabilities.structured_output);
+                                                  form.setValue("image", model.capabilities.vision);
+                                                }
+                                              }}
+                                            >
+                                              <div className="flex items-center gap-2">
+                                                <span className="truncate flex-1">{model.id}</span>
+                                                {model.capabilities && (
+                                                  <div className="flex gap-1 flex-shrink-0">
+                                                    {model.capabilities.vision && (
+                                                      <span className="inline-flex items-center justify-center h-4 w-4 rounded bg-blue-100 text-blue-600" title="视觉">
+                                                        <Eye className="h-2.5 w-2.5" />
+                                                      </span>
+                                                    )}
+                                                    {model.capabilities.function_calling && (
+                                                      <span className="inline-flex items-center justify-center h-4 w-4 rounded bg-amber-100 text-amber-600" title="工具调用">
+                                                        <Wrench className="h-2.5 w-2.5" />
+                                                      </span>
+                                                    )}
+                                                    {model.capabilities.structured_output && (
+                                                      <span className="inline-flex items-center justify-center h-4 w-4 rounded bg-green-100 text-green-600" title="结构化输出">
+                                                        <FileJson className="h-2.5 w-2.5" />
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })
+                              )}
                             </div>
                           )}
                         </div>
@@ -1123,15 +1311,18 @@ export default function ModelProvidersPage() {
                   control={form.control}
                   name="tool_call"
                   render={({ field }) => (
-                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                    <FormItem className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 ${field.value ? 'border-amber-200 bg-amber-50/50' : ''}`}>
                       <FormControl>
                         <Checkbox
                           checked={field.value}
                           onCheckedChange={field.onChange}
                         />
                       </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel>
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center justify-center h-5 w-5 rounded ${field.value ? 'bg-amber-100 text-amber-600' : 'bg-muted text-muted-foreground'}`}>
+                          <Wrench className="h-3 w-3" />
+                        </span>
+                        <FormLabel className="cursor-pointer">
                           工具调用
                         </FormLabel>
                       </div>
@@ -1143,15 +1334,18 @@ export default function ModelProvidersPage() {
                   control={form.control}
                   name="structured_output"
                   render={({ field }) => (
-                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                    <FormItem className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 ${field.value ? 'border-green-200 bg-green-50/50' : ''}`}>
                       <FormControl>
                         <Checkbox
                           checked={field.value}
                           onCheckedChange={field.onChange}
                         />
                       </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel>
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center justify-center h-5 w-5 rounded ${field.value ? 'bg-green-100 text-green-600' : 'bg-muted text-muted-foreground'}`}>
+                          <FileJson className="h-3 w-3" />
+                        </span>
+                        <FormLabel className="cursor-pointer">
                           结构化输出
                         </FormLabel>
                       </div>
@@ -1163,15 +1357,18 @@ export default function ModelProvidersPage() {
                   control={form.control}
                   name="image"
                   render={({ field }) => (
-                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                    <FormItem className={`flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4 ${field.value ? 'border-blue-200 bg-blue-50/50' : ''}`}>
                       <FormControl>
                         <Checkbox
                           checked={field.value}
                           onCheckedChange={field.onChange}
                         />
                       </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel>
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center justify-center h-5 w-5 rounded ${field.value ? 'bg-blue-100 text-blue-600' : 'bg-muted text-muted-foreground'}`}>
+                          <Eye className="h-3 w-3" />
+                        </span>
+                        <FormLabel className="cursor-pointer">
                           视觉
                         </FormLabel>
                       </div>
@@ -1339,7 +1536,7 @@ export default function ModelProvidersPage() {
           )}
 
           {testType === "react" && (
-            <div className="mt-4 max-h-96 min-w-0">
+            <div className="mt-4 space-y-2">
               {reactTestResult.loading ? (
                 <div className="flex items-center justify-center py-4">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
@@ -1347,22 +1544,27 @@ export default function ModelProvidersPage() {
                 </div>
               ) : (
                 <>
-                  {reactTestResult.error ? (
+                  {reactTestResult.error && (
                     <div className="p-4 rounded-md bg-red-100 text-red-800">
                       <p>测试失败: {reactTestResult.error}</p>
                     </div>
-                  ) : reactTestResult.success !== null ? (
+                  )}
+                  {reactTestResult.success !== null && !reactTestResult.error && (
                     <div className={`p-4 rounded-md ${reactTestResult.success ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
                       <p>{reactTestResult.success ? "测试成功！" : "测试失败"}</p>
                     </div>
-                  ) : null}
-
-
+                  )}
                 </>
               )}
 
-              {reactTestResult.messages && <Textarea name="logs" className="mt-4 max-h-50 resize-none whitespace-pre overflow-x-auto" readOnly value={reactTestResult.messages}>
-              </Textarea>}
+              {reactTestResult.messages && (
+                <Textarea
+                  name="logs"
+                  className="min-h-[300px] max-h-[400px] resize-none whitespace-pre overflow-x-auto font-mono text-xs"
+                  readOnly
+                  value={reactTestResult.messages}
+                />
+              )}
             </div>
           )}
 
@@ -1376,6 +1578,654 @@ export default function ModelProvidersPage() {
               {testType === "connectivity" ?
                 (selectedTestId && testResults[selectedTestId]?.loading ? "测试中..." : "执行测试") :
                 (reactTestResult.loading ? "测试中..." : "执行测试")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch Association Dialog */}
+      <Dialog open={batchDialogOpen} onOpenChange={setBatchDialogOpen}>
+        <DialogContent className="w-[90vw] sm:w-[75vw] sm:max-w-[900px] max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>批量关联模型</DialogTitle>
+            <DialogDescription>
+              选择要关联的供应商模型，模型能力将继承自供应商模型（已关联的模型不会显示）
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 flex-1 min-h-0 flex flex-col">
+            {/* 筛选条件 */}
+            <div className="grid grid-cols-3 gap-3 flex-shrink-0">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">供应商</Label>
+                <Select value={batchProviderFilter} onValueChange={setBatchProviderFilter}>
+                  <SelectTrigger className="h-9 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部供应商</SelectItem>
+                    {providers.map(p => (
+                      <SelectItem key={p.ID} value={p.ID.toString()}>{p.Name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">搜索模型名称</Label>
+                <Input
+                  placeholder="输入模型名称"
+                  value={batchSearchTerm}
+                  onChange={(e) => setBatchSearchTerm(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">分组依据</Label>
+                <Select value={batchGroupBy} onValueChange={(value) => setBatchGroupBy(value as "provider" | "group")}>
+                  <SelectTrigger className="h-9 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="provider">按供应商</SelectItem>
+                    <SelectItem value="group">按模型分组</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between flex-shrink-0">
+              <div className="text-sm text-muted-foreground">
+                已选择 {selectedBatchModels.size} 个模型
+              </div>
+              <div className="flex items-center gap-2">
+                <Label className="text-xs">统一权重:</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={batchWeight}
+                  onChange={(e) => setBatchWeight(parseInt(e.target.value) || 1)}
+                  className="h-8 w-20"
+                />
+              </div>
+            </div>
+
+            {/* 模型列表 */}
+            <div className="flex-1 min-h-0 border rounded-md overflow-auto">
+              {batchLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center">
+                    <Spinner className="mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">正在加载所有提供商的模型列表...</p>
+                  </div>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader className="sticky top-0 bg-background z-10">
+                    <TableRow>
+                      <TableHead className="w-12">
+                        <Checkbox
+                          checked={selectedBatchModels.size > 0 && (() => {
+                            const filtered = (() => {
+                              let allModels: Array<{ providerId: number; providerName: string; model: ProviderModel }> = [];
+
+                              const providerIds = batchProviderFilter === "all"
+                                ? providers.map(p => p.ID)
+                                : [parseInt(batchProviderFilter)];
+
+                              providerIds.forEach(pId => {
+                                const models = providerModelsMap[pId] || [];
+                                const provider = providers.find(p => p.ID === pId);
+                                if (provider) {
+                                  models.forEach(m => {
+                                    // 检查该模型是否已经关联
+                                    const isAlreadyAssociated = selectedModelId && modelProviders.some(
+                                      mp => mp.ProviderID === pId && mp.ProviderModel === m.id
+                                    );
+                                    
+                                    if (!isAlreadyAssociated) {
+                                      allModels.push({
+                                        providerId: pId,
+                                        providerName: provider.Name,
+                                        model: m
+                                      });
+                                    }
+                                  });
+                                }
+                              });
+   
+                              if (batchSearchTerm) {
+                                const search = batchSearchTerm.toLowerCase();
+                                allModels = allModels.filter(item =>
+                                  item.model.id.toLowerCase().includes(search)
+                                );
+                              }
+
+                              return allModels;
+                            })();
+
+                            return filtered.length > 0 && filtered.every(item =>
+                              selectedBatchModels.has(`${item.providerId}:${item.model.id}`)
+                            );
+                          })()}
+                          onCheckedChange={(checked) => {
+                            const filtered = (() => {
+                              let allModels: Array<{ providerId: number; providerName: string; model: ProviderModel }> = [];
+
+                              const providerIds = batchProviderFilter === "all"
+                                ? providers.map(p => p.ID)
+                                : [parseInt(batchProviderFilter)];
+
+                              providerIds.forEach(pId => {
+                                const models = providerModelsMap[pId] || [];
+                                const provider = providers.find(p => p.ID === pId);
+                                if (provider) {
+                                  models.forEach(m => {
+                                    // 检查该模型是否已经关联
+                                    const isAlreadyAssociated = selectedModelId && modelProviders.some(
+                                      mp => mp.ProviderID === pId && mp.ProviderModel === m.id
+                                    );
+                                    
+                                    if (!isAlreadyAssociated) {
+                                      allModels.push({
+                                        providerId: pId,
+                                        providerName: provider.Name,
+                                        model: m
+                                      });
+                                    }
+                                  });
+                                }
+                              });
+ 
+                              if (batchSearchTerm) {
+                                const search = batchSearchTerm.toLowerCase();
+                                allModels = allModels.filter(item =>
+                                  item.model.id.toLowerCase().includes(search)
+                                );
+                              }
+
+                              return allModels;
+                            })();
+
+                            if (checked) {
+                              setSelectedBatchModels(new Set([
+                                ...selectedBatchModels,
+                                ...filtered.map(item => `${item.providerId}:${item.model.id}`)
+                              ]));
+                            } else {
+                              const newSet = new Set(selectedBatchModels);
+                              filtered.forEach(item => {
+                                newSet.delete(`${item.providerId}:${item.model.id}`);
+                              });
+                              setSelectedBatchModels(newSet);
+                            }
+                          }}
+                        />
+                      </TableHead>
+                      <TableHead>供应商</TableHead>
+                      <TableHead>模型名称</TableHead>
+                      <TableHead>能力</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(() => {
+                      let allModels: Array<{ providerId: number; providerName: string; model: ProviderModel; groupName: string }> = [];
+
+                      const providerIds = batchProviderFilter === "all"
+                        ? providers.map(p => p.ID)
+                        : [parseInt(batchProviderFilter)];
+
+                      providerIds.forEach(pId => {
+                        const models = providerModelsMap[pId] || [];
+                        const provider = providers.find(p => p.ID === pId);
+                        if (provider) {
+                          models.forEach(m => {
+                            // 检查该模型是否已经关联到当前选中的模型
+                            const isAlreadyAssociated = selectedModelId && modelProviders.some(
+                              mp => mp.ProviderID === pId && mp.ProviderModel === m.id
+                            );
+                            
+                            // 只添加未关联的模型
+                            if (!isAlreadyAssociated) {
+                              allModels.push({
+                                providerId: pId,
+                                providerName: provider.Name,
+                                model: m,
+                                groupName: m.group || 'Other'
+                              });
+                            }
+                          });
+                        }
+                      });
+
+                      if (batchSearchTerm) {
+                        const search = batchSearchTerm.toLowerCase();
+                        allModels = allModels.filter(item =>
+                          item.model.id.toLowerCase().includes(search)
+                        );
+                      }
+
+                      if (allModels.length === 0) {
+                        return (
+                          <TableRow>
+                            <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                              {batchProviderFilter === "all" && providers.every(p => !providerModelsMap[p.ID])
+                                ? "请先选择供应商加载模型列表"
+                                : "没有找到匹配的模型或所有模型已关联"}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      }
+
+                      // 按选择的方式分组显示 - 多层级结构
+                      if (batchGroupBy === "provider") {
+                        // 按供应商分组：供应商 > 分组 > 模型
+                        const providerGroups = new Map<string, Map<string, typeof allModels>>();
+                        
+                        allModels.forEach(item => {
+                          if (!providerGroups.has(item.providerName)) {
+                            providerGroups.set(item.providerName, new Map());
+                          }
+                          const groupMap = providerGroups.get(item.providerName)!;
+                          if (!groupMap.has(item.groupName)) {
+                            groupMap.set(item.groupName, []);
+                          }
+                          groupMap.get(item.groupName)!.push(item);
+                        });
+
+                        // 排序供应商
+                        const sortedProviders = Array.from(providerGroups.entries()).sort((a, b) =>
+                          a[0].localeCompare(b[0])
+                        );
+
+                        return sortedProviders.flatMap(([providerName, groupMap]) => {
+                          // 排序分组
+                          const sortedGroups = Array.from(groupMap.entries()).sort((a, b) =>
+                            a[0].localeCompare(b[0])
+                          );
+
+                          const providerTotal = Array.from(groupMap.values()).reduce((sum, items) => sum + items.length, 0);
+
+                          const providerModels = Array.from(groupMap.values()).flat();
+                          const allProviderSelected = providerModels.every(item =>
+                            selectedBatchModels.has(`${item.providerId}:${item.model.id}`)
+                          );
+                          const someProviderSelected = providerModels.some(item =>
+                            selectedBatchModels.has(`${item.providerId}:${item.model.id}`)
+                          );
+
+                          return [
+                            // 供应商标题行（带批量选择）
+                            <TableRow key={`provider-${providerName}`} className="bg-primary/5 hover:bg-primary/5">
+                              <TableCell className="w-12">
+                                <Checkbox
+                                  checked={allProviderSelected}
+                                  ref={(el) => {
+                                    if (el) {
+                                      // @ts-ignore - indeterminate is a valid property for checkbox
+                                      el.indeterminate = someProviderSelected && !allProviderSelected;
+                                    }
+                                  }}
+                                  onCheckedChange={(checked) => {
+                                    const newSet = new Set(selectedBatchModels);
+                                    providerModels.forEach(item => {
+                                      const key = `${item.providerId}:${item.model.id}`;
+                                      if (checked) {
+                                        newSet.add(key);
+                                      } else {
+                                        newSet.delete(key);
+                                      }
+                                    });
+                                    setSelectedBatchModels(newSet);
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell colSpan={3} className="font-bold text-base py-2.5">
+                                <div className="flex items-center gap-2">
+                                  <span>{providerName}</span>
+                                  <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs rounded-full bg-primary/20 text-primary font-semibold">
+                                    {providerTotal}
+                                  </span>
+                                </div>
+                              </TableCell>
+                            </TableRow>,
+                            // 分组和模型
+                            ...sortedGroups.flatMap(([groupName, items]) => {
+                              const allGroupItemsSelected = items.every(item =>
+                                selectedBatchModels.has(`${item.providerId}:${item.model.id}`)
+                              );
+                              const someGroupItemsSelected = items.some(item =>
+                                selectedBatchModels.has(`${item.providerId}:${item.model.id}`)
+                              );
+
+                              return [
+                                <TableRow key={`group-${providerName}-${groupName}`} className="bg-muted/30 hover:bg-muted/30">
+                                  <TableCell className="pl-6">
+                                    <Checkbox
+                                      checked={allGroupItemsSelected}
+                                      ref={(el) => {
+                                        if (el) {
+                                          // @ts-ignore - indeterminate is a valid property for checkbox
+                                          el.indeterminate = someGroupItemsSelected && !allGroupItemsSelected;
+                                        }
+                                      }}
+                                      onCheckedChange={(checked) => {
+                                        const newSet = new Set(selectedBatchModels);
+                                        items.forEach(item => {
+                                          const key = `${item.providerId}:${item.model.id}`;
+                                          if (checked) {
+                                            newSet.add(key);
+                                          } else {
+                                            newSet.delete(key);
+                                          }
+                                        });
+                                        setSelectedBatchModels(newSet);
+                                      }}
+                                    />
+                                  </TableCell>
+                                  <TableCell colSpan={3} className="font-semibold text-sm py-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-muted-foreground">{groupName}</span>
+                                      <span className="inline-flex items-center justify-center px-1.5 py-0.5 text-xs rounded-full bg-muted text-muted-foreground">
+                                        {items.length}
+                                      </span>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>,
+                              ...items.map((item, idx) => {
+                                const key = `${item.providerId}:${item.model.id}`;
+                                const isSelected = selectedBatchModels.has(key);
+
+                                return (
+                                  <TableRow key={`${item.providerId}-${item.model.id}-${idx}`}>
+                                    <TableCell className="pl-12">
+                                      <Checkbox
+                                        checked={isSelected}
+                                        onCheckedChange={(checked) => {
+                                          const newSet = new Set(selectedBatchModels);
+                                          if (checked) {
+                                            newSet.add(key);
+                                          } else {
+                                            newSet.delete(key);
+                                          }
+                                          setSelectedBatchModels(newSet);
+                                        }}
+                                      />
+                                    </TableCell>
+                                    <TableCell className="font-medium">{item.providerName}</TableCell>
+                                    <TableCell className="font-mono text-sm">{item.model.id}</TableCell>
+                                    <TableCell>
+                                      <div className="flex gap-1">
+                                        {item.model.capabilities?.vision && (
+                                          <span className="inline-flex items-center justify-center h-5 w-5 rounded bg-blue-100 text-blue-600" title="视觉">
+                                            <Eye className="h-3 w-3" />
+                                          </span>
+                                        )}
+                                        {item.model.capabilities?.function_calling && (
+                                          <span className="inline-flex items-center justify-center h-5 w-5 rounded bg-amber-100 text-amber-600" title="工具调用">
+                                            <Wrench className="h-3 w-3" />
+                                          </span>
+                                        )}
+                                        {item.model.capabilities?.structured_output && (
+                                          <span className="inline-flex items-center justify-center h-5 w-5 rounded bg-green-100 text-green-600" title="结构化输出">
+                                            <FileJson className="h-3 w-3" />
+                                          </span>
+                                        )}
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })
+                            ];
+                          })
+                        ];
+                      });
+                    } else {
+                        // 按分组：分组 > 供应商 > 模型
+                        const modelGroups = new Map<string, Map<string, typeof allModels>>();
+                        
+                        allModels.forEach(item => {
+                          if (!modelGroups.has(item.groupName)) {
+                            modelGroups.set(item.groupName, new Map());
+                          }
+                          const providerMap = modelGroups.get(item.groupName)!;
+                          if (!providerMap.has(item.providerName)) {
+                            providerMap.set(item.providerName, []);
+                          }
+                          providerMap.get(item.providerName)!.push(item);
+                        });
+
+                        // 排序分组
+                        const sortedModelGroups = Array.from(modelGroups.entries()).sort((a, b) =>
+                          a[0].localeCompare(b[0])
+                        );
+
+                        return sortedModelGroups.flatMap(([groupName, providerMap]) => {
+                          // 排序供应商
+                          const sortedProviders = Array.from(providerMap.entries()).sort((a, b) =>
+                            a[0].localeCompare(b[0])
+                          );
+
+                          const groupTotal = Array.from(providerMap.values()).reduce((sum, items) => sum + items.length, 0);
+
+                          const groupModels = Array.from(providerMap.values()).flat();
+                          const allGroupSelected = groupModels.every(item =>
+                            selectedBatchModels.has(`${item.providerId}:${item.model.id}`)
+                          );
+                          const someGroupSelected = groupModels.some(item =>
+                            selectedBatchModels.has(`${item.providerId}:${item.model.id}`)
+                          );
+
+                          return [
+                            // 分组标题行（带批量选择）
+                            <TableRow key={`modelgroup-${groupName}`} className="bg-primary/5 hover:bg-primary/5">
+                              <TableCell className="w-12">
+                                <Checkbox
+                                  checked={allGroupSelected}
+                                  ref={(el) => {
+                                    if (el) {
+                                      // @ts-ignore - indeterminate is a valid property for checkbox
+                                      el.indeterminate = someGroupSelected && !allGroupSelected;
+                                    }
+                                  }}
+                                  onCheckedChange={(checked) => {
+                                    const newSet = new Set(selectedBatchModels);
+                                    groupModels.forEach(item => {
+                                      const key = `${item.providerId}:${item.model.id}`;
+                                      if (checked) {
+                                        newSet.add(key);
+                                      } else {
+                                        newSet.delete(key);
+                                      }
+                                    });
+                                    setSelectedBatchModels(newSet);
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell colSpan={3} className="font-bold text-base py-2.5">
+                                <div className="flex items-center gap-2">
+                                  <span>{groupName}</span>
+                                  <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs rounded-full bg-primary/20 text-primary font-semibold">
+                                    {groupTotal}
+                                  </span>
+                                </div>
+                              </TableCell>
+                            </TableRow>,
+                            // 供应商和模型
+                            ...sortedProviders.flatMap(([providerName, items]) => {
+                              const allProviderItemsSelected = items.every(item =>
+                                selectedBatchModels.has(`${item.providerId}:${item.model.id}`)
+                              );
+                              const someProviderItemsSelected = items.some(item =>
+                                selectedBatchModels.has(`${item.providerId}:${item.model.id}`)
+                              );
+
+                              return [
+                                <TableRow key={`provider-${groupName}-${providerName}`} className="bg-muted/30 hover:bg-muted/30">
+                                  <TableCell className="pl-6">
+                                    <Checkbox
+                                      checked={allProviderItemsSelected}
+                                      ref={(el) => {
+                                        if (el) {
+                                          // @ts-ignore - indeterminate is a valid property for checkbox
+                                          el.indeterminate = someProviderItemsSelected && !allProviderItemsSelected;
+                                        }
+                                      }}
+                                      onCheckedChange={(checked) => {
+                                        const newSet = new Set(selectedBatchModels);
+                                        items.forEach(item => {
+                                          const key = `${item.providerId}:${item.model.id}`;
+                                          if (checked) {
+                                            newSet.add(key);
+                                          } else {
+                                            newSet.delete(key);
+                                          }
+                                        });
+                                        setSelectedBatchModels(newSet);
+                                      }}
+                                    />
+                                  </TableCell>
+                                <TableCell colSpan={3} className="font-semibold text-sm py-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-muted-foreground">{providerName}</span>
+                                    <span className="inline-flex items-center justify-center px-1.5 py-0.5 text-xs rounded-full bg-muted text-muted-foreground">
+                                      {items.length}
+                                    </span>
+                                  </div>
+                                </TableCell>
+                              </TableRow>,
+                              ...items.map((item, idx) => {
+                                const key = `${item.providerId}:${item.model.id}`;
+                                const isSelected = selectedBatchModels.has(key);
+
+                                return (
+                                  <TableRow key={`${item.providerId}-${item.model.id}-${idx}`}>
+                                    <TableCell className="pl-12">
+                                      <Checkbox
+                                        checked={isSelected}
+                                        onCheckedChange={(checked) => {
+                                          const newSet = new Set(selectedBatchModels);
+                                          if (checked) {
+                                            newSet.add(key);
+                                          } else {
+                                            newSet.delete(key);
+                                          }
+                                          setSelectedBatchModels(newSet);
+                                        }}
+                                      />
+                                    </TableCell>
+                                    <TableCell className="font-medium">{item.providerName}</TableCell>
+                                    <TableCell className="font-mono text-sm">{item.model.id}</TableCell>
+                                    <TableCell>
+                                      <div className="flex gap-1">
+                                        {item.model.capabilities?.vision && (
+                                          <span className="inline-flex items-center justify-center h-5 w-5 rounded bg-blue-100 text-blue-600" title="视觉">
+                                            <Eye className="h-3 w-3" />
+                                          </span>
+                                        )}
+                                        {item.model.capabilities?.function_calling && (
+                                          <span className="inline-flex items-center justify-center h-5 w-5 rounded bg-amber-100 text-amber-600" title="工具调用">
+                                            <Wrench className="h-3 w-3" />
+                                          </span>
+                                        )}
+                                        {item.model.capabilities?.structured_output && (
+                                          <span className="inline-flex items-center justify-center h-5 w-5 rounded bg-green-100 text-green-600" title="结构化输出">
+                                            <FileJson className="h-3 w-3" />
+                                          </span>
+                                        )}
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })
+                            ];
+                          })
+                          ];
+                        });
+                      }
+                    })()}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setBatchDialogOpen(false);
+                setSelectedBatchModels(new Set());
+                setBatchProviderFilter("all");
+                setBatchSearchTerm("");
+                setBatchWeight(1);
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!selectedModelId) return;
+                if (selectedBatchModels.size === 0) {
+                  toast.warning("请至少选择一个模型");
+                  return;
+                }
+
+                setBatchCreating(true);
+                let successCount = 0;
+                let failCount = 0;
+
+                try {
+                  for (const key of selectedBatchModels) {
+                    const [providerIdStr, modelId] = key.split(":");
+                    const providerId = parseInt(providerIdStr);
+                    const provider = providers.find(p => p.ID === providerId);
+                    const providerModels = providerModelsMap[providerId] || [];
+                    const model = providerModels.find(m => m.id === modelId);
+
+                    if (!provider || !model) continue;
+
+                    try {
+                      await createModelProvider({
+                        model_id: selectedModelId,
+                        provider_name: model.id,
+                        provider_id: providerId,
+                        tool_call: model.capabilities?.function_calling ?? false,
+                        structured_output: model.capabilities?.structured_output ?? false,
+                        image: model.capabilities?.vision ?? false,
+                        with_header: true,
+                        customer_headers: {},
+                        weight: batchWeight
+                      });
+                      successCount++;
+                    } catch (err) {
+                      console.error(`创建关联失败 ${model.id}:`, err);
+                      failCount++;
+                    }
+                  }
+
+                  toast.success(`批量关联完成！成功: ${successCount}, 失败: ${failCount}`);
+
+                  setBatchDialogOpen(false);
+                  setSelectedBatchModels(new Set());
+                  setBatchProviderFilter("all");
+                  setBatchSearchTerm("");
+                  setBatchWeight(1);
+
+                  if (selectedModelId) {
+                    fetchModelProviders(selectedModelId);
+                  }
+                } catch (err) {
+                  const message = err instanceof Error ? err.message : String(err);
+                  toast.error(`批量关联失败: ${message}`);
+                } finally {
+                  setBatchCreating(false);
+                }
+              }}
+              disabled={batchCreating || selectedBatchModels.size === 0}
+            >
+              {batchCreating ? "创建中..." : `确认关联 (${selectedBatchModels.size})`}
             </Button>
           </DialogFooter>
         </DialogContent>

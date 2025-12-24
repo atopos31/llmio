@@ -8,6 +8,7 @@ export interface Provider {
   Type: string;
   Config: string;
   Console: string;
+  CachedModels: string[] | null;
 }
 
 export interface Model {
@@ -19,6 +20,8 @@ export interface Model {
   IOLog: boolean;
   Strategy: string;
   Breaker?: boolean | null;
+  IsImported: boolean;
+  ImportedFrom?: string;
 }
 
 export interface ModelWithProvider {
@@ -143,6 +146,7 @@ export async function createProvider(provider: {
   type: string;
   config: string;
   console: string;
+  sync_models?: boolean;
 }): Promise<Provider> {
   return apiRequest<Provider>('/providers', {
     method: 'POST',
@@ -175,6 +179,7 @@ export type ModelQuery = {
   search?: string;
   strategy?: string;
   io_log?: 'true' | 'false';
+  group_id?: number;
 };
 
 export async function getModels(params: ModelQuery = {}): Promise<PaginatedResponse<Model>> {
@@ -184,6 +189,7 @@ export async function getModels(params: ModelQuery = {}): Promise<PaginatedRespo
   if (params.search) searchParams.append('search', params.search);
   if (params.strategy) searchParams.append('strategy', params.strategy);
   if (params.io_log) searchParams.append('io_log', params.io_log);
+  if (params.group_id) searchParams.append('group_id', params.group_id.toString());
   const query = searchParams.toString();
   return apiRequest<PaginatedResponse<Model>>(query ? `/models?${query}` : '/models');
 }
@@ -200,6 +206,7 @@ export async function createModel(model: {
   io_log: boolean;
   strategy: string;
   breaker: boolean;
+  group_id?: number | null;
 }): Promise<Model> {
   return apiRequest<Model>('/models', {
     method: 'POST',
@@ -215,6 +222,7 @@ export async function updateModel(id: number, model: {
   io_log?: boolean;
   strategy?: string;
   breaker?: boolean;
+  group_id?: number | null;
 }): Promise<Model> {
   return apiRequest<Model>(`/models/${id}`, {
     method: 'PUT',
@@ -295,6 +303,10 @@ export async function toggleAuthKeyStatus(id: number): Promise<AuthKey> {
 // Model-Provider API functions
 export async function getModelProviders(modelId: number): Promise<ModelWithProvider[]> {
   return apiRequest<ModelWithProvider[]>(`/model-providers?model_id=${modelId}`);
+}
+
+export async function getModelProvidersByProvider(providerId: number): Promise<ModelWithProvider[]> {
+  return apiRequest<ModelWithProvider[]>(`/model-providers?provider_id=${providerId}`);
 }
 
 export async function getModelProviderStatus(providerId: number, modelName: string, providerModel: string): Promise<boolean[]> {
@@ -406,15 +418,51 @@ export async function getProviderTemplates(): Promise<ProviderTemplate[]> {
 }
 
 // Provider Models API functions
+export interface ModelCapabilities {
+  vision: boolean;
+  function_calling: boolean;
+  structured_output: boolean;
+}
+
 export interface ProviderModel {
   id: string;
   object: string;
   created: number;
   owned_by: string;
+  group?: string;
+  capabilities?: ModelCapabilities;
 }
 
 export async function getProviderModels(providerId: number): Promise<ProviderModel[]> {
   return apiRequest<ProviderModel[]>(`/providers/models/${providerId}`);
+}
+
+export async function refreshProviderModels(providerId: number): Promise<ProviderModel[]> {
+  return apiRequest<ProviderModel[]>(`/providers/models/${providerId}/refresh`, {
+    method: 'POST',
+  });
+}
+
+// Refresh all provider models result
+export interface RefreshProviderModelDetail {
+  provider_id: number;
+  provider_name: string;
+  success: boolean;
+  models_count: number;
+  error?: string;
+}
+
+export interface RefreshAllProviderModelsResult {
+  total: number;
+  success: number;
+  failed: number;
+  details: RefreshProviderModelDetail[];
+}
+
+export async function refreshAllProviderModels(): Promise<RefreshAllProviderModelsResult> {
+  return apiRequest<RefreshAllProviderModelsResult>('/providers/models/refresh-all', {
+    method: 'POST',
+  });
 }
 
 // Config API functions
@@ -439,10 +487,18 @@ export const configAPI = {
   getConfig: (key: string) =>
     apiRequest<ConfigResponse>(`/config/${key}`),
 
+  // 用于保存复杂对象配置（如 Anthropic 配置）
   updateConfig: (key: string, data: any) =>
     apiRequest<ConfigResponse>(`/config/${key}`, {
       method: 'PUT',
       body: JSON.stringify({ value: JSON.stringify(data) }),
+    }),
+
+  // 用于保存简单字符串配置（如日志保留天数）
+  updateConfigRaw: (key: string, value: string) =>
+    apiRequest<ConfigResponse>(`/config/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
     }),
 };
 
@@ -547,4 +603,158 @@ export async function cleanLogs(params: {
 // Test API functions
 export async function testCountTokens(): Promise<void> {
   return apiRequest<void>('/test/count_tokens');
+}
+
+// Backup API functions
+export interface BackupData {
+  version: string;
+  exported_at: string;
+  providers: any[];
+  models: any[];
+  model_providers: any[];
+  auth_keys: any[];
+  configs: any[];
+}
+
+export interface BackupInfo {
+  version: string;
+  exported_at: string;
+  providers_count: number;
+  models_count: number;
+  model_providers_count: number;
+  auth_keys_count: number;
+  configs_count: number;
+}
+
+export interface ImportResult {
+  message: string;
+  stats: {
+    providers: number;
+    models: number;
+    model_providers: number;
+    auth_keys: number;
+    configs: number;
+  };
+}
+
+export async function exportBackup(): Promise<BackupData> {
+  return apiRequest<BackupData>('/backup/export');
+}
+
+export async function importBackup(data: BackupData): Promise<ImportResult> {
+  return apiRequest<ImportResult>('/backup/import', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function previewBackup(data: BackupData): Promise<BackupInfo> {
+  return apiRequest<BackupInfo>('/backup/preview', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+// WebDAV API functions
+export interface WebDAVConfig {
+  url: string;
+  username: string;
+  password: string;
+  encryption_enabled?: boolean;
+  encryption_password?: string;
+}
+
+export interface WebDAVAutoSyncConfig {
+  enabled: boolean;
+  sync_interval: number;
+  sync_strategy: 'merge' | 'upload_only' | 'download_only';
+}
+
+export interface WebDAVTestResult {
+  message: string;
+  status: number;
+}
+
+export interface WebDAVUploadResult {
+  message: string;
+  file_name: string;
+  size: number;
+}
+
+export interface WebDAVDownloadResponse {
+  data?: BackupData;
+  is_encrypted: boolean;
+  raw_content?: string;
+}
+
+export interface WebDAVSyncNowResult {
+  action: string;
+  message: string;
+}
+
+export async function getWebDAVConfig(): Promise<WebDAVConfig> {
+  return apiRequest<WebDAVConfig>('/webdav/config');
+}
+
+export async function updateWebDAVConfig(config: WebDAVConfig): Promise<WebDAVConfig> {
+  return apiRequest<WebDAVConfig>('/webdav/config', {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
+}
+
+export async function getWebDAVAutoSyncConfig(): Promise<WebDAVAutoSyncConfig> {
+  return apiRequest<WebDAVAutoSyncConfig>('/webdav/auto-sync/config');
+}
+
+export async function updateWebDAVAutoSyncConfig(config: WebDAVAutoSyncConfig): Promise<WebDAVAutoSyncConfig> {
+  return apiRequest<WebDAVAutoSyncConfig>('/webdav/auto-sync/config', {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  });
+}
+
+export async function testWebDAVConnection(config: WebDAVConfig): Promise<WebDAVTestResult> {
+  return apiRequest<WebDAVTestResult>('/webdav/test', {
+    method: 'POST',
+    body: JSON.stringify(config),
+  });
+}
+
+export async function uploadWebDAVBackup(
+  config: WebDAVConfig,
+  data: BackupData,
+  encryptionEnabled?: boolean,
+  encryptedContent?: string
+): Promise<WebDAVUploadResult> {
+  return apiRequest<WebDAVUploadResult>('/webdav/upload', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...config,
+      data,
+      encryption_enabled: encryptionEnabled,
+      encrypted_content: encryptedContent,
+    }),
+  });
+}
+
+export async function downloadWebDAVBackup(config: WebDAVConfig): Promise<WebDAVDownloadResponse> {
+  return apiRequest<WebDAVDownloadResponse>('/webdav/download', {
+    method: 'POST',
+    body: JSON.stringify(config),
+  });
+}
+
+export async function syncNowWebDAV(params: {
+  url: string;
+  username: string;
+  password: string;
+  sync_strategy: string;
+  encryption_enabled?: boolean;
+  encryption_password?: string;
+}): Promise<WebDAVSyncNowResult> {
+  return apiRequest<WebDAVSyncNowResult>('/webdav/sync-now', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
 }

@@ -2,7 +2,10 @@
 .claude
 llmio.db
 llmio
+llmio.exe
 api.md
 todo.md
 db
 .gocache/
+webui/dist/
+webui/node_modules/

@@ -1,18 +1,60 @@
 package models
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
 	"gorm.io/gorm"
 )
 
+// CachedModelCapabilities 缓存的模型能力
+type CachedModelCapabilities struct {
+	Vision           bool `json:"vision"`            // 视觉能力（图片理解）
+	FunctionCalling  bool `json:"function_calling"`  // 工具调用能力
+	StructuredOutput bool `json:"structured_output"` // 结构化输出能力
+}
+
+// CachedModel 缓存的模型信息
+type CachedModel struct {
+	ID           string                   `json:"id"`
+	Capabilities *CachedModelCapabilities `json:"capabilities,omitempty"`
+}
+
+// CachedModelList 是一个自定义类型，用于兼容旧格式（[]string）和新格式（[]CachedModel）
+type CachedModelList []CachedModel
+
+// UnmarshalJSON 实现自定义 JSON 反序列化，兼容旧格式
+func (c *CachedModelList) UnmarshalJSON(data []byte) error {
+	// 首先尝试解析为新格式 []CachedModel
+	var newFormat []CachedModel
+	if err := json.Unmarshal(data, &newFormat); err == nil {
+		*c = newFormat
+		return nil
+	}
+
+	// 如果失败，尝试解析为旧格式 []string
+	var oldFormat []string
+	if err := json.Unmarshal(data, &oldFormat); err != nil {
+		return err
+	}
+
+	// 将旧格式转换为新格式
+	result := make([]CachedModel, len(oldFormat))
+	for i, id := range oldFormat {
+		result[i] = CachedModel{ID: id}
+	}
+	*c = result
+	return nil
+}
+
 type Provider struct {
 	gorm.Model
-	Name    string
-	Type    string
-	Config  string
-	Console string // 控制台地址
+	Name         string
+	Type         string
+	Config       string
+	Console      string          // 控制台地址
+	CachedModels CachedModelList `gorm:"serializer:json"` // 缓存的模型列表（包含能力信息）
 }
 
 type AnthropicConfig struct {
@@ -23,13 +65,15 @@ type AnthropicConfig struct {
 
 type Model struct {
 	gorm.Model
-	Name     string
-	Remark   string
-	MaxRetry int    // 重试次数限制
-	TimeOut  int    // 超时时间 单位秒
-	IOLog    *bool  // 是否记录IO
-	Strategy string // 负载均衡策略 默认 lottery
-	Breaker  *bool  // 是否开启熔断
+	Name       string
+	Remark     string
+	MaxRetry   int     // 重试次数限制
+	TimeOut    int     // 超时时间 单位秒
+	IOLog      *bool   // 是否记录IO
+	Strategy   string  // 负载均衡策略 默认 lottery
+	Breaker    *bool   // 是否开启熔断
+	IsImported bool    `gorm:"default:false"` // 是否从外部导入（如Cherry Studio）
+	ImportedFrom string // 导入来源标识
 }
 
 type ModelWithProvider struct {

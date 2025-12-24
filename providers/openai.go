@@ -53,5 +53,12 @@ func (o *OpenAI) Models(ctx context.Context) ([]Model, error) {
 	if err := json.NewDecoder(res.Body).Decode(&modelList); err != nil {
 		return nil, err
 	}
+	
+	// 为每个模型推断能力和分组
+	for i := range modelList.Data {
+		modelList.Data[i].Capabilities = InferModelCapabilities(modelList.Data[i].ID)
+		modelList.Data[i].Group = InferModelGroup(modelList.Data[i].ID)
+	}
+	
 	return modelList.Data, nil
 }

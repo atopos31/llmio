@@ -548,3 +548,42 @@ export async function cleanLogs(params: {
 export async function testCountTokens(): Promise<void> {
   return apiRequest<void>('/test/count_tokens');
 }
+
+// GitHub Release API
+export interface GitHubRelease {
+  tag_name: string;
+  name: string;
+  published_at: string;
+  html_url: string;
+  body: string;
+}
+
+export async function checkLatestRelease(owner: string, repo: string): Promise<GitHubRelease | null> {
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/releases/latest`,
+      {
+        headers: {
+          'Accept': 'application/vnd.github+json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      console.warn('Failed to fetch latest release:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    return {
+      tag_name: data.tag_name,
+      name: data.name,
+      published_at: data.published_at,
+      html_url: data.html_url,
+      body: data.body,
+    };
+  } catch (error) {
+    console.error('Error checking for updates:', error);
+    return null;
+  }
+}

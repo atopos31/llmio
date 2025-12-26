@@ -15,11 +15,20 @@ import {
   FaKey
 } from "react-icons/fa";
 import { useTheme } from "@/components/theme-provider";
-import { getVersion } from "@/lib/api";
+import { getVersion, checkLatestRelease, type GitHubRelease } from "@/lib/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [version, setVersion] = useState("dev");
+  const [latestRelease, setLatestRelease] = useState<GitHubRelease | null>(null);
+  const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation(); // 用于高亮当前选中的菜单
@@ -30,19 +39,43 @@ export default function Layout() {
 
   useEffect(() => {
     let active = true;
-    getVersion()
-      .then((value) => {
+
+    const fetchVersion = async () => {
+      try {
+        const value = await getVersion();
         if (active && value) {
           setVersion(value);
         }
-      })
-      .catch(() => {
+      } catch {
         // Keep default version when API is unreachable or unauthorized.
-      });
+      }
+    };
+
+    void fetchVersion();
+
     return () => {
       active = false;
     };
   }, []);
+
+  // Check for updates when on home page
+  useEffect(() => {
+    if (location.pathname === '/') {
+      const checkForUpdates = async () => {
+        try {
+          const release = await checkLatestRelease('atopos31', 'llmio');
+          if (release && release.tag_name !== version) {
+            setLatestRelease(release);
+            setShowUpdateDialog(true);
+          }
+        } catch (error) {
+          console.error('Failed to check for updates:', error);
+        }
+      };
+
+      void checkForUpdates();
+    }
+  }, [location.pathname, version]);
 
   const handleLogout = () => {
     localStorage.removeItem("authToken");
@@ -73,8 +106,16 @@ export default function Layout() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="text-muted-foreground">
+          <Badge
+            variant="outline"
+            className="text-muted-foreground cursor-pointer hover:bg-accent transition-colors"
+            onClick={() => latestRelease && setShowUpdateDialog(true)}
+            title={latestRelease ? `有新版本 ${latestRelease.tag_name} 可用` : '当前版本'}
+          >
             {version}
+            {latestRelease && (
+              <span className="ml-1 text-xs text-red-500">●</span>
+            )}
           </Badge>
           <Button 
             variant="ghost" 
@@ -211,6 +252,42 @@ export default function Layout() {
           </div>
         </main>
       </div>
+
+      {/* Update Dialog */}
+      <Dialog open={showUpdateDialog} onOpenChange={setShowUpdateDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>发现新版本 {latestRelease?.tag_name}</DialogTitle>
+            <DialogDescription>
+              当前版本: {version} → 最新版本: {latestRelease?.tag_name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <h4 className="font-semibold mb-2">更新内容：</h4>
+              <div className="bg-muted p-4 rounded-md text-sm whitespace-pre-wrap max-h-96 overflow-y-auto">
+                {latestRelease?.body || '暂无更新说明'}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setShowUpdateDialog(false)}
+              >
+                稍后提醒
+              </Button>
+              <Button
+                onClick={() => {
+                  window.open(latestRelease?.html_url, '_blank');
+                  setShowUpdateDialog(false);
+                }}
+              >
+                查看详情
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

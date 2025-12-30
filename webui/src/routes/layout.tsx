@@ -66,7 +66,15 @@ export default function Layout() {
           const release = await checkLatestRelease('atopos31', 'llmio');
           if (release && release.tag_name !== version) {
             setLatestRelease(release);
-            setShowUpdateDialog(true);
+
+            // Check if user has snoozed the update reminder
+            const snoozeUntil = localStorage.getItem('updateReminderSnoozeUntil');
+            const now = Date.now();
+
+            if (!snoozeUntil || now > parseInt(snoozeUntil, 10)) {
+              // Either no snooze set, or snooze period has expired
+              setShowUpdateDialog(true);
+            }
           }
         } catch (error) {
           console.error('Failed to check for updates:', error);
@@ -80,6 +88,13 @@ export default function Layout() {
   const handleLogout = () => {
     localStorage.removeItem("authToken");
     navigate("/login");
+  };
+
+  const handleSnoozeUpdate = () => {
+    // Set snooze until 24 hours from now
+    const snoozeUntil = Date.now() + 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    localStorage.setItem('updateReminderSnoozeUntil', snoozeUntil.toString());
+    setShowUpdateDialog(false);
   };
 
   const navItems = [
@@ -109,7 +124,13 @@ export default function Layout() {
           <Badge
             variant="outline"
             className="text-muted-foreground cursor-pointer hover:bg-accent transition-colors"
-            onClick={() => latestRelease && setShowUpdateDialog(true)}
+            onClick={() => {
+              if (latestRelease) {
+                // Clear snooze when user manually clicks to view update
+                localStorage.removeItem('updateReminderSnoozeUntil');
+                setShowUpdateDialog(true);
+              }
+            }}
             title={latestRelease ? `有新版本 ${latestRelease.tag_name} 可用` : '当前版本'}
           >
             {version}
@@ -272,7 +293,7 @@ export default function Layout() {
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"
-                onClick={() => setShowUpdateDialog(false)}
+                onClick={handleSnoozeUpdate}
               >
                 稍后提醒
               </Button>

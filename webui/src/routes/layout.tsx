@@ -63,6 +63,10 @@ export default function Layout() {
     if (location.pathname === '/') {
       const checkForUpdates = async () => {
         try {
+          if (version === 'dev') {
+            console.log('Skipping version check in dev mode');
+            return;
+          }
           const release = await checkLatestRelease('atopos31', 'llmio');
           if (release && release.tag_name !== version) {
             setLatestRelease(release);
@@ -113,11 +117,11 @@ export default function Layout() {
 
   return (
     <div className="flex flex-col h-screen w-full dark:bg-gray-900 transition-colors duration-300">
-      
+
       {/* 1. 顶部栏 Header */}
       <header className="border-b bg-background flex items-center justify-between p-3 flex-shrink-0 shadow-sm z-20">
         <div className="font-bold text-xl flex items-center gap-2">
-          <span className="text-primary text-2xl">LLMIO</span> 
+          <span className="text-primary text-2xl">LLMIO</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -138,17 +142,17 @@ export default function Layout() {
               <span className="ml-1 text-xs text-red-500">●</span>
             )}
           </Badge>
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="ghost"
             size="icon"
-            className="hover:bg-accent hover:text-accent-foreground" 
+            className="hover:bg-accent hover:text-accent-foreground"
             onClick={() => setTheme(theme === "light" ? "dark" : "light")}
           >
-            <svg 
-              xmlns="http://www.w3.org/2000/svg" 
-              width="24" height="24" viewBox="0 0 24 24" 
-              fill="none" stroke="currentColor" strokeWidth="2" 
-              strokeLinecap="round" strokeLinejoin="round" 
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24" height="24" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" strokeWidth="2"
+              strokeLinecap="round" strokeLinejoin="round"
               className="size-5"
             >
               <path stroke="none" d="M0 0h24v24H0z" fill="none"></path>
@@ -159,9 +163,9 @@ export default function Layout() {
               <path d="M12 19.6l8.85 -8.85"></path>
             </svg>
           </Button>
-          
-          <Button 
-            variant="ghost" 
+
+          <Button
+            variant="ghost"
             onClick={handleLogout}
             className="gap-2"
           >
@@ -172,9 +176,9 @@ export default function Layout() {
 
       {/* 2. 下方主体区域 */}
       <div className="flex overflow-y-hidden flex-1 min-w-0">
-        
+
         {/* 左侧侧边栏 Sidebar */}
-        <aside 
+        <aside
           className={`
             flex flex-col border-r bg-background/95 transition-all duration-200 ease-in-out
             ${sidebarOpen ? WIDTH_EXPANDED : WIDTH_COLLAPSED}
@@ -187,10 +191,10 @@ export default function Layout() {
                 return (
                   <li key={item.to}>
                     <Link to={item.to}>
-                      <div 
+                      <div
                         className={`
                           group flex items-center h-10 mx-2 rounded-md transition-colors relative overflow-hidden whitespace-nowrap
-                          ${isActive 
+                          ${isActive
                             ? "bg-primary text-primary-foreground shadow-sm" // 选中状态
                             : "hover:bg-accent hover:text-accent-foreground text-muted-foreground" // 默认状态
                           }
@@ -210,16 +214,16 @@ export default function Layout() {
                         `}>
                           <span className="text-lg">{item.icon}</span>
                         </div>
-                        
+
                         {/* 
                            关键点：文字容器
                            通过 width, opacity, translate 组合实现平滑过渡
                         */}
-                        <span 
+                        <span
                           className={`
                             font-medium transition-all duration-300 ease-in-out origin-left
-                            ${sidebarOpen 
-                              ? "w-auto opacity-100 translate-x-0 ml-2" 
+                            ${sidebarOpen
+                              ? "w-auto opacity-100 translate-x-0 ml-2"
                               : "w-0 opacity-0 -translate-x-4 ml-0"
                             }
                           `}
@@ -249,13 +253,13 @@ export default function Layout() {
                  ${sidebarOpen ? "w-12" : "w-full"}
                  transition-all duration-300
               `}>
-                 {sidebarOpen ? <FaChevronLeft /> : <FaChevronRight />}
+                {sidebarOpen ? <FaChevronLeft /> : <FaChevronRight />}
               </div>
-              
+
               <span className={`
                 whitespace-nowrap transition-all duration-300 ease-in-out overflow-hidden
-                ${sidebarOpen 
-                  ? "w-auto opacity-100 translate-x-0 ml-2" 
+                ${sidebarOpen
+                  ? "w-auto opacity-100 translate-x-0 ml-2"
                   : "w-0 opacity-0 -translate-x-4 ml-0"
                 }
               `}>
@@ -269,7 +273,7 @@ export default function Layout() {
         {/* 右侧主内容区域 */}
         <main className="flex-1 min-w-0 bg-muted/20 p-2 md:p-4 transition-all duration-300">
           <div className="mx-auto max-w-full h-full min-w-0 overflow-x-hidden">
-             <Outlet />
+            <Outlet />
           </div>
         </main>
       </div>

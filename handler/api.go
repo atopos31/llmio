@@ -512,7 +512,7 @@ func GetModelProviderStatus(c *gin.Context) {
 	common.Success(c, status)
 }
 
-// CreateModelProvider 创建模型提供商关联
+// CreateModelProvider 创建关联管理
 func CreateModelProvider(c *gin.Context) {
 	var req ModelWithProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -549,7 +549,7 @@ func CreateModelProvider(c *gin.Context) {
 	common.Success(c, modelProvider)
 }
 
-// UpdateModelProvider 更新模型提供商关联
+// UpdateModelProvider 更新关联管理
 func UpdateModelProvider(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
@@ -609,7 +609,7 @@ func UpdateModelProvider(c *gin.Context) {
 	common.Success(c, updatedModelProvider)
 }
 
-// UpdateModelProviderStatus 切换模型提供商关联启用状态
+// UpdateModelProviderStatus 切换关联管理启用状态
 func UpdateModelProviderStatus(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)
@@ -648,7 +648,7 @@ func UpdateModelProviderStatus(c *gin.Context) {
 	common.Success(c, existing)
 }
 
-// DeleteModelProvider 删除模型提供商关联
+// DeleteModelProvider 删除关联管理
 func DeleteModelProvider(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 64)

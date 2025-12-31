@@ -270,7 +270,7 @@ export default function ModelProvidersPage() {
       loadProviderStatus(data, modelId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`获取模型提供商关联列表失败: ${message}`);
+      toast.error(`获取关联管理列表失败: ${message}`);
       console.error(err);
     } finally {
       setLoading(false);
@@ -308,14 +308,14 @@ export default function ModelProvidersPage() {
     try {
       await createModelProvider(buildPayload(values));
       setOpen(false);
-      toast.success("模型提供商关联创建成功");
+      toast.success("关联管理创建成功");
       form.reset(getDefaultFormValues());
       if (selectedModelId) {
         fetchModelProviders(selectedModelId);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`创建模型提供商关联失败: ${message}`);
+      toast.error(`创建关联管理失败: ${message}`);
       console.error(err);
     }
   };
@@ -346,7 +346,7 @@ export default function ModelProvidersPage() {
     try {
       await updateModelProvider(editingAssociation.ID, buildPayload(values));
       setOpen(false);
-      toast.success("模型提供商关联更新成功");
+      toast.success("关联管理更新成功");
       setEditingAssociation(null);
       form.reset(getDefaultFormValues());
       if (selectedModelId) {
@@ -354,7 +354,7 @@ export default function ModelProvidersPage() {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`更新模型提供商关联失败: ${message}`);
+      toast.error(`更新关联管理失败: ${message}`);
       console.error(err);
     }
   };
@@ -367,10 +367,10 @@ export default function ModelProvidersPage() {
       if (selectedModelId) {
         fetchModelProviders(selectedModelId);
       }
-      toast.success("模型提供商关联删除成功");
+      toast.success("关联管理删除成功");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`删除模型提供商关联失败: ${message}`);
+      toast.error(`删除关联管理失败: ${message}`);
       console.error(err);
     }
   };
@@ -615,7 +615,7 @@ export default function ModelProvidersPage() {
   // 获取唯一的提供商类型列表
   const providerTypes = Array.from(new Set(providers.map(p => p.Type).filter(Boolean)));
 
-  // 根据选择的提供商类型过滤模型提供商关联，并按权重排序
+  // 根据选择的提供商类型过滤关联管理，并按权重排序
   const filteredModelProviders = selectedProviderType && selectedProviderType !== "all"
     ? modelProviders.filter(association => {
       const provider = providers.find(p => p.ID === association.ProviderID);
@@ -638,7 +638,7 @@ export default function ModelProvidersPage() {
       <div className="flex flex-col gap-2 flex-shrink-0">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <h2 className="text-2xl font-bold tracking-tight">模型提供商关联</h2>
+            <h2 className="text-2xl font-bold tracking-tight">关联管理</h2>
           </div>
         </div>
         <div className="flex flex-col gap-2 flex-shrink-0">
@@ -838,7 +838,7 @@ export default function ModelProvidersPage() {
                                   <AlertDialogHeader>
                                     <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
                                     <AlertDialogDescription>
-                                      此操作无法撤销。这将永久删除该模型提供商关联。
+                                      此操作无法撤销。这将永久删除该关联管理。
                                     </AlertDialogDescription>
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
@@ -960,7 +960,7 @@ export default function ModelProvidersPage() {
                           <AlertDialogHeader>
                             <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
                             <AlertDialogDescription>
-                              此操作无法撤销。这将永久删除该模型提供商关联。
+                              此操作无法撤销。这将永久删除该关联管理。
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>

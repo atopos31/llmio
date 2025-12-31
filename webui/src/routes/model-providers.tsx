@@ -221,6 +221,21 @@ export default function ModelProvidersPage() {
     };
   };
 
+  const getDefaultFormValues = (overrideModelId?: number): FormValues => {
+    const fallbackModelId = overrideModelId ?? selectedModelId ?? models[0]?.ID ?? 0;
+    return {
+      model_id: fallbackModelId,
+      provider_name: "",
+      provider_id: 0,
+      tool_call: false,
+      structured_output: false,
+      image: false,
+      with_header: false,
+      weight: 1,
+      customer_headers: []
+    };
+  };
+
   const fetchModels = async () => {
     try {
       const data = await getModelOptions();
@@ -294,17 +309,7 @@ export default function ModelProvidersPage() {
       await createModelProvider(buildPayload(values));
       setOpen(false);
       toast.success("模型提供商关联创建成功");
-      form.reset({
-        model_id: selectedModelId || 0,
-        provider_name: "",
-        provider_id: 0,
-        tool_call: false,
-        structured_output: false,
-        image: false,
-        with_header: false,
-        weight: 1,
-        customer_headers: []
-      });
+      form.reset(getDefaultFormValues());
       if (selectedModelId) {
         fetchModelProviders(selectedModelId);
       }
@@ -343,17 +348,7 @@ export default function ModelProvidersPage() {
       setOpen(false);
       toast.success("模型提供商关联更新成功");
       setEditingAssociation(null);
-      form.reset({
-        model_id: 0,
-        provider_name: "",
-        provider_id: 0,
-        tool_call: false,
-        structured_output: false,
-        image: false,
-        with_header: false,
-        weight: 1,
-        customer_headers: []
-      });
+      form.reset(getDefaultFormValues());
       if (selectedModelId) {
         fetchModelProviders(selectedModelId);
       }
@@ -573,6 +568,7 @@ export default function ModelProvidersPage() {
 
   const openCreateDialog = () => {
     setEditingAssociation(null);
+    form.reset(getDefaultFormValues());
     setOpen(true);
   };
 

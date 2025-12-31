@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import Loading from "@/components/loading";
 import { getLogs, getProviders, getModelOptions, getAuthKeysList, type ChatLog, type Provider, type Model, type AuthKeyItem, getProviderTemplates, cleanLogs } from "@/lib/api";
-import { ChevronLeft, ChevronRight, RefreshCw, Trash2, Eye, EyeOff } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw, Trash2, Eye, MessageSquare } from "lucide-react";
 
 // 格式化时间显示
 const formatTime = (nanoseconds: number): string => {
@@ -349,7 +349,7 @@ export default function LogsPage() {
                               onClick={() => handleViewChatIO(log)}
                               disabled={!canViewChatIO(log)}
                             >
-                              <EyeOff className="h-4 w-4" />
+                              <MessageSquare className="h-4 w-4" />
                             </Button>
                           </div>
                         </TableCell>
@@ -383,7 +383,7 @@ export default function LogsPage() {
                             onClick={() => handleViewChatIO(log)}
                             disabled={!canViewChatIO(log)}
                           >
-                            <EyeOff className="h-3.5 w-3.5" />
+                            <MessageSquare className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </div>

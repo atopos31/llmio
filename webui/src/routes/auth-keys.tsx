@@ -340,7 +340,7 @@ export default function AuthKeysPage() {
     <div className="h-full min-h-0 flex flex-col gap-2 p-1">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-2xl font-bold tracking-tight">API Key 管理</h2>
+          <h2 className="text-2xl font-bold tracking-tight">密钥管理</h2>
         </div>
         <Button onClick={handleCreate} className="shrink-0">
           <Plus className="size-4 " />

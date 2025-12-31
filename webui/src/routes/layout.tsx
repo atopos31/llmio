@@ -107,7 +107,7 @@ export default function Layout() {
     { to: "/models", label: "模型管理", icon: <FaRobot /> },
     { to: "/model-providers", label: "关联管理", icon: <FaLink /> },
     { to: "/logs", label: "请求日志", icon: <FaFileAlt /> },
-    { to: "/auth-keys", label: "API Key 管理", icon: <FaKey /> },
+    { to: "/auth-keys", label: "密钥管理", icon: <FaKey /> },
     { to: "/config", label: "系统配置", icon: <FaCog /> },
   ];
 

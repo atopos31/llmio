@@ -75,7 +75,7 @@ func GetProviders(c *gin.Context) {
 	providerType := c.Query("type")
 
 	// 构建查询条件
-	query := models.DB.Model(&models.Provider{}).WithContext(c.Request.Context())
+	query := gorm.G[models.Provider](models.DB).Order("id DESC")
 
 	if name != "" {
 		query = query.Where("name LIKE ?", "%"+name+"%")
@@ -84,8 +84,9 @@ func GetProviders(c *gin.Context) {
 	if providerType != "" {
 		query = query.Where("type = ?", providerType)
 	}
-	var providers []models.Provider
-	if err := query.Find(&providers).Error; err != nil {
+
+	providers, err := query.Find(c.Request.Context())
+	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return
 	}

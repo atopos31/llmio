@@ -1,8 +1,13 @@
 package handler
 
 import (
+	"context"
+	"errors"
+	"slices"
+
 	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/consts"
+	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
 	"github.com/atopos31/llmio/service"
 	"github.com/gin-gonic/gin"
@@ -11,6 +16,11 @@ import (
 func OpenAIModelsHandler(c *gin.Context) {
 	ctx := c.Request.Context()
 	models, err := service.ModelsByTypes(ctx, consts.StyleOpenAI, consts.StyleOpenAIRes)
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+	models, err = filterByAuthKey(ctx, models)
 	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return
@@ -33,6 +43,11 @@ func OpenAIModelsHandler(c *gin.Context) {
 func AnthropicModelsHandler(c *gin.Context) {
 	ctx := c.Request.Context()
 	models, err := service.ModelsByTypes(ctx, consts.StyleAnthropic)
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
+	models, err = filterByAuthKey(ctx, models)
 	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return
@@ -69,7 +84,11 @@ func GeminiModelsHandler(c *gin.Context) {
 		common.InternalServerError(c, err.Error())
 		return
 	}
-
+	models, err = filterByAuthKey(ctx, models)
+	if err != nil {
+		common.InternalServerError(c, err.Error())
+		return
+	}
 	resModels := make([]GeminiModel, 0, len(models))
 	for _, model := range models {
 		resModels = append(resModels, GeminiModel{
@@ -84,4 +103,24 @@ func GeminiModelsHandler(c *gin.Context) {
 	common.SuccessRaw(c, GeminiModelsResponse{
 		Models: resModels,
 	})
+}
+
+func filterByAuthKey(ctx context.Context, inModels []models.Model) ([]models.Model, error) {
+	// 验证是否为允许全部模型
+	allowAll, ok := ctx.Value(consts.ContextKeyAllowAllModel).(bool)
+	if !ok {
+		return nil, errors.New("invalid auth key")
+	}
+	if allowAll {
+		return inModels, nil
+	}
+
+	allowedModels, ok := ctx.Value(consts.ContextKeyAllowModels).([]string)
+	if !ok {
+		return nil, errors.New("invalid auth key")
+	}
+
+	return slices.DeleteFunc(inModels, func(m models.Model) bool {
+		return !slices.Contains(allowedModels, m.Name)
+	}), nil
 }

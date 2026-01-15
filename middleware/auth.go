@@ -45,22 +45,21 @@ func Auth(token string) gin.HandlerFunc {
 // 用于OpenAI接口鉴权
 func AuthOpenAI(adminToken string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		parts := strings.SplitN(authHeader, " ", 2)
+		parts := strings.SplitN(c.GetHeader("Authorization"), " ", 2)
 
-		var tokenString string
+		var authKey string
 		if len(parts) == 2 && parts[0] == "Bearer" {
-			tokenString = parts[1]
+			authKey = parts[1]
 		}
-		checkAuthKey(c, tokenString, adminToken)
+		checkAuthKey(c, authKey, adminToken)
 	}
 }
 
 // 用于Anthropic接口鉴权
 func AuthAnthropic(adminToken string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("x-api-key")
-		checkAuthKey(c, authHeader, adminToken)
+		authKey := c.GetHeader("x-api-key")
+		checkAuthKey(c, authKey, adminToken)
 	}
 }
 

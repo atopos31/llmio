@@ -31,7 +31,11 @@ func main() {
 	router := gin.Default()
 
 	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1"})))
-	router.Use(cors.Default())
+	// 跨域配置
+	config := cors.DefaultConfig()
+	config.AllowAllOrigins = true
+	config.AllowHeaders = append(config.AllowHeaders, "Authorization")
+	router.Use(cors.New(config))
 
 	token := os.Getenv("TOKEN")
 

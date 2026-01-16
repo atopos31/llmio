@@ -15,9 +15,9 @@ import (
 	"github.com/atopos31/llmio/handler"
 	"github.com/atopos31/llmio/middleware"
 	"github.com/atopos31/llmio/models"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
-	"github.com/gin-contrib/cors"
 	_ "golang.org/x/crypto/x509roots/fallback"
 )
 
@@ -44,9 +44,9 @@ func main() {
 	authGemini := middleware.AuthGemini(token)
 
 	// openai
-	openai := router.Group("/openai", authOpenAI)
+	openai := router.Group("/openai")
 	{
-		v1 := openai.Group("/v1")
+		v1 := openai.Group("/v1", authOpenAI)
 		{
 			v1.GET("/models", handler.OpenAIModelsHandler)
 			v1.POST("/chat/completions", handler.ChatCompletionsHandler)
@@ -55,12 +55,12 @@ func main() {
 	}
 
 	// anthropic
-	anthropic := router.Group("/anthropic", authAnthropic)
+	anthropic := router.Group("/anthropic")
 	{
 		// claude code logging
 		anthropic.POST("/api/event_logging/batch", handler.EventLogging)
 
-		v1 := anthropic.Group("/v1")
+		v1 := anthropic.Group("/v1", authAnthropic)
 		{
 			v1.GET("/models", handler.AnthropicModelsHandler)
 			v1.POST("/messages", handler.Messages)
@@ -69,11 +69,13 @@ func main() {
 	}
 
 	// gemini
-	gemini := router.Group("/gemini", authGemini)
+	gemini := router.Group("/gemini")
 	{
-		v1beta := gemini.Group("/v1beta")
-		v1beta.GET("/models", handler.GeminiModelsHandler)
-		v1beta.POST("/models/*modelAction", handler.GeminiGenerateContentHandler)
+		v1beta := gemini.Group("/v1beta", authGemini)
+		{
+			v1beta.GET("/models", handler.GeminiModelsHandler)
+			v1beta.POST("/models/*modelAction", handler.GeminiGenerateContentHandler)
+		}
 	}
 
 	// 兼容性保留
@@ -86,9 +88,8 @@ func main() {
 		v1.POST("/messages/count_tokens", authAnthropic, handler.CountTokens)
 	}
 
-	api := router.Group("/api")
+	api := router.Group("/api", middleware.Auth(token))
 	{
-		api.Use(middleware.Auth(token))
 		api.GET("/metrics/use/:days", handler.Metrics)
 		api.GET("/metrics/counts", handler.Counts)
 		api.GET("/metrics/projects", handler.ProjectCounts)

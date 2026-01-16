@@ -17,6 +17,7 @@ import (
 	"github.com/atopos31/llmio/models"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
+	"github.com/gin-contrib/cors"
 	_ "golang.org/x/crypto/x509roots/fallback"
 )
 
@@ -30,6 +31,7 @@ func main() {
 	router := gin.Default()
 
 	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1"})))
+	router.Use(cors.Default())
 
 	token := os.Getenv("TOKEN")
 

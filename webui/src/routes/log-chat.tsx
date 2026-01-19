@@ -9,8 +9,43 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { duotoneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { duotoneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { toast } from "sonner";
+import { Copy, Check } from "lucide-react";
 
 type SyntaxStyle = typeof duotoneLight;
+
+interface CopyButtonProps {
+  text: string;
+}
+
+function CopyButton({ text }: CopyButtonProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      toast.success("已复制到剪贴板");
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      toast.error("复制失败");
+    }
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={handleCopy}
+      className="h-8 w-8 p-0"
+    >
+      {copied ? (
+        <Check className="h-4 w-4" />
+      ) : (
+        <Copy className="h-4 w-4" />
+      )}
+    </Button>
+  );
+}
 
 interface JsonBlockProps {
   title: string;
@@ -57,7 +92,7 @@ function JsonBlock({ title, raw, syntaxStyle }: JsonBlockProps) {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <JsonContent text={text} parsed={parsed} empty={empty} syntaxStyle={syntaxStyle} />
+        <JsonContent text={text} parsed={parsed} empty={empty} syntaxStyle={syntaxStyle} raw={raw} />
       </CardContent>
     </Card>
   );
@@ -75,11 +110,13 @@ function OutputPreview({ index, raw, syntaxStyle }: OutputPreviewProps) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-muted-foreground">响应片段 {index + 1}</p>
-        {!parsed && !empty && <span className="text-xs text-muted-foreground">原始字符串</span>}
-        {empty && <span className="text-xs text-muted-foreground">暂无数据</span>}
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-muted-foreground">响应片段 {index + 1}</p>
+          {!parsed && !empty && <span className="text-xs text-muted-foreground">原始字符串</span>}
+          {empty && <span className="text-xs text-muted-foreground">暂无数据</span>}
+        </div>
       </div>
-      <JsonContent text={text} parsed={parsed} empty={empty} syntaxStyle={syntaxStyle} />
+      <JsonContent text={text} parsed={parsed} empty={empty} syntaxStyle={syntaxStyle} raw={raw} />
     </div>
   );
 }
@@ -94,9 +131,11 @@ function DefaultOutput({ raw, syntaxStyle }: DefaultOutputProps) {
 
   return (
     <div className="space-y-2">
-      {!parsed && !empty && <span className="text-xs text-muted-foreground">原始字符串</span>}
-      {empty && <span className="text-xs text-muted-foreground">暂无数据</span>}
-      <JsonContent text={text} parsed={parsed} empty={empty} syntaxStyle={syntaxStyle} />
+      <div>
+        {!parsed && !empty && <span className="text-xs text-muted-foreground">原始字符串</span>}
+        {empty && <span className="text-xs text-muted-foreground">暂无数据</span>}
+      </div>
+      <JsonContent text={text} parsed={parsed} empty={empty} syntaxStyle={syntaxStyle} raw={raw} />
     </div>
   );
 }
@@ -106,12 +145,16 @@ interface JsonContentProps {
   parsed: boolean;
   empty: boolean;
   syntaxStyle: SyntaxStyle;
+  raw: string;
 }
 
-function JsonContent({ text, parsed, empty, syntaxStyle }: JsonContentProps) {
+function JsonContent({ text, parsed, empty, syntaxStyle, raw }: JsonContentProps) {
   if (parsed && !empty) {
     return (
-      <div className="w-full max-w-full min-w-0 overflow-x-auto rounded-md border bg-muted/70 font-mono text-sm leading-6">
+      <div className="relative w-full max-w-full min-w-0 overflow-x-auto rounded-md border bg-muted/70 font-mono text-sm leading-6">
+        <div className="absolute top-2 right-2 z-10">
+          <CopyButton text={raw} />
+        </div>
         <SyntaxHighlighter
           language="json"
           style={syntaxStyle}
@@ -133,7 +176,12 @@ function JsonContent({ text, parsed, empty, syntaxStyle }: JsonContentProps) {
   }
 
   return (
-    <pre className="whitespace-pre font-mono text-sm leading-6 bg-muted/70 border rounded-md p-4 overflow-x-auto w-full max-w-full min-w-0">{text}</pre>
+    <div className="relative w-full max-w-full min-w-0">
+      <div className="absolute top-2 right-2 z-10">
+        <CopyButton text={raw} />
+      </div>
+      <pre className="whitespace-pre font-mono text-sm leading-6 bg-muted/70 border rounded-md p-4 overflow-x-auto w-full max-w-full min-w-0">{text}</pre>
+    </div>
   );
 }
 

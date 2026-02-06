@@ -15,7 +15,6 @@ import (
 	"github.com/atopos31/llmio/handler"
 	"github.com/atopos31/llmio/middleware"
 	"github.com/atopos31/llmio/models"
-	"github.com/gin-contrib/cors"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	_ "golang.org/x/crypto/x509roots/fallback"
@@ -29,13 +28,10 @@ func init() {
 
 func main() {
 	router := gin.Default()
-
+	// gzip压缩
 	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1"})))
-	// 跨域配置
-	config := cors.DefaultConfig()
-	config.AllowAllOrigins = true
-	config.AllowHeaders = append(config.AllowHeaders, "Authorization")
-	router.Use(cors.New(config))
+	// 跨域
+	router.Use(middleware.Cors())
 
 	token := os.Getenv("TOKEN")
 

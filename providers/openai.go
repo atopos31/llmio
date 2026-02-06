@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/tidwall/sjson"
 )
@@ -13,6 +14,7 @@ import (
 type OpenAI struct {
 	BaseURL string `json:"base_url"`
 	APIKey  string `json:"api_key"`
+	Proxy   string `json:"-"`
 }
 
 func (o *OpenAI) BuildReq(ctx context.Context, header http.Header, model string, rawBody []byte) (*http.Request, error) {
@@ -39,7 +41,7 @@ func (o *OpenAI) Models(ctx context.Context) ([]Model, error) {
 		return nil, err
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", o.APIKey))
-	res, err := http.DefaultClient.Do(req)
+	res, err := GetClient(30*time.Second, o.Proxy).Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -16,6 +16,7 @@ type Anthropic struct {
 	BaseURL string `json:"base_url"`
 	APIKey  string `json:"api_key"`
 	Version string `json:"version"`
+	Proxy   string `json:"-"`
 }
 
 func (a *Anthropic) BuildReq(ctx context.Context, header http.Header, model string, rawBody []byte) (*http.Request, error) {
@@ -58,7 +59,7 @@ func (a *Anthropic) Models(ctx context.Context) ([]Model, error) {
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("x-api-key", a.APIKey)
 	req.Header.Set("anthropic-version", a.Version)
-	res, err := http.DefaultClient.Do(req)
+	res, err := GetClient(30*time.Second, a.Proxy).Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -26,33 +26,35 @@ type Provider interface {
 	Models(ctx context.Context) ([]Model, error)
 }
 
-func New(Type, providerConfig string) (Provider, error) {
+func New(Type, providerConfig, proxy string) (Provider, error) {
 	switch Type {
 	case consts.StyleOpenAI:
 		var openai OpenAI
 		if err := json.Unmarshal([]byte(providerConfig), &openai); err != nil {
 			return nil, errors.New("invalid openai config")
 		}
-
+		openai.Proxy = proxy
 		return &openai, nil
 	case consts.StyleOpenAIRes:
 		var openaiRes OpenAIRes
 		if err := json.Unmarshal([]byte(providerConfig), &openaiRes); err != nil {
 			return nil, errors.New("invalid openai-res config")
 		}
-
+		openaiRes.Proxy = proxy
 		return &openaiRes, nil
 	case consts.StyleAnthropic:
 		var anthropic Anthropic
 		if err := json.Unmarshal([]byte(providerConfig), &anthropic); err != nil {
 			return nil, errors.New("invalid anthropic config")
 		}
+		anthropic.Proxy = proxy
 		return &anthropic, nil
 	case consts.StyleGemini:
 		var gemini Gemini
 		if err := json.Unmarshal([]byte(providerConfig), &gemini); err != nil {
 			return nil, errors.New("invalid gemini config")
 		}
+		gemini.Proxy = proxy
 		return &gemini, nil
 	default:
 		return nil, errors.New("unknown provider")

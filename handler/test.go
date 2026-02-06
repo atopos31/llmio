@@ -98,14 +98,14 @@ func ProviderTestHandler(c *gin.Context) {
 	}
 
 	// Create the provider instance
-	providerInstance, err := providers.New(chatModel.Type, chatModel.Config)
+	providerInstance, err := providers.New(chatModel.Type, chatModel.Config, chatModel.Proxy)
 	if err != nil {
 		common.BadRequest(c, "Failed to create provider: "+err.Error())
 		return
 	}
 
 	// Test connectivity by fetching models
-	client := providers.GetClient(time.Second * time.Duration(30))
+	client := providers.GetClient(time.Second*time.Duration(30), chatModel.Proxy)
 	var testBody []byte
 	switch chatModel.Type {
 	case consts.StyleOpenAI:
@@ -297,6 +297,7 @@ type ChatModel struct {
 	Type            string            `json:"type"`
 	Model           string            `json:"model"`
 	Config          string            `json:"config"`
+	Proxy           string            `json:"proxy,omitempty"`
 	WithHeader      *bool             `json:"with_header,omitempty"`
 	CustomerHeaders map[string]string `json:"customer_headers,omitempty"`
 }
@@ -319,6 +320,7 @@ func FindChatModel(ctx context.Context, id string) (*ChatModel, error) {
 		Type:            provider.Type,
 		Model:           modelWithProvider.ProviderModel,
 		Config:          provider.Config,
+		Proxy:           provider.Proxy,
 		WithHeader:      modelWithProvider.WithHeader,
 		CustomerHeaders: modelWithProvider.CustomerHeaders,
 	}, nil

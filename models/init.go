@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/atopos31/llmio/consts"
+	"github.com/atopos31/llmio/pkg/env"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -51,7 +52,7 @@ func Init(ctx context.Context, path string) {
 		panic(err)
 	}
 
-	if os.Getenv("DB_VACUUM") == "true" {
+	if env.GetEnvWithDefault("DB_VACUUM", false) {
 		// 启动时执行 VACUUM 回收空间
 		if err := db.Exec("VACUUM").Error; err != nil {
 			panic(err)

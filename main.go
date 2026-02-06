@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 	_ "time/tzdata"
@@ -15,6 +14,7 @@ import (
 	"github.com/atopos31/llmio/handler"
 	"github.com/atopos31/llmio/middleware"
 	"github.com/atopos31/llmio/models"
+	"github.com/atopos31/llmio/pkg/env"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	_ "golang.org/x/crypto/x509roots/fallback"
@@ -33,7 +33,7 @@ func main() {
 	// 跨域
 	router.Use(middleware.Cors())
 
-	token := os.Getenv("TOKEN")
+	token := env.GetEnvWithDefault("TOKEN","")
 
 	authOpenAI := middleware.AuthOpenAI(token)
 	authAnthropic := middleware.AuthAnthropic(token)
@@ -138,11 +138,7 @@ func main() {
 	}
 	setwebui(router)
 
-	port := os.Getenv("LLMIO_SERVER_PORT")
-	if port == "" {
-		port = consts.DefaultPort
-	}
-	router.Run(":" + port)
+	router.Run(":" + env.GetEnvWithDefault("LLMIO_SERVER_PORT", consts.DefaultPort))
 }
 
 //go:embed webui/dist

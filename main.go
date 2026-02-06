@@ -33,7 +33,7 @@ func main() {
 	// 跨域
 	router.Use(middleware.Cors())
 
-	token := env.GetEnvWithDefault("TOKEN","")
+	token := env.GetEnvWithDefault("TOKEN", "")
 
 	authOpenAI := middleware.AuthOpenAI(token)
 	authAnthropic := middleware.AuthAnthropic(token)

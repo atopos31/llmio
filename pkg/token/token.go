@@ -1,4 +1,4 @@
-package pkg
+package token
 
 import (
 	"crypto/rand"
@@ -9,7 +9,7 @@ const keyChars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
 
 var keyCharsMaxI = big.NewInt(int64(len(keyChars)))
 
-func GenerateRandomCharsKey(length int) (string, error) {
+func GenerateRandomChars(length int) (string, error) {
 	b := make([]byte, length)
 
 	for i := range b {

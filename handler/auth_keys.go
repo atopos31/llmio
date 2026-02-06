@@ -10,7 +10,7 @@ import (
 	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
-	"github.com/atopos31/llmio/pkg"
+	"github.com/atopos31/llmio/pkg/token"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -95,7 +95,7 @@ func CreateAuthKey(c *gin.Context) {
 		return
 	}
 
-	key, err := pkg.GenerateRandomCharsKey(36)
+	key, err := token.GenerateRandomChars(36)
 	if err != nil {
 		common.InternalServerError(c, "Failed to generate key: "+err.Error())
 		return

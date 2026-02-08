@@ -23,6 +23,7 @@ type ProviderRequest struct {
 	Type    string `json:"type"`
 	Config  string `json:"config"`
 	Console string `json:"console"`
+	Proxy   string `json:"proxy"`
 }
 
 // ModelRequest represents the request body for creating/updating a model
@@ -101,7 +102,7 @@ func GetProviderModels(c *gin.Context) {
 		common.InternalServerError(c, err.Error())
 		return
 	}
-	chatModel, err := providers.New(provider.Type, provider.Config)
+	chatModel, err := providers.New(provider.Type, provider.Config, provider.Proxy)
 	if err != nil {
 		common.InternalServerError(c, "Failed to get models: "+err.Error())
 		return
@@ -139,6 +140,7 @@ func CreateProvider(c *gin.Context) {
 		Type:    req.Type,
 		Config:  req.Config,
 		Console: req.Console,
+		Proxy:   req.Proxy,
 	}
 
 	if err := gorm.G[models.Provider](models.DB).Create(c.Request.Context(), &provider); err != nil {
@@ -180,6 +182,7 @@ func UpdateProvider(c *gin.Context) {
 		Type:    req.Type,
 		Config:  req.Config,
 		Console: req.Console,
+		Proxy:   req.Proxy,
 	}
 
 	if _, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {

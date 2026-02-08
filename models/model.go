@@ -13,6 +13,7 @@ type Provider struct {
 	Type    string
 	Config  string
 	Console string // 控制台地址
+	Proxy   string // HTTP 代理地址
 }
 
 type AnthropicConfig struct {

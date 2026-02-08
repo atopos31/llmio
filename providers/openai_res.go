@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/tidwall/sjson"
 )
@@ -14,6 +15,7 @@ import (
 type OpenAIRes struct {
 	BaseURL string `json:"base_url"`
 	APIKey  string `json:"api_key"`
+	Proxy   string `json:"-"`
 }
 
 func (o *OpenAIRes) BuildReq(ctx context.Context, header http.Header, model string, rawBody []byte) (*http.Request, error) {
@@ -40,7 +42,7 @@ func (o *OpenAIRes) Models(ctx context.Context) ([]Model, error) {
 		return nil, err
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", o.APIKey))
-	res, err := http.DefaultClient.Do(req)
+	res, err := GetClient(30*time.Second, o.Proxy).Do(req)
 	if err != nil {
 		return nil, err
 	}

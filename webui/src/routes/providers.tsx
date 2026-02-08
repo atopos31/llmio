@@ -121,6 +121,7 @@ const formSchema = z.object({
   type: z.string().min(1, { message: "提供商类型不能为空" }),
   config: z.string().min(1, { message: "配置不能为空" }),
   console: z.string().optional(),
+  proxy: z.string().optional(),
 });
 
 export default function ProvidersPage() {
@@ -147,7 +148,7 @@ export default function ProvidersPage() {
   // 初始化表单
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: { name: "", type: "", config: "", console: "" },
+    defaultValues: { name: "", type: "", config: "", console: "", proxy: "" },
   });
   const selectedProviderType = form.watch("type");
 
@@ -306,11 +307,12 @@ export default function ProvidersPage() {
         name: values.name,
         type: values.type,
         config: values.config,
-        console: values.console || ""
+        console: values.console || "",
+        proxy: values.proxy || "",
       });
       setOpen(false);
       toast.success(`提供商 ${values.name} 创建成功`);
-      form.reset({ name: "", type: "", config: "", console: "" });
+      form.reset({ name: "", type: "", config: "", console: "", proxy: "" });
       fetchProviders();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -326,12 +328,13 @@ export default function ProvidersPage() {
         name: values.name,
         type: values.type,
         config: values.config,
-        console: values.console || ""
+        console: values.console || "",
+        proxy: values.proxy || "",
       });
       setOpen(false);
       toast.success(`提供商 ${values.name} 更新成功`);
       setEditingProvider(null);
-      form.reset({ name: "", type: "", config: "", console: "" });
+      form.reset({ name: "", type: "", config: "", console: "", proxy: "" });
       fetchProviders();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -363,6 +366,7 @@ export default function ProvidersPage() {
       type: provider.Type,
       config: provider.Config,
       console: provider.Console || "",
+      proxy: provider.Proxy || "",
     });
     setOpen(true);
   };
@@ -387,6 +391,7 @@ export default function ProvidersPage() {
       type: defaultType,
       config: defaultConfig,
       console: "",
+      proxy: "",
     });
     setOpen(true);
   };
@@ -734,6 +739,20 @@ export default function ProvidersPage() {
                         />
                       </FormControl>
                     )}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="proxy"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>HTTP 代理</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="http://192.168.1.2:1234" />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

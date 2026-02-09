@@ -32,6 +32,8 @@ func main() {
 	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1"})))
 	// 跨域
 	router.Use(middleware.Cors())
+	// webui
+	setwebui(router)
 
 	token := env.GetWithDefault("TOKEN", "")
 
@@ -136,7 +138,6 @@ func main() {
 		api.GET("/test/react/:id", handler.TestReactHandler)
 		api.GET("/test/count_tokens", handler.TestCountTokens)
 	}
-	setwebui(router)
 
 	router.Run(":" + env.GetWithDefault("LLMIO_SERVER_PORT", consts.DefaultPort))
 }

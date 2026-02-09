@@ -52,7 +52,7 @@ func Init(ctx context.Context, path string) {
 		panic(err)
 	}
 
-	if env.GetEnvWithDefault("DB_VACUUM", false) {
+	if env.GetWithDefault("DB_VACUUM", false) {
 		// 启动时执行 VACUUM 回收空间
 		if err := db.Exec("VACUUM").Error; err != nil {
 			panic(err)

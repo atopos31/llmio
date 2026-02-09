@@ -5,7 +5,7 @@ import (
 	"strconv"
 )
 
-func GetEnvWithDefault[T ~string | ~bool](key string, defaultValue T) T {
+func GetWithDefault[T ~string | ~bool](key string, defaultValue T) T {
 	envValue, ok := os.LookupEnv(key)
 	if !ok {
 		return defaultValue

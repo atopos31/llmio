@@ -33,7 +33,7 @@ func main() {
 	// 跨域
 	router.Use(middleware.Cors())
 
-	token := env.GetEnvWithDefault("TOKEN", "")
+	token := env.GetWithDefault("TOKEN", "")
 
 	authOpenAI := middleware.AuthOpenAI(token)
 	authAnthropic := middleware.AuthAnthropic(token)
@@ -138,7 +138,7 @@ func main() {
 	}
 	setwebui(router)
 
-	router.Run(":" + env.GetEnvWithDefault("LLMIO_SERVER_PORT", consts.DefaultPort))
+	router.Run(":" + env.GetWithDefault("LLMIO_SERVER_PORT", consts.DefaultPort))
 }
 
 //go:embed webui/dist

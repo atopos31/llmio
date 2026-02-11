@@ -100,13 +100,10 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				ProxyTime:     time.Since(start),
 			}
 			// 根据请求原始请求头 是否透传请求头 自定义请求头 构建新的请求头
-			withHeader := false
-			if modelWithProvider.WithHeader != nil {
-				withHeader = *modelWithProvider.WithHeader
-			}
-			header := BuildHeaders(reqMeta.Header, withHeader, modelWithProvider.CustomerHeaders, before.Stream)
+			withHeader := lo.FromPtrOr(modelWithProvider.WithHeader, false)
+			headers := BuildHeaders(reqMeta.Header, withHeader, modelWithProvider.CustomerHeaders, before.Stream)
 
-			req, err := chatModel.BuildReq(ctx, header, modelWithProvider.ProviderModel, before.raw)
+			req, err := chatModel.BuildReq(ctx, headers, modelWithProvider.ProviderModel, before.raw)
 			if err != nil {
 				retryLog <- log.WithError(err)
 				// 构建请求失败 移除待选

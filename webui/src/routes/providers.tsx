@@ -268,7 +268,8 @@ export default function ProvidersPage() {
       setProviderModels(data);
       setFilteredProviderModels(data);
     } catch (err) {
-      console.error("获取提供商模型失败", err);
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`获取提供商模型失败: ${message}`);
       setProviderModels([]);
       setFilteredProviderModels([]);
     } finally {

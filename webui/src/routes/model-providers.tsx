@@ -110,6 +110,8 @@ export default function ModelProvidersPage() {
   const [open, setOpen] = useState(false);
   const [editingAssociation, setEditingAssociation] = useState<ModelWithProvider | null>(null);
   const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
+  const [createModelIds, setCreateModelIds] = useState<number[]>([]);
+  const [createModelQuery, setCreateModelQuery] = useState("");
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [testResults, setTestResults] = useState<Record<number, { loading: boolean; result: any }>>({});
   const [testDialogOpen, setTestDialogOpen] = useState(false);
@@ -155,6 +157,23 @@ export default function ModelProvidersPage() {
     name: "customer_headers",
   });
 
+  const updateCreateModelIds = (updater: (prev: number[]) => number[]) => {
+    setCreateModelIds(prev => {
+      const next = Array.from(new Set(updater(prev)));
+      form.setValue("model_id", next[0] ?? 0, { shouldValidate: true });
+      return next;
+    });
+  };
+
+  const toggleCreateModelSelection = (modelId: number, checked: boolean) => {
+    updateCreateModelIds(prev => {
+      if (checked) {
+        return [...prev, modelId];
+      }
+      return prev.filter(id => id !== modelId);
+    });
+  };
+
   useEffect(() => {
     Promise.all([fetchModels(), fetchProviders()]).finally(() => {
       setLoading(false);
@@ -199,7 +218,7 @@ export default function ModelProvidersPage() {
     }
   }, [selectedModelId]);
 
-  const buildPayload = (values: FormValues) => {
+  const buildPayload = (values: FormValues, modelId = values.model_id) => {
     const headers: Record<string, string> = {};
     (values.customer_headers || []).forEach(({ key, value }) => {
       const trimmedKey = key.trim();
@@ -209,7 +228,7 @@ export default function ModelProvidersPage() {
     });
 
     return {
-      model_id: values.model_id,
+      model_id: modelId,
       provider_name: values.provider_name,
       provider_id: values.provider_id,
       tool_call: values.tool_call,
@@ -305,12 +324,42 @@ export default function ModelProvidersPage() {
   };
 
   const handleCreate = async (values: FormValues) => {
+    const targetModelIds = Array.from(new Set(createModelIds));
+    if (targetModelIds.length === 0) {
+      toast.error("请至少选择一个模型");
+      return;
+    }
+
+    let successCount = 0;
+    const failedModels: string[] = [];
+
     try {
-      await createModelProvider(buildPayload(values));
+      for (const modelId of targetModelIds) {
+        try {
+          await createModelProvider(buildPayload(values, modelId));
+          successCount += 1;
+        } catch {
+          const failedModel = models.find(model => model.ID === modelId)?.Name ?? `#${modelId}`;
+          failedModels.push(failedModel);
+        }
+      }
+
+      if (successCount === 0) {
+        toast.error(`创建失败，共 ${failedModels.length} 个模型未创建成功`);
+        return;
+      }
+
       setOpen(false);
-      toast.success("关联管理创建成功");
+      if (failedModels.length === 0) {
+        toast.success(`已创建 ${successCount} 条关联`);
+      } else {
+        toast.warning(`已创建 ${successCount} 条，失败 ${failedModels.length} 条: ${failedModels.slice(0, 3).join("、")}${failedModels.length > 3 ? "..." : ""}`);
+      }
       form.reset(getDefaultFormValues());
-      if (selectedModelId) {
+      const defaultModelId = selectedModelId ?? models[0]?.ID ?? 0;
+      setCreateModelIds(defaultModelId ? [defaultModelId] : []);
+      setCreateModelQuery("");
+      if (selectedModelId && targetModelIds.includes(selectedModelId)) {
         fetchModelProviders(selectedModelId);
       }
     } catch (err) {
@@ -568,7 +617,10 @@ export default function ModelProvidersPage() {
 
   const openCreateDialog = () => {
     setEditingAssociation(null);
-    form.reset(getDefaultFormValues());
+    const defaultModelId = selectedModelId ?? models[0]?.ID ?? 0;
+    form.reset(getDefaultFormValues(defaultModelId));
+    setCreateModelIds(defaultModelId ? [defaultModelId] : []);
+    setCreateModelQuery("");
     setOpen(true);
   };
 
@@ -611,6 +663,10 @@ export default function ModelProvidersPage() {
 
     return [...models].sort((a, b) => score(b.id) - score(a.id));
   };
+
+  const filteredCreateModels = models.filter(model =>
+    model.Name.toLowerCase().includes(createModelQuery.trim().toLowerCase())
+  );
 
   // 获取唯一的提供商类型列表
   const providerTypes = Array.from(new Set(providers.map(p => p.Type).filter(Boolean)));
@@ -996,24 +1052,76 @@ export default function ModelProvidersPage() {
                     render={({ field }) => (
                       <FormItem className="min-w-0">
                         <FormLabel>模型</FormLabel>
-                        <Select
-                          value={field.value.toString()}
-                          onValueChange={(value) => field.onChange(parseInt(value))}
-                          disabled={!!editingAssociation}
-                        >
-                          <FormControl>
-                            <SelectTrigger className="form-select w-full">
-                              <SelectValue placeholder="选择模型" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {models.map((model) => (
-                              <SelectItem key={model.ID} value={model.ID.toString()}>
-                                {model.Name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        {editingAssociation ? (
+                          <Select
+                            value={field.value.toString()}
+                            onValueChange={(value) => field.onChange(parseInt(value))}
+                            disabled
+                          >
+                            <FormControl>
+                              <SelectTrigger className="form-select w-full">
+                                <SelectValue placeholder="选择模型" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {models.map((model) => (
+                                <SelectItem key={model.ID} value={model.ID.toString()}>
+                                  {model.Name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                              <span>{createModelIds.length > 0 ? `已选择 ${createModelIds.length} 个模型` : "未选择模型"}</span>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2"
+                                  onClick={() => updateCreateModelIds(() => models.map(model => model.ID))}
+                                >
+                                  全选
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 px-2"
+                                  onClick={() => updateCreateModelIds(() => [])}
+                                >
+                                  清空
+                                </Button>
+                              </div>
+                            </div>
+                            <Input
+                              value={createModelQuery}
+                              onChange={(event) => setCreateModelQuery(event.target.value)}
+                              placeholder="搜索模型"
+                              className="h-8"
+                            />
+                            <div className="max-h-44 overflow-y-auto rounded-md border px-2 py-1">
+                              {filteredCreateModels.length > 0 ? (
+                                filteredCreateModels.map((model) => (
+                                  <label
+                                    key={model.ID}
+                                    className="flex items-center gap-2 rounded px-1 py-1.5 text-sm hover:bg-accent/40"
+                                  >
+                                    <Checkbox
+                                      checked={createModelIds.includes(model.ID)}
+                                      onCheckedChange={(checked) => toggleCreateModelSelection(model.ID, checked === true)}
+                                    />
+                                    <span className="truncate">{model.Name}</span>
+                                  </label>
+                                ))
+                              ) : (
+                                <p className="px-1 py-2 text-sm text-muted-foreground">没有匹配模型</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
                         <FormMessage />
                       </FormItem>
                     )}

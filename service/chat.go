@@ -90,7 +90,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				Name:          before.Model,
 				ProviderModel: modelWithProvider.ProviderModel,
 				ProviderName:  provider.Name,
-				Status:        "success",
+				Status:        consts.StatusRunning,
 				Style:         style,
 				UserAgent:     reqMeta.UserAgent,
 				RemoteIP:      reqMeta.RemoteIP,
@@ -169,6 +169,7 @@ func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, pr
 		if err != nil {
 			return err
 		}
+		log.Status = consts.StatusSuccess
 		if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, *log); err != nil {
 			return err
 		}
@@ -180,7 +181,12 @@ func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, pr
 		return nil
 	}
 	if err := recordFunc(); err != nil {
-		slog.Error("record log error", "error", err)
+		if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, models.ChatLog{
+			Status: consts.StatusError,
+			Error:  err.Error(),
+		}); err != nil {
+			slog.Error("record log error", "error", err)
+		}
 	}
 }
 
@@ -229,7 +235,7 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			if _, err := SaveChatLog(ctx, models.ChatLog{
 				Name:   before.Model,
-				Status: "error",
+				Status: consts.StatusError,
 				Style:  style,
 				Error:  err.Error(),
 			}); err != nil {

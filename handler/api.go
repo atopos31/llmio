@@ -510,7 +510,7 @@ func GetModelProviderStatus(c *gin.Context) {
 
 	status := make([]bool, 0)
 	for _, log := range logs {
-		status = append(status, log.Status == "success")
+		status = append(status, log.Status == consts.StatusSuccess)
 	}
 	slices.Reverse(status)
 	common.Success(c, status)

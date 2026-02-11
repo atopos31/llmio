@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/atopos31/llmio/consts"
 	"gorm.io/gorm"
 )
 
@@ -71,7 +72,7 @@ type ChatLog struct {
 
 func (l ChatLog) WithError(err error) ChatLog {
 	l.Error = err.Error()
-	l.Status = "error"
+	l.Status = consts.StatusError
 	return l
 }
 

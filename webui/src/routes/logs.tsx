@@ -53,6 +53,38 @@ const DetailCard = ({ label, value, mono = false }: DetailCardProps) => (
 const formatDurationValue = (value?: number) => (typeof value === "number" ? formatTime(value) : "-");
 const formatTokenValue = (value?: number) => (typeof value === "number" ? value.toLocaleString() : "-");
 const formatTpsValue = (value?: number) => (typeof value === "number" ? value.toFixed(2) : "-");
+const getStatusTextClass = (status: string) => {
+  switch (status) {
+    case "success":
+      return "text-green-500";
+    case "running":
+      return "text-amber-500";
+    default:
+      return "text-red-500";
+  }
+};
+
+const getStatusPillClass = (status: string) => {
+  switch (status) {
+    case "success":
+      return "bg-green-100 text-green-700";
+    case "running":
+      return "bg-amber-100 text-amber-700";
+    default:
+      return "bg-red-100 text-red-700";
+  }
+};
+
+const getStatusDetailClass = (status: string) => {
+  switch (status) {
+    case "success":
+      return "text-green-600";
+    case "running":
+      return "text-amber-600";
+    default:
+      return "text-red-600";
+  }
+};
 
 export default function LogsPage() {
   const [logs, setLogs] = useState<ChatLog[]>([]);
@@ -253,6 +285,7 @@ export default function LogsPage() {
               <SelectContent>
                 <SelectItem value="all">全部</SelectItem>
                 <SelectItem value="success">成功</SelectItem>
+                <SelectItem value="running">运行中</SelectItem>
                 <SelectItem value="error">错误</SelectItem>
               </SelectContent>
             </Select>
@@ -324,8 +357,7 @@ export default function LogsPage() {
                         <TableCell className="font-medium">{log.Name}</TableCell>
                         <TableCell className="text-xs">{log.key_name || '-'}</TableCell>
                         <TableCell>
-                          <span className={`inline-flex items-center px-2 py-1 ${log.Status === 'success' ? 'text-green-500' : 'text-red-500 '
-                            }`}>
+                          <span className={`inline-flex items-center px-2 py-1 ${getStatusTextClass(log.Status)}`}>
                             {log.Status}
                           </span>
                         </TableCell>
@@ -368,8 +400,7 @@ export default function LogsPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <span
-                          className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${log.Status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                            }`}
+                          className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${getStatusPillClass(log.Status)}`}
                         >
                           {log.Status}
                         </span>
@@ -475,7 +506,7 @@ export default function LogsPage() {
                     </div>
                     <div className="text-sm">
                       <span className="text-muted-foreground">状态：</span>
-                      <span className={selectedLog.Status === 'success' ? 'text-green-600' : 'text-red-600'}>
+                      <span className={getStatusDetailClass(selectedLog.Status)}>
                         {selectedLog.Status}
                       </span>
                     </div>

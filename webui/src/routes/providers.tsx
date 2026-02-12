@@ -363,6 +363,7 @@ export default function ProvidersPage() {
       <ProviderModelsDialog
         open={modelsOpen}
         onOpenChange={setModelsOpen}
+        providerId={modelsOpenId ?? undefined}
         providerName={providers.find((v) => v.ID === modelsOpenId)?.Name}
         modelsLoading={modelsLoading}
         providerModels={providerModels}

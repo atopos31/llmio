@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,7 @@ import type { ProviderModel } from "@/lib/api";
 type ProviderModelsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  providerId?: number;
   providerName?: string;
   modelsLoading: boolean;
   providerModels: ProviderModel[];
@@ -29,12 +30,19 @@ type ProviderModelsDialogProps = {
 export function ProviderModelsDialog({
   open,
   onOpenChange,
+  providerId,
   providerName,
   modelsLoading,
   providerModels,
   onCopyModelName,
 }: ProviderModelsDialogProps) {
   const [searchTerm, setSearchTerm] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setSearchTerm("");
+    }
+  }, [open, providerId]);
 
   const filteredProviderModels = useMemo(() => {
     const normalized = searchTerm.trim().toLowerCase();

@@ -1,8 +1,5 @@
-import { useState, useEffect, useRef, type ReactNode } from "react";
+import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useFieldArray, useForm } from "react-hook-form";
-import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -12,14 +9,6 @@ import {
   TableHeader,
   TableRow
 } from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,39 +20,27 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
 import Loading from "@/components/loading";
 import {
   getModelProviders,
   getModelProviderStatus,
-  createModelProvider,
-  updateModelProvider,
   updateModelProviderStatus,
   deleteModelProvider,
   getModelOptions,
   getProviders,
-  getProviderModels,
-  testModelProvider
+  getProviderModels
 } from "@/lib/api";
 import type { ModelWithProvider, Model, Provider, ProviderModel } from "@/lib/api";
-import { fetchEventSource } from "@microsoft/fetch-event-source";
-import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { RefreshCw, Pencil, Trash2, Zap } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
+import { useModelProviderForm } from "@/routes/model-providers/use-model-provider-form";
+import { useModelProviderTesting } from "@/routes/model-providers/use-model-provider-testing";
+import { ModelProviderFormDialog } from "@/routes/model-providers/model-provider-form-dialog";
+import { ModelProviderTestDialog } from "@/routes/model-providers/model-provider-test-dialog";
 
 type MobileInfoItemProps = {
   label: string;
@@ -77,164 +54,54 @@ const MobileInfoItem = ({ label, value }: MobileInfoItemProps) => (
   </div>
 );
 
-// 定义表单验证模式
-const headerPairSchema = z.object({
-  key: z.string().min(1, { message: "请求头键不能为空" }),
-  value: z.string().default(""),
-});
-
-const formSchema = z.object({
-  model_id: z.number().positive({ message: "模型ID必须大于0" }),
-  provider_name: z.string().min(1, { message: "提供商模型名称不能为空" }),
-  provider_id: z.number().positive({ message: "提供商ID必须大于0" }),
-  tool_call: z.boolean(),
-  structured_output: z.boolean(),
-  image: z.boolean(),
-  with_header: z.boolean(),
-  weight: z.number().positive({ message: "权重必须大于0" }),
-  customer_headers: z.array(headerPairSchema).default([]),
-});
-
-type FormValues = z.input<typeof formSchema>;
-
 export default function ModelProvidersPage() {
   const [modelProviders, setModelProviders] = useState<ModelWithProvider[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerModelsMap, setProviderModelsMap] = useState<Record<number, ProviderModel[]>>({});
   const [providerModelsLoading, setProviderModelsLoading] = useState<Record<number, boolean>>({});
-  const [showProviderModels, setShowProviderModels] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const [providerStatus, setProviderStatus] = useState<Record<number, boolean[]>>({});
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
-  const [editingAssociation, setEditingAssociation] = useState<ModelWithProvider | null>(null);
   const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
-  const [testResults, setTestResults] = useState<Record<number, { loading: boolean; result: any }>>({});
-  const [testDialogOpen, setTestDialogOpen] = useState(false);
-  const [selectedTestId, setSelectedTestId] = useState<number | null>(null);
-  const [testType, setTestType] = useState<"connectivity" | "react">("connectivity");
   const [selectedProviderType, setSelectedProviderType] = useState<string>("all");
   const [weightSortOrder, setWeightSortOrder] = useState<"asc" | "desc" | "none">("none");
-  const [reactTestResult, setReactTestResult] = useState<{
-    loading: boolean;
-    messages: string;
-    success: boolean | null;
-    error: string | null;
-  }>({
-    loading: false,
-    messages: "",
-    success: null,
-    error: null
-  });
   const [statusUpdating, setStatusUpdating] = useState<Record<number, boolean>>({});
   const [statusError, setStatusError] = useState<string | null>(null);
 
-  const dialogClose = () => {
-    setTestDialogOpen(false)
-  };
+  const loadProviderModels = useCallback(async (providerId: number, force = false) => {
+    if (!providerId) return;
+    if (!force && providerModelsMap[providerId]) return;
 
-  // 初始化表单
-  const form = useForm<FormValues>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      model_id: 0,
-      provider_name: "",
-      provider_id: 0,
-      tool_call: true,
-      structured_output: true,
-      image: false,
-      with_header: true,
-      weight: 1,
-      customer_headers: [],
-    },
-  });
-  const { fields: headerFields, append: appendHeader, remove: removeHeader } = useFieldArray({
-    control: form.control,
-    name: "customer_headers",
-  });
-
-  useEffect(() => {
-    Promise.all([fetchModels(), fetchProviders()]).finally(() => {
-      setLoading(false);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (models.length === 0) {
-      if (selectedModelId !== null) {
-        setSelectedModelId(null);
-        form.setValue("model_id", 0);
-      }
-      return;
+    setProviderModelsLoading((prev) => ({ ...prev, [providerId]: true }));
+    try {
+      const data = await getProviderModels(providerId);
+      setProviderModelsMap((prev) => ({ ...prev, [providerId]: data }));
+    } catch (err) {
+      toast.warning(`获取提供商: ${providers.find((e) => e.ID === providerId)?.Name} 模型列表失败, 请手动填写提供商模型\n${err}`);
+      setProviderModelsMap((prev) => ({ ...prev, [providerId]: [] }));
+    } finally {
+      setProviderModelsLoading((prev) => {
+        const next = { ...prev };
+        delete next[providerId];
+        return next;
+      });
     }
+  }, [providerModelsMap, providers]);
 
-    const modelIdParam = searchParams.get("modelId");
-    const parsedParam = modelIdParam ? Number(modelIdParam) : NaN;
-
-    if (!Number.isNaN(parsedParam) && models.some(model => model.ID === parsedParam)) {
-      if (selectedModelId !== parsedParam) {
-        setSelectedModelId(parsedParam);
-        form.setValue("model_id", parsedParam);
-      }
-      return;
-    }
-
-    const fallbackId = models[0].ID;
-    if (selectedModelId !== fallbackId) {
-      setSelectedModelId(fallbackId);
-      form.setValue("model_id", fallbackId);
-    }
-    if (modelIdParam !== fallbackId.toString()) {
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.set("modelId", fallbackId.toString());
-      setSearchParams(nextParams, { replace: true });
-    }
-  }, [models, searchParams, form, setSearchParams]);
-
-  useEffect(() => {
-    if (selectedModelId) {
-      fetchModelProviders(selectedModelId);
-    }
-  }, [selectedModelId]);
-
-  const buildPayload = (values: FormValues) => {
-    const headers: Record<string, string> = {};
-    (values.customer_headers || []).forEach(({ key, value }) => {
-      const trimmedKey = key.trim();
-      if (trimmedKey) {
-        headers[trimmedKey] = value ?? "";
-      }
-    });
-
-    return {
-      model_id: values.model_id,
-      provider_name: values.provider_name,
-      provider_id: values.provider_id,
-      tool_call: values.tool_call,
-      structured_output: values.structured_output,
-      image: values.image,
-      with_header: values.with_header,
-      customer_headers: headers,
-      weight: values.weight
-    };
-  };
-
-  const getDefaultFormValues = (overrideModelId?: number): FormValues => {
-    const fallbackModelId = overrideModelId ?? selectedModelId ?? models[0]?.ID ?? 0;
-    return {
-      model_id: fallbackModelId,
-      provider_name: "",
-      provider_id: 0,
-      tool_call: false,
-      structured_output: false,
-      image: false,
-      with_header: false,
-      weight: 1,
-      customer_headers: []
-    };
-  };
+  const {
+    testResults,
+    testDialogOpen,
+    setTestDialogOpen,
+    selectedTestId,
+    testType,
+    setTestType,
+    reactTestResult,
+    openTestDialog,
+    closeTestDialog,
+    executeTest,
+  } = useModelProviderTesting();
 
   const fetchModels = async () => {
     try {
@@ -280,7 +147,7 @@ export default function ModelProvidersPage() {
   const loadProviderStatus = async (providers: ModelWithProvider[], modelId: number) => {
     const selectedModel = models.find(m => m.ID === modelId);
     if (!selectedModel) return;
-    setProviderStatus([])
+    setProviderStatus({})
 
     const newStatus: Record<number, boolean[]> = {};
 
@@ -304,60 +171,76 @@ export default function ModelProvidersPage() {
     setProviderStatus(newStatus);
   };
 
-  const handleCreate = async (values: FormValues) => {
-    try {
-      await createModelProvider(buildPayload(values));
-      setOpen(false);
-      toast.success("关联管理创建成功");
-      form.reset(getDefaultFormValues());
+  const {
+    form,
+    open,
+    setOpen,
+    editingAssociation,
+    showProviderModels,
+    setShowProviderModels,
+    headerFields,
+    appendHeader,
+    removeHeader,
+    selectedProviderId,
+    openEditDialog,
+    openCreateDialog,
+    submit,
+    sortProviderModels,
+  } = useModelProviderForm({
+    selectedModelId,
+    models,
+    providerModelsMap,
+    loadProviderModels,
+    onReload: async () => {
       if (selectedModelId) {
-        fetchModelProviders(selectedModelId);
+        await fetchModelProviders(selectedModelId);
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(`创建关联管理失败: ${message}`);
-      console.error(err);
-    }
-  };
+    },
+  });
 
-  const loadProviderModels = async (providerId: number, force = false) => {
-    if (!providerId) return;
-    if (!force && providerModelsMap[providerId]) return;
+  useEffect(() => {
+    Promise.all([fetchModels(), fetchProviders()]).finally(() => {
+      setLoading(false);
+    });
+  }, []);
 
-    setProviderModelsLoading(prev => ({ ...prev, [providerId]: true }));
-    try {
-      const data = await getProviderModels(providerId);
-      setProviderModelsMap(prev => ({ ...prev, [providerId]: data }));
-    } catch (err) {
-      toast.warning(`获取提供商: ${providers.find(e => e.ID === providerId)?.Name} 模型列表失败, 请手动填写提供商模型\n${err}`);
-      setProviderModelsMap(prev => ({ ...prev, [providerId]: [] }));
-    } finally {
-      setProviderModelsLoading(prev => {
-        const next = { ...prev };
-        delete next[providerId];
-        return next;
-      });
-    }
-  };
-
-  const handleUpdate = async (values: FormValues) => {
-    if (!editingAssociation) return;
-
-    try {
-      await updateModelProvider(editingAssociation.ID, buildPayload(values));
-      setOpen(false);
-      toast.success("关联管理更新成功");
-      setEditingAssociation(null);
-      form.reset(getDefaultFormValues());
-      if (selectedModelId) {
-        fetchModelProviders(selectedModelId);
+  useEffect(() => {
+    if (models.length === 0) {
+      if (selectedModelId !== null) {
+        setSelectedModelId(null);
+        form.setValue("model_id", 0);
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(`更新关联管理失败: ${message}`);
-      console.error(err);
+      return;
     }
-  };
+
+    const modelIdParam = searchParams.get("modelId");
+    const parsedParam = modelIdParam ? Number(modelIdParam) : NaN;
+
+    if (!Number.isNaN(parsedParam) && models.some((model) => model.ID === parsedParam)) {
+      if (selectedModelId !== parsedParam) {
+        setSelectedModelId(parsedParam);
+        form.setValue("model_id", parsedParam);
+      }
+      return;
+    }
+
+    const fallbackId = models[0].ID;
+    if (selectedModelId !== fallbackId) {
+      setSelectedModelId(fallbackId);
+      form.setValue("model_id", fallbackId);
+    }
+    if (modelIdParam !== fallbackId.toString()) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.set("modelId", fallbackId.toString());
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [models, searchParams, form, selectedModelId, setSearchParams]);
+
+  useEffect(() => {
+    if (selectedModelId) {
+      fetchModelProviders(selectedModelId);
+    }
+  }, [selectedModelId]);
 
   const handleDelete = async () => {
     if (!deleteId) return;
@@ -410,168 +293,6 @@ export default function ModelProvidersPage() {
     }
   };
 
-  const handleTest = (id: number) => {
-    currentControllerRef.current?.abort(); // 取消之前的请求
-    setSelectedTestId(id);
-    setTestType("connectivity");
-    setTestDialogOpen(true);
-    setReactTestResult({
-      loading: false,
-      messages: "",
-      success: null,
-      error: null
-    });
-  };
-
-  const handleConnectivityTest = async (id: number) => {
-    try {
-      setTestResults(prev => ({
-        ...prev,
-        [id]: { loading: true, result: null }
-      }));
-
-      const result = await testModelProvider(id);
-      setTestResults(prev => ({
-        ...prev,
-        [id]: { loading: false, result }
-      }));
-      return result;
-    } catch (err) {
-      setTestResults(prev => ({
-        ...prev,
-        [id]: { loading: false, result: { error: "测试失败" + err } }
-      }));
-      console.error(err);
-      return { error: "测试失败" + err };
-    }
-  };
-
-
-  const currentControllerRef = useRef<AbortController | null>(null);
-  const handleReactTest = async (id: number) => {
-    setReactTestResult(prev => ({
-      ...prev,
-      messages: "",
-      loading: true,
-    }));
-    try {
-      const token = localStorage.getItem("authToken");
-      const controller = new AbortController();
-      currentControllerRef.current = controller;
-      await fetchEventSource(`/api/test/react/${id}`, {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-        },
-        signal: controller.signal,
-        onmessage(event) {
-          setReactTestResult(prev => {
-            if (event.event === "start") {
-              return {
-                ...prev,
-                messages: prev.messages + `[开始测试] ${event.data}\n`
-              };
-            } else if (event.event === "toolcall") {
-              return {
-                ...prev,
-                messages: prev.messages + `\n[调用工具] ${event.data}\n`
-              };
-            } else if (event.event === "toolres") {
-              return {
-                ...prev,
-                messages: prev.messages + `\n[工具输出] ${event.data}\n`
-              };
-            }
-            else if (event.event === "message") {
-              if (event.data.trim()) {
-                return {
-                  ...prev,
-                  messages: prev.messages + `${event.data}`
-                };
-              }
-            } else if (event.event === "error") {
-              return {
-                ...prev,
-                success: false,
-                messages: prev.messages + `\n[错误] ${event.data}\n`
-              };
-            } else if (event.event === "success") {
-              return {
-                ...prev,
-                success: true,
-                messages: prev.messages + `\n[成功] ${event.data}`
-              };
-            }
-            return prev;
-          });
-        },
-        onclose() {
-          setReactTestResult(prev => {
-            return {
-              ...prev,
-              loading: false,
-            };
-          });
-        },
-        onerror(err) {
-          setReactTestResult(prev => {
-            return {
-              ...prev,
-              loading: false,
-              error: err.message || "测试过程中发生错误",
-              success: false
-            };
-          });
-          throw err;
-        }
-      });
-    } catch (err) {
-      setReactTestResult(prev => ({
-        ...prev,
-        loading: false,
-        error: "测试失败",
-        success: false
-      }));
-      console.error(err);
-    }
-  };
-
-  const executeTest = async () => {
-    if (!selectedTestId) return;
-
-    if (testType === "connectivity") {
-      await handleConnectivityTest(selectedTestId);
-    } else {
-      await handleReactTest(selectedTestId);
-    }
-  };
-
-  const openEditDialog = (association: ModelWithProvider) => {
-    setEditingAssociation(association);
-    const headerPairs = Object.entries(association.CustomerHeaders || {}).map(([key, value]) => ({
-      key,
-      value,
-    }));
-    form.reset({
-      model_id: association.ModelID,
-      provider_name: association.ProviderModel,
-      provider_id: association.ProviderID,
-      tool_call: association.ToolCall,
-      structured_output: association.StructuredOutput,
-      image: association.Image,
-      with_header: association.WithHeader,
-      weight: association.Weight,
-      customer_headers: headerPairs.length ? headerPairs : [],
-    });
-    setOpen(true);
-  };
-
-  const openCreateDialog = () => {
-    setEditingAssociation(null);
-    form.reset(getDefaultFormValues());
-    setOpen(true);
-  };
-
   const openDeleteDialog = (id: number) => {
     setDeleteId(id);
   };
@@ -583,33 +304,6 @@ export default function ModelProvidersPage() {
     nextParams.set("modelId", id.toString());
     setSearchParams(nextParams);
     form.setValue("model_id", id);
-  };
-
-  const selectedProviderId = form.watch("provider_id");
-
-  useEffect(() => {
-    if (selectedProviderId && selectedProviderId > 0) {
-      loadProviderModels(selectedProviderId);
-    }
-    setShowProviderModels(false);
-  }, [selectedProviderId]);
-
-  const sortProviderModels = (providerId: number, query: string): ProviderModel[] => {
-    const models = providerModelsMap[providerId] || [];
-    if (!query) return models;
-
-    const normalized = query.toLowerCase();
-    const score = (id: string) => {
-      const val = id.toLowerCase();
-      if (val === normalized) return 1000;
-      let s = 0;
-      if (val.startsWith(normalized)) s += 500;
-      if (val.includes(normalized)) s += 200;
-      s -= Math.abs(val.length - normalized.length);
-      return s;
-    };
-
-    return [...models].sort((a, b) => score(b.id) - score(a.id));
   };
 
   // 获取唯一的提供商类型列表
@@ -825,7 +519,7 @@ export default function ModelProvidersPage() {
                               <Button variant="outline" size="icon" onClick={() => openEditDialog(association)}>
                                 <Pencil className="h-4 w-4" />
                               </Button>
-                              <Button variant="outline" size="icon" onClick={() => handleTest(association.ID)}>
+                              <Button variant="outline" size="icon" onClick={() => openTestDialog(association.ID)}>
                                 <Zap className="h-4 w-4" />
                               </Button>
                               <AlertDialog open={deleteId === association.ID} onOpenChange={(open) => !open && setDeleteId(null)}>
@@ -943,7 +637,7 @@ export default function ModelProvidersPage() {
                         variant="outline"
                         size="icon"
                         className="h-7 w-7"
-                        onClick={() => handleTest(association.ID)}
+                        onClick={() => openTestDialog(association.ID)}
                       >
                         <Zap className="h-3.5 w-3.5" />
                       </Button>
@@ -978,404 +672,37 @@ export default function ModelProvidersPage() {
         )}
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[85vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>
-              {editingAssociation ? "编辑关联" : "添加关联"}
-            </DialogTitle>
-          </DialogHeader>
+      <ModelProviderFormDialog
+        open={open}
+        onOpenChange={setOpen}
+        form={form}
+        onSubmit={submit}
+        editingAssociation={editingAssociation}
+        models={models}
+        providers={providers}
+        headerFields={headerFields}
+        appendHeader={appendHeader}
+        removeHeader={removeHeader}
+        showProviderModels={showProviderModels}
+        setShowProviderModels={setShowProviderModels}
+        selectedProviderId={selectedProviderId}
+        providerModelsMap={providerModelsMap}
+        providerModelsLoading={providerModelsLoading}
+        sortProviderModels={sortProviderModels}
+        loadProviderModels={loadProviderModels}
+      />
 
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(editingAssociation ? handleUpdate : handleCreate)} className="flex flex-col gap-4 flex-1 min-h-0">
-              <div className="space-y-4 overflow-y-auto pr-1 sm:pr-2 max-h-[60vh] flex-1 min-h-0">
-                <div className="grid grid-cols-2 gap-3">
-                  <FormField
-                    control={form.control}
-                    name="model_id"
-                    render={({ field }) => (
-                      <FormItem className="min-w-0">
-                        <FormLabel>模型</FormLabel>
-                        <Select
-                          value={field.value.toString()}
-                          onValueChange={(value) => field.onChange(parseInt(value))}
-                          disabled={!!editingAssociation}
-                        >
-                          <FormControl>
-                            <SelectTrigger className="form-select w-full">
-                              <SelectValue placeholder="选择模型" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {models.map((model) => (
-                              <SelectItem key={model.ID} value={model.ID.toString()}>
-                                {model.Name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="provider_id"
-                    render={({ field }) => (
-                      <FormItem className="min-w-0">
-                        <FormLabel>提供商</FormLabel>
-                        <Select
-                          value={field.value ? field.value.toString() : ""}
-                          onValueChange={(value) => {
-                            const parsed = parseInt(value);
-                            field.onChange(parsed);
-                            form.setValue("provider_name", "");
-                          }}
-                        >
-                          <FormControl>
-                            <SelectTrigger className="form-select w-full">
-                              <SelectValue placeholder="选择提供商" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {providers.map((provider) => (
-                              <SelectItem key={provider.ID} value={provider.ID.toString()}>
-                                {provider.Name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="provider_name"
-                  render={({ field }) => (
-                    <FormItem className="space-y-2">
-                      <FormLabel>提供商模型</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Input
-                            {...field}
-                            placeholder="输入或选择提供商模型"
-                            onFocus={() => setShowProviderModels(true)}
-                            onBlur={() => setTimeout(() => setShowProviderModels(false), 100)}
-                            onChange={(e) => {
-                              field.onChange(e.target.value);
-                              setShowProviderModels(true);
-                            }}
-                          />
-                          {showProviderModels && (providerModelsMap[selectedProviderId] || []).length > 0 && (
-                            <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-sm max-h-52 overflow-y-auto">
-                              {sortProviderModels(selectedProviderId, field.value || "").map((model) => (
-                                <button
-                                  key={model.id}
-                                  type="button"
-                                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground"
-                                  onMouseDown={(e) => {
-                                    e.preventDefault();
-                                    field.onChange(model.id);
-                                    setShowProviderModels(false);
-                                  }}
-                                >
-                                  {model.id}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </FormControl>
-                      {selectedProviderId ? (
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <p>可直接输入，或在下拉列表中选择</p>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => loadProviderModels(selectedProviderId, true)}
-                            disabled={!!providerModelsLoading[selectedProviderId]}
-                          >
-                            {providerModelsLoading[selectedProviderId] ? (
-                              <Spinner className="size-4" />
-                            ) : (
-                              <RefreshCw className="size-4" />
-                            )}
-                          </Button>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">请选择提供商以加载模型列表</p>
-                      )}
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormLabel>模型能力</FormLabel>
-                <FormField
-                  control={form.control}
-                  name="tool_call"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                      <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel>
-                          工具调用
-                        </FormLabel>
-                      </div>
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="structured_output"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                      <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel>
-                          结构化输出
-                        </FormLabel>
-                      </div>
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="image"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                      <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel>
-                          视觉
-                        </FormLabel>
-                      </div>
-                    </FormItem>
-                  )}
-                />
-                <FormLabel>参数配置</FormLabel>
-                <FormField
-                  control={form.control}
-                  name="with_header"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                      <FormControl>
-                        <Checkbox
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel>
-                          请求头透传
-                        </FormLabel>
-                      </div>
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="customer_headers"
-                  render={({ field }) => {
-                    const headerValues = field.value ?? [];
-                    return (
-                      <FormItem>
-                        <div className="flex items-center justify-between">
-                          <FormLabel>自定义请求头</FormLabel>
-                          <Button type="button" variant="outline" size="sm" onClick={() => appendHeader({ key: "", value: "" })}>
-                            添加
-                          </Button>
-                        </div>
-                        <div className="space-y-2">
-                          {headerFields.map((header, index) => {
-                            const errorMsg = form.formState.errors.customer_headers?.[index]?.key?.message;
-                            return (
-                              <div key={header.id} className="space-y-1">
-                                <div className="flex gap-2 items-center">
-                                  <div className="flex-1">
-                                    <Input
-                                      placeholder="Header Key"
-                                      value={headerValues[index]?.key ?? ""}
-                                      onChange={(e) => {
-                                        const next = [...headerValues];
-                                        next[index] = { ...next[index], key: e.target.value };
-                                        field.onChange(next);
-                                      }}
-                                    />
-                                  </div>
-                                  <div className="flex-1">
-                                    <Input
-                                      placeholder="Header Value"
-                                      value={headerValues[index]?.value ?? ""}
-                                      onChange={(e) => {
-                                        const next = [...headerValues];
-                                        next[index] = { ...next[index], value: e.target.value };
-                                        field.onChange(next);
-                                      }}
-                                    />
-                                  </div>
-                                  <Button type="button" size="sm" variant="destructive" onClick={() => removeHeader(index)}>
-                                    删除
-                                  </Button>
-                                </div>
-                                {errorMsg && (
-                                  <p className="text-sm text-red-500">
-                                    {errorMsg}
-                                  </p>
-                                )}
-                              </div>
-                            );
-                          })}
-                          <p className="text-sm text-muted-foreground">
-                            {"优先级: 提供商配置 > 自定义请求头 > 透传请求头"}
-                          </p>
-                        </div>
-                      </FormItem>
-                    );
-                  }}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="weight"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>权重 (必须大于0)</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          type="number"
-                          min="1"
-                          onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                  取消
-                </Button>
-                <Button type="submit">
-                  {editingAssociation ? "更新" : "创建"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Test Dialog */}
-      <Dialog open={testDialogOpen} onOpenChange={setTestDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>模型测试</DialogTitle>
-            <DialogDescription>
-              选择要执行的测试类型
-            </DialogDescription>
-          </DialogHeader>
-
-          <RadioGroup value={testType} onValueChange={(value: string) => setTestType(value as "connectivity" | "react")} className="space-y-4">
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="connectivity" id="connectivity" />
-              <Label htmlFor="connectivity">连通性测试</Label>
-            </div>
-            <p className="text-sm text-gray-500 ml-6">测试模型提供商的基本连通性</p>
-
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="react" id="react" />
-              <Label htmlFor="react">React Agent 能力测试</Label>
-            </div>
-            <p className="text-sm text-gray-500 ml-6">测试模型的工具调用和反应能力</p>
-          </RadioGroup>
-
-          {testType === "connectivity" && (
-            <div className="mt-4">
-              {selectedTestId && testResults[selectedTestId]?.loading ? (
-                <div className="flex items-center justify-center py-4">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-                  <span className="ml-2">测试中...</span>
-                </div>
-              ) : selectedTestId && testResults[selectedTestId] ? (
-                <div className={`p-4 rounded-md ${testResults[selectedTestId].result?.error ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"}`}>
-                  <p>{testResults[selectedTestId].result?.error ? testResults[selectedTestId].result?.error : "测试成功"}</p>
-                  {testResults[selectedTestId].result?.message && (
-                    <p className="mt-2">{testResults[selectedTestId].result.message}</p>
-                  )}
-                </div>
-              ) : (
-                <p className="text-gray-500">点击"执行测试"开始测试</p>
-              )}
-            </div>
-          )}
-
-          {testType === "react" && (
-            <div className="mt-4 max-h-96 min-w-0">
-              {reactTestResult.loading ? (
-                <div className="flex items-center justify-center py-4">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-                  <span className="ml-2">测试中...</span>
-                </div>
-              ) : (
-                <>
-                  {reactTestResult.error ? (
-                    <div className="p-4 rounded-md bg-red-100 text-red-800">
-                      <p>测试失败: {reactTestResult.error}</p>
-                    </div>
-                  ) : reactTestResult.success !== null ? (
-                    <div className={`p-4 rounded-md ${reactTestResult.success ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
-                      <p>{reactTestResult.success ? "测试成功！" : "测试失败"}</p>
-                    </div>
-                  ) : null}
-
-
-                </>
-              )}
-
-              {reactTestResult.messages && <Textarea name="logs" className="mt-4 max-h-50 resize-none whitespace-pre overflow-x-auto" readOnly value={reactTestResult.messages}>
-              </Textarea>}
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={dialogClose}>
-              关闭
-            </Button>
-            <Button onClick={executeTest} disabled={testType === "connectivity" ?
-              (selectedTestId ? testResults[selectedTestId]?.loading : false) :
-              reactTestResult.loading}>
-              {testType === "connectivity" ?
-                (selectedTestId && testResults[selectedTestId]?.loading ? "测试中..." : "执行测试") :
-                (reactTestResult.loading ? "测试中..." : "执行测试")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ModelProviderTestDialog
+        open={testDialogOpen}
+        onOpenChange={setTestDialogOpen}
+        onClose={closeTestDialog}
+        testType={testType}
+        setTestType={setTestType}
+        selectedTestId={selectedTestId}
+        testResults={testResults}
+        reactTestResult={reactTestResult}
+        executeTest={executeTest}
+      />
     </div>
   );
 }

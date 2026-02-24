@@ -9,6 +9,7 @@ export interface Provider {
   Config: string;
   Console: string;
   Proxy: string;
+  ErrorMatcher: string;
 }
 
 export interface Model {
@@ -145,6 +146,7 @@ export async function createProvider(provider: {
   config: string;
   console: string;
   proxy: string;
+  error_matcher: string;
 }): Promise<Provider> {
   return apiRequest<Provider>('/providers', {
     method: 'POST',
@@ -158,6 +160,7 @@ export async function updateProvider(id: number, provider: {
   config?: string;
   console?: string;
   proxy?: string;
+  error_matcher?: string;
 }): Promise<Provider> {
   return apiRequest<Provider>(`/providers/${id}`, {
     method: 'PUT',

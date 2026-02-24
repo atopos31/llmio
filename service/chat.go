@@ -1,12 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/atopos31/llmio/balancers"
@@ -135,6 +137,29 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				}
 				res.Body.Close()
 				continue
+			}
+
+			if provider.ErrorMatcher != "" {
+				contentType := strings.ToLower(res.Header.Get("Content-Type"))
+				// 流式正常返回通常是 text/event-stream，不提前消费响应体避免影响转发。
+				if !strings.Contains(contentType, "text/event-stream") {
+					byteBody, err := io.ReadAll(res.Body)
+					if err != nil {
+						retryLog <- log.WithError(fmt.Errorf("read body failed: %w", err))
+						balancer.Delete(id)
+						res.Body.Close()
+						continue
+					}
+
+					if matched, sample := matchProviderBodyError(string(byteBody), provider.ErrorMatcher); matched {
+						retryLog <- log.WithError(fmt.Errorf("response matched provider error sample %q, body: %s", sample, string(byteBody)))
+						balancer.Delete(id)
+						res.Body.Close()
+						continue
+					}
+
+					res.Body = io.NopCloser(bytes.NewReader(byteBody))
+				}
 			}
 
 			balancer.Success(id)

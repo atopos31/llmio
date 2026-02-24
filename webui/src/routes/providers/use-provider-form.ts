@@ -19,6 +19,7 @@ export const providerFormSchema = z.object({
   config: z.string().min(1, { message: "配置不能为空" }),
   console: z.string().optional(),
   proxy: z.string().optional(),
+  error_matcher: z.string().optional(),
 });
 
 export type ProviderFormValues = z.infer<typeof providerFormSchema>;
@@ -29,6 +30,7 @@ const defaultFormValues: ProviderFormValues = {
   config: "",
   console: "",
   proxy: "",
+  error_matcher: "",
 };
 
 type UseProviderFormParams = {
@@ -126,6 +128,7 @@ export const useProviderForm = ({
       config: provider.Config,
       console: provider.Console || "",
       proxy: provider.Proxy || "",
+      error_matcher: provider.ErrorMatcher || "",
     });
     setOpen(true);
   };
@@ -146,6 +149,7 @@ export const useProviderForm = ({
       config: getTemplateInitialConfig(firstTemplate),
       console: "",
       proxy: "",
+      error_matcher: "",
     });
     setOpen(true);
   };
@@ -159,6 +163,7 @@ export const useProviderForm = ({
           config: values.config,
           console: values.console || "",
           proxy: values.proxy || "",
+          error_matcher: values.error_matcher || "",
         });
         toast.success(`提供商 ${values.name} 更新成功`);
         setEditingProvider(null);
@@ -169,6 +174,7 @@ export const useProviderForm = ({
           config: values.config,
           console: values.console || "",
           proxy: values.proxy || "",
+          error_matcher: values.error_matcher || "",
         });
         toast.success(`提供商 ${values.name} 创建成功`);
       }

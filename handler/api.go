@@ -19,11 +19,12 @@ import (
 
 // ProviderRequest represents the request body for creating/updating a provider
 type ProviderRequest struct {
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	Config  string `json:"config"`
-	Console string `json:"console"`
-	Proxy   string `json:"proxy"`
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	Config       string `json:"config"`
+	Console      string `json:"console"`
+	Proxy        string `json:"proxy"`
+	ErrorMatcher string `json:"error_matcher"`
 }
 
 // ModelRequest represents the request body for creating/updating a model
@@ -136,11 +137,12 @@ func CreateProvider(c *gin.Context) {
 	}
 
 	provider := models.Provider{
-		Name:    req.Name,
-		Type:    req.Type,
-		Config:  req.Config,
-		Console: req.Console,
-		Proxy:   req.Proxy,
+		Name:         req.Name,
+		Type:         req.Type,
+		Config:       req.Config,
+		Console:      req.Console,
+		Proxy:        req.Proxy,
+		ErrorMatcher: req.ErrorMatcher,
 	}
 
 	if err := gorm.G[models.Provider](models.DB).Create(c.Request.Context(), &provider); err != nil {
@@ -178,11 +180,12 @@ func UpdateProvider(c *gin.Context) {
 
 	// Update fields
 	updates := models.Provider{
-		Name:    req.Name,
-		Type:    req.Type,
-		Config:  req.Config,
-		Console: req.Console,
-		Proxy:   req.Proxy,
+		Name:         req.Name,
+		Type:         req.Type,
+		Config:       req.Config,
+		Console:      req.Console,
+		Proxy:        req.Proxy,
+		ErrorMatcher: req.ErrorMatcher,
 	}
 
 	if _, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {

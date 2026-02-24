@@ -10,11 +10,12 @@ import (
 
 type Provider struct {
 	gorm.Model
-	Name    string
-	Type    string
-	Config  string
-	Console string // 控制台地址
-	Proxy   string // HTTP 代理地址
+	Name         string
+	Type         string
+	Config       string
+	Console      string // 控制台地址
+	Proxy        string // HTTP 代理地址
+	ErrorMatcher string // 响应体错误识别规则，多行或分号分隔 sample
 }
 
 type AnthropicConfig struct {

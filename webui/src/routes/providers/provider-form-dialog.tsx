@@ -212,6 +212,30 @@ export function ProviderFormDialog({
 
             <FormField
               control={form.control}
+              name="error_matcher"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>响应体错误识别</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      {...field}
+                      placeholder={`示例（每行或分号分隔）:
+"status":"439"
+"status":"500"
+API Token has expired`}
+                      className="resize-y min-h-[88px]"
+                    />
+                  </FormControl>
+                  <p className="text-xs text-muted-foreground">
+                    命中任意 sample 即视为错误，用于 200 但 body 返回错误的渠道。
+                  </p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
               name="console"
               render={({ field }) => (
                 <FormItem>

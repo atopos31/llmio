@@ -17,6 +17,22 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// flushWriter 包装 http.ResponseWriter，在每次 Write 后自动 Flush
+// 用于 SSE 流式响应，确保客户端实时收到数据
+type flushWriter struct {
+	w http.ResponseWriter
+}
+
+func (fw *flushWriter) Write(p []byte) (n int, err error) {
+	n, err = fw.w.Write(p)
+	if n > 0 {
+		if flusher, ok := fw.w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}
+	return
+}
+
 func ChatCompletionsHandler(c *gin.Context) {
 	chatHandler(c, service.BeforerOpenAI, service.ProcesserOpenAI, consts.StyleOpenAI)
 }
@@ -113,7 +129,14 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	go service.RecordLog(context.Background(), startReq, pr, postProcessor, logId, *before, providersWithMeta.IOLog)
 
 	writeHeader(c, before.Stream, res.Header)
-	if _, err := io.Copy(c.Writer, tee); err != nil {
+
+	// 流式响应使用 flushWriter 确保数据实时发送
+	var writer io.Writer = c.Writer
+	if before.Stream {
+		writer = &flushWriter{w: c.Writer}
+	}
+
+	if _, err := io.Copy(writer, tee); err != nil {
 		pw.CloseWithError(err)
 		slog.Error("io copy", "err:", err)
 		return

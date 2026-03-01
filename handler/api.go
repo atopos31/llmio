@@ -503,6 +503,7 @@ func GetModelProviderStatus(c *gin.Context) {
 		Where("provider_name = ?", provider.Name).
 		Where("provider_model = ?", providerModel).
 		Where("name = ?", modelName).
+		Where("status != ?", consts.StatusRunning).
 		Limit(10).
 		Order("created_at DESC").
 		Find(c.Request.Context())

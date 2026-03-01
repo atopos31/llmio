@@ -12,7 +12,7 @@ FROM golang:latest AS backend-build
 ARG VERSION=dev
 WORKDIR /app
 COPY go.mod go.sum ./
-RUN GOPROXY=https://goproxy.io,direct go mod download
+RUN GOPROXY=https://goproxy.io|direct go mod download
 COPY . .
 # Copy the built frontend from frontend build stage
 COPY --from=frontend-build /app/dist ./webui/dist

@@ -45,6 +45,9 @@ func Init(ctx context.Context, path string) {
 	if _, err := gorm.G[Model](DB).Where("strategy = '' OR strategy IS NULL").Update(ctx, "strategy", consts.BalancerDefault); err != nil {
 		panic(err)
 	}
+	if err := ensureModelDisplayOrder(ctx); err != nil {
+		panic(err)
+	}
 	if _, err := gorm.G[Model](DB).Where("breaker IS NULL").Update(ctx, "breaker", false); err != nil {
 		panic(err)
 	}
@@ -58,6 +61,40 @@ func Init(ctx context.Context, path string) {
 			panic(err)
 		}
 	}
+}
+
+func ensureModelDisplayOrder(ctx context.Context) error {
+	needAssign, err := gorm.G[Model](DB).
+		Where("display_order = 0 OR display_order IS NULL").
+		Order("id ASC").
+		Find(ctx)
+	if err != nil {
+		return err
+	}
+	if len(needAssign) == 0 {
+		return nil
+	}
+
+	var currentMax int
+	if err := DB.Model(&Model{}).
+		Select("COALESCE(MAX(display_order), 0)").
+		Scan(&currentMax).Error; err != nil {
+		return err
+	}
+
+	return DB.Transaction(func(tx *gorm.DB) error {
+		nextOrder := currentMax
+		for _, model := range needAssign {
+			nextOrder++
+			if err := tx.WithContext(ctx).
+				Model(&Model{}).
+				Where("id = ?", model.ID).
+				Update("display_order", nextOrder).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 func ensureDBFile(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

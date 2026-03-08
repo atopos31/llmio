@@ -38,6 +38,10 @@ type ModelRequest struct {
 	Breaker  bool   `json:"breaker"`
 }
 
+type ModelOrderRequest struct {
+	ModelIDs []uint `json:"model_ids"`
+}
+
 // ModelWithProviderRequest represents the request body for creating/updating a model-provider association
 type ModelWithProviderRequest struct {
 	ModelID          uint              `json:"model_id"`
@@ -312,14 +316,23 @@ func CreateModel(c *gin.Context) {
 		strategy = consts.BalancerDefault
 	}
 
+	var maxDisplayOrder int
+	if err := models.DB.Model(&models.Model{}).
+		Select("COALESCE(MAX(display_order), 0)").
+		Scan(&maxDisplayOrder).Error; err != nil {
+		common.InternalServerError(c, "Failed to query model order: "+err.Error())
+		return
+	}
+
 	model := models.Model{
-		Name:     req.Name,
-		Remark:   req.Remark,
-		MaxRetry: req.MaxRetry,
-		TimeOut:  req.TimeOut,
-		IOLog:    &req.IOLog,
-		Strategy: strategy,
-		Breaker:  &req.Breaker,
+		Name:         req.Name,
+		Remark:       req.Remark,
+		MaxRetry:     req.MaxRetry,
+		TimeOut:      req.TimeOut,
+		IOLog:        &req.IOLog,
+		Strategy:     strategy,
+		Breaker:      &req.Breaker,
+		DisplayOrder: maxDisplayOrder + 1,
 	}
 
 	if err := gorm.G[models.Model](models.DB).Create(c.Request.Context(), &model); err != nil {
@@ -385,6 +398,63 @@ func UpdateModel(c *gin.Context) {
 	}
 
 	common.Success(c, updatedModel)
+}
+
+// UpdateModelOrder 更新模型展示顺序
+func UpdateModelOrder(c *gin.Context) {
+	var req ModelOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.BadRequest(c, "Invalid request body: "+err.Error())
+		return
+	}
+	if len(req.ModelIDs) == 0 {
+		common.BadRequest(c, "model_ids cannot be empty")
+		return
+	}
+
+	seen := make(map[uint]struct{}, len(req.ModelIDs))
+	modelIDs := make([]uint, 0, len(req.ModelIDs))
+	for _, modelID := range req.ModelIDs {
+		if modelID == 0 {
+			common.BadRequest(c, "model_ids contains invalid value 0")
+			return
+		}
+		if _, exists := seen[modelID]; exists {
+			common.BadRequest(c, fmt.Sprintf("duplicated model_id: %d", modelID))
+			return
+		}
+		seen[modelID] = struct{}{}
+		modelIDs = append(modelIDs, modelID)
+	}
+
+	var existCount int64
+	if err := models.DB.Model(&models.Model{}).Where("id IN ?", modelIDs).Count(&existCount).Error; err != nil {
+		common.InternalServerError(c, "Failed to validate models: "+err.Error())
+		return
+	}
+	if existCount != int64(len(modelIDs)) {
+		common.BadRequest(c, "model_ids contains non-existing model")
+		return
+	}
+
+	if err := models.DB.Transaction(func(tx *gorm.DB) error {
+		total := len(modelIDs)
+		for idx, modelID := range modelIDs {
+			order := total - idx
+			if err := tx.Model(&models.Model{}).
+				Where("id = ?", modelID).
+				Update("display_order", order).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		common.InternalServerError(c, "Failed to update model order: "+err.Error())
+		return
+	}
+
+	slog.Info("UpdateModelOrder", "count", len(modelIDs))
+	common.Success(c, map[string]any{"updated": len(modelIDs)})
 }
 
 // DeleteModel 删除模型

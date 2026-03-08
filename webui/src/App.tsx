@@ -8,7 +8,6 @@ import { Toaster } from './components/ui/sonner';
 const Layout = lazy(() => import('./routes/layout'));
 const Home = lazy(() => import('./routes/home'));
 const ProvidersPage = lazy(() => import('./routes/providers'));
-const ModelsPage = lazy(() => import('./routes/models'));
 const ModelProvidersPage = lazy(() => import('./routes/model-providers'));
 const LogsPage = lazy(() => import('./routes/logs'));
 const LogChatPage = lazy(() => import('./routes/log-chat'));
@@ -33,7 +32,7 @@ function App() {
             <Route path="/" element={<Layout />}>
               <Route index element={<Home />} />
               <Route path="providers" element={<ProvidersPage />} />
-              <Route path="models" element={<ModelsPage />} />
+              <Route path="models" element={<ModelProvidersPage />} />
               <Route path="model-providers" element={<ModelProvidersPage />} />
               <Route path="logs" element={<LogsPage />} />
               <Route path="logs/:logId/chat-io" element={<LogChatPage />} />

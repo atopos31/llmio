@@ -103,6 +103,7 @@ func main() {
 		api.GET("/models", handler.GetModels)
 		api.GET("/models/select", handler.GetModelList)
 		api.POST("/models", handler.CreateModel)
+		api.PATCH("/models/order", handler.UpdateModelOrder)
 		api.PUT("/models/:id", handler.UpdateModel)
 		api.DELETE("/models/:id", handler.DeleteModel)
 

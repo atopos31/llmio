@@ -52,6 +52,7 @@ import {
   updateModelProviderStatus,
   deleteModelProvider,
   deleteModel,
+  createModel,
   getModelOptions,
   updateModel,
   getProviders,
@@ -549,6 +550,20 @@ export default function ModelProvidersPage() {
     setModelEditOpen(true);
   };
 
+  const openModelCreateDialog = () => {
+    setEditingModel(null);
+    modelEditForm.reset({
+      name: "",
+      remark: "",
+      max_retry: 10,
+      time_out: 60,
+      io_log: false,
+      strategy: "lottery",
+      breaker: false,
+    });
+    setModelEditOpen(true);
+  };
+
   const closeModelEditDialog = () => {
     setModelEditOpen(false);
     setEditingModel(null);
@@ -564,42 +579,56 @@ export default function ModelProvidersPage() {
     setModelEditSaving(false);
   };
 
-  const handleModelEditSave = async (values: z.infer<typeof modelEditSchema>) => {
-    if (!editingModel) return;
-
+  const handleModelSave = async (values: z.infer<typeof modelEditSchema>) => {
     setModelEditSaving(true);
     try {
-      const updated = await updateModel(editingModel.ID, {
-        name: values.name,
-        remark: values.remark,
-        max_retry: values.max_retry,
-        time_out: values.time_out,
-        strategy: values.strategy,
-        io_log: values.io_log,
-        breaker: values.breaker,
-      });
+      if (editingModel) {
+        const updated = await updateModel(editingModel.ID, {
+          name: values.name,
+          remark: values.remark,
+          max_retry: values.max_retry,
+          time_out: values.time_out,
+          strategy: values.strategy,
+          io_log: values.io_log,
+          breaker: values.breaker,
+        });
 
-      setModels((prev) =>
-        prev.map((model) =>
-          model.ID === editingModel.ID
-            ? {
-              ...model,
-              Name: updated.Name,
-              Remark: updated.Remark,
-              MaxRetry: updated.MaxRetry,
-              TimeOut: updated.TimeOut,
-              Strategy: updated.Strategy,
-              IOLog: updated.IOLog,
-              Breaker: updated.Breaker,
-            }
-            : model
-        )
-      );
-      toast.success(`模型: ${updated.Name} 更新成功`);
+        setModels((prev) =>
+          prev.map((model) =>
+            model.ID === editingModel.ID
+              ? {
+                ...model,
+                Name: updated.Name,
+                Remark: updated.Remark,
+                MaxRetry: updated.MaxRetry,
+                TimeOut: updated.TimeOut,
+                Strategy: updated.Strategy,
+                IOLog: updated.IOLog,
+                Breaker: updated.Breaker,
+              }
+              : model
+          )
+        );
+        toast.success(`模型: ${updated.Name} 更新成功`);
+      } else {
+        const created = await createModel({
+          name: values.name,
+          remark: values.remark,
+          max_retry: values.max_retry,
+          time_out: values.time_out,
+          strategy: values.strategy,
+          io_log: values.io_log,
+          breaker: values.breaker,
+        });
+
+        setModels((prev) => sortCardModels([...prev, created]));
+        setModelAssociationCountMap((prev) => ({ ...prev, [created.ID]: 0 }));
+        toast.success(`模型: ${created.Name} 创建成功`);
+      }
       closeModelEditDialog();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`更新模型失败: ${message}`);
+      toast.error(`${editingModel ? "更新" : "创建"}模型失败: ${message}`);
     } finally {
       setModelEditSaving(false);
     }
@@ -725,50 +754,57 @@ export default function ModelProvidersPage() {
         </div>
 
         {!selectedModelId && (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
-            <div className="flex flex-col gap-1 text-xs lg:min-w-0 lg:col-span-2">
-              <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">搜索</Label>
-              <div className="relative">
-                <Search className="size-4 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="按名称搜索"
-                  value={modelSearchInput}
-                  onChange={(event) => setModelSearchInput(event.target.value)}
-                  className="h-8 pl-8 text-xs"
-                />
+          <div className="flex flex-col gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
+              <div className="flex flex-col gap-1 text-xs lg:min-w-0 lg:col-span-2">
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">搜索</Label>
+                <div className="relative">
+                  <Search className="size-4 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="按名称搜索"
+                    value={modelSearchInput}
+                    onChange={(event) => setModelSearchInput(event.target.value)}
+                    className="h-8 pl-8 text-xs"
+                  />
+                </div>
               </div>
-            </div>
-            <div className="flex flex-col gap-1 text-xs">
-              <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">负载策略</Label>
-              <Select
-                value={modelStrategyFilter}
-                onValueChange={(value) => setModelStrategyFilter(value as StrategyFilter)}
-              >
-                <SelectTrigger className="h-8 w-full text-xs px-2">
-                  <SelectValue placeholder="负载策略" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部</SelectItem>
-                  <SelectItem value="lottery">Lottery</SelectItem>
-                  <SelectItem value="rotor">Rotor</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1 text-xs">
-              <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">IO 记录</Label>
-              <Select
-                value={modelIOLogFilter}
-                onValueChange={(value) => setModelIOLogFilter(value as IOLogFilter)}
-              >
-                <SelectTrigger className="h-8 w-full text-xs px-2">
-                  <SelectValue placeholder="IO 记录" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部</SelectItem>
-                  <SelectItem value="true">开启</SelectItem>
-                  <SelectItem value="false">关闭</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex flex-col gap-1 text-xs">
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">负载策略</Label>
+                <Select
+                  value={modelStrategyFilter}
+                  onValueChange={(value) => setModelStrategyFilter(value as StrategyFilter)}
+                >
+                  <SelectTrigger className="h-8 w-full text-xs px-2">
+                    <SelectValue placeholder="负载策略" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部</SelectItem>
+                    <SelectItem value="lottery">Lottery</SelectItem>
+                    <SelectItem value="rotor">Rotor</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1 text-xs">
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">IO 记录</Label>
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={modelIOLogFilter}
+                    onValueChange={(value) => setModelIOLogFilter(value as IOLogFilter)}
+                  >
+                    <SelectTrigger className="h-8 w-full text-xs px-2">
+                      <SelectValue placeholder="IO 记录" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">全部</SelectItem>
+                      <SelectItem value="true">开启</SelectItem>
+                      <SelectItem value="false">关闭</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={openModelCreateDialog} className="h-8 text-xs shrink-0">
+                    添加模型
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -1347,13 +1383,13 @@ export default function ModelProvidersPage() {
       <Dialog open={modelEditOpen} onOpenChange={(open) => (open ? setModelEditOpen(true) : closeModelEditDialog())}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>编辑模型</DialogTitle>
+            <DialogTitle>{editingModel ? "编辑模型" : "添加模型"}</DialogTitle>
             <DialogDescription>
-              修改模型信息
+              {editingModel ? "修改模型信息" : "添加一个新的模型"}
             </DialogDescription>
           </DialogHeader>
           <Form {...modelEditForm}>
-            <form onSubmit={modelEditForm.handleSubmit(handleModelEditSave)} className="space-y-4">
+            <form onSubmit={modelEditForm.handleSubmit(handleModelSave)} className="space-y-4">
               <FormField
                 control={modelEditForm.control}
                 name="name"
@@ -1503,7 +1539,7 @@ export default function ModelProvidersPage() {
                   取消
                 </Button>
                 <Button type="submit" disabled={modelEditSaving}>
-                  {modelEditSaving ? "保存中..." : "更新"}
+                  {modelEditSaving ? "保存中..." : editingModel ? "更新" : "创建"}
                 </Button>
               </DialogFooter>
             </form>

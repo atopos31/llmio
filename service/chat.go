@@ -315,7 +315,7 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 	}
 
 	if model.IOLog == nil {
-		model.IOLog = new(bool)
+		model.IOLog = new(false)
 	}
 
 	breaker := false

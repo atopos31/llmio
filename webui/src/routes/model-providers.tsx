@@ -885,11 +885,6 @@ export default function ModelProvidersPage() {
             </div>
           ) : (
             <div className="h-full flex flex-col">
-              <div className="px-3 pt-3 pb-1 text-xs text-muted-foreground">
-                {hasModelOverviewFilter
-                  ? "筛选状态下暂不支持拖拽排序，点击行可查看详情"
-                  : "可拖拽调整列表顺序并自动保存，点击行可查看详情"}
-              </div>
               <div className="hidden sm:block flex-1 overflow-y-auto">
                 <div className="w-full">
                   <Table className="min-w-[1100px]">

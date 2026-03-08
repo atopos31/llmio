@@ -426,7 +426,7 @@ export default function LogsPage() {
                       </div>
                       <div className="space-y-1">
                         <p className="text-muted-foreground text-[10px] uppercase tracking-wide">耗时</p>
-                        <p className="font-medium">{formatTime(log.ChunkTime)}</p>
+                        <p className="font-medium">{formatTime(log.ChunkTime + log.FirstChunkTime + log.ProxyTime)}</p>
                       </div>
                       <div className="space-y-1">
                         <p className="text-muted-foreground text-[10px] uppercase tracking-wide">提供商</p>

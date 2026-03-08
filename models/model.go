@@ -26,13 +26,14 @@ type AnthropicConfig struct {
 
 type Model struct {
 	gorm.Model
-	Name     string
-	Remark   string
-	MaxRetry int    // 重试次数限制
-	TimeOut  int    // 超时时间 单位秒
-	IOLog    *bool  // 是否记录IO
-	Strategy string // 负载均衡策略 默认 lottery
-	Breaker  *bool  // 是否开启熔断
+	Name         string
+	Remark       string
+	MaxRetry     int    // 重试次数限制
+	TimeOut      int    // 超时时间 单位秒
+	IOLog        *bool  // 是否记录IO
+	Strategy     string // 负载均衡策略 默认 lottery
+	Breaker      *bool  // 是否开启熔断
+	DisplayOrder int    // 模型展示顺序，值越大越靠前
 }
 
 type ModelWithProvider struct {

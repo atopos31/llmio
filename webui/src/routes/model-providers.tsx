@@ -1,6 +1,27 @@
-import { useState, useEffect, useCallback, type ReactNode } from "react";
+import { useState, useEffect, useCallback, type DragEvent, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import {
   Table,
   TableBody,
@@ -23,19 +44,23 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import Loading from "@/components/loading";
 import {
   getModelProviders,
   getModelProviderStatus,
   updateModelProviderStatus,
   deleteModelProvider,
+  deleteModel,
   getModelOptions,
+  updateModel,
   getProviders,
-  getProviderModels
+  getProviderModels,
+  updateModelOrder
 } from "@/lib/api";
 import type { ModelWithProvider, Model, Provider, ProviderModel } from "@/lib/api";
 import { toast } from "sonner";
-import { RefreshCw, Pencil, Trash2, Zap } from "lucide-react";
+import { ArrowLeft, RefreshCw, Pencil, Trash2, Zap, Search, Link, ListCollapse } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { useModelProviderForm } from "@/routes/model-providers/use-model-provider-form";
 import { useModelProviderTesting } from "@/routes/model-providers/use-model-provider-testing";
@@ -47,12 +72,28 @@ type MobileInfoItemProps = {
   value: ReactNode;
 };
 
+type StrategyFilter = "all" | "lottery" | "rotor";
+type IOLogFilter = "all" | "true" | "false";
+
 const MobileInfoItem = ({ label, value }: MobileInfoItemProps) => (
   <div className="space-y-1">
     <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</p>
     <div className="text-sm font-medium break-words">{value}</div>
   </div>
 );
+
+const renderStrategy = (strategy?: string) =>
+  strategy === "rotor" ? "Rotor" : "Lottery";
+
+const modelEditSchema = z.object({
+  name: z.string().min(1, { message: "模型名称不能为空" }),
+  remark: z.string(),
+  max_retry: z.number().min(0, { message: "重试次数限制不能为负数" }),
+  time_out: z.number().min(0, { message: "超时时间不能为负数" }),
+  io_log: z.boolean(),
+  strategy: z.enum(["lottery", "rotor"]),
+  breaker: z.boolean(),
+});
 
 export default function ModelProvidersPage() {
   const [modelProviders, setModelProviders] = useState<ModelWithProvider[]>([]);
@@ -66,9 +107,40 @@ export default function ModelProvidersPage() {
   const [selectedModelId, setSelectedModelId] = useState<number | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [selectedProviderType, setSelectedProviderType] = useState<string>("all");
+  const [providerSearchInput, setProviderSearchInput] = useState("");
+  const [providerSearchTerm, setProviderSearchTerm] = useState("");
   const [weightSortOrder, setWeightSortOrder] = useState<"asc" | "desc" | "none">("none");
   const [statusUpdating, setStatusUpdating] = useState<Record<number, boolean>>({});
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [orderedCardModels, setOrderedCardModels] = useState<Model[]>([]);
+  const [draggingModelId, setDraggingModelId] = useState<number | null>(null);
+  const [dragOverModelId, setDragOverModelId] = useState<number | null>(null);
+  const [cardOrderSaving, setCardOrderSaving] = useState(false);
+  const [suppressCardClick, setSuppressCardClick] = useState(false);
+  const [modelAssociationCountMap, setModelAssociationCountMap] = useState<Record<number, number>>({});
+  const [modelAssociationCountLoading, setModelAssociationCountLoading] = useState(false);
+  const [modelEditOpen, setModelEditOpen] = useState(false);
+  const [editingModel, setEditingModel] = useState<Model | null>(null);
+  const [modelEditSaving, setModelEditSaving] = useState(false);
+  const [modelDeleteId, setModelDeleteId] = useState<number | null>(null);
+  const [modelDeleteLoading, setModelDeleteLoading] = useState(false);
+  const [modelSearchInput, setModelSearchInput] = useState("");
+  const [modelSearchTerm, setModelSearchTerm] = useState("");
+  const [modelStrategyFilter, setModelStrategyFilter] = useState<StrategyFilter>("all");
+  const [modelIOLogFilter, setModelIOLogFilter] = useState<IOLogFilter>("all");
+
+  const modelEditForm = useForm<z.infer<typeof modelEditSchema>>({
+    resolver: zodResolver(modelEditSchema),
+    defaultValues: {
+      name: "",
+      remark: "",
+      max_retry: 10,
+      time_out: 60,
+      io_log: false,
+      strategy: "lottery",
+      breaker: false,
+    },
+  });
 
   const loadProviderModels = useCallback(async (providerId: number, force = false) => {
     if (!providerId) return;
@@ -89,6 +161,32 @@ export default function ModelProvidersPage() {
       });
     }
   }, [providerModelsMap, providers]);
+
+  const sortCardModels = useCallback((modelList: Model[]) => {
+    return [...modelList].sort((a, b) => {
+      const orderA = a.DisplayOrder ?? 0;
+      const orderB = b.DisplayOrder ?? 0;
+      if (orderA !== orderB) return orderB - orderA;
+      return b.ID - a.ID;
+    });
+  }, []);
+
+  const reorderCardModels = useCallback((modelList: Model[], sourceId: number, targetId: number) => {
+    if (sourceId === targetId) return modelList;
+    const sourceIndex = modelList.findIndex((item) => item.ID === sourceId);
+    const targetIndex = modelList.findIndex((item) => item.ID === targetId);
+    if (sourceIndex === -1 || targetIndex === -1) return modelList;
+    if (sourceIndex === targetIndex) return modelList;
+
+    const next = [...modelList];
+    const [moved] = next.splice(sourceIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    return next;
+  }, []);
+
+  useEffect(() => {
+    setOrderedCardModels(sortCardModels(models));
+  }, [models, sortCardModels]);
 
   const {
     testResults,
@@ -125,26 +223,7 @@ export default function ModelProvidersPage() {
     }
   };
 
-  const fetchModelProviders = async (modelId: number) => {
-    try {
-      setLoading(true);
-      const data = await getModelProviders(modelId);
-      setModelProviders(data.map(item => ({
-        ...item,
-        CustomerHeaders: item.CustomerHeaders || {}
-      })));
-      // 异步加载状态数据
-      loadProviderStatus(data, modelId);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(`获取关联管理列表失败: ${message}`);
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadProviderStatus = async (providers: ModelWithProvider[], modelId: number) => {
+  const loadProviderStatus = useCallback(async (providers: ModelWithProvider[], modelId: number) => {
     const selectedModel = models.find(m => m.ID === modelId);
     if (!selectedModel) return;
     setProviderStatus({})
@@ -169,7 +248,37 @@ export default function ModelProvidersPage() {
     );
 
     setProviderStatus(newStatus);
-  };
+  }, [models]);
+
+  const fetchModelProviders = useCallback(async (modelId: number) => {
+    try {
+      setLoading(true);
+      const data = await getModelProviders(modelId);
+      setModelProviders(data.map(item => ({
+        ...item,
+        CustomerHeaders: item.CustomerHeaders || {}
+      })));
+      setModelAssociationCountMap((prev) => ({ ...prev, [modelId]: data.length }));
+      // 异步加载状态数据
+      loadProviderStatus(data, modelId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`获取关联管理列表失败: ${message}`);
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }, [loadProviderStatus]);
+
+  const refreshModelAssociationCount = useCallback(async (modelId: number) => {
+    try {
+      const associations = await getModelProviders(modelId);
+      setModelAssociationCountMap((prev) => ({ ...prev, [modelId]: associations.length }));
+    } catch (err) {
+      console.error(`Failed to refresh association count for model ${modelId}:`, err);
+      setModelAssociationCountMap((prev) => ({ ...prev, [modelId]: -1 }));
+    }
+  }, []);
 
   const {
     form,
@@ -191,10 +300,12 @@ export default function ModelProvidersPage() {
     models,
     providerModelsMap,
     loadProviderModels,
-    onReload: async () => {
+    onReload: async (modelId) => {
       if (selectedModelId) {
         await fetchModelProviders(selectedModelId);
+        return;
       }
+      await refreshModelAssociationCount(modelId);
     },
   });
 
@@ -214,8 +325,15 @@ export default function ModelProvidersPage() {
     }
 
     const modelIdParam = searchParams.get("modelId");
-    const parsedParam = modelIdParam ? Number(modelIdParam) : NaN;
+    if (!modelIdParam) {
+      if (selectedModelId !== null) {
+        setSelectedModelId(null);
+        form.setValue("model_id", 0);
+      }
+      return;
+    }
 
+    const parsedParam = Number(modelIdParam);
     if (!Number.isNaN(parsedParam) && models.some((model) => model.ID === parsedParam)) {
       if (selectedModelId !== parsedParam) {
         setSelectedModelId(parsedParam);
@@ -224,23 +342,78 @@ export default function ModelProvidersPage() {
       return;
     }
 
-    const fallbackId = models[0].ID;
-    if (selectedModelId !== fallbackId) {
-      setSelectedModelId(fallbackId);
-      form.setValue("model_id", fallbackId);
+    if (selectedModelId !== null) {
+      setSelectedModelId(null);
+      form.setValue("model_id", 0);
     }
-    if (modelIdParam !== fallbackId.toString()) {
-      const nextParams = new URLSearchParams(searchParams);
-      nextParams.set("modelId", fallbackId.toString());
-      setSearchParams(nextParams, { replace: true });
-    }
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("modelId");
+    setSearchParams(nextParams, { replace: true });
   }, [models, searchParams, form, selectedModelId, setSearchParams]);
 
   useEffect(() => {
     if (selectedModelId) {
       fetchModelProviders(selectedModelId);
     }
-  }, [selectedModelId]);
+  }, [selectedModelId, fetchModelProviders]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setModelSearchTerm(modelSearchInput.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [modelSearchInput]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setProviderSearchTerm(providerSearchInput.trim().toLowerCase());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [providerSearchInput]);
+
+  useEffect(() => {
+    if (models.length === 0) {
+      setModelAssociationCountMap({});
+      setModelAssociationCountLoading(false);
+      return;
+    }
+    if (selectedModelId !== null) return;
+
+    let active = true;
+    setModelAssociationCountLoading(true);
+
+    const loadAssociationCounts = async () => {
+      const entries = await Promise.all(
+        models.map(async (model) => {
+          try {
+            const associations = await getModelProviders(model.ID);
+            return [model.ID, associations.length] as const;
+          } catch (err) {
+            console.error(`Failed to load association count for model ${model.ID}:`, err);
+            return [model.ID, -1] as const;
+          }
+        })
+      );
+
+      if (!active) return;
+      const nextCountMap: Record<number, number> = {};
+      entries.forEach(([modelId, count]) => {
+        nextCountMap[modelId] = count;
+      });
+      setModelAssociationCountMap(nextCountMap);
+      setModelAssociationCountLoading(false);
+    };
+
+    loadAssociationCounts().catch((err) => {
+      if (!active) return;
+      console.error("Failed to load model association counts:", err);
+      setModelAssociationCountLoading(false);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [models, selectedModelId]);
 
   const handleDelete = async () => {
     if (!deleteId) return;
@@ -297,25 +470,186 @@ export default function ModelProvidersPage() {
     setDeleteId(id);
   };
 
-  const handleModelChange = (modelId: string) => {
-    const id = parseInt(modelId);
-    setSelectedModelId(id);
+  const persistCardOrder = async (nextOrderedModels: Model[]) => {
+    const nextModelIds = nextOrderedModels.map((model) => model.ID);
+    const currentModelIds = sortCardModels(models).map((model) => model.ID);
+    if (nextModelIds.join(",") === currentModelIds.join(",")) return;
+
+    setCardOrderSaving(true);
+    try {
+      await updateModelOrder(nextModelIds);
+
+      const total = nextOrderedModels.length;
+      const nextOrderMap = new Map<number, number>();
+      nextOrderedModels.forEach((model, index) => {
+        nextOrderMap.set(model.ID, total - index);
+      });
+
+      setModels((prev) =>
+        prev.map((model) => ({
+          ...model,
+          DisplayOrder: nextOrderMap.get(model.ID) ?? model.DisplayOrder ?? 0,
+        }))
+      );
+      toast.success("模型排序已保存");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`保存模型排序失败: ${message}`);
+      setOrderedCardModels(sortCardModels(models));
+    } finally {
+      setCardOrderSaving(false);
+    }
+  };
+
+  const handleCardDragStart = (event: DragEvent<HTMLElement>, modelId: number) => {
+    if (cardOrderSaving || hasModelOverviewFilter) {
+      event.preventDefault();
+      return;
+    }
+    setDraggingModelId(modelId);
+    setDragOverModelId(null);
+    setSuppressCardClick(true);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", modelId.toString());
+  };
+
+  const handleCardDragOver = (event: DragEvent<HTMLElement>, targetModelId: number) => {
+    if (hasModelOverviewFilter) return;
+    event.preventDefault();
+    if (draggingModelId === null || draggingModelId === targetModelId) return;
+    setDragOverModelId(targetModelId);
+    setOrderedCardModels((prev) => reorderCardModels(prev, draggingModelId, targetModelId));
+  };
+
+  const handleCardDrop = async (event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    setDraggingModelId(null);
+    setDragOverModelId(null);
+    if (hasModelOverviewFilter) return;
+    await persistCardOrder(orderedCardModels);
+  };
+
+  const handleCardDragEnd = () => {
+    setDraggingModelId(null);
+    setDragOverModelId(null);
+    setTimeout(() => setSuppressCardClick(false), 0);
+  };
+
+  const openModelEditDialog = (model: Model) => {
+    setEditingModel(model);
+    modelEditForm.reset({
+      name: model.Name,
+      remark: model.Remark ?? "",
+      max_retry: model.MaxRetry,
+      time_out: model.TimeOut,
+      io_log: !!model.IOLog,
+      strategy: model.Strategy === "rotor" ? "rotor" : "lottery",
+      breaker: model.Breaker ?? false,
+    });
+    setModelEditOpen(true);
+  };
+
+  const closeModelEditDialog = () => {
+    setModelEditOpen(false);
+    setEditingModel(null);
+    modelEditForm.reset({
+      name: "",
+      remark: "",
+      max_retry: 10,
+      time_out: 60,
+      io_log: false,
+      strategy: "lottery",
+      breaker: false,
+    });
+    setModelEditSaving(false);
+  };
+
+  const handleModelEditSave = async (values: z.infer<typeof modelEditSchema>) => {
+    if (!editingModel) return;
+
+    setModelEditSaving(true);
+    try {
+      const updated = await updateModel(editingModel.ID, {
+        name: values.name,
+        remark: values.remark,
+        max_retry: values.max_retry,
+        time_out: values.time_out,
+        strategy: values.strategy,
+        io_log: values.io_log,
+        breaker: values.breaker,
+      });
+
+      setModels((prev) =>
+        prev.map((model) =>
+          model.ID === editingModel.ID
+            ? {
+              ...model,
+              Name: updated.Name,
+              Remark: updated.Remark,
+              MaxRetry: updated.MaxRetry,
+              TimeOut: updated.TimeOut,
+              Strategy: updated.Strategy,
+              IOLog: updated.IOLog,
+              Breaker: updated.Breaker,
+            }
+            : model
+        )
+      );
+      toast.success(`模型: ${updated.Name} 更新成功`);
+      closeModelEditDialog();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`更新模型失败: ${message}`);
+    } finally {
+      setModelEditSaving(false);
+    }
+  };
+
+  const handleModelSelect = (modelId: number) => {
+    if (modelId === selectedModelId) return;
+    setLoading(true);
+    setSelectedModelId(modelId);
+    setModelProviders([]);
+    setProviderStatus({});
+    setStatusError(null);
     const nextParams = new URLSearchParams(searchParams);
-    nextParams.set("modelId", id.toString());
+    nextParams.set("modelId", modelId.toString());
     setSearchParams(nextParams);
-    form.setValue("model_id", id);
+    form.setValue("model_id", modelId);
+  };
+
+  const handleBackToModelCards = () => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("modelId");
+    setSearchParams(nextParams);
+    setSelectedModelId(null);
+    setModelProviders([]);
+    setProviderStatus({});
+    setStatusError(null);
+    form.setValue("model_id", 0);
   };
 
   // 获取唯一的提供商类型列表
   const providerTypes = Array.from(new Set(providers.map(p => p.Type).filter(Boolean)));
 
-  // 根据选择的提供商类型过滤关联管理，并按权重排序
-  const filteredModelProviders = selectedProviderType && selectedProviderType !== "all"
-    ? modelProviders.filter(association => {
-      const provider = providers.find(p => p.ID === association.ProviderID);
-      return provider?.Type === selectedProviderType;
-    })
-    : modelProviders;
+  // 根据筛选条件过滤关联管理，并按权重排序
+  const filteredModelProviders = modelProviders.filter((association) => {
+    const provider = providers.find((p) => p.ID === association.ProviderID);
+    const matchesType = selectedProviderType === "all" || provider?.Type === selectedProviderType;
+    if (!matchesType) return false;
+    if (!providerSearchTerm) return true;
+
+    const providerName = (provider?.Name ?? "").toLowerCase();
+    const providerModel = (association.ProviderModel ?? "").toLowerCase();
+    const providerType = (provider?.Type ?? "").toLowerCase();
+    const providerId = association.ProviderID.toString();
+    return (
+      providerName.includes(providerSearchTerm) ||
+      providerModel.includes(providerSearchTerm) ||
+      providerType.includes(providerSearchTerm) ||
+      providerId.includes(providerSearchTerm)
+    );
+  });
 
   // 按权重排序
   const sortedModelProviders = [...filteredModelProviders].sort((a, b) => {
@@ -323,53 +657,169 @@ export default function ModelProvidersPage() {
     return weightSortOrder === "asc" ? a.Weight - b.Weight : b.Weight - a.Weight;
   });
 
-  const hasAssociationFilter = selectedProviderType !== "all";
+  const hasAssociationFilter = selectedProviderType !== "all" || providerSearchTerm.length > 0;
+  const getAssociationCountNumberText = (modelId: number) => {
+    const count = modelAssociationCountMap[modelId];
+    if (count === undefined) return modelAssociationCountLoading ? "-" : "--";
+    if (count < 0) return "--";
+    return String(count);
+  };
+
+  const filteredOverviewModels = orderedCardModels.filter((model) => {
+    const matchesSearch = modelSearchTerm.length === 0 || model.Name.toLowerCase().includes(modelSearchTerm.toLowerCase());
+    const matchesStrategy = modelStrategyFilter === "all" || model.Strategy === modelStrategyFilter;
+    const matchesIO =
+      modelIOLogFilter === "all" ||
+      (modelIOLogFilter === "true" && !!model.IOLog) ||
+      (modelIOLogFilter === "false" && !model.IOLog);
+    return matchesSearch && matchesStrategy && matchesIO;
+  });
+
+  const hasModelOverviewFilter =
+    modelSearchTerm.length > 0 || modelStrategyFilter !== "all" || modelIOLogFilter !== "all";
+  const modelPendingDelete = modelDeleteId ? models.find((model) => model.ID === modelDeleteId) : null;
+
+  const handleDeleteModel = async () => {
+    if (!modelDeleteId) return;
+    setModelDeleteLoading(true);
+    try {
+      const targetModel = models.find((model) => model.ID === modelDeleteId);
+      await deleteModel(modelDeleteId);
+      setModels((prev) => prev.filter((model) => model.ID !== modelDeleteId));
+      setModelAssociationCountMap((prev) => {
+        const next = { ...prev };
+        delete next[modelDeleteId];
+        return next;
+      });
+      toast.success(`模型: ${targetModel?.Name ?? modelDeleteId} 删除成功`);
+      setModelDeleteId(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(`删除模型失败: ${message}`);
+      console.error(err);
+    } finally {
+      setModelDeleteLoading(false);
+    }
+  };
 
   if (loading && models.length === 0 && providers.length === 0) return <Loading message="加载模型和提供商" />;
 
   return (
     <div className="h-full min-h-0 flex flex-col gap-2 p-1">
       <div className="flex flex-col gap-2 flex-shrink-0">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h2 className="text-2xl font-bold tracking-tight">关联管理</h2>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 space-y-1">
+            <h2 className="text-2xl font-bold tracking-tight">模型管理</h2>
           </div>
+          {selectedModelId && (
+            <div className="flex items-center gap-2">
+              <Button variant="outline" className="h-8 text-xs" onClick={handleBackToModelCards}>
+                <ArrowLeft className="size-3.5" />
+                返回模型列表
+              </Button>
+              <Button onClick={() => openCreateDialog()} className="h-8 text-xs">
+                添加关联
+              </Button>
+            </div>
+          )}
         </div>
-        <div className="flex flex-col gap-2 flex-shrink-0">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
-            <div className="flex flex-col gap-1 text-xs">
-              <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">关联模型</Label>
-              <Select value={selectedModelId?.toString() || ""} onValueChange={handleModelChange}>
-                <SelectTrigger className="h-8 w-full text-xs px-2">
-                  <SelectValue placeholder="选择模型" />
-                </SelectTrigger>
-                <SelectContent>
-                  {models.map((model) => (
-                    <SelectItem key={model.ID} value={model.ID.toString()}>
-                      {model.Name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+
+        {!selectedModelId && (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
+            <div className="flex flex-col gap-1 text-xs lg:min-w-0 lg:col-span-2">
+              <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">搜索</Label>
+              <div className="relative">
+                <Search className="size-4 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="按名称搜索"
+                  value={modelSearchInput}
+                  onChange={(event) => setModelSearchInput(event.target.value)}
+                  className="h-8 pl-8 text-xs"
+                />
+              </div>
             </div>
             <div className="flex flex-col gap-1 text-xs">
-              <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商类型</Label>
-              <Select value={selectedProviderType} onValueChange={setSelectedProviderType}>
+              <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">负载策略</Label>
+              <Select
+                value={modelStrategyFilter}
+                onValueChange={(value) => setModelStrategyFilter(value as StrategyFilter)}
+              >
                 <SelectTrigger className="h-8 w-full text-xs px-2">
-                  <SelectValue placeholder="按类型筛选" />
+                  <SelectValue placeholder="负载策略" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">全部</SelectItem>
-                  {providerTypes.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="lottery">Lottery</SelectItem>
+                  <SelectItem value="rotor">Rotor</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-end col-span-2 sm:col-span-2 lg:col-span-1 gap-2">
-              <div className="flex-1">
+            <div className="flex flex-col gap-1 text-xs">
+              <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">IO 记录</Label>
+              <Select
+                value={modelIOLogFilter}
+                onValueChange={(value) => setModelIOLogFilter(value as IOLogFilter)}
+              >
+                <SelectTrigger className="h-8 w-full text-xs px-2">
+                  <SelectValue placeholder="IO 记录" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部</SelectItem>
+                  <SelectItem value="true">开启</SelectItem>
+                  <SelectItem value="false">关闭</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
+
+        {selectedModelId && (
+          <div className="flex flex-col gap-2 flex-shrink-0">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
+              <div className="flex flex-col gap-1 text-xs">
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">搜索提供商</Label>
+                <div className="relative">
+                  <Search className="size-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="按提供商/模型搜索"
+                    value={providerSearchInput}
+                    onChange={(event) => setProviderSearchInput(event.target.value)}
+                    className="h-8 pl-7 text-xs"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col gap-1 text-xs">
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">快速切换模型</Label>
+                <Select value={selectedModelId?.toString() || ""} onValueChange={(value) => handleModelSelect(Number(value))}>
+                  <SelectTrigger className="h-8 w-full text-xs px-2">
+                    <SelectValue placeholder="选择模型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {orderedCardModels.map((model) => (
+                      <SelectItem key={model.ID} value={model.ID.toString()}>
+                        {model.Name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1 text-xs">
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商类型</Label>
+                <Select value={selectedProviderType} onValueChange={setSelectedProviderType}>
+                  <SelectTrigger className="h-8 w-full text-xs px-2">
+                    <SelectValue placeholder="按类型筛选" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部</SelectItem>
+                    {providerTypes.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1 text-xs">
                 <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">权重排序</Label>
                 <Select value={weightSortOrder} onValueChange={(value) => setWeightSortOrder(value as "asc" | "desc" | "none")}>
                   <SelectTrigger className="h-8 w-full text-xs px-2">
@@ -382,35 +832,237 @@ export default function ModelProvidersPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button
-                onClick={openCreateDialog}
-                disabled={!selectedModelId}
-                className="h-8 text-xs"
-              >
-                添加关联
-              </Button>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {statusError && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {statusError}
+      {!selectedModelId && (
+        <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
+          {loading ? (
+            <div className="flex h-full items-center justify-center">
+              <Loading message="加载模型列表" />
+            </div>
+          ) : filteredOverviewModels.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-muted-foreground">
+              {hasModelOverviewFilter ? "没有符合筛选条件的模型" : "暂无可关联模型"}
+            </div>
+          ) : (
+            <div className="h-full flex flex-col">
+              <div className="px-3 pt-3 pb-1 text-xs text-muted-foreground">
+                {hasModelOverviewFilter
+                  ? "筛选状态下暂不支持拖拽排序，点击行可查看详情"
+                  : "可拖拽调整列表顺序并自动保存，点击行可查看详情"}
+              </div>
+              <div className="hidden sm:block flex-1 overflow-y-auto">
+                <div className="w-full">
+                  <Table className="min-w-[1100px]">
+                    <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
+                      <TableRow>
+                        <TableHead>ID</TableHead>
+                        <TableHead>名称</TableHead>
+                        <TableHead>备注</TableHead>
+                        <TableHead className="text-center">已关联模型</TableHead>
+                        <TableHead className="text-center">重试次数限制</TableHead>
+                        <TableHead className="text-center">超时时间(秒)</TableHead>
+                        <TableHead className="text-center">负载策略</TableHead>
+                        <TableHead className="text-center">IO 记录</TableHead>
+                        <TableHead className="text-center">操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredOverviewModels.map((model) => (
+                        <TableRow
+                          key={model.ID}
+                          draggable={!cardOrderSaving && !hasModelOverviewFilter}
+                          onDragStart={(event) => handleCardDragStart(event, model.ID)}
+                          onDragOver={(event) => handleCardDragOver(event, model.ID)}
+                          onDrop={handleCardDrop}
+                          onDragEnd={handleCardDragEnd}
+                          className={`cursor-pointer transition-colors ${
+                            draggingModelId === model.ID ? "opacity-60 ring-1 ring-primary/60" : ""
+                          } ${
+                            dragOverModelId === model.ID && draggingModelId !== model.ID ? "bg-accent/40" : ""
+                          }`}
+                          onClick={() => {
+                            if (suppressCardClick || cardOrderSaving) return;
+                            handleModelSelect(model.ID);
+                          }}
+                        >
+                          <TableCell className="font-mono text-xs text-muted-foreground">{model.ID}</TableCell>
+                          <TableCell className="font-medium">{model.Name}</TableCell>
+                          <TableCell className="max-w-[240px] truncate text-sm" title={model.Remark || "-"}>
+                            {model.Remark || "-"}
+                          </TableCell>
+                          <TableCell className="text-sm text-center">{getAssociationCountNumberText(model.ID)}</TableCell>
+                          <TableCell className="text-center">{model.MaxRetry}</TableCell>
+                          <TableCell className="text-center">{model.TimeOut}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground text-center">{renderStrategy(model.Strategy)}</TableCell>
+                          <TableCell className="text-center">
+                            <span className={model.IOLog ? "text-green-500" : "text-red-500"}>
+                              {model.IOLog ? "✓" : "✗"}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2 justify-center">
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openModelEditDialog(model);
+                                }}
+                                title="编辑模型"
+                                aria-label="编辑模型"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openCreateDialog(model.ID);
+                                }}
+                                title="添加关联"
+                                aria-label="添加关联"
+                              >
+                                <Link className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleModelSelect(model.ID);
+                                }}
+                                title="查看详情"
+                                aria-label="查看详情"
+                              >
+                                <ListCollapse className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setModelDeleteId(model.ID);
+                                }}
+                                aria-label="删除模型"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+              <div className="sm:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 divide-y divide-border">
+                {filteredOverviewModels.map((model) => (
+                  <div
+                    key={model.ID}
+                    draggable={!cardOrderSaving && !hasModelOverviewFilter}
+                    onDragStart={(event) => handleCardDragStart(event, model.ID)}
+                    onDragOver={(event) => handleCardDragOver(event, model.ID)}
+                    onDrop={handleCardDrop}
+                    onDragEnd={handleCardDragEnd}
+                    className={`py-3 space-y-3 transition-colors ${
+                      draggingModelId === model.ID ? "opacity-60" : ""
+                    } ${
+                      dragOverModelId === model.ID && draggingModelId !== model.ID ? "bg-accent/20 rounded-md" : ""
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-semibold text-sm truncate">{model.Name}</h3>
+                        <p className="text-[11px] text-muted-foreground">模型 ID: {model.ID}</p>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => openModelEditDialog(model)}
+                          title="编辑模型"
+                          aria-label="编辑模型"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => openCreateDialog(model.ID)}
+                          title="添加关联"
+                          aria-label="添加关联"
+                        >
+                          <Link className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => handleModelSelect(model.ID)}
+                          title="查看详情"
+                          aria-label="查看详情"
+                        >
+                          <ListCollapse className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => setModelDeleteId(model.ID)}
+                          aria-label="删除模型"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="text-xs space-y-1">
+                      <p className="text-[11px] text-muted-foreground uppercase tracking-wide">备注</p>
+                      <p className="break-words">{model.Remark || "-"}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <MobileInfoItem label="重试次数" value={model.MaxRetry} />
+                      <MobileInfoItem label="超时时间" value={`${model.TimeOut} 秒`} />
+                      <MobileInfoItem label="负载策略" value={renderStrategy(model.Strategy)} />
+                      <MobileInfoItem label="已关联" value={getAssociationCountNumberText(model.ID)} />
+                      <MobileInfoItem
+                        label="IO 记录"
+                        value={<span className={model.IOLog ? "text-green-500" : "text-red-500"}>{model.IOLog ? "✓" : "✗"}</span>}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
-      <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
+
+      {selectedModelId && (
+        <>
+          {statusError && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {statusError}
+            </div>
+          )}
+          <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
         {loading ? (
           <div className="flex h-full items-center justify-center">
             <Loading message="加载关联数据" />
           </div>
-        ) : !selectedModelId ? (
-          <div className="flex h-full items-center justify-center text-muted-foreground">
-            请选择一个模型来查看其提供商关联
-          </div>
         ) : sortedModelProviders.length === 0 ? (
           <div className="flex h-full items-center justify-center text-muted-foreground text-sm text-center px-6">
-            {hasAssociationFilter ? '当前类型暂无关联' : '该模型还没有关联的提供商'}
+            {hasAssociationFilter ? '当前筛选条件暂无关联' : '该模型还没有关联的提供商'}
           </div>
         ) : (
           <div className="h-full flex flex-col">
@@ -671,6 +1323,193 @@ export default function ModelProvidersPage() {
           </div>
         )}
       </div>
+        </>
+      )}
+
+      <AlertDialog open={modelDeleteId !== null} onOpenChange={(open) => !open && setModelDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确定要删除这个模型吗？</AlertDialogTitle>
+            <AlertDialogDescription>
+              此操作无法撤销。这将永久删除模型
+              {modelPendingDelete ? `「${modelPendingDelete.Name}」` : ""}。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={modelDeleteLoading}>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteModel} disabled={modelDeleteLoading}>
+              {modelDeleteLoading ? "删除中..." : "确认删除"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={modelEditOpen} onOpenChange={(open) => (open ? setModelEditOpen(true) : closeModelEditDialog())}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>编辑模型</DialogTitle>
+            <DialogDescription>
+              修改模型信息
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...modelEditForm}>
+            <form onSubmit={modelEditForm.handleSubmit(handleModelEditSave)} className="space-y-4">
+              <FormField
+                control={modelEditForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>名称</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={modelEditForm.control}
+                name="remark"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>备注</FormLabel>
+                    <FormControl>
+                      <Textarea {...field} rows={3} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={modelEditForm.control}
+                  name="max_retry"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>重试次数限制</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          {...field}
+                          onChange={(e) => field.onChange(+e.target.value)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={modelEditForm.control}
+                  name="time_out"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>超时时间(秒)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          {...field}
+                          onChange={(e) => field.onChange(+e.target.value)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={modelEditForm.control}
+                name="io_log"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base">IO 记录</FormLabel>
+                    </div>
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={modelEditForm.control}
+                name="breaker"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base">熔断</FormLabel>
+                    </div>
+                    <FormControl>
+                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={modelEditForm.control}
+                name="strategy"
+                render={({ field }) => (
+                  <FormItem className="rounded-lg border p-4 space-y-3">
+                    <div className="flex flex-col gap-1">
+                      <FormLabel className="text-base">负载均衡策略</FormLabel>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {[
+                        {
+                          value: "lottery",
+                          title: "Lottery",
+                          desc: "按权重概率抽取, 适合随机分散流量.",
+                        },
+                        {
+                          value: "rotor",
+                          title: "Rotor",
+                          desc: "按权重循环轮转, 适合需要缓存命中场景.",
+                        },
+                      ].map((option) => (
+                        <label
+                          key={option.value}
+                          className="flex cursor-pointer items-start gap-3 rounded-md border p-3 hover:bg-accent"
+                        >
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value === option.value}
+                              onCheckedChange={(checked) => {
+                                if (checked) field.onChange(option.value);
+                              }}
+                            />
+                          </FormControl>
+                          <div className="space-y-1">
+                            <p className="font-medium leading-none">{option.title}</p>
+                            <p className="text-[13px] text-muted-foreground">{option.desc}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={closeModelEditDialog} disabled={modelEditSaving}>
+                  取消
+                </Button>
+                <Button type="submit" disabled={modelEditSaving}>
+                  {modelEditSaving ? "保存中..." : "更新"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
 
       <ModelProviderFormDialog
         open={open}

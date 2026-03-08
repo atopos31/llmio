@@ -21,6 +21,7 @@ export interface Model {
   IOLog: boolean;
   Strategy: string;
   Breaker?: boolean | null;
+  DisplayOrder?: number;
 }
 
 export interface ModelWithProvider {
@@ -228,6 +229,13 @@ export async function updateModel(id: number, model: {
   });
 }
 
+export async function updateModelOrder(modelIds: number[]): Promise<{ updated: number }> {
+  return apiRequest<{ updated: number }>('/models/order', {
+    method: 'PATCH',
+    body: JSON.stringify({ model_ids: modelIds }),
+  });
+}
+
 export async function deleteModel(id: number): Promise<void> {
   await apiRequest<void>(`/models/${id}`, {
     method: 'DELETE',
@@ -397,8 +405,8 @@ export async function getProjectCounts(): Promise<ProjectCount[]> {
 }
 
 // Test API functions
-export async function testModelProvider(id: number): Promise<any> {
-  return apiRequest<any>(`/test/${id}`);
+export async function testModelProvider(id: number): Promise<unknown> {
+  return apiRequest<unknown>(`/test/${id}`);
 }
 
 // Provider Templates API functions
@@ -424,12 +432,6 @@ export async function getProviderModels(providerId: number): Promise<ProviderMod
 }
 
 // Config API functions
-export interface ConfigResponse {
-  key: string;
-  value: string;
-}
-
-// Config API functions
 export interface AnthropicCountTokens {
   base_url: string;
   api_key: string;
@@ -445,7 +447,7 @@ export const configAPI = {
   getConfig: (key: string) =>
     apiRequest<ConfigResponse>(`/config/${key}`),
 
-  updateConfig: (key: string, data: any) =>
+  updateConfig: (key: string, data: unknown) =>
     apiRequest<ConfigResponse>(`/config/${key}`, {
       method: 'PUT',
       body: JSON.stringify({ value: JSON.stringify(data) }),

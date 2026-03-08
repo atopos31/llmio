@@ -30,7 +30,7 @@ type UseModelProviderFormParams = {
   models: Model[];
   providerModelsMap: Record<number, ProviderModel[]>;
   loadProviderModels: (providerId: number, force?: boolean) => Promise<void>;
-  onReload: () => Promise<void> | void;
+  onReload: (modelId: number) => Promise<void> | void;
 };
 
 export const useModelProviderForm = ({
@@ -120,9 +120,9 @@ export const useModelProviderForm = ({
     setOpen(true);
   };
 
-  const openCreateDialog = () => {
+  const openCreateDialog = (modelId?: number) => {
     setEditingAssociation(null);
-    form.reset(getDefaultFormValues());
+    form.reset(getDefaultFormValues(modelId));
     setOpen(true);
   };
 
@@ -139,7 +139,7 @@ export const useModelProviderForm = ({
 
       setOpen(false);
       form.reset(getDefaultFormValues());
-      await onReload();
+      await onReload(values.model_id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(`${editingAssociation ? "更新" : "创建"}关联管理失败: ${message}`);

@@ -83,7 +83,7 @@ func ProcesserOpenAI(ctx context.Context, pr io.Reader, stream bool, start time.
 		FirstChunkTime: firstChunkTime,
 		ChunkTime:      chunkTime,
 		Usage:          openaiUsage,
-		Tps:            float64(openaiUsage.CompletionTokens) / chunkTime.Seconds(),
+		Tps:            float64(openaiUsage.CompletionTokens) / time.Since(start).Seconds(),
 		Size:           size,
 	}, &output, nil
 }
@@ -168,7 +168,7 @@ func ProcesserOpenAiRes(ctx context.Context, pr io.Reader, stream bool, start ti
 				CachedTokens: openAIResUsage.InputTokensDetails.CachedTokens,
 			},
 		},
-		Tps:  float64(openAIResUsage.OutputTokens) / chunkTime.Seconds(),
+		Tps:  float64(openAIResUsage.OutputTokens) / time.Since(start).Seconds(),
 		Size: size,
 	}, &output, nil
 }
@@ -238,7 +238,7 @@ func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start ti
 				CachedTokens: athropicUsage.CacheReadInputTokens,
 			},
 		},
-		Tps:  float64(athropicUsage.OutputTokens) / chunkTime.Seconds(),
+		Tps:  float64(athropicUsage.OutputTokens) / time.Since(start).Seconds(),
 		Size: size,
 	}, &output, nil
 }
@@ -327,7 +327,7 @@ func ProcesserGemini(ctx context.Context, pr io.Reader, stream bool, start time.
 		FirstChunkTime: firstChunkTime,
 		ChunkTime:      chunkTime,
 		Usage:          usage,
-		Tps:            float64(usage.CompletionTokens) / chunkTime.Seconds(),
+		Tps:            float64(usage.CompletionTokens) / time.Since(start).Seconds(),
 		Size:           size,
 	}, &output, nil
 }

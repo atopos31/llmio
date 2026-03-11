@@ -1,0 +1,62 @@
+{
+  "title": "提供商管理",
+  "loading": "加载提供商列表",
+  "no_data": "暂无提供商数据",
+  "no_match": "未找到匹配的提供商",
+  "filters": {
+    "name": "提供商名称",
+    "name_placeholder": "输入名称",
+    "type": "类型",
+    "type_placeholder": "选择类型"
+  },
+  "actions": {
+    "add": "添加提供商"
+  },
+  "table": {
+    "id": "ID",
+    "name": "名称",
+    "type": "类型",
+    "config": "配置",
+    "console": "控制台",
+    "actions": "操作"
+  },
+  "delete_dialog": {
+    "title": "确定要删除这个提供商吗？",
+    "description": "此操作无法撤销。这将永久删除该提供商。"
+  },
+  "form": {
+    "add_title": "添加提供商",
+    "edit_title": "编辑提供商",
+    "add_desc": "添加一个新的提供商",
+    "edit_desc": "修改提供商信息",
+    "name_label": "名称",
+    "type_label": "类型",
+    "no_types": "暂无可用类型，请先配置模板。",
+    "config_label": "配置",
+    "no_config": "当前提供商类型暂无额外配置。",
+    "type_not_in_template": "当前提供商类型 {{type}} 不在模板列表中，可继续使用或选择其他类型。",
+    "config_key_placeholder": "请输入 {{key}}",
+    "proxy_label": "HTTP 代理",
+    "proxy_placeholder": "http://192.168.1.2:1234",
+    "error_matcher_label": "响应体错误识别",
+    "error_matcher_placeholder": "示例（每行或分号分隔）:\n\"status\":\"439\"\n\"status\":\"500\"\nAPI Token has expired",
+    "error_matcher_hint": "命中任意 sample 即视为错误，用于 200 但 body 返回错误的渠道。",
+    "console_label": "控制台地址",
+    "console_placeholder": "https://example.com/console"
+  },
+  "models_dialog": {
+    "title": "{{name}} 模型列表",
+    "desc": "当前提供商的所有可用模型",
+    "search_placeholder": "搜索模型 ID",
+    "no_data": "暂无模型数据",
+    "no_match": "未找到匹配的模型",
+    "loading": "加载模型列表"
+  },
+  "toast": {
+    "fetch_failed": "获取提供商列表失败: {{message}}",
+    "delete_success": "提供商 {{name}} 删除成功",
+    "delete_failed": "删除提供商失败: {{message}}",
+    "copy_model": "已复制模型名称: {{name}}",
+    "fetch_model_failed": "获取提供商模型失败: {{message}}"
+  }
+}

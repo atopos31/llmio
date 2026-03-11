@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -41,28 +42,29 @@ export function ModelProviderTestDialog({
   reactTestResult,
   executeTest,
 }: ModelProviderTestDialogProps) {
+  const { t } = useTranslation('models');
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>模型测试</DialogTitle>
+          <DialogTitle>{t('test_dialog.title')}</DialogTitle>
           <DialogDescription>
-            选择要执行的测试类型
+            {t('test_dialog.desc')}
           </DialogDescription>
         </DialogHeader>
 
         <RadioGroup value={testType} onValueChange={(value: string) => setTestType(value as TestType)} className="space-y-4">
           <div className="flex items-center space-x-2">
             <RadioGroupItem value="connectivity" id="connectivity" />
-            <Label htmlFor="connectivity">连通性测试</Label>
-          </div>
-          <p className="text-sm text-gray-500 ml-6">测试模型提供商的基本连通性</p>
+              <Label htmlFor="connectivity">{t('test_dialog.connectivity')}</Label>
+            </div>
+            <p className="text-sm text-gray-500 ml-6">{t('test_dialog.connectivity_desc')}</p>
 
-          <div className="flex items-center space-x-2">
-            <RadioGroupItem value="react" id="react" />
-            <Label htmlFor="react">React Agent 能力测试</Label>
-          </div>
-          <p className="text-sm text-gray-500 ml-6">测试模型的工具调用和反应能力</p>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="react" id="react" />
+              <Label htmlFor="react">{t('test_dialog.react')}</Label>
+            </div>
+            <p className="text-sm text-gray-500 ml-6">{t('test_dialog.react_desc')}</p>
         </RadioGroup>
 
         {testType === "connectivity" && (
@@ -70,17 +72,17 @@ export function ModelProviderTestDialog({
             {selectedTestId && testResults[selectedTestId]?.loading ? (
               <div className="flex items-center justify-center py-4">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-                <span className="ml-2">测试中...</span>
+                <span className="ml-2">{t('test_dialog.testing')}</span>
               </div>
             ) : selectedTestId && testResults[selectedTestId] ? (
               <div className={`p-4 rounded-md ${testResults[selectedTestId].result?.error ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"}`}>
-                <p>{testResults[selectedTestId].result?.error ? testResults[selectedTestId].result?.error : "测试成功"}</p>
+                <p>{testResults[selectedTestId].result?.error ? testResults[selectedTestId].result?.error : t('test_dialog.test_success')}</p>
                 {testResults[selectedTestId].result?.message && (
                   <p className="mt-2">{testResults[selectedTestId].result.message}</p>
                 )}
               </div>
             ) : (
-              <p className="text-gray-500">点击"执行测试"开始测试</p>
+              <p className="text-gray-500">{t('test_dialog.click_to_start')}</p>
             )}
           </div>
         )}
@@ -90,17 +92,17 @@ export function ModelProviderTestDialog({
             {reactTestResult.loading ? (
               <div className="flex items-center justify-center py-4">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-                <span className="ml-2">测试中...</span>
+                <span className="ml-2">{t('test_dialog.testing')}</span>
               </div>
             ) : (
               <>
                 {reactTestResult.error ? (
                   <div className="p-4 rounded-md bg-red-100 text-red-800">
-                    <p>测试失败: {reactTestResult.error}</p>
+                    <p>{t('test_dialog.test_failed_prefix', { error: reactTestResult.error })}</p>
                   </div>
                 ) : reactTestResult.success !== null ? (
                   <div className={`p-4 rounded-md ${reactTestResult.success ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
-                    <p>{reactTestResult.success ? "测试成功！" : "测试失败"}</p>
+                    <p>{reactTestResult.success ? t('test_dialog.test_success_excl') : t('test_dialog.test_failed')}</p>
                   </div>
                 ) : null}
               </>
@@ -119,7 +121,7 @@ export function ModelProviderTestDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            关闭
+            {t('test_dialog.close')}
           </Button>
           <Button
             onClick={executeTest}
@@ -128,8 +130,8 @@ export function ModelProviderTestDialog({
               : reactTestResult.loading}
           >
             {testType === "connectivity"
-              ? (selectedTestId && testResults[selectedTestId]?.loading ? "测试中..." : "执行测试")
-              : (reactTestResult.loading ? "测试中..." : "执行测试")}
+              ? (selectedTestId && testResults[selectedTestId]?.loading ? t('test_dialog.testing') : t('test_dialog.execute'))
+              : (reactTestResult.loading ? t('test_dialog.testing') : t('test_dialog.execute'))}
           </Button>
         </DialogFooter>
       </DialogContent>

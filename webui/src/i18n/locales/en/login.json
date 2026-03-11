@@ -1,0 +1,7 @@
+{
+  "title": "Login",
+  "description": "Enter your access token to access the system",
+  "token_label": "Access Token",
+  "token_placeholder": "Enter your access token",
+  "submit": "Login"
+}

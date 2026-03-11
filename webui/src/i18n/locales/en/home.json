@@ -1,0 +1,22 @@
+{
+  "title": "Dashboard",
+  "refresh": "Refresh Overview",
+  "loading": "Loading overview",
+  "loading_chart": "Loading chart...",
+  "cards": {
+    "today_requests": "Today's Requests",
+    "today_requests_desc": "Total requests processed today",
+    "today_tokens": "Today's Tokens",
+    "today_tokens_desc": "Total tokens processed today",
+    "monthly_requests": "Monthly Requests",
+    "monthly_requests_desc": "Total requests in the last 30 days",
+    "monthly_tokens": "Monthly Tokens",
+    "monthly_tokens_desc": "Total tokens in the last 30 days"
+  },
+  "errors": {
+    "today_metrics": "Failed to fetch today's metrics: {{message}}",
+    "total_metrics": "Failed to fetch total metrics: {{message}}",
+    "model_counts": "Failed to fetch model usage stats: {{message}}",
+    "project_counts": "Failed to fetch project usage stats: {{message}}"
+  }
+}

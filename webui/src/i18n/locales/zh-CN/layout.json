@@ -1,0 +1,27 @@
+{
+  "nav": {
+    "home": "首页",
+    "providers": "提供商管理",
+    "models": "模型管理",
+    "logs": "请求日志",
+    "auth_keys": "密钥管理",
+    "config": "系统配置"
+  },
+  "sidebar": {
+    "collapse": "收起菜单"
+  },
+  "header": {
+    "current_version": "当前版本",
+    "new_version_hint": "有新版本 {{version}} 可用",
+    "logout": "退出登录"
+  },
+  "update_dialog": {
+    "title": "发现新版本 {{version}}",
+    "current": "当前版本",
+    "latest": "最新版本",
+    "changelog": "更新内容：",
+    "no_changelog": "暂无更新说明",
+    "snooze": "稍后提醒",
+    "view_detail": "查看详情"
+  }
+}

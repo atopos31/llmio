@@ -1,0 +1,25 @@
+{
+  "title": "系統設定",
+  "anthropic": {
+    "title": "Anthropic 權杖計數設定",
+    "desc": "設定 Anthropic API 用於權杖計數功能的連線資訊",
+    "base_url": "Base URL",
+    "api_key": "API Key",
+    "version": "API Version",
+    "not_configured": "未設定",
+    "edit": "編輯設定",
+    "test": "檢測設定",
+    "testing": "檢測中...",
+    "edit_title": "編輯 Anthropic 設定",
+    "edit_desc": "修改 Anthropic API 連線資訊",
+    "base_url_validation": "Base URL 不能為空",
+    "api_key_validation": "API Key 不能為空",
+    "version_validation": "Version 不能為空"
+  },
+  "toast": {
+    "test_success": "設定檢測成功",
+    "test_failed": "設定檢測失敗: {{message}}",
+    "save_success": "設定已儲存",
+    "save_failed": "儲存設定失敗"
+  }
+}

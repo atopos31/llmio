@@ -1,0 +1,25 @@
+{
+  "title": "System Config",
+  "anthropic": {
+    "title": "Anthropic Token Counting Config",
+    "desc": "Configure the Anthropic API connection for token counting",
+    "base_url": "Base URL",
+    "api_key": "API Key",
+    "version": "API Version",
+    "not_configured": "Not configured",
+    "edit": "Edit Config",
+    "test": "Test Config",
+    "testing": "Testing...",
+    "edit_title": "Edit Anthropic Config",
+    "edit_desc": "Update Anthropic API connection settings",
+    "base_url_validation": "Base URL is required",
+    "api_key_validation": "API Key is required",
+    "version_validation": "Version is required"
+  },
+  "toast": {
+    "test_success": "Config test passed",
+    "test_failed": "Config test failed: {{message}}",
+    "save_success": "Config saved",
+    "save_failed": "Failed to save config"
+  }
+}

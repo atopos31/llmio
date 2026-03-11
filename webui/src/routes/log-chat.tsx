@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -227,6 +228,7 @@ function useSyntaxStyle(): SyntaxStyle {
 }
 
 export default function LogChatPage() {
+  const { t } = useTranslation(['logs', 'common']);
   const { logId } = useParams<{ logId: string }>();
   const navigate = useNavigate();
   const [chatIO, setChatIO] = useState<ChatIO | null>(null);
@@ -239,7 +241,7 @@ export default function LogChatPage() {
 
   useEffect(() => {
     if (!logId) {
-      const message = "缺少日志 ID";
+      const message = t('detail.title', { id: '' }) ? "Missing log ID" : "Missing log ID";
       toast.error(message);
       setLoadErrorMessage(message);
       setLoading(false);
@@ -248,7 +250,7 @@ export default function LogChatPage() {
 
     const parsedId = Number(logId);
     if (Number.isNaN(parsedId)) {
-      const message = "日志 ID 无效";
+      const message = "Invalid log ID";
       toast.error(message);
       setLoadErrorMessage(message);
       setLoading(false);
@@ -261,10 +263,10 @@ export default function LogChatPage() {
         setChatIO(data);
         setLoadErrorMessage(null);
       } catch (fetchError) {
-        let message = "获取会话日志失败";
+        let message = "Failed to fetch session log";
         if (fetchError instanceof Error) {
           if (fetchError.message.includes("chat io not found")) {
-            message = "暂无会话记录，可能未开启 IO 记录";
+            message = "No session record found. IO logging may not be enabled.";
           } else {
             message = fetchError.message;
           }
@@ -280,29 +282,29 @@ export default function LogChatPage() {
   }, [logId]);
 
   if (loading) {
-    return <Loading message="加载会话详情" />;
+    return <Loading message="Loading session detail" />;
   }
 
   return (
     <div className="space-y-6 h-full overflow-y-auto overflow-x-hidden">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">会话详情</h1>
-          <p className="text-sm text-muted-foreground">日志 ID：{logId}</p>
+          <h1 className="text-2xl font-bold">{t('detail.title', { id: logId })}</h1>
+          <p className="text-sm text-muted-foreground">{t('detail.title', { id: logId })}</p>
         </div>
         <Button variant="outline" onClick={() => navigate(-1)}>
-          返回
+          {t('common:actions.back')}
         </Button>
       </div>
 
       {loadErrorMessage && (
         <Card>
           <CardHeader>
-            <CardTitle>加载失败</CardTitle>
+            <CardTitle>Load Failed</CardTitle>
             <CardDescription>{loadErrorMessage}</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button onClick={() => navigate(-1)}>回到日志列表</Button>
+            <Button onClick={() => navigate(-1)}>{t('common:actions.back')}</Button>
           </CardContent>
         </Card>
       )}

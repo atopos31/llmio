@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, type DragEvent, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -97,6 +98,7 @@ const modelEditSchema = z.object({
 });
 
 export default function ModelProvidersPage() {
+  const { t } = useTranslation(['models', 'common']);
   const [modelProviders, setModelProviders] = useState<ModelWithProvider[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -208,7 +210,7 @@ export default function ModelProvidersPage() {
       setModels(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`获取模型列表失败: ${message}`);
+      toast.error(t('toast.fetch_models_failed', { message }));
       console.error(err);
     }
   };
@@ -219,7 +221,7 @@ export default function ModelProvidersPage() {
       setProviders(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`获取提供商列表失败: ${message}`);
+      toast.error(t('toast.fetch_providers_failed', { message }));
       console.error(err);
     }
   };
@@ -427,7 +429,7 @@ export default function ModelProvidersPage() {
       toast.success("关联管理删除成功");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`删除关联管理失败: ${message}`);
+      toast.error(t('toast.association_delete_failed', { message }));
       console.error(err);
     }
   };
@@ -495,7 +497,7 @@ export default function ModelProvidersPage() {
       toast.success("模型排序已保存");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`保存模型排序失败: ${message}`);
+      toast.error(t('toast.order_save_failed', { message }));
       setOrderedCardModels(sortCardModels(models));
     } finally {
       setCardOrderSaving(false);
@@ -724,7 +726,7 @@ export default function ModelProvidersPage() {
       setModelDeleteId(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`删除模型失败: ${message}`);
+      toast.error(t('toast.model_save_failed', { message }));
       console.error(err);
     } finally {
       setModelDeleteLoading(false);
@@ -738,16 +740,16 @@ export default function ModelProvidersPage() {
       <div className="flex flex-col gap-2 flex-shrink-0">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 space-y-1">
-            <h2 className="text-2xl font-bold tracking-tight">模型管理</h2>
+            <h2 className="text-2xl font-bold tracking-tight">{t('title')}</h2>
           </div>
           {selectedModelId && (
             <div className="flex items-center gap-2">
               <Button variant="outline" className="h-8 text-xs" onClick={handleBackToModelCards}>
                 <ArrowLeft className="size-3.5" />
-                返回模型列表
+                {t('actions.back_to_list')}
               </Button>
               <Button onClick={() => openCreateDialog()} className="h-8 text-xs">
-                添加关联
+                {t('actions.add_association')}
               </Button>
             </div>
           )}
@@ -757,11 +759,11 @@ export default function ModelProvidersPage() {
           <div className="flex flex-col gap-2">
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
               <div className="flex flex-col gap-1 text-xs lg:min-w-0 lg:col-span-2">
-                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">搜索</Label>
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.search')}</Label>
                 <div className="relative">
                   <Search className="size-4 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    placeholder="按名称搜索"
+                    placeholder={t('filters.search_placeholder')}
                     value={modelSearchInput}
                     onChange={(event) => setModelSearchInput(event.target.value)}
                     className="h-8 pl-8 text-xs"
@@ -769,39 +771,39 @@ export default function ModelProvidersPage() {
                 </div>
               </div>
               <div className="flex flex-col gap-1 text-xs">
-                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">负载策略</Label>
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.strategy')}</Label>
                 <Select
                   value={modelStrategyFilter}
                   onValueChange={(value) => setModelStrategyFilter(value as StrategyFilter)}
                 >
                   <SelectTrigger className="h-8 w-full text-xs px-2">
-                    <SelectValue placeholder="负载策略" />
+                    <SelectValue placeholder={t('filters.strategy')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">全部</SelectItem>
+                    <SelectItem value="all">{t('common:status.all')}</SelectItem>
                     <SelectItem value="lottery">Lottery</SelectItem>
                     <SelectItem value="rotor">Rotor</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="flex flex-col gap-1 text-xs">
-                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">IO 记录</Label>
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.io_log')}</Label>
                 <div className="flex items-center gap-2">
                   <Select
                     value={modelIOLogFilter}
                     onValueChange={(value) => setModelIOLogFilter(value as IOLogFilter)}
                   >
                     <SelectTrigger className="h-8 w-full text-xs px-2">
-                      <SelectValue placeholder="IO 记录" />
+                      <SelectValue placeholder={t('filters.io_log')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">全部</SelectItem>
-                      <SelectItem value="true">开启</SelectItem>
-                      <SelectItem value="false">关闭</SelectItem>
+                      <SelectItem value="all">{t('common:status.all')}</SelectItem>
+                      <SelectItem value="true">{t('filters.io_log_on')}</SelectItem>
+                      <SelectItem value="false">{t('filters.io_log_off')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <Button onClick={openModelCreateDialog} className="h-8 text-xs shrink-0">
-                    添加模型
+                    {t('actions.add_model')}
                   </Button>
                 </div>
               </div>
@@ -813,11 +815,11 @@ export default function ModelProvidersPage() {
           <div className="flex flex-col gap-2 flex-shrink-0">
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
               <div className="flex flex-col gap-1 text-xs">
-                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">搜索提供商</Label>
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.provider_search')}</Label>
                 <div className="relative">
                   <Search className="size-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <Input
-                    placeholder="按提供商/模型搜索"
+                    placeholder={t('filters.provider_search_placeholder')}
                     value={providerSearchInput}
                     onChange={(event) => setProviderSearchInput(event.target.value)}
                     className="h-8 pl-7 text-xs"
@@ -825,10 +827,10 @@ export default function ModelProvidersPage() {
                 </div>
               </div>
               <div className="flex flex-col gap-1 text-xs">
-                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">快速切换模型</Label>
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.quick_switch')}</Label>
                 <Select value={selectedModelId?.toString() || ""} onValueChange={(value) => handleModelSelect(Number(value))}>
                   <SelectTrigger className="h-8 w-full text-xs px-2">
-                    <SelectValue placeholder="选择模型" />
+                    <SelectValue placeholder={t('filters.model_placeholder')} />
                   </SelectTrigger>
                   <SelectContent>
                     {orderedCardModels.map((model) => (
@@ -840,13 +842,13 @@ export default function ModelProvidersPage() {
                 </Select>
               </div>
               <div className="flex flex-col gap-1 text-xs">
-                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商类型</Label>
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.provider_type')}</Label>
                 <Select value={selectedProviderType} onValueChange={setSelectedProviderType}>
                   <SelectTrigger className="h-8 w-full text-xs px-2">
-                    <SelectValue placeholder="按类型筛选" />
+                    <SelectValue placeholder={t('filters.provider_type_placeholder')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">全部</SelectItem>
+                    <SelectItem value="all">{t('common:status.all')}</SelectItem>
                     {providerTypes.map((type) => (
                       <SelectItem key={type} value={type}>
                         {type}
@@ -856,15 +858,15 @@ export default function ModelProvidersPage() {
                 </Select>
               </div>
               <div className="flex flex-col gap-1 text-xs">
-                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">权重排序</Label>
+                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.weight_sort')}</Label>
                 <Select value={weightSortOrder} onValueChange={(value) => setWeightSortOrder(value as "asc" | "desc" | "none")}>
                   <SelectTrigger className="h-8 w-full text-xs px-2">
-                    <SelectValue placeholder="选择排序方式" />
+                    <SelectValue placeholder={t('filters.weight_sort')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">默认顺序</SelectItem>
-                    <SelectItem value="asc">权重升序</SelectItem>
-                    <SelectItem value="desc">权重降序</SelectItem>
+                    <SelectItem value="none">{t('filters.weight_sort_none')}</SelectItem>
+                    <SelectItem value="asc">{t('filters.weight_sort_asc')}</SelectItem>
+                    <SelectItem value="desc">{t('filters.weight_sort_desc')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -877,11 +879,11 @@ export default function ModelProvidersPage() {
         <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
           {loading ? (
             <div className="flex h-full items-center justify-center">
-              <Loading message="加载模型列表" />
+              <Loading message={t('loading_models')} />
             </div>
           ) : filteredOverviewModels.length === 0 ? (
             <div className="flex h-full items-center justify-center text-muted-foreground">
-              {hasModelOverviewFilter ? "没有符合筛选条件的模型" : "暂无可关联模型"}
+              {hasModelOverviewFilter ? t('no_models_filtered') : t('no_models')}
             </div>
           ) : (
             <div className="h-full flex flex-col">
@@ -890,15 +892,15 @@ export default function ModelProvidersPage() {
                   <Table className="min-w-[1100px]">
                     <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
                       <TableRow>
-                        <TableHead>ID</TableHead>
-                        <TableHead>名称</TableHead>
-                        <TableHead>备注</TableHead>
-                        <TableHead className="text-center">已关联模型</TableHead>
-                        <TableHead className="text-center">重试次数限制</TableHead>
-                        <TableHead className="text-center">超时时间(秒)</TableHead>
-                        <TableHead className="text-center">负载策略</TableHead>
-                        <TableHead className="text-center">IO 记录</TableHead>
-                        <TableHead className="text-center">操作</TableHead>
+                        <TableHead>{t('model_table.id')}</TableHead>
+                        <TableHead>{t('model_table.name')}</TableHead>
+                        <TableHead>{t('model_table.remark')}</TableHead>
+                        <TableHead className="text-center">{t('model_table.associations')}</TableHead>
+                        <TableHead className="text-center">{t('model_table.max_retry')}</TableHead>
+                        <TableHead className="text-center">{t('model_table.timeout')}</TableHead>
+                        <TableHead className="text-center">{t('model_table.strategy')}</TableHead>
+                        <TableHead className="text-center">{t('model_table.io_log')}</TableHead>
+                        <TableHead className="text-center">{t('model_table.actions')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -944,8 +946,8 @@ export default function ModelProvidersPage() {
                                   event.stopPropagation();
                                   openModelEditDialog(model);
                                 }}
-                                title="编辑模型"
-                                aria-label="编辑模型"
+                                title={t('model_form.edit_title')}
+                                aria-label={t('model_form.edit_title')}
                               >
                                 <Pencil className="h-4 w-4" />
                               </Button>
@@ -957,8 +959,8 @@ export default function ModelProvidersPage() {
                                   event.stopPropagation();
                                   openCreateDialog(model.ID);
                                 }}
-                                title="添加关联"
-                                aria-label="添加关联"
+                                title={t('actions.add_association')}
+                                aria-label={t('actions.add_association')}
                               >
                                 <Link className="h-4 w-4" />
                               </Button>
@@ -970,8 +972,8 @@ export default function ModelProvidersPage() {
                                   event.stopPropagation();
                                   handleModelSelect(model.ID);
                                 }}
-                                title="查看详情"
-                                aria-label="查看详情"
+                                title={t('common:actions.search')}
+                                aria-label={t('common:actions.search')}
                               >
                                 <ListCollapse className="h-4 w-4" />
                               </Button>
@@ -1013,7 +1015,7 @@ export default function ModelProvidersPage() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <h3 className="font-semibold text-sm truncate">{model.Name}</h3>
-                        <p className="text-[11px] text-muted-foreground">模型 ID: {model.ID}</p>
+                        <p className="text-[11px] text-muted-foreground">{t('model_table.model_id', { id: model.ID })}</p>
                       </div>
                       <div className="flex gap-1.5">
                         <Button
@@ -1021,8 +1023,8 @@ export default function ModelProvidersPage() {
                           size="icon"
                           className="h-7 w-7"
                           onClick={() => openModelEditDialog(model)}
-                          title="编辑模型"
-                          aria-label="编辑模型"
+                          title={t('model_form.edit_title')}
+                          aria-label={t('model_form.edit_title')}
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
@@ -1031,8 +1033,8 @@ export default function ModelProvidersPage() {
                           size="icon"
                           className="h-7 w-7"
                           onClick={() => openCreateDialog(model.ID)}
-                          title="添加关联"
-                          aria-label="添加关联"
+                          title={t('actions.add_association')}
+                          aria-label={t('actions.add_association')}
                         >
                           <Link className="h-3.5 w-3.5" />
                         </Button>
@@ -1041,8 +1043,8 @@ export default function ModelProvidersPage() {
                           size="icon"
                           className="h-7 w-7"
                           onClick={() => handleModelSelect(model.ID)}
-                          title="查看详情"
-                          aria-label="查看详情"
+                          title={t('common:actions.search')}
+                          aria-label={t('common:actions.search')}
                         >
                           <ListCollapse className="h-3.5 w-3.5" />
                         </Button>
@@ -1058,16 +1060,16 @@ export default function ModelProvidersPage() {
                       </div>
                     </div>
                     <div className="text-xs space-y-1">
-                      <p className="text-[11px] text-muted-foreground uppercase tracking-wide">备注</p>
+                      <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('mobile.remark')}</p>
                       <p className="break-words">{model.Remark || "-"}</p>
                     </div>
                     <div className="grid grid-cols-2 gap-3 text-xs">
-                      <MobileInfoItem label="重试次数" value={model.MaxRetry} />
-                      <MobileInfoItem label="超时时间" value={`${model.TimeOut} 秒`} />
-                      <MobileInfoItem label="负载策略" value={renderStrategy(model.Strategy)} />
-                      <MobileInfoItem label="已关联" value={getAssociationCountNumberText(model.ID)} />
+                      <MobileInfoItem label={t('mobile.max_retry')} value={model.MaxRetry} />
+                      <MobileInfoItem label={t('mobile.timeout')} value={t('mobile.timeout_unit', { value: model.TimeOut })} />
+                      <MobileInfoItem label={t('mobile.strategy')} value={renderStrategy(model.Strategy)} />
+                      <MobileInfoItem label={t('mobile.associations')} value={getAssociationCountNumberText(model.ID)} />
                       <MobileInfoItem
-                        label="IO 记录"
+                        label={t('mobile.io_log')}
                         value={<span className={model.IOLog ? "text-green-500" : "text-red-500"}>{model.IOLog ? "✓" : "✗"}</span>}
                       />
                     </div>
@@ -1089,11 +1091,11 @@ export default function ModelProvidersPage() {
           <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
         {loading ? (
           <div className="flex h-full items-center justify-center">
-            <Loading message="加载关联数据" />
+            <Loading message={t('loading_associations')} />
           </div>
         ) : sortedModelProviders.length === 0 ? (
           <div className="flex h-full items-center justify-center text-muted-foreground text-sm text-center px-6">
-            {hasAssociationFilter ? '当前筛选条件暂无关联' : '该模型还没有关联的提供商'}
+            {hasAssociationFilter ? t('no_associations_filtered') : t('no_associations')}
           </div>
         ) : (
           <div className="h-full flex flex-col">
@@ -1102,31 +1104,31 @@ export default function ModelProvidersPage() {
                 <Table className="min-w-[1200px]">
                   <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
                     <TableRow>
-                      <TableHead>ID</TableHead>
-                      <TableHead>提供商模型</TableHead>
-                      <TableHead>类型</TableHead>
-                      <TableHead>提供商</TableHead>
-                      <TableHead>工具调用</TableHead>
-                      <TableHead>结构化输出</TableHead>
-                      <TableHead>视觉</TableHead>
-                      <TableHead>请求头透传</TableHead>
-                      <TableHead>权重</TableHead>
-                      <TableHead>启用</TableHead>
+                      <TableHead>{t('association_table.id')}</TableHead>
+                      <TableHead>{t('association_table.provider_model')}</TableHead>
+                      <TableHead>{t('association_table.type')}</TableHead>
+                      <TableHead>{t('association_table.provider')}</TableHead>
+                      <TableHead>{t('association_table.tool_call')}</TableHead>
+                      <TableHead>{t('association_table.structured_output')}</TableHead>
+                      <TableHead>{t('association_table.vision')}</TableHead>
+                      <TableHead>{t('association_table.with_header')}</TableHead>
+                      <TableHead>{t('association_table.weight')}</TableHead>
+                      <TableHead>{t('association_table.enabled')}</TableHead>
                       <TableHead>
-                        <div className="flex items-center gap-1">状态
+                        <div className="flex items-center gap-1">{t('association_table.status')}
                           <Button
                             onClick={() => loadProviderStatus(modelProviders, selectedModelId)}
                             variant="ghost"
                             size="icon"
-                            aria-label="刷新状态"
-                            title="刷新状态"
+                            aria-label={t('actions.refresh_status')}
+                            title={t('actions.refresh_status')}
                             className="rounded-full"
                           >
                             <RefreshCw className="size-4" />
                           </Button>
                         </div>
                       </TableHead>
-                      <TableHead>操作</TableHead>
+                      <TableHead>{t('association_table.actions')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1140,8 +1142,8 @@ export default function ModelProvidersPage() {
                           <TableCell className="max-w-[200px] truncate" title={association.ProviderModel}>
                             {association.ProviderModel}
                           </TableCell>
-                          <TableCell>{provider?.Type ?? '未知'}</TableCell>
-                          <TableCell>{provider?.Name ?? '未知'}</TableCell>
+                          <TableCell>{provider?.Type ?? t('common:unknown')}</TableCell>
+                          <TableCell>{provider?.Name ?? t('common:unknown')}</TableCell>
                           <TableCell>
                             <span className={association.ToolCall ? "text-green-600" : "text-red-600"}>
                               {association.ToolCall ? '✓' : '✗'}
@@ -1172,7 +1174,7 @@ export default function ModelProvidersPage() {
                                 aria-label="切换启用状态"
                               />
                               <span className="text-xs text-muted-foreground">
-                                {isAssociationEnabled ? '已启用' : '已停用'}
+                                {isAssociationEnabled ? t('association_table.active') : t('association_table.inactive')}
                               </span>
                             </div>
                           </TableCell>
@@ -1185,12 +1187,12 @@ export default function ModelProvidersPage() {
                                       <div
                                         key={index}
                                         className={`w-1 h-6 ${isSuccess ? 'bg-green-500' : 'bg-red-500'}`}
-                                        title={isSuccess ? '成功' : '失败'}
+                                        title={isSuccess ? t('association_table.success') : t('association_table.failed')}
                                       />
                                     ))}
                                   </div>
                                 ) : (
-                                  <div className="text-xs text-gray-400">无数据</div>
+                                  <div className="text-xs text-gray-400">{t('association_table.no_data')}</div>
                                 )
                               ) : (
                                 <Spinner />
@@ -1242,39 +1244,39 @@ export default function ModelProvidersPage() {
                   <div key={association.ID} className="py-3 space-y-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <h3 className="font-semibold text-sm truncate">{provider?.Name ?? '未知提供商'}</h3>
-                        <p className="text-[11px] text-muted-foreground">提供商模型: {association.ProviderModel}</p>
+                        <h3 className="font-semibold text-sm truncate">{provider?.Name ?? t('association_table.unknown_provider')}</h3>
+                        <p className="text-[11px] text-muted-foreground">{t('association_table.mobile.provider_type')}: {association.ProviderModel}</p>
                       </div>
                       <span
                         className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${isAssociationEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
                       >
-                        {isAssociationEnabled ? '已启用' : '已停用'}
+                        {isAssociationEnabled ? t('association_table.active') : t('association_table.inactive')}
                       </span>
                     </div>
                     <div className="grid grid-cols-2 gap-3 text-xs">
-                      <MobileInfoItem label="提供商类型" value={provider?.Type ?? '未知'} />
-                      <MobileInfoItem label="提供商 ID" value={<span className="font-mono text-xs">{provider?.ID ?? '-'}</span>} />
-                      <MobileInfoItem label="权重" value={association.Weight} />
+                      <MobileInfoItem label={t('association_table.mobile.provider_type')} value={provider?.Type ?? t('common:unknown')} />
+                      <MobileInfoItem label={t('association_table.mobile.provider_id')} value={<span className="font-mono text-xs">{provider?.ID ?? '-'}</span>} />
+                      <MobileInfoItem label={t('association_table.mobile.weight')} value={association.Weight} />
                       <MobileInfoItem
-                        label="请求头透传"
+                        label={t('association_table.mobile.with_header')}
                         value={<span className={association.WithHeader ? "text-green-600" : "text-red-600"}>{association.WithHeader ? '✓' : '✗'}</span>}
                       />
                     </div>
                     <div className="grid grid-cols-2 gap-3 text-xs">
                       <MobileInfoItem
-                        label="工具调用"
+                        label={t('association_table.mobile.tool_call')}
                         value={<span className={association.ToolCall ? "text-green-600" : "text-red-600"}>{association.ToolCall ? '✓' : '✗'}</span>}
                       />
                       <MobileInfoItem
-                        label="结构化输出"
+                        label={t('association_table.mobile.structured_output')}
                         value={<span className={association.StructuredOutput ? "text-green-600" : "text-red-600"}>{association.StructuredOutput ? '✓' : '✗'}</span>}
                       />
                       <MobileInfoItem
-                        label="视觉能力"
+                        label={t('association_table.mobile.vision')}
                         value={<span className={association.Image ? "text-green-600" : "text-red-600"}>{association.Image ? '✓' : '✗'}</span>}
                       />
                       <MobileInfoItem
-                        label="最近状态"
+                        label={t('association_table.mobile.recent_status')}
                         value={
                           <div className="flex items-center gap-1">
                             {statusBars ? (
@@ -1286,7 +1288,7 @@ export default function ModelProvidersPage() {
                                   />
                                 ))
                               ) : (
-                                <span className="text-muted-foreground text-[11px]">无数据</span>
+                                <span className="text-muted-foreground text-[11px]">{t('association_table.no_data')}</span>
                               )
                             ) : (
                               <Spinner />
@@ -1296,9 +1298,9 @@ export default function ModelProvidersPage() {
                       />
                     </div>
                     <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
-                      <p className="text-xs text-muted-foreground">启用状态</p>
+                      <p className="text-xs text-muted-foreground">{t('association_table.mobile.enable_status')}</p>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{isAssociationEnabled ? "启用" : "停用"}</span>
+                        <span className="text-sm font-medium">{isAssociationEnabled ? t('association_table.active') : t('association_table.inactive')}</span>
                         <Switch
                           checked={isAssociationEnabled}
                           disabled={!!statusUpdating[association.ID]}
@@ -1360,16 +1362,15 @@ export default function ModelProvidersPage() {
       <AlertDialog open={modelDeleteId !== null} onOpenChange={(open) => !open && setModelDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>确定要删除这个模型吗？</AlertDialogTitle>
+            <AlertDialogTitle>{t('delete_model_dialog.title')}</AlertDialogTitle>
             <AlertDialogDescription>
-              此操作无法撤销。这将永久删除模型
-              {modelPendingDelete ? `「${modelPendingDelete.Name}」` : ""}。
+              {t('delete_model_dialog.description', { name: modelPendingDelete ? `「${modelPendingDelete.Name}」` : '' })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={modelDeleteLoading}>取消</AlertDialogCancel>
+            <AlertDialogCancel disabled={modelDeleteLoading}>{t('common:actions.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteModel} disabled={modelDeleteLoading}>
-              {modelDeleteLoading ? "删除中..." : "确认删除"}
+              {modelDeleteLoading ? t('common:actions.deleting') : t('common:actions.confirm_delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1378,9 +1379,9 @@ export default function ModelProvidersPage() {
       <Dialog open={modelEditOpen} onOpenChange={(open) => (open ? setModelEditOpen(true) : closeModelEditDialog())}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingModel ? "编辑模型" : "添加模型"}</DialogTitle>
+            <DialogTitle>{editingModel ? t('model_form.edit_title') : t('model_form.add_title')}</DialogTitle>
             <DialogDescription>
-              {editingModel ? "修改模型信息" : "添加一个新的模型"}
+              {editingModel ? t('model_form.edit_desc') : t('model_form.add_desc')}
             </DialogDescription>
           </DialogHeader>
           <Form {...modelEditForm}>
@@ -1390,7 +1391,7 @@ export default function ModelProvidersPage() {
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>名称</FormLabel>
+                    <FormLabel>{t('model_form.name')}</FormLabel>
                     <FormControl>
                       <Input {...field} />
                     </FormControl>
@@ -1404,7 +1405,7 @@ export default function ModelProvidersPage() {
                 name="remark"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>备注</FormLabel>
+                    <FormLabel>{t('model_form.remark')}</FormLabel>
                     <FormControl>
                       <Textarea {...field} rows={3} />
                     </FormControl>
@@ -1419,7 +1420,7 @@ export default function ModelProvidersPage() {
                   name="max_retry"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>重试次数限制</FormLabel>
+                      <FormLabel>{t('model_form.max_retry')}</FormLabel>
                       <FormControl>
                         <Input
                           type="number"
@@ -1437,7 +1438,7 @@ export default function ModelProvidersPage() {
                   name="time_out"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>超时时间(秒)</FormLabel>
+                      <FormLabel>{t('model_form.timeout')}</FormLabel>
                       <FormControl>
                         <Input
                           type="number"
@@ -1457,7 +1458,7 @@ export default function ModelProvidersPage() {
                 render={({ field }) => (
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
                     <div className="space-y-0.5">
-                      <FormLabel className="text-base">IO 记录</FormLabel>
+                      <FormLabel className="text-base">{t('model_form.io_log')}</FormLabel>
                     </div>
                     <FormControl>
                       <Checkbox
@@ -1475,7 +1476,7 @@ export default function ModelProvidersPage() {
                 render={({ field }) => (
                   <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
                     <div className="space-y-0.5">
-                      <FormLabel className="text-base">熔断</FormLabel>
+                      <FormLabel className="text-base">{t('model_form.breaker')}</FormLabel>
                     </div>
                     <FormControl>
                       <Checkbox checked={field.value} onCheckedChange={field.onChange} />
@@ -1490,19 +1491,19 @@ export default function ModelProvidersPage() {
                 render={({ field }) => (
                   <FormItem className="rounded-lg border p-4 space-y-3">
                     <div className="flex flex-col gap-1">
-                      <FormLabel className="text-base">负载均衡策略</FormLabel>
+                      <FormLabel className="text-base">{t('model_form.strategy')}</FormLabel>
                     </div>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {[
                         {
                           value: "lottery",
-                          title: "Lottery",
-                          desc: "按权重概率抽取, 适合随机分散流量.",
+                          title: t('model_form.strategy_lottery_title'),
+                          desc: t('model_form.strategy_lottery_desc'),
                         },
                         {
                           value: "rotor",
-                          title: "Rotor",
-                          desc: "按权重循环轮转, 适合需要缓存命中场景.",
+                          title: t('model_form.strategy_rotor_title'),
+                          desc: t('model_form.strategy_rotor_desc'),
                         },
                       ].map((option) => (
                         <label
@@ -1531,10 +1532,10 @@ export default function ModelProvidersPage() {
 
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={closeModelEditDialog} disabled={modelEditSaving}>
-                  取消
+                  {t('model_form.cancel')}
                 </Button>
                 <Button type="submit" disabled={modelEditSaving}>
-                  {modelEditSaving ? "保存中..." : editingModel ? "更新" : "创建"}
+                  {modelEditSaving ? t('model_form.saving') : editingModel ? t('common:actions.update') : t('common:actions.create')}
                 </Button>
               </DialogFooter>
             </form>

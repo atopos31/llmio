@@ -1,0 +1,22 @@
+{
+  "title": "系統概覽",
+  "refresh": "重新整理概覽",
+  "loading": "載入系統概覽",
+  "loading_chart": "載入圖表...",
+  "cards": {
+    "today_requests": "今日請求",
+    "today_requests_desc": "今日處理的請求總數",
+    "today_tokens": "今日 Tokens",
+    "today_tokens_desc": "今日處理的 Tokens 總數",
+    "monthly_requests": "本月請求",
+    "monthly_requests_desc": "最近30天處理的請求總數",
+    "monthly_tokens": "本月 Tokens",
+    "monthly_tokens_desc": "最近30天處理的 Tokens 總數"
+  },
+  "errors": {
+    "today_metrics": "取得今日指標失敗: {{message}}",
+    "total_metrics": "取得總計指標失敗: {{message}}",
+    "model_counts": "取得模型呼叫統計失敗: {{message}}",
+    "project_counts": "取得專案呼叫統計失敗: {{message}}"
+  }
+}

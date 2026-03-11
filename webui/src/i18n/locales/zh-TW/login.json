@@ -1,0 +1,7 @@
+{
+  "title": "登入",
+  "description": "輸入您的存取權杖以存取系統",
+  "token_label": "存取權杖",
+  "token_placeholder": "輸入您的存取權杖",
+  "submit": "登入"
+}

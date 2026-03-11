@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -38,6 +39,7 @@ import { useProviderForm } from "@/routes/providers/use-provider-form";
 import { getConfigBaseUrl } from "@/routes/providers/provider-form-utils";
 
 export default function ProvidersPage() {
+  const { t } = useTranslation(['providers', 'common']);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerTemplates, setProviderTemplates] = useState<ProviderTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,7 +91,7 @@ export default function ProvidersPage() {
       setProviders(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`获取提供商列表失败: ${message}`);
+      toast.error(t('toast.fetch_failed', { message }));
       console.error(err);
     } finally {
       setLoading(false);
@@ -103,7 +105,7 @@ export default function ProvidersPage() {
       const types = data.map((template) => template.type);
       setAvailableTypes(types);
     } catch (err) {
-      console.error("获取提供商模板失败", err);
+      console.error("fetch provider templates failed", err);
     }
   };
 
@@ -114,7 +116,7 @@ export default function ProvidersPage() {
       setProviderModels(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`获取提供商模型失败: ${message}`);
+      toast.error(t('toast.fetch_model_failed', { message }));
       setProviderModels([]);
     } finally {
       setModelsLoading(false);
@@ -129,7 +131,7 @@ export default function ProvidersPage() {
 
   const copyModelName = async (modelName: string) => {
     await navigator.clipboard.writeText(modelName);
-    toast.success(`已复制模型名称: ${modelName}`);
+    toast.success(t('toast.copy_model', { name: modelName }));
   };
 
   const handleDelete = async () => {
@@ -139,10 +141,10 @@ export default function ProvidersPage() {
       await deleteProvider(deleteId);
       setDeleteId(null);
       fetchProviders();
-      toast.success(`提供商 ${targetProvider?.Name ?? deleteId} 删除成功`);
+      toast.success(t('toast.delete_success', { name: targetProvider?.Name ?? deleteId }));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`删除提供商失败: ${message}`);
+      toast.error(t('toast.delete_failed', { message }));
       console.error(err);
     }
   };
@@ -158,7 +160,7 @@ export default function ProvidersPage() {
       <div className="flex flex-col gap-2 flex-shrink-0">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <h2 className="text-2xl font-bold tracking-tight">提供商管理</h2>
+            <h2 className="text-2xl font-bold tracking-tight">{t('title')}</h2>
           </div>
           <div className="flex w-full sm:w-auto items-center justify-end gap-2">
           </div>
@@ -167,22 +169,22 @@ export default function ProvidersPage() {
       <div className="flex flex-col gap-2 flex-shrink-0">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:gap-4">
           <div className="flex flex-col gap-1 text-xs">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">提供商名称</Label>
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.name')}</Label>
             <Input
-              placeholder="输入名称"
+              placeholder={t('filters.name_placeholder')}
               value={nameFilter}
               onChange={(e) => setNameFilter(e.target.value)}
               className="h-8 w-full text-xs px-2"
             />
           </div>
           <div className="flex flex-col gap-1 text-xs">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">类型</Label>
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.type')}</Label>
             <Select value={typeFilter} onValueChange={setTypeFilter}>
               <SelectTrigger className="h-8 w-full text-xs px-2">
-                <SelectValue placeholder="选择类型" />
+                <SelectValue placeholder={t('filters.type_placeholder')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部</SelectItem>
+                <SelectItem value="all">{t('common:status.all')}</SelectItem>
                 {availableTypes.map((type) => (
                   <SelectItem key={type} value={type}>
                     {type}
@@ -197,7 +199,7 @@ export default function ProvidersPage() {
               className="h-8 w-full text-xs sm:w-auto sm:ml-auto"
               disabled={providerTemplates.length === 0}
             >
-              添加提供商
+              {t('actions.add')}
             </Button>
           </div>
         </div>
@@ -205,11 +207,11 @@ export default function ProvidersPage() {
       <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
         {loading ? (
           <div className="flex h-full items-center justify-center">
-            <Loading message="加载提供商列表" />
+            <Loading message={t('loading')} />
           </div>
         ) : providers.length === 0 ? (
           <div className="flex h-full items-center justify-center text-muted-foreground text-sm text-center px-6">
-            {hasFilter ? '未找到匹配的提供商' : '暂无提供商数据'}
+            {hasFilter ? t('no_match') : t('no_data')}
           </div>
         ) : (
           <div className="h-full flex flex-col">
@@ -218,12 +220,12 @@ export default function ProvidersPage() {
                 <Table className="min-w-[1200px]">
                   <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
                     <TableRow>
-                      <TableHead>ID</TableHead>
-                      <TableHead>名称</TableHead>
-                      <TableHead>类型</TableHead>
-                      <TableHead>配置</TableHead>
-                      <TableHead>控制台</TableHead>
-                      <TableHead>操作</TableHead>
+                      <TableHead>{t('table.id')}</TableHead>
+                      <TableHead>{t('table.name')}</TableHead>
+                      <TableHead>{t('table.type')}</TableHead>
+                      <TableHead>{t('table.config')}</TableHead>
+                      <TableHead>{t('table.console')}</TableHead>
+                      <TableHead>{t('table.actions')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -267,14 +269,14 @@ export default function ProvidersPage() {
                               </AlertDialogTrigger>
                               <AlertDialogContent>
                                 <AlertDialogHeader>
-                                  <AlertDialogTitle>确定要删除这个提供商吗？</AlertDialogTitle>
+                                  <AlertDialogTitle>{t('delete_dialog.title')}</AlertDialogTitle>
                                   <AlertDialogDescription>
-                                    此操作无法撤销。这将永久删除该提供商。
+                                    {t('delete_dialog.description')}
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
-                                  <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
-                                  <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                                  <AlertDialogCancel onClick={() => setDeleteId(null)}>{t('common:actions.cancel')}</AlertDialogCancel>
+                                  <AlertDialogAction onClick={handleDelete}>{t('common:actions.confirm_delete')}</AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>
                             </AlertDialog>
@@ -310,7 +312,7 @@ export default function ProvidersPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <p className="text-[11px] text-muted-foreground">ID: {provider.ID}</p>
-                        <p className="text-[11px] text-muted-foreground">类型: {provider.Type || "未知"}</p>
+                        <p className="text-[11px] text-muted-foreground">{t('filters.type')}: {provider.Type || t('common:unknown')}</p>
                       </div>
                     </div>
                     <div className="flex flex-wrap justify-end gap-1.5">
@@ -328,14 +330,14 @@ export default function ProvidersPage() {
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>确定要删除这个提供商吗？</AlertDialogTitle>
+                            <AlertDialogTitle>{t('delete_dialog.title')}</AlertDialogTitle>
                             <AlertDialogDescription>
-                              此操作无法撤销。这将永久删除该提供商。
+                              {t('delete_dialog.description')}
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel onClick={() => setDeleteId(null)}>取消</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleDelete}>确认删除</AlertDialogAction>
+                            <AlertDialogCancel onClick={() => setDeleteId(null)}>{t('common:actions.cancel')}</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDelete}>{t('common:actions.confirm_delete')}</AlertDialogAction>
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>

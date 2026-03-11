@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -71,14 +72,13 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 const formSchema = z.object({
-  name: z.string().min(1, { message: "项目名称不能为空" }),
+  name: z.string().min(1),
   key: z.string().optional(),
   status: z.boolean(),
   allow_all: z.boolean(),
   models: z.array(z.string()),
   expires_at: z.string().nullable().optional(),
 }).refine((value) => value.allow_all || value.models.length > 0, {
-  message: "请选择至少一个允许的模型",
   path: ["models"],
 });
 
@@ -109,6 +109,7 @@ const MobileInfoItem = ({ label, value, mono = false }: MobileInfoItemProps) => 
 
 
 export default function AuthKeysPage() {
+  const { t } = useTranslation(['auth-keys', 'common']);
   const [authKeys, setAuthKeys] = useState<AuthKey[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
@@ -168,11 +169,10 @@ export default function AuthKeysPage() {
 
   const fetchModels = async () => {
     try {
-    const list = await getModelOptions();
+      const list = await getModelOptions();
       setModels(list);
     } catch (error) {
       console.error(error);
-      toast.error("获取模型列表失败");
     }
   };
 
@@ -196,7 +196,6 @@ export default function AuthKeysPage() {
       setPages(response.pages);
     } catch (error) {
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "获取 API Key 列表失败");
     } finally {
       setLoading(false);
     }
@@ -233,10 +232,10 @@ export default function AuthKeysPage() {
   const handleCopyKey = async (keyValue: string) => {
     try {
       await navigator.clipboard.writeText(keyValue);
-      toast.success("已复制 API Key");
+      toast.success(t('toast.copy_success'));
     } catch (error) {
       console.error(error);
-      toast.error("复制失败，请手动复制");
+      toast.error(t('toast.copy_failed'));
     }
   };
 
@@ -253,23 +252,23 @@ export default function AuthKeysPage() {
       };
       if (editingKey) {
         await updateAuthKey(editingKey.ID, payload);
-        toast.success("API Key 已更新");
       } else {
         await createAuthKey(payload);
-        toast.success("API Key 已创建");
       }
       handleDialogOpenChange(false);
       fetchAuthKeys();
     } catch (error) {
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "保存失败");
+      const message = error instanceof Error ? error.message : t('common:unknown');
+      toast.error(t('toast.save_failed', { message }));
     } finally {
       setSaving(false);
     }
   };
 
-  const handleToggleStatus = async (item: AuthKey, next: boolean) => {
+  const handleToggleStatus = async (item: AuthKey, _checked: boolean) => {
     const previousStatus = item.Status;
+    const next = _checked;
     setToggleLoadingId(item.ID);
 
     // 乐观更新：立即更新 UI
@@ -295,7 +294,8 @@ export default function AuthKeysPage() {
         )
       );
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "更新状态失败");
+      const message = error instanceof Error ? error.message : t('common:unknown');
+      toast.error(t('toast.toggle_failed', { message }));
     } finally {
       setToggleLoadingId(null);
     }
@@ -306,11 +306,12 @@ export default function AuthKeysPage() {
     setDeleteLoading(true);
     try {
       await deleteAuthKey(pendingDelete.ID);
-      toast.success("删除成功");
+      toast.success(t('toast.delete_success'));
       fetchAuthKeys();
     } catch (error) {
       console.error(error);
-      toast.error(error instanceof Error ? error.message : "删除失败");
+      const message = error instanceof Error ? error.message : t('common:unknown');
+      toast.error(t('toast.delete_failed', { message }));
     } finally {
       setDeleteLoading(false);
       setPendingDelete(null);
@@ -340,7 +341,7 @@ export default function AuthKeysPage() {
     <div className="h-full min-h-0 flex flex-col gap-2 p-1">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-2xl font-bold tracking-tight">密钥管理</h2>
+          <h2 className="text-2xl font-bold tracking-tight">{t('title')}</h2>
         </div>
         <Button onClick={handleCreate} className="shrink-0">
           <Plus className="size-4 " />
@@ -350,40 +351,40 @@ export default function AuthKeysPage() {
       <div className="flex flex-col gap-2">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 lg:gap-4">
           <div className="flex flex-col gap-1 text-xs lg:min-w-0">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">搜索</Label>
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.search')}</Label>
             <div className="relative">
               <Search className="size-4 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="名称或 Key"
+                placeholder={t('filters.search_placeholder')}
                 className="h-9 text-xs pl-8"
               />
             </div>
           </div>
           <div className="flex flex-col gap-1 text-xs lg:min-w-0">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">状态</Label>
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.status')}</Label>
             <Select value={statusFilter} onValueChange={(value: "all" | "active" | "inactive") => setStatusFilter(value)}>
               <SelectTrigger className="h-8 text-xs w-full px-2">
-                <SelectValue placeholder="选择状态" />
+                <SelectValue placeholder={t('filters.status')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部</SelectItem>
-                <SelectItem value="active">启用</SelectItem>
-                <SelectItem value="inactive">禁用</SelectItem>
+                <SelectItem value="all">{t('common:status.all')}</SelectItem>
+                <SelectItem value="active">{t('filters.status_active')}</SelectItem>
+                <SelectItem value="inactive">{t('filters.status_inactive')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="col-span-2 flex flex-col gap-1 text-xs lg:min-w-0 sm:col-span-1">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">访问范围</Label>
+            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.scope')}</Label>
             <Select value={allowAllFilter} onValueChange={(value: "all" | "allow" | "restricted") => setAllowAllFilter(value)}>
               <SelectTrigger className="h-8 text-xs w-full px-2">
-                <SelectValue placeholder="访问范围" />
+                <SelectValue placeholder={t('filters.scope')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部</SelectItem>
-                <SelectItem value="allow">允许全部模型</SelectItem>
-                <SelectItem value="restricted">指定模型</SelectItem>
+                <SelectItem value="all">{t('common:status.all')}</SelectItem>
+                <SelectItem value="allow">{t('filters.scope_all_models')}</SelectItem>
+                <SelectItem value="restricted">{t('filters.scope_restricted')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -393,11 +394,11 @@ export default function AuthKeysPage() {
         <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
           {loading ? (
             <div className="flex h-full items-center justify-center">
-              <Loading message="加载 API Key 列表" />
+                <Loading message={t('loading')} />
             </div>
           ) : authKeys.length === 0 ? (
             <div className="flex h-full items-center justify-center text-muted-foreground">
-              暂无 API Key
+              {t('no_data')}
             </div>
           ) : (
             <div className="h-full flex flex-col">
@@ -406,15 +407,15 @@ export default function AuthKeysPage() {
                   <Table className="min-w-[960px]">
                     <TableHeader className="z-10 sticky top-0 bg-secondary/90 backdrop-blur text-secondary-foreground">
                       <TableRow>
-                        <TableHead>项目</TableHead>
-                        <TableHead className="min-w-64">Key</TableHead>
-                        <TableHead>使用范围</TableHead>
-                        <TableHead>有效期至</TableHead>
-                        <TableHead>使用次数</TableHead>
-                        <TableHead>最后使用时间</TableHead>
-                        <TableHead>状态</TableHead>
-                        <TableHead>操作</TableHead>
-                      </TableRow>
+                          <TableHead>{t('table.project')}</TableHead>
+                          <TableHead className="min-w-64">{t('table.key')}</TableHead>
+                          <TableHead>{t('table.scope')}</TableHead>
+                          <TableHead>{t('table.expires_at')}</TableHead>
+                          <TableHead>{t('table.usage_count')}</TableHead>
+                          <TableHead>{t('table.last_used')}</TableHead>
+                          <TableHead>{t('table.status')}</TableHead>
+                          <TableHead>{t('table.actions')}</TableHead>
+                        </TableRow>
                     </TableHeader>
                     <TableBody>
                       {authKeys.map((item) => {
@@ -442,7 +443,7 @@ export default function AuthKeysPage() {
                                   variant="ghost"
                                   className="size-8"
                                   onClick={() => toggleKeyVisibility(item.ID)}
-                                  aria-label={isKeyVisible ? "隐藏 Key" : "显示 Key"}
+                                  aria-label={isKeyVisible ? t('aria.hide_key') : t('aria.show_key')}
                                 >
                                   {isKeyVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                                 </Button>
@@ -458,7 +459,7 @@ export default function AuthKeysPage() {
                             </TableCell>
                             <TableCell>
                               {item.AllowAll ? (
-                                <Badge>全部模型</Badge>
+                                <Badge>{t('table.all_models')}</Badge>
                               ) : (
                                 <div>
                                   {modelsToShow.slice(0, 3).map((model) => (
@@ -477,7 +478,7 @@ export default function AuthKeysPage() {
                                 "text-sm",
                                 expired ? "text-destructive font-medium" : ""
                               )}>
-                                {item.ExpiresAt ? new Date(item.ExpiresAt).toLocaleDateString() : "永久有效"}
+                                {item.ExpiresAt ? new Date(item.ExpiresAt).toLocaleDateString() : t('table.never_expire')}
                               </span>
                             </TableCell>
                             <TableCell>
@@ -486,7 +487,7 @@ export default function AuthKeysPage() {
                               </div>
                             </TableCell>
                             <TableCell>
-                              {item.LastUsedAt ? new Date(item.LastUsedAt).toLocaleString() : "未使用"}
+                              {item.LastUsedAt ? new Date(item.LastUsedAt).toLocaleString() : t('table.not_used')}
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">
@@ -494,6 +495,7 @@ export default function AuthKeysPage() {
                                   checked={item.Status}
                                   disabled={toggleDisabled}
                                   onCheckedChange={(checked) => handleToggleStatus(item, checked)}
+                                  aria-label={t('aria.toggle_status')}
                                 />
                               </div>
                             </TableCell>
@@ -541,11 +543,11 @@ export default function AuthKeysPage() {
                         <span
                           className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${item.Status ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
                         >
-                          {item.Status ? '启用' : '禁用'}
+                          {item.Status ? t('filters.status_active') : t('filters.status_inactive')}
                         </span>
                       </div>
                       <div className="rounded-md border bg-muted/20 px-3 py-2 space-y-2">
-                        <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Key</p>
+                        <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('mobile.key_section')}</p>
                         <div className="flex items-start gap-2">
                           <div className="flex-1 min-w-0">
                             <p className="font-mono text-xs break-all">{displayKey}</p>
@@ -556,7 +558,7 @@ export default function AuthKeysPage() {
                               variant="ghost"
                               className="size-8"
                               onClick={() => toggleKeyVisibility(item.ID)}
-                              aria-label={isKeyVisible ? "隐藏 Key" : "显示 Key"}
+                              aria-label={isKeyVisible ? t('aria.hide_key') : t('aria.show_key')}
                             >
                               {isKeyVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                             </Button>
@@ -565,7 +567,7 @@ export default function AuthKeysPage() {
                               variant="ghost"
                               className="size-8"
                               onClick={() => handleCopyKey(item.Key)}
-                              aria-label="复制 Key"
+                              aria-label={t('aria.copy_key')}
                             >
                               <Copy className="size-4" />
                             </Button>
@@ -574,19 +576,19 @@ export default function AuthKeysPage() {
                       </div>
                       <div className="grid grid-cols-2 gap-3 text-xs">
                         <MobileInfoItem
-                          label="使用范围"
-                          value={item.AllowAll ? <Badge>全部模型</Badge> : <Badge variant="outline">指定模型</Badge>}
+                          label={t('mobile.scope')}
+                          value={item.AllowAll ? <Badge>{t('table.all_models')}</Badge> : <Badge variant="outline">{t('table.specified_models')}</Badge>}
                         />
                         <MobileInfoItem
-                          label="有效期至"
+                          label={t('mobile.expires_at')}
                           value={
                             <span className={expired ? "text-destructive font-medium" : ""}>
-                              {item.ExpiresAt ? new Date(item.ExpiresAt).toLocaleDateString() : "永久有效"}
+                              {item.ExpiresAt ? new Date(item.ExpiresAt).toLocaleDateString() : t('table.never_expire')}
                             </span>
                           }
                         />
-                        <MobileInfoItem label="使用次数" value={item.UsageCount} />
-                        <MobileInfoItem label="最后使用" value={item.LastUsedAt ? new Date(item.LastUsedAt).toLocaleString() : "未使用"} />
+                        <MobileInfoItem label={t('mobile.usage_count')} value={item.UsageCount} />
+                        <MobileInfoItem label={t('mobile.last_used')} value={item.LastUsedAt ? new Date(item.LastUsedAt).toLocaleString() : t('table.not_used')} />
                       </div>
                       {!item.AllowAll && modelsToShow.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
@@ -599,17 +601,17 @@ export default function AuthKeysPage() {
                         </div>
                       )}
                       <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
-                        <p className="text-xs text-muted-foreground">启用状态</p>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium">{item.Status ? "启用" : "禁用"}</span>
-                          <Switch
-                            checked={item.Status}
-                            disabled={toggleDisabled}
-                            onCheckedChange={(checked) => handleToggleStatus(item, checked)}
-                            aria-label="切换启用状态"
-                          />
-                        </div>
+                        <p className="text-xs text-muted-foreground">{t('mobile.enable_status')}</p>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium">{item.Status ? t('filters.status_active') : t('filters.status_inactive')}</span>
+                        <Switch
+                          checked={item.Status}
+                          disabled={toggleDisabled}
+                          onCheckedChange={(checked) => handleToggleStatus(item, checked)}
+                          aria-label={t('aria.toggle_status')}
+                        />
                       </div>
+                    </div>
                       <div className="flex flex-wrap justify-end gap-1.5">
                         <Button
                           variant="outline"
@@ -617,7 +619,7 @@ export default function AuthKeysPage() {
                           className="h-7 px-2 text-xs"
                           onClick={() => handleEdit(item)}
                         >
-                          编辑
+                          {t('common:actions.edit')}
                         </Button>
                         <Button
                           variant="destructive"
@@ -625,7 +627,7 @@ export default function AuthKeysPage() {
                           className="h-7 px-2 text-xs"
                           onClick={() => setPendingDelete(item)}
                         >
-                          删除
+                          {t('common:actions.delete')}
                         </Button>
                       </div>
                     </div>
@@ -638,13 +640,13 @@ export default function AuthKeysPage() {
 
         <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0 border-t pt-2">
           <div className="text-sm text-muted-foreground whitespace-nowrap">
-            共 {total} 条，第 {page} / {Math.max(pages, 1)} 页
-        </div>
+              {t('common:pagination.summary', { total, page, pages: Math.max(pages, 1) })}
+          </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Select value={String(pageSize)} onValueChange={(value) => handlePageSizeChange(Number(value))}>
               <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="条数" />
+                <SelectValue placeholder={t('common:pagination.per_page')} />
               </SelectTrigger>
               <SelectContent>
                 {[10, 20, 50].map((size) => (
@@ -661,7 +663,7 @@ export default function AuthKeysPage() {
               size="icon"
               onClick={() => handlePageChange(page - 1)}
               disabled={page === 1}
-              aria-label="上一页"
+              aria-label={t('common:pagination.prev')}
             >
               <ChevronLeft className="size-4" />
             </Button>
@@ -670,7 +672,7 @@ export default function AuthKeysPage() {
                 size="icon"
                 onClick={() => handlePageChange(page + 1)}
                 disabled={page === pages || pages === 0}
-                aria-label="下一页"
+                aria-label={t('common:pagination.next')}
               >
                 <ChevronRight className="size-4" />
               </Button>
@@ -681,7 +683,7 @@ export default function AuthKeysPage() {
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editingKey ? "编辑 API Key" : "新建 API Key"}</DialogTitle>
+            <DialogTitle>{editingKey ? t('form.edit_title') : t('form.create_title')}</DialogTitle>
           </DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -690,7 +692,7 @@ export default function AuthKeysPage() {
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>项目名称</FormLabel>
+                    <FormLabel>{t('form.name_label')}</FormLabel>
                     <FormControl>
                       <Input {...field} />
                     </FormControl>
@@ -705,14 +707,14 @@ export default function AuthKeysPage() {
                 render={({ field }) => (
                   <FormItem className="rounded-lg space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <FormLabel >模型权限</FormLabel>
+                      <FormLabel>{t('form.models_label')}</FormLabel>
                       <FormField
                         control={form.control}
                         name="allow_all"
                         render={({ field: allowAllField }) => (
                           <FormControl>
                             <div className="flex items-center gap-2 text-sm">
-                              <span className="text-muted-foreground">无限制</span>
+                              <span className="text-muted-foreground">{t('form.allow_all_label')}</span>
                               <Checkbox
                                 checked={allowAllField.value}
                                 onCheckedChange={(checked) => allowAllField.onChange(checked === true)}
@@ -725,7 +727,7 @@ export default function AuthKeysPage() {
                     <FormControl>
                       <div className="space-y-3">
                         <Input
-                          placeholder="搜索模型"
+                          placeholder={t('form.search_model_placeholder')}
                           value={modelSearch}
                           onChange={(event) => setModelSearch(event.target.value)}
                           disabled={allowAll}
@@ -735,7 +737,7 @@ export default function AuthKeysPage() {
                           allowAll ? "opacity-50 pointer-events-none" : ""
                         )}>
                           {filteredModels.length === 0 ? (
-                            <p className="text-sm text-muted-foreground">无匹配模型</p>
+                            <p className="text-sm text-muted-foreground">{t('form.no_model_match')}</p>
                           ) : (
                             filteredModels.map((model) => {
                               const checked = field.value.includes(model.Name);
@@ -778,7 +780,7 @@ export default function AuthKeysPage() {
                   const isValidDate = selected && !Number.isNaN(selected.getTime()) ? selected : undefined;
                   return (
                     <FormItem className="grid gap-2">
-                      <FormLabel>有效期至（可选）</FormLabel>
+                      <FormLabel>{t('form.expires_label')}</FormLabel>
                       <FormControl>
                         <div className="flex flex-col gap-3">
                           <div className="flex items-center gap-2">
@@ -789,7 +791,7 @@ export default function AuthKeysPage() {
                                   id="date"
                                   className="w-48 justify-between font-normal"
                                 >
-                                  {isValidDate ? isValidDate.toLocaleDateString() : "Select date"}
+                                  {isValidDate ? isValidDate.toLocaleDateString() : t('form.select_date')}
                                   <ChevronDownIcon />
                                 </Button>
                               </PopoverTrigger>
@@ -819,7 +821,7 @@ export default function AuthKeysPage() {
                               }}
                               disabled={!field.value}
                             >
-                              重置
+                              {t('common:actions.reset')}
                             </Button>
                           </div>
                         </div>
@@ -832,10 +834,10 @@ export default function AuthKeysPage() {
 
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => handleDialogOpenChange(false)}>
-                  取消
+                  {t('form.cancel')}
                 </Button>
                 <Button type="submit" disabled={saving}>
-                  {saving ? "保存中..." : "保存"}
+                  {saving ? t('form.saving') : t('form.save')}
                 </Button>
               </DialogFooter>
             </form>
@@ -846,9 +848,9 @@ export default function AuthKeysPage() {
       <AlertDialog open={Boolean(pendingDelete)} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>确认删除这个 API Key？</AlertDialogTitle>
+            <AlertDialogTitle>{t('delete_dialog.title')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingDelete ? `项目 ${pendingDelete.Name} 将被删除，该 Key 将立即失效。` : ""}
+              {pendingDelete ? t('delete_dialog.description', { name: pendingDelete.Name }) : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -856,14 +858,14 @@ export default function AuthKeysPage() {
               onClick={() => setPendingDelete(null)}
               disabled={deleteLoading}
             >
-              取消
+              {t('delete_dialog.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteConfirmed}
               className="bg-destructive hover:bg-destructive/90"
               disabled={deleteLoading}
             >
-              {deleteLoading ? "删除中..." : "确认删除"}
+              {deleteLoading ? t('delete_dialog.confirming') : t('delete_dialog.confirm')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

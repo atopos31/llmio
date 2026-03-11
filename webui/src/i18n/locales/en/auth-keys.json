@@ -1,0 +1,76 @@
+{
+  "title": "API Key Management",
+  "loading": "Loading API Keys",
+  "no_data": "No API Keys found",
+  "filters": {
+    "search": "Search",
+    "search_placeholder": "Name or Key",
+    "status": "Status",
+    "status_active": "Enabled",
+    "status_inactive": "Disabled",
+    "scope": "Access Scope",
+    "scope_all_models": "All Models Allowed",
+    "scope_restricted": "Specific Models"
+  },
+  "table": {
+    "project": "Project",
+    "key": "Key",
+    "scope": "Scope",
+    "expires_at": "Expires At",
+    "usage_count": "Usage Count",
+    "last_used": "Last Used",
+    "status": "Status",
+    "actions": "Actions",
+    "all_models": "All Models",
+    "specified_models": "Specific Models",
+    "never_expire": "Never Expires",
+    "not_used": "Never Used"
+  },
+  "mobile": {
+    "key_section": "Key",
+    "scope": "Scope",
+    "expires_at": "Expires At",
+    "usage_count": "Usage Count",
+    "last_used": "Last Used",
+    "enable_status": "Status"
+  },
+  "form": {
+    "create_title": "New API Key",
+    "edit_title": "Edit API Key",
+    "name_label": "Project Name",
+    "models_label": "Model Permissions",
+    "allow_all_label": "Unrestricted",
+    "search_model_placeholder": "Search models",
+    "no_model_match": "No matching models",
+    "expires_label": "Expires At (optional)",
+    "select_date": "Select date",
+    "saving": "Saving...",
+    "save": "Save",
+    "cancel": "Cancel"
+  },
+  "delete_dialog": {
+    "title": "Delete this API Key?",
+    "description": "Project {{name}} will be deleted and the key will be immediately revoked.",
+    "confirm": "Confirm Delete",
+    "confirming": "Deleting...",
+    "cancel": "Cancel"
+  },
+  "aria": {
+    "hide_key": "Hide Key",
+    "show_key": "Show Key",
+    "copy_key": "Copy Key",
+    "toggle_status": "Toggle Status"
+  },
+  "toast": {
+    "copy_success": "Copied to clipboard",
+    "copy_failed": "Copy failed",
+    "save_failed": "Save failed: {{message}}",
+    "toggle_failed": "Failed to toggle status: {{message}}",
+    "delete_success": "API key deleted",
+    "delete_failed": "Delete failed: {{message}}"
+  },
+  "validation": {
+    "name_required": "Project name is required",
+    "model_required": "Please select at least one allowed model"
+  }
+}

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -27,14 +28,15 @@ import { configAPI, type AnthropicCountTokens, testCountTokens } from '@/lib/api
 import { toast } from 'sonner';
 
 const anthropicConfigSchema = z.object({
-  base_url: z.string().min(1, { message: 'Base URL 不能为空' }),
-  api_key: z.string().min(1, { message: 'API Key 不能为空' }),
-  version: z.string().min(1, { message: 'Version 不能为空' }),
+  base_url: z.string().min(1),
+  api_key: z.string().min(1),
+  version: z.string().min(1),
 });
 
 type AnthropicConfigForm = z.infer<typeof anthropicConfigSchema>;
 
 export default function ConfigPage() {
+  const { t } = useTranslation(['config', 'common']);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [config, setConfig] = useState<AnthropicCountTokens | null>(null);
@@ -86,11 +88,11 @@ export default function ConfigPage() {
     try {
       setTesting(true);
       await testCountTokens();
-      toast.success('配置检测成功');
+      toast.success(t('toast.test_success'));
     } catch (error) {
       console.error('Config test failed:', error);
-      const errorMessage = error instanceof Error ? error.message : '检测失败';
-      toast.error(`配置检测失败: ${errorMessage}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      toast.error(t('toast.test_failed', { message: errorMessage }));
     } finally {
       setTesting(false);
     }
@@ -100,11 +102,11 @@ export default function ConfigPage() {
     try {
       await configAPI.updateConfig('anthropic_count_tokens', values);
       setConfig(values);
-      toast.success('配置已保存');
+      toast.success(t('toast.save_success'));
       setOpen(false);
     } catch (error) {
       console.error('Failed to save config:', error);
-      toast.error('保存配置失败');
+      toast.error(t('toast.save_failed'));
     }
   };
 
@@ -117,7 +119,7 @@ export default function ConfigPage() {
       <div className="flex flex-col gap-2 flex-shrink-0">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <h2 className="text-2xl font-bold tracking-tight">系统配置</h2>
+            <h2 className="text-2xl font-bold tracking-tight">{t('title')}</h2>
           </div>
         </div>
       </div>
@@ -125,42 +127,42 @@ export default function ConfigPage() {
       <div className="flex-1 min-h-0 overflow-y-auto">
         <Card>
           <CardHeader>
-            <CardTitle>Anthropic 令牌计数配置</CardTitle>
-            <CardDescription>
-              配置 Anthropic API 用于令牌计数功能的连接信息
-            </CardDescription>
+            <CardTitle>{t('anthropic.title')}</CardTitle>
+              <CardDescription>
+                {t('anthropic.desc')}
+              </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Base URL</Label>
+                <Label>{t('anthropic.base_url')}</Label>
                 <p className="text-sm text-muted-foreground break-all">
-                  {config?.base_url || '未配置'}
+                  {config?.base_url || t('anthropic.not_configured')}
                 </p>
               </div>
               <div className="space-y-2">
-                <Label>API Key</Label>
+                <Label>{t('anthropic.api_key')}</Label>
                 <p className="text-sm text-muted-foreground">
                   {config?.api_key ? (
                     <span className="font-mono">
                       {config.api_key.substring(0, 8)}...
                     </span>
                   ) : (
-                    '未配置'
+                    t('anthropic.not_configured')
                   )}
                 </p>
               </div>
               <div className="space-y-2">
-                <Label>API Version</Label>
+                <Label>{t('anthropic.version')}</Label>
                 <p className="text-sm text-muted-foreground">
-                  {config?.version || '未配置'}
+                  {config?.version || t('anthropic.not_configured')}
                 </p>
               </div>
             </div>
           </CardContent>
 
           <CardFooter className="flex justify-between">
-            <Button onClick={openEditDialog}>编辑配置</Button>
+            <Button onClick={openEditDialog}>{t('anthropic.edit')}</Button>
             <Button
               type="button"
               variant="outline"
@@ -170,10 +172,10 @@ export default function ConfigPage() {
               {testing ? (
                 <>
                   <span className="inline-block w-4 h-4 mr-2 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
-                  检测中...
+                  {t('anthropic.testing')}
                 </>
               ) : (
-                '检测配置'
+                t('anthropic.test')
               )}
             </Button>
           </CardFooter>
@@ -183,10 +185,10 @@ export default function ConfigPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>编辑 Anthropic 配置</DialogTitle>
-            <DialogDescription>
-              修改 Anthropic API 连接信息
-            </DialogDescription>
+            <DialogTitle>{t('anthropic.edit_title')}</DialogTitle>
+              <DialogDescription>
+                {t('anthropic.edit_desc')}
+              </DialogDescription>
           </DialogHeader>
 
           <Form {...form}>
@@ -196,7 +198,7 @@ export default function ConfigPage() {
                 name="base_url"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Base URL</FormLabel>
+                    <FormLabel>{t('anthropic.base_url')}</FormLabel>
                     <FormControl>
                       <Input placeholder="https://api.anthropic.com/v1" {...field} />
                     </FormControl>
@@ -210,7 +212,7 @@ export default function ConfigPage() {
                 name="api_key"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>API Key</FormLabel>
+                    <FormLabel>{t('anthropic.api_key')}</FormLabel>
                     <FormControl>
                       <Input placeholder="sk-ant-..." {...field} />
                     </FormControl>
@@ -224,7 +226,7 @@ export default function ConfigPage() {
                 name="version"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>API Version</FormLabel>
+                    <FormLabel>{t('anthropic.version')}</FormLabel>
                     <FormControl>
                       <Input placeholder="2023-06-01" {...field} />
                     </FormControl>
@@ -235,9 +237,9 @@ export default function ConfigPage() {
 
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={closeDialog}>
-                  取消
+                  {t('common:actions.cancel')}
                 </Button>
-                <Button type="submit">保存</Button>
+                <Button type="submit">{t('common:actions.save')}</Button>
               </DialogFooter>
             </form>
           </Form>

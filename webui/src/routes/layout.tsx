@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "@/i18n/index";
 import { Link, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,13 +26,18 @@ import {
 } from "@/components/ui/dialog";
 
 export default function Layout() {
+  const { t, i18n } = useTranslation('layout');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [version, setVersion] = useState("dev");
   const [latestRelease, setLatestRelease] = useState<GitHubRelease | null>(null);
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
-  const location = useLocation(); // 用于高亮当前选中的菜单
+  const location = useLocation();
+
+  const handleLanguageChange = (code: SupportedLanguage) => {
+    void i18n.changeLanguage(code);
+  };
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
@@ -101,12 +108,12 @@ export default function Layout() {
   };
 
   const navItems = [
-    { to: "/", label: "首页", icon: <FaHome /> },
-    { to: "/providers", label: "提供商管理", icon: <FaCloud /> },
-    { to: "/models", label: "模型管理", icon: <FaRobot /> },
-    { to: "/logs", label: "请求日志", icon: <FaFileAlt /> },
-    { to: "/auth-keys", label: "密钥管理", icon: <FaKey /> },
-    { to: "/config", label: "系统配置", icon: <FaCog /> },
+    { to: "/", label: t('nav.home'), icon: <FaHome /> },
+    { to: "/providers", label: t('nav.providers'), icon: <FaCloud /> },
+    { to: "/models", label: t('nav.models'), icon: <FaRobot /> },
+    { to: "/logs", label: t('nav.logs'), icon: <FaFileAlt /> },
+    { to: "/auth-keys", label: t('nav.auth_keys'), icon: <FaKey /> },
+    { to: "/config", label: t('nav.config'), icon: <FaCog /> },
   ];
 
   // 侧边栏宽度常量，方便统一管理
@@ -128,18 +135,33 @@ export default function Layout() {
             className="text-muted-foreground cursor-pointer hover:bg-accent transition-colors"
             onClick={() => {
               if (latestRelease) {
-                // Clear snooze when user manually clicks to view update
                 localStorage.removeItem('updateReminderSnoozeUntil');
                 setShowUpdateDialog(true);
               }
             }}
-            title={latestRelease ? `有新版本 ${latestRelease.tag_name} 可用` : '当前版本'}
+            title={latestRelease ? t('header.new_version_hint', { version: latestRelease.tag_name }) : t('header.current_version')}
           >
             {version}
             {latestRelease && (
               <span className="ml-1 text-xs text-red-500">●</span>
             )}
           </Badge>
+
+          {/* Language switcher */}
+          <div className="flex items-center gap-1">
+            {SUPPORTED_LANGUAGES.map((lang) => (
+              <Button
+                key={lang.code}
+                variant={i18n.language === lang.code ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => handleLanguageChange(lang.code)}
+              >
+                {lang.label}
+              </Button>
+            ))}
+          </div>
+
           <Button
             variant="ghost"
             size="icon"
@@ -166,6 +188,7 @@ export default function Layout() {
             variant="ghost"
             onClick={handleLogout}
             className="gap-2"
+            title={t('header.logout')}
           >
             <FaSignOutAlt />
           </Button>
@@ -197,7 +220,7 @@ export default function Layout() {
                             : "hover:bg-accent hover:text-accent-foreground text-muted-foreground" // 默认状态
                           }
                         `}
-                        title={!sidebarOpen ? item.label : ""}
+                        title={!sidebarOpen ? item.label : undefined}
                       >
                         {/* 
                           关键点：图标容器
@@ -261,7 +284,7 @@ export default function Layout() {
                   : "w-0 opacity-0 -translate-x-4 ml-0"
                 }
               `}>
-                收起菜单
+                {t('sidebar.collapse')}
               </span>
             </Button>
           </div>
@@ -280,16 +303,16 @@ export default function Layout() {
       <Dialog open={showUpdateDialog} onOpenChange={setShowUpdateDialog}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>发现新版本 {latestRelease?.tag_name}</DialogTitle>
-            <DialogDescription>
-              当前版本: {version} → 最新版本: {latestRelease?.tag_name}
-            </DialogDescription>
+            <DialogTitle>{t('update_dialog.title', { version: latestRelease?.tag_name })}</DialogTitle>
+              <DialogDescription>
+                {t('update_dialog.current')}: {version} → {t('update_dialog.latest')}: {latestRelease?.tag_name}
+              </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <h4 className="font-semibold mb-2">更新内容：</h4>
+              <h4 className="font-semibold mb-2">{t('update_dialog.changelog')}</h4>
               <div className="bg-muted p-4 rounded-md text-sm whitespace-pre-wrap max-h-96 overflow-y-auto">
-                {latestRelease?.body || '暂无更新说明'}
+                {latestRelease?.body || t('update_dialog.no_changelog')}
               </div>
             </div>
             <div className="flex justify-end gap-2">
@@ -297,7 +320,7 @@ export default function Layout() {
                 variant="outline"
                 onClick={handleSnoozeUpdate}
               >
-                稍后提醒
+                {t('update_dialog.snooze')}
               </Button>
               <Button
                 onClick={() => {
@@ -305,7 +328,7 @@ export default function Layout() {
                   setShowUpdateDialog(false);
                 }}
               >
-                查看详情
+                {t('update_dialog.view_detail')}
               </Button>
             </div>
           </div>

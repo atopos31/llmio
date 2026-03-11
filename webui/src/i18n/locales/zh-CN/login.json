@@ -1,0 +1,7 @@
+{
+  "title": "登录",
+  "description": "输入您的访问令牌以访问系统",
+  "token_label": "访问令牌",
+  "token_placeholder": "输入您的访问令牌",
+  "submit": "登录"
+}

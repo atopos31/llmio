@@ -1,0 +1,62 @@
+{
+  "title": "Provider Management",
+  "loading": "Loading providers",
+  "no_data": "No providers found",
+  "no_match": "No matching providers found",
+  "filters": {
+    "name": "Provider Name",
+    "name_placeholder": "Enter name",
+    "type": "Type",
+    "type_placeholder": "Select type"
+  },
+  "actions": {
+    "add": "Add Provider"
+  },
+  "table": {
+    "id": "ID",
+    "name": "Name",
+    "type": "Type",
+    "config": "Config",
+    "console": "Console",
+    "actions": "Actions"
+  },
+  "delete_dialog": {
+    "title": "Delete this provider?",
+    "description": "This action cannot be undone. The provider will be permanently deleted."
+  },
+  "form": {
+    "add_title": "Add Provider",
+    "edit_title": "Edit Provider",
+    "add_desc": "Add a new provider",
+    "edit_desc": "Update provider information",
+    "name_label": "Name",
+    "type_label": "Type",
+    "no_types": "No types available. Please configure a template first.",
+    "config_label": "Config",
+    "no_config": "No additional configuration for this provider type.",
+    "type_not_in_template": "Provider type {{type}} is not in the template list. You can continue using it or select another type.",
+    "config_key_placeholder": "Enter {{key}}",
+    "proxy_label": "HTTP Proxy",
+    "proxy_placeholder": "http://192.168.1.2:1234",
+    "error_matcher_label": "Response Error Matcher",
+    "error_matcher_placeholder": "Example (one per line or semicolon-separated):\n\"status\":\"439\"\n\"status\":\"500\"\nAPI Token has expired",
+    "error_matcher_hint": "Any matched sample is treated as an error. Useful for channels that return errors with HTTP 200.",
+    "console_label": "Console URL",
+    "console_placeholder": "https://example.com/console"
+  },
+  "models_dialog": {
+    "title": "{{name}} Model List",
+    "desc": "All available models for this provider",
+    "search_placeholder": "Search model ID",
+    "no_data": "No models available",
+    "no_match": "No matching models found",
+    "loading": "Loading model list"
+  },
+  "toast": {
+    "fetch_failed": "Failed to fetch providers: {{message}}",
+    "delete_success": "Provider {{name}} deleted successfully",
+    "delete_failed": "Failed to delete provider: {{message}}",
+    "copy_model": "Copied model name: {{name}}",
+    "fetch_model_failed": "Failed to fetch provider models: {{message}}"
+  }
+}

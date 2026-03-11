@@ -1,0 +1,62 @@
+{
+  "title": "供應商管理",
+  "loading": "載入供應商列表",
+  "no_data": "暫無供應商資料",
+  "no_match": "找不到符合的供應商",
+  "filters": {
+    "name": "供應商名稱",
+    "name_placeholder": "輸入名稱",
+    "type": "類型",
+    "type_placeholder": "選擇類型"
+  },
+  "actions": {
+    "add": "新增供應商"
+  },
+  "table": {
+    "id": "ID",
+    "name": "名稱",
+    "type": "類型",
+    "config": "設定",
+    "console": "控制台",
+    "actions": "操作"
+  },
+  "delete_dialog": {
+    "title": "確定要刪除這個供應商嗎？",
+    "description": "此操作無法復原。這將永久刪除該供應商。"
+  },
+  "form": {
+    "add_title": "新增供應商",
+    "edit_title": "編輯供應商",
+    "add_desc": "新增一個新的供應商",
+    "edit_desc": "修改供應商資訊",
+    "name_label": "名稱",
+    "type_label": "類型",
+    "no_types": "暫無可用類型，請先設定範本。",
+    "config_label": "設定",
+    "no_config": "目前供應商類型暫無額外設定。",
+    "type_not_in_template": "目前供應商類型 {{type}} 不在範本列表中，可繼續使用或選擇其他類型。",
+    "config_key_placeholder": "請輸入 {{key}}",
+    "proxy_label": "HTTP 代理",
+    "proxy_placeholder": "http://192.168.1.2:1234",
+    "error_matcher_label": "回應體錯誤識別",
+    "error_matcher_placeholder": "範例（每行或分號分隔）:\n\"status\":\"439\"\n\"status\":\"500\"\nAPI Token has expired",
+    "error_matcher_hint": "命中任意 sample 即視為錯誤，用於 200 但 body 回傳錯誤的渠道。",
+    "console_label": "控制台地址",
+    "console_placeholder": "https://example.com/console"
+  },
+  "models_dialog": {
+    "title": "{{name}} 模型列表",
+    "desc": "目前供應商的所有可用模型",
+    "search_placeholder": "搜尋模型 ID",
+    "no_data": "暫無模型資料",
+    "no_match": "找不到符合的模型",
+    "loading": "載入模型列表"
+  },
+  "toast": {
+    "fetch_failed": "取得供應商列表失敗: {{message}}",
+    "delete_success": "供應商 {{name}} 刪除成功",
+    "delete_failed": "刪除供應商失敗: {{message}}",
+    "copy_model": "已複製模型名稱: {{name}}",
+    "fetch_model_failed": "取得供應商模型失敗: {{message}}"
+  }
+}

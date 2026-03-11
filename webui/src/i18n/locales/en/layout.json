@@ -1,0 +1,27 @@
+{
+  "nav": {
+    "home": "Dashboard",
+    "providers": "Providers",
+    "models": "Models",
+    "logs": "Request Logs",
+    "auth_keys": "API Keys",
+    "config": "System Config"
+  },
+  "sidebar": {
+    "collapse": "Collapse Menu"
+  },
+  "header": {
+    "current_version": "Current Version",
+    "new_version_hint": "New version {{version}} available",
+    "logout": "Logout"
+  },
+  "update_dialog": {
+    "title": "New Version Available: {{version}}",
+    "current": "Current Version",
+    "latest": "Latest Version",
+    "changelog": "Changelog:",
+    "no_changelog": "No release notes available",
+    "snooze": "Remind Me Later",
+    "view_detail": "View Details"
+  }
+}

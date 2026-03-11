@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { FieldArrayWithId, UseFormReturn } from "react-hook-form";
 import {
   Dialog,
@@ -56,12 +57,13 @@ export function ModelProviderFormDialog({
   sortProviderModels,
   loadProviderModels,
 }: ModelProviderFormDialogProps) {
+  const { t } = useTranslation(['models', 'common']);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>
-            {editingAssociation ? "编辑关联" : "添加关联"}
+            {editingAssociation ? t('association_form.edit_title') : t('association_form.add_title')}
           </DialogTitle>
         </DialogHeader>
 
@@ -74,7 +76,7 @@ export function ModelProviderFormDialog({
                   name="model_id"
                   render={({ field }) => (
                     <FormItem className="min-w-0">
-                      <FormLabel>模型</FormLabel>
+                        <FormLabel>{t('association_form.model_label')}</FormLabel>
                       <Select
                         value={field.value.toString()}
                         onValueChange={(value) => field.onChange(parseInt(value))}
@@ -82,7 +84,7 @@ export function ModelProviderFormDialog({
                       >
                         <FormControl>
                           <SelectTrigger className="form-select w-full">
-                            <SelectValue placeholder="选择模型" />
+                              <SelectValue placeholder={t('association_form.model_placeholder')} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -103,7 +105,7 @@ export function ModelProviderFormDialog({
                   name="provider_id"
                   render={({ field }) => (
                     <FormItem className="min-w-0">
-                      <FormLabel>提供商</FormLabel>
+                        <FormLabel>{t('association_form.provider_label')}</FormLabel>
                       <Select
                         value={field.value ? field.value.toString() : ""}
                         onValueChange={(value) => {
@@ -114,7 +116,7 @@ export function ModelProviderFormDialog({
                       >
                         <FormControl>
                           <SelectTrigger className="form-select w-full">
-                            <SelectValue placeholder="选择提供商" />
+                              <SelectValue placeholder={t('association_form.provider_placeholder')} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -136,12 +138,12 @@ export function ModelProviderFormDialog({
                 name="provider_name"
                 render={({ field }) => (
                   <FormItem className="space-y-2">
-                    <FormLabel>提供商模型</FormLabel>
+                    <FormLabel>{t('association_form.provider_model_label')}</FormLabel>
                     <FormControl>
                       <div className="relative">
                         <Input
                           {...field}
-                          placeholder="输入或选择提供商模型"
+                          placeholder={t('association_form.provider_model_placeholder')}
                           onFocus={() => setShowProviderModels(true)}
                           onBlur={() => setTimeout(() => setShowProviderModels(false), 100)}
                           onChange={(e) => {
@@ -171,7 +173,7 @@ export function ModelProviderFormDialog({
                     </FormControl>
                     {selectedProviderId ? (
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <p>可直接输入，或在下拉列表中选择</p>
+                        <p>{t('association_form.provider_model_hint')}</p>
                         <Button
                           type="button"
                           variant="ghost"
@@ -187,13 +189,13 @@ export function ModelProviderFormDialog({
                         </Button>
                       </div>
                     ) : (
-                      <p className="text-xs text-muted-foreground">请选择提供商以加载模型列表</p>
+                      <p className="text-xs text-muted-foreground">{t('association_form.select_provider_first')}</p>
                     )}
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              <FormLabel>模型能力</FormLabel>
+              <FormLabel>{t('association_form.capabilities')}</FormLabel>
               <FormField
                 control={form.control}
                 name="tool_call"
@@ -207,7 +209,7 @@ export function ModelProviderFormDialog({
                     </FormControl>
                     <div className="space-y-1 leading-none">
                       <FormLabel>
-                        工具调用
+                        {t('association_form.tool_call')}
                       </FormLabel>
                     </div>
                   </FormItem>
@@ -227,7 +229,7 @@ export function ModelProviderFormDialog({
                     </FormControl>
                     <div className="space-y-1 leading-none">
                       <FormLabel>
-                        结构化输出
+                        {t('association_form.structured_output')}
                       </FormLabel>
                     </div>
                   </FormItem>
@@ -247,13 +249,13 @@ export function ModelProviderFormDialog({
                     </FormControl>
                     <div className="space-y-1 leading-none">
                       <FormLabel>
-                        视觉
+                        {t('association_form.vision')}
                       </FormLabel>
                     </div>
                   </FormItem>
                 )}
               />
-              <FormLabel>参数配置</FormLabel>
+              <FormLabel>{t('association_form.params')}</FormLabel>
               <FormField
                 control={form.control}
                 name="with_header"
@@ -267,7 +269,7 @@ export function ModelProviderFormDialog({
                     </FormControl>
                     <div className="space-y-1 leading-none">
                       <FormLabel>
-                        请求头透传
+                        {t('association_form.with_header')}
                       </FormLabel>
                     </div>
                   </FormItem>
@@ -282,9 +284,9 @@ export function ModelProviderFormDialog({
                   return (
                     <FormItem>
                       <div className="flex items-center justify-between">
-                        <FormLabel>自定义请求头</FormLabel>
+                        <FormLabel>{t('association_form.custom_headers')}</FormLabel>
                         <Button type="button" variant="outline" size="sm" onClick={() => appendHeader({ key: "", value: "" })}>
-                          添加
+                          {t('association_form.add_header')}
                         </Button>
                       </div>
                       <div className="space-y-2">
@@ -294,8 +296,8 @@ export function ModelProviderFormDialog({
                             <div key={header.id} className="space-y-1">
                               <div className="flex gap-2 items-center">
                                 <div className="flex-1">
-                                  <Input
-                                    placeholder="Header Key"
+                                    <Input
+                                      placeholder={t('association_form.header_key_placeholder')}
                                     value={headerValues[index]?.key ?? ""}
                                     onChange={(e) => {
                                       const next = [...headerValues];
@@ -305,8 +307,8 @@ export function ModelProviderFormDialog({
                                   />
                                 </div>
                                 <div className="flex-1">
-                                  <Input
-                                    placeholder="Header Value"
+                                    <Input
+                                      placeholder={t('association_form.header_value_placeholder')}
                                     value={headerValues[index]?.value ?? ""}
                                     onChange={(e) => {
                                       const next = [...headerValues];
@@ -316,7 +318,7 @@ export function ModelProviderFormDialog({
                                   />
                                 </div>
                                 <Button type="button" size="sm" variant="destructive" onClick={() => removeHeader(index)}>
-                                  删除
+                                  {t('association_form.remove_header')}
                                 </Button>
                               </div>
                               {errorMsg && (
@@ -328,7 +330,7 @@ export function ModelProviderFormDialog({
                           );
                         })}
                         <p className="text-sm text-muted-foreground">
-                          {"优先级: 提供商配置 > 自定义请求头 > 透传请求头"}
+                          {t('association_form.header_priority')}
                         </p>
                       </div>
                     </FormItem>
@@ -341,7 +343,7 @@ export function ModelProviderFormDialog({
                 name="weight"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>权重 (必须大于0)</FormLabel>
+                    <FormLabel>{t('association_form.weight')}</FormLabel>
                     <FormControl>
                       <Input
                         {...field}
@@ -358,10 +360,10 @@ export function ModelProviderFormDialog({
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                取消
+                {t('association_form.cancel')}
               </Button>
               <Button type="submit">
-                {editingAssociation ? "更新" : "创建"}
+                {editingAssociation ? t('common:actions.update') : t('common:actions.create')}
               </Button>
             </DialogFooter>
           </form>

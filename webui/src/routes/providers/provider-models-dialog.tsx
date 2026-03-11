@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,7 @@ export function ProviderModelsDialog({
   providerModels,
   onCopyModelName,
 }: ProviderModelsDialogProps) {
+  const { t } = useTranslation(['providers', 'common']);
   const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
@@ -59,16 +61,16 @@ export function ProviderModelsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{providerName}模型列表</DialogTitle>
+          <DialogTitle>{t('models_dialog.title', { name: providerName })}</DialogTitle>
           <DialogDescription>
-            当前提供商的所有可用模型
+            {t('models_dialog.desc')}
           </DialogDescription>
         </DialogHeader>
 
         {!modelsLoading && providerModels.length > 0 && (
           <div className="mb-4">
             <Input
-              placeholder="搜索模型 ID"
+              placeholder={t('models_dialog.search_placeholder')}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full"
@@ -77,12 +79,12 @@ export function ProviderModelsDialog({
         )}
 
         {modelsLoading ? (
-          <Loading message="加载模型列表" />
+          <Loading message={t('models_dialog.loading')} />
         ) : (
           <div className="max-h-96 overflow-y-auto">
             {filteredProviderModels.length === 0 ? (
               <div className="text-center text-gray-500 py-8">
-                {providerModels.length === 0 ? "暂无模型数据" : "未找到匹配的模型"}
+                {providerModels.length === 0 ? t('models_dialog.no_data') : t('models_dialog.no_match')}
               </div>
             ) : (
               <div className="space-y-2">
@@ -116,7 +118,7 @@ export function ProviderModelsDialog({
         )}
 
         <DialogFooter>
-          <Button onClick={() => onOpenChange(false)}>关闭</Button>
+          <Button onClick={() => onOpenChange(false)}>{t('common:actions.close')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

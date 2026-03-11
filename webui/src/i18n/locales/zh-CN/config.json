@@ -1,0 +1,25 @@
+{
+  "title": "系统配置",
+  "anthropic": {
+    "title": "Anthropic 令牌计数配置",
+    "desc": "配置 Anthropic API 用于令牌计数功能的连接信息",
+    "base_url": "Base URL",
+    "api_key": "API Key",
+    "version": "API Version",
+    "not_configured": "未配置",
+    "edit": "编辑配置",
+    "test": "检测配置",
+    "testing": "检测中...",
+    "edit_title": "编辑 Anthropic 配置",
+    "edit_desc": "修改 Anthropic API 连接信息",
+    "base_url_validation": "Base URL 不能为空",
+    "api_key_validation": "API Key 不能为空",
+    "version_validation": "Version 不能为空"
+  },
+  "toast": {
+    "test_success": "配置检测成功",
+    "test_failed": "配置检测失败: {{message}}",
+    "save_success": "配置已保存",
+    "save_failed": "保存配置失败"
+  }
+}

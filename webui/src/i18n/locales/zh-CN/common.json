@@ -1,0 +1,46 @@
+{
+  "actions": {
+    "save": "保存",
+    "saving": "保存中...",
+    "cancel": "取消",
+    "delete": "删除",
+    "deleting": "删除中...",
+    "confirm_delete": "确认删除",
+    "edit": "编辑",
+    "create": "创建",
+    "update": "更新",
+    "close": "关闭",
+    "add": "添加",
+    "refresh": "刷新",
+    "search": "搜索",
+    "reset": "重置",
+    "copy": "复制",
+    "back": "返回",
+    "test": "测试",
+    "execute_test": "执行测试",
+    "testing": "测试中..."
+  },
+  "status": {
+    "success": "成功",
+    "running": "运行中",
+    "error": "错误",
+    "enabled": "启用",
+    "disabled": "禁用",
+    "active": "已启用",
+    "inactive": "已停用",
+    "all": "全部"
+  },
+  "pagination": {
+    "summary": "共 {{total}} 条，第 {{page}} / {{pages}} 页",
+    "per_page": "条数",
+    "prev": "上一页",
+    "next": "下一页"
+  },
+  "loading": "加载中",
+  "no_data": "暂无数据",
+  "no_match": "未找到匹配数据",
+  "unknown": "未知",
+  "yes": "是",
+  "no": "否",
+  "cannot_undo": "此操作无法撤销。"
+}

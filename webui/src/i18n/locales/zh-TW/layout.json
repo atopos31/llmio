@@ -1,0 +1,27 @@
+{
+  "nav": {
+    "home": "首頁",
+    "providers": "供應商管理",
+    "models": "模型管理",
+    "logs": "請求日誌",
+    "auth_keys": "金鑰管理",
+    "config": "系統設定"
+  },
+  "sidebar": {
+    "collapse": "收起選單"
+  },
+  "header": {
+    "current_version": "目前版本",
+    "new_version_hint": "有新版本 {{version}} 可用",
+    "logout": "登出"
+  },
+  "update_dialog": {
+    "title": "發現新版本 {{version}}",
+    "current": "目前版本",
+    "latest": "最新版本",
+    "changelog": "更新內容：",
+    "no_changelog": "暫無更新說明",
+    "snooze": "稍後提醒",
+    "view_detail": "查看詳情"
+  }
+}

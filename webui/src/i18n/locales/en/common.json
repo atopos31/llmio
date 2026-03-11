@@ -1,0 +1,46 @@
+{
+  "actions": {
+    "save": "Save",
+    "saving": "Saving...",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "deleting": "Deleting...",
+    "confirm_delete": "Confirm Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "update": "Update",
+    "close": "Close",
+    "add": "Add",
+    "refresh": "Refresh",
+    "search": "Search",
+    "reset": "Reset",
+    "copy": "Copy",
+    "back": "Back",
+    "test": "Test",
+    "execute_test": "Run Test",
+    "testing": "Testing..."
+  },
+  "status": {
+    "success": "Success",
+    "running": "Running",
+    "error": "Error",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "active": "Active",
+    "inactive": "Inactive",
+    "all": "All"
+  },
+  "pagination": {
+    "summary": "Total {{total}}, Page {{page}} / {{pages}}",
+    "per_page": "Per page",
+    "prev": "Previous",
+    "next": "Next"
+  },
+  "loading": "Loading",
+  "no_data": "No data",
+  "no_match": "No matching data found",
+  "unknown": "Unknown",
+  "yes": "Yes",
+  "no": "No",
+  "cannot_undo": "This action cannot be undone."
+}

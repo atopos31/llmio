@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, Suspense, lazy, memo, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Loading from "@/components/loading";
@@ -49,19 +50,20 @@ type HomeHeaderProps = {
 };
 
 const HomeHeader = memo(({ onRefresh }: HomeHeaderProps) => {
+  const { t } = useTranslation('home');
   return (
     <div className="flex flex-col gap-2 flex-shrink-0">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-2xl font-bold tracking-tight">系统概览</h2>
+          <h2 className="text-2xl font-bold tracking-tight">{t('title')}</h2>
         </div>
         <Button
           onClick={onRefresh}
           variant="outline"
           size="icon"
           className="ml-auto shrink-0"
-          aria-label="刷新概览"
-          title="刷新概览"
+          aria-label={t('refresh')}
+          title={t('refresh')}
         >
           <RefreshCw className="size-4" />
         </Button>
@@ -79,27 +81,29 @@ export default function Home() {
   const [modelCounts, setModelCounts] = useState<ModelCount[]>([]);
   const [projectCounts, setProjectCounts] = useState<ProjectCount[]>([]);
 
+  const { t } = useTranslation('home');
+
   const fetchTodayMetrics = useCallback(async () => {
     try {
       const data = await getMetrics(0);
       setTodayMetrics(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`获取今日指标失败: ${message}`);
+      toast.error(t('errors.today_metrics', { message }));
       console.error(err);
     }
-  }, []);
+  }, [t]);
 
   const fetchTotalMetrics = useCallback(async () => {
     try {
-      const data = await getMetrics(30); // Get last 30 days for "total" metrics
+      const data = await getMetrics(30);
       setTotalMetrics(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`获取总计指标失败: ${message}`);
+      toast.error(t('errors.total_metrics', { message }));
       console.error(err);
     }
-  }, []);
+  }, [t]);
 
   const fetchModelCounts = useCallback(async () => {
     try {
@@ -107,10 +111,10 @@ export default function Home() {
       setModelCounts(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`获取模型调用统计失败: ${message}`);
+      toast.error(t('errors.model_counts', { message }));
       console.error(err);
     }
-  }, []);
+  }, [t]);
 
   const fetchProjectCounts = useCallback(async () => {
     try {
@@ -118,10 +122,10 @@ export default function Home() {
       setProjectCounts(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      toast.error(`获取项目调用统计失败: ${message}`);
+      toast.error(t('errors.project_counts', { message }));
       console.error(err);
     }
-  }, []);
+  }, [t]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -140,15 +144,15 @@ export default function Home() {
       <div className="flex-1 min-h-0 overflow-y-auto">
         {loading ? (
           <div className="flex h-full items-center justify-center">
-            <Loading message="加载系统概览" />
+            <Loading message={t('loading')} />
           </div>
         ) : (
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>今日请求</CardTitle>
-                  <CardDescription>今日处理的请求总数</CardDescription>
+                  <CardTitle>{t('cards.today_requests')}</CardTitle>
+                  <CardDescription>{t('cards.today_requests_desc')}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <AnimatedCounter value={todayMetrics.reqs} />
@@ -157,8 +161,8 @@ export default function Home() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>今日Tokens</CardTitle>
-                  <CardDescription>今日处理的Tokens总数</CardDescription>
+                  <CardTitle>{t('cards.today_tokens')}</CardTitle>
+                  <CardDescription>{t('cards.today_tokens_desc')}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <AnimatedCounter value={todayMetrics.tokens} />
@@ -167,8 +171,8 @@ export default function Home() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>本月请求</CardTitle>
-                  <CardDescription>最近30天处理的请求总数</CardDescription>
+                  <CardTitle>{t('cards.monthly_requests')}</CardTitle>
+                  <CardDescription>{t('cards.monthly_requests_desc')}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <AnimatedCounter value={totalMetrics.reqs} />
@@ -177,8 +181,8 @@ export default function Home() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>本月Tokens</CardTitle>
-                  <CardDescription>最近30天处理的Tokens总数</CardDescription>
+                  <CardTitle>{t('cards.monthly_tokens')}</CardTitle>
+                  <CardDescription>{t('cards.monthly_tokens_desc')}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <AnimatedCounter value={totalMetrics.tokens} />
@@ -188,13 +192,13 @@ export default function Home() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <Suspense fallback={<div className="h-64 flex items-center justify-center">
-                <Loading message="加载图表..." />
+                <Loading message={t('loading_chart')} />
               </div>}>
                 <ChartPieDonutText data={modelCounts} />
               </Suspense>
 
               <Suspense fallback={<div className="h-64 flex items-center justify-center">
-                <Loading message="加载图表..." />
+                <Loading message={t('loading_chart')} />
               </div>}>
                 <ProjectChartPieDonutText data={projectCounts} />
               </Suspense>
@@ -202,13 +206,13 @@ export default function Home() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <Suspense fallback={<div className="h-64 flex items-center justify-center">
-                <Loading message="加载图表..." />
+                <Loading message={t('loading_chart')} />
               </div>}>
                 <ModelRankingChart data={modelCounts} />
               </Suspense>
 
               <Suspense fallback={<div className="h-64 flex items-center justify-center">
-                <Loading message="加载图表..." />
+                <Loading message={t('loading_chart')} />
               </div>}>
                 <ProjectRankingChart data={projectCounts} />
               </Suspense>

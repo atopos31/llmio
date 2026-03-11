@@ -1,0 +1,76 @@
+{
+  "title": "金鑰管理",
+  "loading": "載入 API Key 列表",
+  "no_data": "暫無 API Key",
+  "filters": {
+    "search": "搜尋",
+    "search_placeholder": "名稱或 Key",
+    "status": "狀態",
+    "status_active": "啟用",
+    "status_inactive": "停用",
+    "scope": "存取範圍",
+    "scope_all_models": "允許全部模型",
+    "scope_restricted": "指定模型"
+  },
+  "table": {
+    "project": "專案",
+    "key": "Key",
+    "scope": "使用範圍",
+    "expires_at": "有效期至",
+    "usage_count": "使用次數",
+    "last_used": "最後使用時間",
+    "status": "狀態",
+    "actions": "操作",
+    "all_models": "全部模型",
+    "specified_models": "指定模型",
+    "never_expire": "永久有效",
+    "not_used": "未使用"
+  },
+  "mobile": {
+    "key_section": "Key",
+    "scope": "使用範圍",
+    "expires_at": "有效期至",
+    "usage_count": "使用次數",
+    "last_used": "最後使用",
+    "enable_status": "啟用狀態"
+  },
+  "form": {
+    "create_title": "新建 API Key",
+    "edit_title": "編輯 API Key",
+    "name_label": "專案名稱",
+    "models_label": "模型權限",
+    "allow_all_label": "無限制",
+    "search_model_placeholder": "搜尋模型",
+    "no_model_match": "無符合模型",
+    "expires_label": "有效期至（選填）",
+    "select_date": "選擇日期",
+    "saving": "儲存中...",
+    "save": "儲存",
+    "cancel": "取消"
+  },
+  "delete_dialog": {
+    "title": "確認刪除這個 API Key？",
+    "description": "專案 {{name}} 將被刪除，該 Key 將立即失效。",
+    "confirm": "確認刪除",
+    "confirming": "刪除中...",
+    "cancel": "取消"
+  },
+  "aria": {
+    "hide_key": "隱藏 Key",
+    "show_key": "顯示 Key",
+    "copy_key": "複製 Key",
+    "toggle_status": "切換啟用狀態"
+  },
+  "toast": {
+    "copy_success": "已複製到剪貼簿",
+    "copy_failed": "複製失敗",
+    "save_failed": "儲存失敗：{{message}}",
+    "toggle_failed": "狀態切換失敗: {{message}}",
+    "delete_success": "刪除成功",
+    "delete_failed": "刪除失敗: {{message}}"
+  },
+  "validation": {
+    "name_required": "專案名稱不能為空",
+    "model_required": "請至少選擇一個允許的模型"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "title": "系统概览",
+  "refresh": "刷新概览",
+  "loading": "加载系统概览",
+  "loading_chart": "加载图表...",
+  "cards": {
+    "today_requests": "今日请求",
+    "today_requests_desc": "今日处理的请求总数",
+    "today_tokens": "今日 Tokens",
+    "today_tokens_desc": "今日处理的 Tokens 总数",
+    "monthly_requests": "本月请求",
+    "monthly_requests_desc": "最近30天处理的请求总数",
+    "monthly_tokens": "本月 Tokens",
+    "monthly_tokens_desc": "最近30天处理的 Tokens 总数"
+  },
+  "errors": {
+    "today_metrics": "获取今日指标失败: {{message}}",
+    "total_metrics": "获取总计指标失败: {{message}}",
+    "model_counts": "获取模型调用统计失败: {{message}}",
+    "project_counts": "获取项目调用统计失败: {{message}}"
+  }
+}

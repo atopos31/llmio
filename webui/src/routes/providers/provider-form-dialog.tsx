@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { UseFormReturn } from "react-hook-form";
 import {
   Dialog,
@@ -48,17 +49,16 @@ export function ProviderFormDialog({
   onConfigFieldChange,
   onSubmit,
 }: ProviderFormDialogProps) {
+  const { t } = useTranslation(['providers', 'common']);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {editingProvider ? "编辑提供商" : "添加提供商"}
+            {editingProvider ? t('form.edit_title') : t('form.add_title')}
           </DialogTitle>
           <DialogDescription>
-            {editingProvider
-              ? "修改提供商信息"
-              : "添加一个新的提供商"}
+            {editingProvider ? t('form.edit_desc') : t('form.add_desc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -69,7 +69,7 @@ export function ProviderFormDialog({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>名称</FormLabel>
+                  <FormLabel>{t('form.name_label')}</FormLabel>
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
@@ -99,11 +99,11 @@ export function ProviderFormDialog({
 
                 return (
                   <FormItem>
-                    <FormLabel>类型</FormLabel>
+                    <FormLabel>{t('form.type_label')}</FormLabel>
                     <FormControl>
                       {providerTemplates.length === 0 ? (
                         <p className="text-sm text-muted-foreground">
-                          暂无可用类型，请先配置模板。
+                          {t('form.no_types')}
                         </p>
                       ) : (
                         <RadioGroup
@@ -143,9 +143,7 @@ export function ProviderFormDialog({
                     </FormControl>
                     {!hasCurrentValue && currentValue && (
                       <p className="text-xs text-muted-foreground">
-                        当前提供商类型{" "}
-                        <span className="font-mono">{currentValue}</span>{" "}
-                        不在模板列表中，可继续使用或选择其他类型。
+                        {t('form.type_not_in_template', { type: currentValue })}
                       </p>
                     )}
                     <FormMessage />
@@ -159,11 +157,11 @@ export function ProviderFormDialog({
               name="config"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>配置</FormLabel>
+                  <FormLabel>{t('form.config_label')}</FormLabel>
                   {structuredConfigEnabled ? (
                     Object.keys(configFields).length === 0 ? (
                       <p className="text-sm text-muted-foreground">
-                        当前提供商类型暂无额外配置。
+                        {t('form.no_config')}
                       </p>
                     ) : (
                       <div className="space-y-3">
@@ -177,7 +175,7 @@ export function ProviderFormDialog({
                               onChange={(event) =>
                                 onConfigFieldChange(key, event.target.value)
                               }
-                              placeholder={`请输入 ${key}`}
+                              placeholder={t('form.config_key_placeholder', { key })}
                             />
                           </div>
                         ))}
@@ -201,7 +199,7 @@ export function ProviderFormDialog({
               name="proxy"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>HTTP 代理</FormLabel>
+                  <FormLabel>{t('form.proxy_label')}</FormLabel>
                   <FormControl>
                     <Input {...field} placeholder="http://192.168.1.2:1234" />
                   </FormControl>
@@ -215,19 +213,16 @@ export function ProviderFormDialog({
               name="error_matcher"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>响应体错误识别</FormLabel>
+                  <FormLabel>{t('form.error_matcher_label')}</FormLabel>
                   <FormControl>
                     <Textarea
                       {...field}
-                      placeholder={`示例（每行或分号分隔）:
-"status":"439"
-"status":"500"
-API Token has expired`}
+                      placeholder={t('form.error_matcher_placeholder')}
                       className="resize-y min-h-[88px]"
                     />
                   </FormControl>
                   <p className="text-xs text-muted-foreground">
-                    命中任意 sample 即视为错误，用于 200 但 body 返回错误的渠道。
+                    {t('form.error_matcher_hint')}
                   </p>
                   <FormMessage />
                 </FormItem>
@@ -239,7 +234,7 @@ API Token has expired`}
               name="console"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>控制台地址</FormLabel>
+                  <FormLabel>{t('form.console_label')}</FormLabel>
                   <FormControl>
                     <Input {...field} placeholder="https://example.com/console" />
                   </FormControl>
@@ -250,10 +245,10 @@ API Token has expired`}
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                取消
+                {t('common:actions.cancel')}
               </Button>
               <Button type="submit">
-                {editingProvider ? "更新" : "创建"}
+                {editingProvider ? t('common:actions.update') : t('common:actions.create')}
               </Button>
             </DialogFooter>
           </form>

@@ -83,7 +83,7 @@ Build frontend (pnpm required):
 ```bash
 make webui
 ```
-Run backend (Go > 1.25.0):
+Run backend (Go >= 1.26.1):
 ```bash
 TOKEN=<YOUR_TOKEN> make run
 ```

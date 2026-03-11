@@ -83,7 +83,7 @@ GIN_MODE=release TOKEN=<YOUR_TOKEN> ./llmio
    ```bash
    make webui
    ```
-运行后端(需要 go 版本 > 1.25.0)
+运行后端(需要 go 版本 >= 1.26.1)
    ```bash
    TOKEN=<YOUR_TOKEN> make run
    ```

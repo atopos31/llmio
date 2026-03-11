@@ -130,6 +130,7 @@
   "test_dialog": {
     "title": "模型測試",
     "desc": "選擇要執行的測試類型",
+    "error_title": "錯誤資訊",
     "connectivity": "連通性測試",
     "connectivity_desc": "測試模型供應商的基本連通性",
     "react": "React Agent 能力測試",

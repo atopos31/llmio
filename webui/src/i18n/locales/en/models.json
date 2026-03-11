@@ -130,6 +130,7 @@
   "test_dialog": {
     "title": "Model Test",
     "desc": "Select the type of test to run",
+    "error_title": "Error",
     "connectivity": "Connectivity Test",
     "connectivity_desc": "Test the basic connectivity of the model provider",
     "react": "React Agent Test",

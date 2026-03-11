@@ -43,6 +43,16 @@ export function ModelProviderTestDialog({
   executeTest,
 }: ModelProviderTestDialogProps) {
   const { t } = useTranslation('models');
+  const formatErrorText = (error: unknown) => {
+    if (!error) return "";
+    if (typeof error === "string") return error;
+    if (error instanceof Error) return error.message || String(error);
+    try {
+      return JSON.stringify(error, null, 2);
+    } catch {
+      return String(error);
+    }
+  };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
@@ -75,12 +85,21 @@ export function ModelProviderTestDialog({
                 <span className="ml-2">{t('test_dialog.testing')}</span>
               </div>
             ) : selectedTestId && testResults[selectedTestId] ? (
-              <div className={`p-4 rounded-md ${testResults[selectedTestId].result?.error ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"}`}>
-                <p>{testResults[selectedTestId].result?.error ? testResults[selectedTestId].result?.error : t('test_dialog.test_success')}</p>
-                {testResults[selectedTestId].result?.message && (
-                  <p className="mt-2">{testResults[selectedTestId].result.message}</p>
-                )}
-              </div>
+              testResults[selectedTestId].result?.error ? (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+                  <p className="text-xs text-destructive uppercase tracking-wide mb-1">{t('test_dialog.error_title')}</p>
+                  <div className="text-destructive whitespace-pre-wrap break-words text-sm">
+                    {formatErrorText(testResults[selectedTestId].result?.error)}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 rounded-md bg-green-100 text-green-800">
+                  <p>{t('test_dialog.test_success')}</p>
+                  {testResults[selectedTestId].result?.message && (
+                    <p className="mt-2 whitespace-pre-wrap break-words">{testResults[selectedTestId].result.message}</p>
+                  )}
+                </div>
+              )
             ) : (
               <p className="text-gray-500">{t('test_dialog.click_to_start')}</p>
             )}
@@ -97,8 +116,11 @@ export function ModelProviderTestDialog({
             ) : (
               <>
                 {reactTestResult.error ? (
-                  <div className="p-4 rounded-md bg-red-100 text-red-800">
-                    <p>{t('test_dialog.test_failed_prefix', { error: reactTestResult.error })}</p>
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+                    <p className="text-xs text-destructive uppercase tracking-wide mb-1">{t('test_dialog.error_title')}</p>
+                    <div className="text-destructive whitespace-pre-wrap break-words text-sm">
+                      {formatErrorText(reactTestResult.error)}
+                    </div>
                   </div>
                 ) : reactTestResult.success !== null ? (
                   <div className={`p-4 rounded-md ${reactTestResult.success ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>

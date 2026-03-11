@@ -53,6 +53,7 @@ type ModelWithProvider struct {
 type ChatLog struct {
 	gorm.Model
 	Name          string `gorm:"index"`
+	TraceID       string `gorm:"index"`
 	ProviderModel string `gorm:"index"`
 	ProviderName  string `gorm:"index"`
 	Status        string `gorm:"index"` // error or success

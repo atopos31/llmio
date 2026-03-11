@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import Loading from "@/components/loading";
 import { getLogs, getProviders, getModelOptions, getAuthKeysList, type ChatLog, type Provider, type Model, type AuthKeyItem, getProviderTemplates, cleanLogs } from "@/lib/api";
-import { ChevronLeft, ChevronRight, RefreshCw, Trash2, Eye, MessageSquare } from "lucide-react";
+import { ChevronLeft, ChevronRight, RefreshCw, Trash2, Eye, MessageSquare, Search } from "lucide-react";
 
 // 格式化时间显示
 const formatTime = (nanoseconds: number): string => {
@@ -102,6 +102,7 @@ export default function LogsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [styleFilter, setStyleFilter] = useState<string>("all");
   const [authKeyFilter, setAuthKeyFilter] = useState<string>("all");
+  const [traceIdFilter, setTraceIdFilter] = useState<string>("");
   const [availableStyles, setAvailableStyles] = useState<string[]>([]);
   const navigate = useNavigate();
   // 详情弹窗
@@ -148,7 +149,8 @@ export default function LogsPage() {
         name: modelFilter === "all" ? undefined : modelFilter,
         status: statusFilter === "all" ? undefined : statusFilter,
         style: styleFilter === "all" ? undefined : styleFilter,
-        authKeyId: authKeyFilter === "all" ? undefined : authKeyFilter
+        authKeyId: authKeyFilter === "all" ? undefined : authKeyFilter,
+        traceId: traceIdFilter.trim() || undefined,
       });
       setLogs(result.data);
       setTotal(result.total);
@@ -164,13 +166,13 @@ export default function LogsPage() {
     fetchModels();
     fetchAuthKeys();
     fetchLogs();
-  }, [page, pageSize, providerNameFilter, modelFilter, statusFilter, styleFilter, authKeyFilter]);
+  }, [page, pageSize, providerNameFilter, modelFilter, statusFilter, styleFilter, authKeyFilter, traceIdFilter]);
   const handleFilterChange = () => {
     setPage(1);
   };
   useEffect(() => {
     handleFilterChange();
-  }, [providerNameFilter, modelFilter, statusFilter, styleFilter, authKeyFilter]);
+  }, [providerNameFilter, modelFilter, statusFilter, styleFilter, authKeyFilter, traceIdFilter]);
   const handlePageChange = (newPage: number) => {
     if (newPage >= 1 && newPage <= pages) setPage(newPage);
   };
@@ -217,9 +219,21 @@ export default function LogsPage() {
     <div className="h-full min-h-0 flex flex-col gap-2 p-1">
       {/* 顶部标题和刷新 */}
       <div className="flex flex-col gap-2 flex-shrink-0">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h2 className="text-2xl font-bold tracking-tight">请求日志</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <h2 className="text-2xl font-bold tracking-tight shrink-0">请求日志</h2>
+            <div className="relative">
+              <Search className="size-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="TraceID 搜索..."
+                value={traceIdFilter}
+                onChange={(e) => {
+                  setTraceIdFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="h-8 text-xs w-44 lg:w-64 pl-7"
+              />
+            </div>
           </div>
           <div className="flex gap-2">
             <Button
@@ -504,6 +518,12 @@ export default function LogsPage() {
                       <span className="text-muted-foreground">创建时间：</span>
                       <span>{new Date(selectedLog.CreatedAt).toLocaleString()}</span>
                     </div>
+                    {selectedLog.TraceID && (
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">Trace ID：</span>
+                        <span className="font-mono text-xs break-all">{selectedLog.TraceID}</span>
+                      </div>
+                    )}
                     <div className="text-sm">
                       <span className="text-muted-foreground">状态：</span>
                       <span className={getStatusDetailClass(selectedLog.Status)}>

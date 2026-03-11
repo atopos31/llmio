@@ -14,6 +14,7 @@ import (
 	"github.com/atopos31/llmio/balancers"
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
+	"github.com/atopos31/llmio/pkg/token"
 	"github.com/atopos31/llmio/providers"
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -55,6 +56,11 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 	authKeyID, _ := ctx.Value(consts.ContextKeyAuthKeyID).(uint)
 
+	traceID, err := token.GenerateRandomChars(10)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	timer := time.NewTimer(time.Second * time.Duration(providersWithMeta.TimeOut))
 	defer timer.Stop()
 	for retry := range providersWithMeta.MaxRetry {
@@ -90,6 +96,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 			log := models.ChatLog{
 				Name:          before.Model,
+				TraceID:       traceID,
 				ProviderModel: modelWithProvider.ProviderModel,
 				ProviderName:  provider.Name,
 				Status:        consts.StatusRunning,

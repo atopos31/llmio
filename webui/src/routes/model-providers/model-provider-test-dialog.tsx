@@ -43,10 +43,15 @@ export function ModelProviderTestDialog({
   executeTest,
 }: ModelProviderTestDialogProps) {
   const { t } = useTranslation('models');
+
   const formatErrorText = (error: unknown) => {
     if (!error) return "";
-    if (typeof error === "string") return error;
-    if (error instanceof Error) return error.message || String(error);
+    if (typeof error === "string") {
+      return error;
+    }
+    if (error instanceof Error) {
+      return error.message || String(error);
+    }
     try {
       return JSON.stringify(error, null, 2);
     } catch {
@@ -86,9 +91,9 @@ export function ModelProviderTestDialog({
               </div>
             ) : selectedTestId && testResults[selectedTestId] ? (
               testResults[selectedTestId].result?.error ? (
-                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 max-w-full overflow-hidden">
                   <p className="text-xs text-destructive uppercase tracking-wide mb-1">{t('test_dialog.error_title')}</p>
-                  <div className="text-destructive whitespace-pre-wrap break-words text-sm">
+                  <div className="text-destructive whitespace-pre-wrap break-all text-sm max-w-full">
                     {formatErrorText(testResults[selectedTestId].result?.error)}
                   </div>
                 </div>
@@ -116,9 +121,9 @@ export function ModelProviderTestDialog({
             ) : (
               <>
                 {reactTestResult.error ? (
-                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 max-w-full overflow-hidden">
                     <p className="text-xs text-destructive uppercase tracking-wide mb-1">{t('test_dialog.error_title')}</p>
-                    <div className="text-destructive whitespace-pre-wrap break-words text-sm">
+                    <div className="text-destructive whitespace-pre-wrap break-all text-sm max-w-full">
                       {formatErrorText(reactTestResult.error)}
                     </div>
                   </div>

@@ -6,34 +6,54 @@ import (
 	"time"
 )
 
-// RetryConfig 重试配置
 type RetryConfig struct {
-	MaxRetry           int           // 最大重试次数
-	Timeout            time.Duration // 总超时时间
-	OnRetry            func(int)      // 每次重试前的回调
-	ShouldRetry        func(error) bool // 判断错误是否可重试
+	MaxRetry    int
+	Timeout     time.Duration
+	OnRetry     func(int)
+	ShouldRetry func(error) bool
 }
 
-// DoRetry 通用的重试执行函数
-// fn 是需要执行的函数，返回 (结果, 错误)
-// 如果返回的错误 IsRetryable=true，则会重试
+type permanentRetryError struct {
+	err error
+}
+
+func (e permanentRetryError) Error() string {
+	return e.err.Error()
+}
+
+func (e permanentRetryError) Unwrap() error {
+	return e.err
+}
+
+func MarkPermanent(err error) error {
+	if err == nil {
+		return nil
+	}
+	return permanentRetryError{err: err}
+}
+
 func DoRetry[T any](ctx context.Context, cfg RetryConfig, fn func() (T, error)) (T, error) {
 	var zero T
+	if cfg.MaxRetry < 0 {
+		return zero, errors.New("max retry must be non-negative")
+	}
 
-	// 创建超时定时器
-	timer := time.NewTimer(cfg.Timeout)
-	defer timer.Stop()
+	var timeoutCh <-chan time.Time
+	if cfg.Timeout > 0 {
+		timer := time.NewTimer(cfg.Timeout)
+		defer timer.Stop()
+		timeoutCh = timer.C
+	}
 
 	for attempt := 0; attempt <= cfg.MaxRetry; attempt++ {
 		select {
 		case <-ctx.Done():
 			return zero, ctx.Err()
-		case <-timer.C:
+		case <-timeoutCh:
 			return zero, errors.New("retry timeout")
 		default:
 		}
 
-		// 如果不是第一次尝试，且有 OnRetry 回调，则调用
 		if attempt > 0 && cfg.OnRetry != nil {
 			cfg.OnRetry(attempt)
 		}
@@ -43,12 +63,13 @@ func DoRetry[T any](ctx context.Context, cfg RetryConfig, fn func() (T, error)) 
 			return result, nil
 		}
 
-		// 检查是否应该重试
-		if cfg.ShouldRetry != nil && !cfg.ShouldRetry(err) {
+		shouldRetry := IsRetryable(err)
+		if cfg.ShouldRetry != nil {
+			shouldRetry = cfg.ShouldRetry(err)
+		}
+		if !shouldRetry {
 			return zero, err
 		}
-
-		// 如果是最后一次尝试，返回错误
 		if attempt >= cfg.MaxRetry {
 			return zero, err
 		}
@@ -57,13 +78,14 @@ func DoRetry[T any](ctx context.Context, cfg RetryConfig, fn func() (T, error)) 
 	return zero, errors.New("retry exhausted")
 }
 
-// IsRetryable 判断错误是否可重试
-// 可以扩展更多错误类型判断
 func IsRetryable(err error) bool {
 	if err == nil {
 		return false
 	}
-	// 这里可以添加更多可重试错误的判断
-	// 比如网络超时、5xx 错误等
+
+	var permanentErr permanentRetryError
+	if errors.As(err, &permanentErr) {
+		return false
+	}
 	return true
 }

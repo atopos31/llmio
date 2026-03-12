@@ -4,6 +4,8 @@ English | [中文](README_cn.md)
 
 LLMIO is a Go-based LLM load‑balancing gateway that provides a unified REST API, weighted scheduling, logging, and a modern admin UI for LLM clients (openclaw / claude code / codex / gemini cli / cherry studio / open webui). It helps you integrate OpenAI, Anthropic, Gemini, and other model capabilities in a single service.
 
+**QQ group: 1083599685**
+
 ## Architecture
 
 ![LLMIO Architecture](./docs/llmio.svg)

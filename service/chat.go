@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -257,4 +258,85 @@ type ProvidersWithMeta struct {
 	IOLog                bool
 	Strategy             string
 	Breaker              bool
+}
+
+func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Before) (*ProvidersWithMeta, error) {
+	model, err := gorm.G[models.Model](models.DB).Where("name = ?", before.Model).First(ctx)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if _, err := SaveChatLog(ctx, models.ChatLog{
+				Name:   before.Model,
+				Status: consts.StatusError,
+				Style:  style,
+				Error:  err.Error(),
+			}); err != nil {
+				return nil, err
+			}
+			return nil, errors.New("not found model " + before.Model)
+		}
+		return nil, err
+	}
+
+	modelWithProviderChain := gorm.G[models.ModelWithProvider](models.DB).Where("model_id = ?", model.ID).Where("status = ?", true)
+
+	if before.toolCall {
+		modelWithProviderChain = modelWithProviderChain.Where("tool_call = ?", true)
+	}
+
+	if before.structuredOutput {
+		modelWithProviderChain = modelWithProviderChain.Where("structured_output = ?", true)
+	}
+
+	if before.image {
+		modelWithProviderChain = modelWithProviderChain.Where("image = ?", true)
+	}
+
+	modelWithProviders, err := modelWithProviderChain.Find(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(modelWithProviders) == 0 {
+		return nil, errors.New("not provider for model " + before.Model)
+	}
+
+	modelWithProviderMap := lo.KeyBy(modelWithProviders, func(mp models.ModelWithProvider) uint { return mp.ID })
+
+	providers, err := gorm.G[models.Provider](models.DB).
+		Where("id IN ?", lo.Map(modelWithProviders, func(mp models.ModelWithProvider, _ int) uint { return mp.ProviderID })).
+		Where("type = ?", style).
+		Find(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	providerMap := lo.KeyBy(providers, func(p models.Provider) uint { return p.ID })
+
+	weightItems := make(map[uint]int)
+	for _, mp := range modelWithProviders {
+		if _, ok := providerMap[mp.ProviderID]; !ok {
+			continue
+		}
+		weightItems[mp.ID] = mp.Weight
+	}
+
+	if model.IOLog == nil {
+		model.IOLog = new(false)
+	}
+
+	breaker := false
+	if model.Breaker != nil {
+		breaker = *model.Breaker
+	}
+
+	return &ProvidersWithMeta{
+		ModelWithProviderMap: modelWithProviderMap,
+		WeightItems:          weightItems,
+		ProviderMap:          providerMap,
+		MaxRetry:             model.MaxRetry,
+		TimeOut:              model.TimeOut,
+		IOLog:                *model.IOLog,
+		Strategy:             model.Strategy,
+		Breaker:              breaker,
+	}, nil
 }

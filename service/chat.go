@@ -3,7 +3,6 @@ package service
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -67,27 +66,27 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		OnRetry: func(attempt int) {
 			currentRetry = attempt
 		},
-	}, func() (balanceChatResult, error) {
+	}, func() (*balanceChatResult, error) {
 		id, err := balancer.Pop()
 		if err != nil {
-			return balanceChatResult{}, MarkPermanent(err)
+			return nil, MarkPermanent(err)
 		}
 
 		modelWithProvider, ok := providersWithMeta.ModelWithProviderMap[id]
 		if !ok {
 			balancer.Delete(id)
-			return balanceChatResult{}, fmt.Errorf("model provider %d not found", id)
+			return nil, fmt.Errorf("model provider %d not found", id)
 		}
 
 		provider, ok := providerMap[modelWithProvider.ProviderID]
 		if !ok {
 			balancer.Delete(id)
-			return balanceChatResult{}, fmt.Errorf("provider %d not found", modelWithProvider.ProviderID)
+			return nil, fmt.Errorf("provider %d not found", modelWithProvider.ProviderID)
 		}
 
 		chatModel, err := providers.New(provider.Type, provider.Config, provider.Proxy)
 		if err != nil {
-			return balanceChatResult{}, MarkPermanent(err)
+			return nil, MarkPermanent(err)
 		}
 
 		client := providers.GetClient(responseHeaderTimeout, provider.Proxy)
@@ -115,14 +114,14 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		if err != nil {
 			retryLog <- log.WithError(err)
 			balancer.Delete(id)
-			return balanceChatResult{}, err
+			return nil, err
 		}
 
 		res, err := client.Do(req)
 		if err != nil {
 			retryLog <- log.WithError(err)
 			balancer.Delete(id)
-			return balanceChatResult{}, err
+			return nil, err
 		}
 
 		if res.StatusCode != http.StatusOK {
@@ -140,7 +139,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				balancer.Delete(id)
 			}
 			res.Body.Close()
-			return balanceChatResult{}, statusErr
+			return nil, statusErr
 		}
 
 		if provider.ErrorMatcher != "" {
@@ -152,7 +151,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 					retryLog <- log.WithError(bodyErr)
 					balancer.Delete(id)
 					res.Body.Close()
-					return balanceChatResult{}, bodyErr
+					return nil, bodyErr
 				}
 
 				if matched, sample := matchProviderBodyError(string(byteBody), provider.ErrorMatcher); matched {
@@ -160,7 +159,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 					retryLog <- log.WithError(matchErr)
 					balancer.Delete(id)
 					res.Body.Close()
-					return balanceChatResult{}, matchErr
+					return nil, matchErr
 				}
 
 				res.Body = io.NopCloser(bytes.NewReader(byteBody))
@@ -168,7 +167,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		}
 
 		balancer.Success(id)
-		return balanceChatResult{response: res, log: &log}, nil
+		return &balanceChatResult{response: res, log: &log}, nil
 	})
 	if err != nil {
 		return nil, nil, err

@@ -112,7 +112,7 @@ export default function ModelProvidersPage() {
   const [selectedProviderType, setSelectedProviderType] = useState<string>("all");
   const [providerSearchInput, setProviderSearchInput] = useState("");
   const [providerSearchTerm, setProviderSearchTerm] = useState("");
-  const [weightSortOrder, setWeightSortOrder] = useState<"asc" | "desc" | "none">("none");
+  const [weightSortOrder, setWeightSortOrder] = useState<"asc" | "desc" | "none">("desc");
   const [statusUpdating, setStatusUpdating] = useState<Record<number, boolean>>({});
   const [statusError, setStatusError] = useState<string | null>(null);
   const [orderedCardModels, setOrderedCardModels] = useState<Model[]>([]);

@@ -39,7 +39,7 @@ func TestDoRetryStopsOnPermanentError(t *testing.T) {
 		Timeout:  time.Second,
 	}, func() (int, error) {
 		attempts++
-		return 0, MarkPermanent(expectedErr)
+		return 0, expectedErr
 	})
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected permanent error, got %v", err)

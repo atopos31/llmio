@@ -70,7 +70,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	}, func() (*balanceChatResult, error) {
 		id, err := balancer.Pop()
 		if err != nil {
-			return nil, MarkPermanent(err)
+			return nil, err
 		}
 
 		modelWithProvider, ok := providersWithMeta.ModelWithProviderMap[id]
@@ -87,7 +87,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 		chatModel, err := providers.New(provider.Type, provider.Config, provider.Proxy)
 		if err != nil {
-			return nil, MarkPermanent(err)
+			return nil, err
 		}
 
 		client := providers.GetClient(responseHeaderTimeout, provider.Proxy)

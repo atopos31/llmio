@@ -171,7 +171,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		return &balanceChatResult{response: res, log: &log}, nil
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("All retry failed, err %s, trace ID: %s", err.Error(), traceID)
 	}
 
 	return result.response, result.log, nil

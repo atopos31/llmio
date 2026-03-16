@@ -320,23 +320,14 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 		weightItems[mp.ID] = mp.Weight
 	}
 
-	if model.IOLog == nil {
-		model.IOLog = new(false)
-	}
-
-	breaker := false
-	if model.Breaker != nil {
-		breaker = *model.Breaker
-	}
-
 	return &ProvidersWithMeta{
 		ModelWithProviderMap: modelWithProviderMap,
 		WeightItems:          weightItems,
 		ProviderMap:          providerMap,
 		MaxRetry:             model.MaxRetry,
 		TimeOut:              model.TimeOut,
-		IOLog:                *model.IOLog,
+		IOLog:                lo.FromPtrOr(model.IOLog, false),
 		Strategy:             model.Strategy,
-		Breaker:              breaker,
+		Breaker:              lo.FromPtrOr(model.Breaker, false),
 	}, nil
 }

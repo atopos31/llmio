@@ -175,7 +175,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		}
 	}
 
-	return nil, nil, errors.New("maximum retry attempts reached")
+	return nil, nil, fmt.Errorf("All retry failed, trace ID: %s", traceID)
 }
 
 func RecordRetryLog(ctx context.Context, retryLog chan models.ChatLog) {

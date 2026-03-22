@@ -3,7 +3,7 @@
   "subtitle": "幾分鐘內完成你的第一個 API 請求，快速了解 LLMIO 網關。",
   "left": {
     "title": "連線設定",
-    "subtitle": "選擇網關位址與 API Key，產生可直接執行的範例。",
+    "subtitle": "",
     "note": "範例會使用你選擇的位址與金鑰。"
   },
   "controls": {

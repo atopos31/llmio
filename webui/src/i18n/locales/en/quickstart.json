@@ -3,7 +3,7 @@
   "subtitle": "Make your first API request in minutes. Learn the basics of the LLMIO gateway.",
   "left": {
     "title": "Connection",
-    "subtitle": "Choose the gateway base URL and API key to generate ready-to-run examples.",
+    "subtitle": "",
     "note": "Examples use the base URL and key you select."
   },
   "controls": {

@@ -152,7 +152,7 @@ function buildSnippet({ apiFormat, language, model, baseUrl, apiKey }: SnippetIn
   if (apiFormat === "anthropic-messages") {
     if (language === "curl") {
       return [
-        `curl ${baseUrl}/messages \\\n  -H "Content-Type: application/json" \\\n  -H "x-api-key: ${resolvedKey}" \\\n  -H "anthropic-version: 2023-06-01" \\\n  -d '{`,
+        `curl ${baseUrl}/v1/messages \\\n  -H "Content-Type: application/json" \\\n  -H "x-api-key: ${resolvedKey}" \\\n  -H "anthropic-version: 2023-06-01" \\\n  -d '{`,
         `  "model": "${model}",`,
         `  "max_tokens": 256,`,
         `  "messages": [`,

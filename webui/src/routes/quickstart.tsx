@@ -420,7 +420,7 @@ export default function Quickstart() {
       return `${defaultOrigin}/openai/v1`;
     }
     if (apiFormat === "anthropic-messages") {
-      return `${defaultOrigin}/anthropic/v1`;
+      return `${defaultOrigin}/anthropic`;
     }
     return `${defaultOrigin}/gemini/v1beta`;
   }, [apiFormat, defaultOrigin]);

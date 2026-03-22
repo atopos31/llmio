@@ -1,0 +1,36 @@
+{
+  "title": "开发者快速开始",
+  "subtitle": "几分钟内完成你的第一个 API 请求，快速了解 LLMIO 网关。",
+  "left": {
+    "title": "连接配置",
+    "subtitle": "",
+    "note": "示例将使用你选择的地址与密钥。"
+  },
+  "controls": {
+    "api_format": "API 格式",
+    "api_format_placeholder": "选择格式",
+    "model": "模型",
+    "model_placeholder": "选择模型",
+    "base_url": "Base URL",
+    "api_key": "API Key",
+    "api_key_placeholder": "选择 API Key",
+    "api_key_empty": "未选择 API Key"
+  },
+  "formats": {
+    "openai_completions": "OpenAI Completions",
+    "openai_responses": "OpenAI Responses",
+    "anthropic_messages": "Anthropic Messages",
+    "google_generative": "Google Generative"
+  },
+  "languages": {
+    "curl": "curl",
+    "typescript": "TypeScript",
+    "python": "Python"
+  },
+  "toast": {
+    "copy_success": "已复制到剪贴板",
+    "copy_failed": "复制失败",
+    "load_models_failed": "模型加载失败，已使用默认列表。",
+    "load_keys_failed": "API Key 加载失败。"
+  }
+}

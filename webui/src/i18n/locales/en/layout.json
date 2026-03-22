@@ -1,6 +1,7 @@
 {
   "nav": {
     "home": "Dashboard",
+    "quickstart": "Developer Quickstart",
     "providers": "Providers",
     "models": "Models",
     "logs": "Request Logs",

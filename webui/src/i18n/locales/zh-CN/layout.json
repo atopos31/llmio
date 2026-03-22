@@ -1,6 +1,7 @@
 {
   "nav": {
     "home": "首页",
+    "quickstart": "快速开发",
     "providers": "提供商管理",
     "models": "模型管理",
     "logs": "请求日志",

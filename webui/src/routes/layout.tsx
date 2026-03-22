@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   FaHome,
+  FaRocket,
   FaCloud,
   FaRobot,
   FaFileAlt,
@@ -109,6 +110,7 @@ export default function Layout() {
 
   const navItems = [
     { to: "/", label: t('nav.home'), icon: <FaHome /> },
+    { to: "/quickstart", label: t('nav.quickstart'), icon: <FaRocket /> },
     { to: "/providers", label: t('nav.providers'), icon: <FaCloud /> },
     { to: "/models", label: t('nav.models'), icon: <FaRobot /> },
     { to: "/logs", label: t('nav.logs'), icon: <FaFileAlt /> },

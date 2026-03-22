@@ -1,0 +1,36 @@
+{
+  "title": "開發者快速開始",
+  "subtitle": "幾分鐘內完成你的第一個 API 請求，快速了解 LLMIO 網關。",
+  "left": {
+    "title": "連線設定",
+    "subtitle": "選擇網關位址與 API Key，產生可直接執行的範例。",
+    "note": "範例會使用你選擇的位址與金鑰。"
+  },
+  "controls": {
+    "api_format": "API 格式",
+    "api_format_placeholder": "選擇格式",
+    "model": "模型",
+    "model_placeholder": "選擇模型",
+    "base_url": "Base URL",
+    "api_key": "API Key",
+    "api_key_placeholder": "選擇 API Key",
+    "api_key_empty": "未選擇 API Key"
+  },
+  "formats": {
+    "openai_completions": "OpenAI Completions",
+    "openai_responses": "OpenAI Responses",
+    "anthropic_messages": "Anthropic Messages",
+    "google_generative": "Google Generative"
+  },
+  "languages": {
+    "curl": "curl",
+    "typescript": "TypeScript",
+    "python": "Python"
+  },
+  "toast": {
+    "copy_success": "已複製到剪貼簿",
+    "copy_failed": "複製失敗",
+    "load_models_failed": "模型載入失敗，已使用預設清單。",
+    "load_keys_failed": "API Key 載入失敗。"
+  }
+}

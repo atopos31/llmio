@@ -6,6 +6,7 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 import zhCNCommon from './locales/zh-CN/common.json';
 import zhCNLayout from './locales/zh-CN/layout.json';
 import zhCNHome from './locales/zh-CN/home.json';
+import zhCNQuickstart from './locales/zh-CN/quickstart.json';
 import zhCNLogin from './locales/zh-CN/login.json';
 import zhCNProviders from './locales/zh-CN/providers.json';
 import zhCNModels from './locales/zh-CN/models.json';
@@ -17,6 +18,7 @@ import zhCNConfig from './locales/zh-CN/config.json';
 import zhTWCommon from './locales/zh-TW/common.json';
 import zhTWLayout from './locales/zh-TW/layout.json';
 import zhTWHome from './locales/zh-TW/home.json';
+import zhTWQuickstart from './locales/zh-TW/quickstart.json';
 import zhTWLogin from './locales/zh-TW/login.json';
 import zhTWProviders from './locales/zh-TW/providers.json';
 import zhTWModels from './locales/zh-TW/models.json';
@@ -28,6 +30,7 @@ import zhTWConfig from './locales/zh-TW/config.json';
 import enCommon from './locales/en/common.json';
 import enLayout from './locales/en/layout.json';
 import enHome from './locales/en/home.json';
+import enQuickstart from './locales/en/quickstart.json';
 import enLogin from './locales/en/login.json';
 import enProviders from './locales/en/providers.json';
 import enModels from './locales/en/models.json';
@@ -52,6 +55,7 @@ void i18n
         common:      zhCNCommon,
         layout:      zhCNLayout,
         home:        zhCNHome,
+        quickstart:  zhCNQuickstart,
         login:       zhCNLogin,
         providers:   zhCNProviders,
         models:      zhCNModels,
@@ -63,6 +67,7 @@ void i18n
         common:      zhTWCommon,
         layout:      zhTWLayout,
         home:        zhTWHome,
+        quickstart:  zhTWQuickstart,
         login:       zhTWLogin,
         providers:   zhTWProviders,
         models:      zhTWModels,
@@ -74,6 +79,7 @@ void i18n
         common:      enCommon,
         layout:      enLayout,
         home:        enHome,
+        quickstart:  enQuickstart,
         login:       enLogin,
         providers:   enProviders,
         models:      enModels,
@@ -84,7 +90,7 @@ void i18n
     },
     fallbackLng: 'zh-CN',
     defaultNS: 'common',
-    ns: ['common', 'layout', 'home', 'login', 'providers', 'models', 'logs', 'auth-keys', 'config'],
+    ns: ['common', 'layout', 'home', 'quickstart', 'login', 'providers', 'models', 'logs', 'auth-keys', 'config'],
     detection: {
       order: ['localStorage', 'navigator'],
       lookupLocalStorage: 'llmio-language',
@@ -107,6 +113,7 @@ declare module 'i18next' {
       common:      typeof zhCNCommon;
       layout:      typeof zhCNLayout;
       home:        typeof zhCNHome;
+      quickstart:  typeof zhCNQuickstart;
       login:       typeof zhCNLogin;
       providers:   typeof zhCNProviders;
       models:      typeof zhCNModels;

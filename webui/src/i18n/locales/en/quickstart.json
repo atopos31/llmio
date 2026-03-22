@@ -1,0 +1,36 @@
+{
+  "title": "Developer quickstart",
+  "subtitle": "Make your first API request in minutes. Learn the basics of the LLMIO gateway.",
+  "left": {
+    "title": "Connection",
+    "subtitle": "Choose the gateway base URL and API key to generate ready-to-run examples.",
+    "note": "Examples use the base URL and key you select."
+  },
+  "controls": {
+    "api_format": "API format",
+    "api_format_placeholder": "Select format",
+    "model": "Model",
+    "model_placeholder": "Select model",
+    "base_url": "Base URL",
+    "api_key": "API key",
+    "api_key_placeholder": "Select API key",
+    "api_key_empty": "No API key selected"
+  },
+  "formats": {
+    "openai_completions": "OpenAI Completions",
+    "openai_responses": "OpenAI Responses",
+    "anthropic_messages": "Anthropic Messages",
+    "google_generative": "Google Generative"
+  },
+  "languages": {
+    "curl": "curl",
+    "typescript": "TypeScript",
+    "python": "Python"
+  },
+  "toast": {
+    "copy_success": "Copied to clipboard",
+    "copy_failed": "Copy failed",
+    "load_models_failed": "Failed to load models. Using defaults.",
+    "load_keys_failed": "Failed to load API keys."
+  }
+}

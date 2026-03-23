@@ -12,8 +12,10 @@ import {
 import { getAuthKeys, getModelOptions } from "@/lib/api";
 import { toast } from "sonner";
 import { Copy, Check } from "lucide-react";
+import { useTheme } from "@/components/theme-provider";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { duotoneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { duotoneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 type ApiFormat = "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative";
 type CodeLanguage = "curl" | "typescript" | "python";
@@ -267,7 +269,7 @@ function CodeCopyButton({
       variant="ghost"
       size="icon"
       onClick={handleCopy}
-      className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/10"
+      className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-accent"
       aria-label={successLabel}
       title={successLabel}
     >
@@ -303,7 +305,7 @@ function InlineCopyButton({
       variant="ghost"
       size="icon"
       onClick={handleCopy}
-      className="h-7 w-7 text-white/70 hover:text-white hover:bg-white/10"
+      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-accent"
       aria-label={successLabel}
       title={successLabel}
     >
@@ -314,6 +316,8 @@ function InlineCopyButton({
 
 export default function Quickstart() {
   const { t } = useTranslation("quickstart");
+  const { theme } = useTheme();
+  const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const [apiFormat, setApiFormat] = useState<ApiFormat>("openai-completions");
   const [language, setLanguage] = useState<CodeLanguage>("curl");
   const [selectedModel, setSelectedModel] = useState("");
@@ -462,24 +466,20 @@ export default function Quickstart() {
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="relative overflow-hidden rounded-xl sm:rounded-2xl lg:rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_top,#1c1f24_0%,#0f1114_42%,#0b0c0f_100%)] p-2 sm:p-4 md:p-6 shadow-[0_30px_60px_-30px_rgba(0,0,0,0.75)]">
-          <div className="absolute -top-12 -right-8 h-32 w-32 rounded-full bg-white/10 blur-3xl" />
-          <div className="absolute -bottom-16 left-10 h-40 w-40 rounded-full bg-white/5 blur-3xl" />
-          <div className="pointer-events-none absolute inset-0 opacity-40 [background:linear-gradient(110deg,transparent_45%,rgba(255,255,255,0.06)_50%,transparent_55%)]" />
-
+        <div className="relative overflow-hidden rounded-xl sm:rounded-2xl lg:rounded-3xl border bg-card p-2 sm:p-4 md:p-6 shadow-lg">
           <div className="relative grid min-w-0 gap-3 sm:gap-5 lg:gap-6 lg:grid-cols-[minmax(260px,1fr)_minmax(360px,1.6fr)]">
-            <div className="order-2 lg:order-1 flex min-w-0 flex-col gap-3 sm:gap-4 text-white">
+            <div className="order-2 lg:order-1 flex min-w-0 flex-col gap-3 sm:gap-4 text-card-foreground">
               <div className="hidden lg:block">
                 <h3 className="text-lg md:text-xl font-semibold">{t("left.title")}</h3>
-                <p className="mt-2 text-sm text-white/60 leading-relaxed">{t("left.subtitle")}</p>
+                <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{t("left.subtitle")}</p>
               </div>
 
               <div className="space-y-2 sm:space-y-4">
                 <div className="flex flex-col gap-1.5 sm:gap-2">
-                  <Label className="text-[10px] sm:text-xs uppercase tracking-wide text-white/60">
+                  <Label className="text-[10px] sm:text-xs uppercase tracking-wide text-muted-foreground">
                     {t("controls.base_url")}
                   </Label>
-                  <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[11px] sm:text-xs text-white/80">
+                  <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2 text-[11px] sm:text-xs text-foreground/80">
                     <span className="truncate">{baseUrlDisplay}</span>
                     <InlineCopyButton
                       text={baseUrlDisplay}
@@ -491,11 +491,11 @@ export default function Quickstart() {
 
                 <div className="flex flex-col gap-1.5 sm:gap-2">
                   <div className="flex items-center justify-between gap-3">
-                    <Label className="text-[10px] sm:text-xs uppercase tracking-wide text-white/60">
+                    <Label className="text-[10px] sm:text-xs uppercase tracking-wide text-muted-foreground">
                       {t("controls.api_key")}
                     </Label>
                     <Select value={apiKeyChoice} onValueChange={setApiKeyChoice}>
-                      <SelectTrigger className="h-7 sm:h-8 w-[160px] sm:w-[190px] border-white/10 bg-white/5 text-[10px] sm:text-[11px] text-white">
+                      <SelectTrigger className="h-7 sm:h-8 w-[160px] sm:w-[190px] text-[10px] sm:text-[11px]">
                         <SelectValue placeholder={t("controls.api_key_placeholder")} />
                       </SelectTrigger>
                       <SelectContent>
@@ -507,7 +507,7 @@ export default function Quickstart() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[11px] sm:text-xs text-white/80">
+                  <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2 text-[11px] sm:text-xs text-foreground/80">
                     <span className="truncate">{apiKeyDisplay}</span>
                     <InlineCopyButton
                       text={apiKeyCopyValue}
@@ -518,20 +518,20 @@ export default function Quickstart() {
                 </div>
               </div>
 
-              <div className="hidden lg:block mt-auto text-xs text-white/50">
+              <div className="hidden lg:block mt-auto text-xs text-muted-foreground">
                 {t("left.note")}
               </div>
             </div>
 
-            <div className="order-1 lg:order-2 min-w-0 rounded-xl sm:rounded-2xl border border-white/10 bg-black/40 p-2 sm:p-4 text-white backdrop-blur">
+            <div className="order-1 lg:order-2 min-w-0 rounded-xl sm:rounded-2xl border bg-muted/20 p-2 sm:p-4 backdrop-blur">
               <div className="flex flex-col gap-2 sm:gap-4">
                 <div className="grid gap-2 sm:gap-4 grid-cols-2">
                   <div className="flex flex-col gap-1.5 sm:gap-2">
-                    <Label className="text-[10px] sm:text-[11px] uppercase tracking-[0.2em] text-white/50">
+                    <Label className="text-[10px] sm:text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
                       {t("controls.api_format")}
                     </Label>
                     <Select value={apiFormat} onValueChange={(value) => setApiFormat(value as ApiFormat)}>
-                      <SelectTrigger className="h-8 sm:h-9 border-white/10 bg-black/40 text-[10px] sm:text-xs text-white">
+                      <SelectTrigger className="h-8 sm:h-9 text-[10px] sm:text-xs">
                         <SelectValue placeholder={t("controls.api_format_placeholder")} />
                       </SelectTrigger>
                       <SelectContent>
@@ -545,7 +545,7 @@ export default function Quickstart() {
                   </div>
 
                   <div className="flex flex-col gap-1.5 sm:gap-2">
-                    <Label className="text-[10px] sm:text-[11px] uppercase tracking-[0.2em] text-white/50">
+                    <Label className="text-[10px] sm:text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
                       {t("controls.model")}
                     </Label>
                     <Select
@@ -555,7 +555,7 @@ export default function Quickstart() {
                         didAutoSelectRef.current = true;
                       }}
                     >
-                      <SelectTrigger className="h-8 sm:h-9 border-white/10 bg-black/40 text-[10px] sm:text-xs text-white">
+                      <SelectTrigger className="h-8 sm:h-9 text-[10px] sm:text-xs">
                         <SelectValue placeholder={t("controls.model_placeholder")} />
                       </SelectTrigger>
                       <SelectContent>
@@ -569,7 +569,7 @@ export default function Quickstart() {
                   </div>
                 </div>
 
-                <div className="min-w-0 rounded-lg sm:rounded-xl border border-white/10 bg-black/70 p-2 sm:p-3">
+                <div className="min-w-0 rounded-lg sm:rounded-xl border bg-muted/30 p-2 sm:p-3">
                   <div className="mb-2 sm:mb-3 flex items-center justify-between">
                     <div className="flex flex-wrap gap-1.5">
                       {languageOptions.map((option) => (
@@ -579,8 +579,8 @@ export default function Quickstart() {
                           onClick={() => setLanguage(option.value)}
                           className={`rounded-full px-2.5 py-1 text-[10px] sm:text-[11px] font-semibold transition ${
                             language === option.value
-                              ? "bg-white/20 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.2)]"
-                              : "text-white/60 hover:bg-white/10 hover:text-white"
+                              ? "bg-primary text-primary-foreground shadow-sm"
+                              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                           }`}
                         >
                           {option.label}
@@ -597,7 +597,7 @@ export default function Quickstart() {
                   <div className="max-h-64 min-w-0 overflow-auto pr-1 sm:max-h-[360px]">
                     <SyntaxHighlighter
                       language={language === "curl" ? "bash" : language}
-                      style={duotoneDark}
+                      style={isDark ? duotoneDark : duotoneLight}
                       customStyle={{
                         background: "transparent",
                         margin: 0,

@@ -14,7 +14,8 @@
     "base_url": "Base URL",
     "api_key": "API key",
     "api_key_placeholder": "Select API key",
-    "api_key_empty": "No API key selected"
+    "api_key_empty": "No API key selected",
+    "stream": "Stream"
   },
   "formats": {
     "openai_completions": "OpenAI Completions",

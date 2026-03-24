@@ -14,7 +14,8 @@
     "base_url": "Base URL",
     "api_key": "API Key",
     "api_key_placeholder": "選擇 API Key",
-    "api_key_empty": "未選擇 API Key"
+    "api_key_empty": "未選擇 API Key",
+    "stream": "串流輸出"
   },
   "formats": {
     "openai_completions": "OpenAI Completions",

@@ -16,6 +16,7 @@ import { useTheme } from "@/components/theme-provider";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { duotoneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { duotoneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { Switch } from "@/components/ui/switch";
 
 type ApiFormat = "openai-completions" | "openai-responses" | "anthropic-messages" | "google-generative";
 type CodeLanguage = "curl" | "typescript" | "python";
@@ -26,6 +27,7 @@ type SnippetInput = {
   model: string;
   baseUrl: string;
   apiKey: string;
+  stream: boolean;
 };
 
 type ApiKeyOption = {
@@ -49,7 +51,7 @@ function pickDefaultModel(models: string[]): string {
   return models.length ? models[0] : FALLBACK_MODELS[0];
 }
 
-function buildSnippet({ apiFormat, language, model, baseUrl, apiKey }: SnippetInput): string {
+function buildSnippet({ apiFormat, language, model, baseUrl, apiKey, stream }: SnippetInput): string {
   const storyPrompt = "Write a short bedtime story about a unicorn.";
   const resolvedKey = apiKey || "YOUR_API_KEY";
   const openaiRuntimeKey = `"${resolvedKey}"`;
@@ -61,6 +63,7 @@ function buildSnippet({ apiFormat, language, model, baseUrl, apiKey }: SnippetIn
       return [
         `curl ${baseUrl}/chat/completions \\\n  -H "Content-Type: application/json" \\\n  -H "Authorization: Bearer ${resolvedKey}" \\\n  -d '{`,
         `  "model": "${model}",`,
+        ...(stream ? [`  "stream": true,`] : []),
         `  "messages": [`,
         `    { "role": "system", "content": "You are a helpful assistant." },`,
         `    { "role": "user", "content": "${storyPrompt}" }`,
@@ -70,6 +73,29 @@ function buildSnippet({ apiFormat, language, model, baseUrl, apiKey }: SnippetIn
     }
 
     if (language === "typescript") {
+      if (stream) {
+        return [
+          `import OpenAI from "openai";`,
+          ``,
+          `const client = new OpenAI({`,
+          `  apiKey: ${openaiRuntimeKey},`,
+          `  baseURL: "${baseUrl}",`,
+          `});`,
+          ``,
+          `const stream = await client.chat.completions.create({`,
+          `  model: "${model}",`,
+          `  stream: true,`,
+          `  messages: [`,
+          `    { role: "system", content: "You are a helpful assistant." },`,
+          `    { role: "user", content: "${storyPrompt}" },`,
+          `  ],`,
+          `});`,
+          ``,
+          `for await (const chunk of stream) {`,
+          `  process.stdout.write(chunk.choices[0]?.delta?.content ?? "");`,
+          `}`,
+        ].join("\n");
+      }
       return [
         `import OpenAI from "openai";`,
         ``,
@@ -90,6 +116,26 @@ function buildSnippet({ apiFormat, language, model, baseUrl, apiKey }: SnippetIn
       ].join("\n");
     }
 
+    if (stream) {
+      return [
+        `from openai import OpenAI`,
+        ``,
+        `api_key = "${resolvedKey}"`,
+        `client = OpenAI(api_key=api_key, base_url="${baseUrl}")`,
+        ``,
+        `stream = client.chat.completions.create(`,
+        `    model="${model}",`,
+        `    stream=True,`,
+        `    messages=[`,
+        `        {"role": "system", "content": "You are a helpful assistant."},`,
+        `        {"role": "user", "content": "${storyPrompt}"},`,
+        `    ],`,
+        `)`,
+        ``,
+        `for chunk in stream:`,
+        `    print(chunk.choices[0].delta.content or "", end="", flush=True)`,
+      ].join("\n");
+    }
     return [
       `from openai import OpenAI`,
       ``,
@@ -113,12 +159,35 @@ function buildSnippet({ apiFormat, language, model, baseUrl, apiKey }: SnippetIn
       return [
         `curl ${baseUrl}/responses \\\n  -H "Content-Type: application/json" \\\n  -H "Authorization: Bearer ${resolvedKey}" \\\n  -d '{`,
         `  "model": "${model}",`,
+        ...(stream ? [`  "stream": true,`] : []),
         `  "input": "${storyPrompt}"`,
         `}'`,
       ].join("\n");
     }
 
     if (language === "typescript") {
+      if (stream) {
+        return [
+          `import OpenAI from "openai";`,
+          ``,
+          `const client = new OpenAI({`,
+          `  apiKey: ${openaiRuntimeKey},`,
+          `  baseURL: "${baseUrl}",`,
+          `});`,
+          ``,
+          `const stream = await client.responses.create({`,
+          `  model: "${model}",`,
+          `  stream: true,`,
+          `  input: "${storyPrompt}",`,
+          `});`,
+          ``,
+          `for await (const event of stream) {`,
+          `  if (event.type === "response.output_text.delta") {`,
+          `    process.stdout.write(event.delta);`,
+          `  }`,
+          `}`,
+        ].join("\n");
+      }
       return [
         `import OpenAI from "openai";`,
         ``,
@@ -136,6 +205,24 @@ function buildSnippet({ apiFormat, language, model, baseUrl, apiKey }: SnippetIn
       ].join("\n");
     }
 
+    if (stream) {
+      return [
+        `from openai import OpenAI`,
+        ``,
+        `api_key = "${resolvedKey}"`,
+        `client = OpenAI(api_key=api_key, base_url="${baseUrl}")`,
+        ``,
+        `stream = client.responses.create(`,
+        `    model="${model}",`,
+        `    stream=True,`,
+        `    input="${storyPrompt}",`,
+        `)`,
+        ``,
+        `for event in stream:`,
+        `    if event.type == "response.output_text.delta":`,
+        `        print(event.delta, end="", flush=True)`,
+      ].join("\n");
+    }
     return [
       `from openai import OpenAI`,
       ``,
@@ -157,6 +244,7 @@ function buildSnippet({ apiFormat, language, model, baseUrl, apiKey }: SnippetIn
         `curl ${baseUrl}/v1/messages \\\n  -H "Content-Type: application/json" \\\n  -H "x-api-key: ${resolvedKey}" \\\n  -H "anthropic-version: 2023-06-01" \\\n  -d '{`,
         `  "model": "${model}",`,
         `  "max_tokens": 256,`,
+        ...(stream ? [`  "stream": true,`] : []),
         `  "messages": [`,
         `    { "role": "user", "content": "${storyPrompt}" }`,
         `  ]`,
@@ -165,6 +253,28 @@ function buildSnippet({ apiFormat, language, model, baseUrl, apiKey }: SnippetIn
     }
 
     if (language === "typescript") {
+      if (stream) {
+        return [
+          `import Anthropic from "@anthropic-ai/sdk";`,
+          ``,
+          `const client = new Anthropic({`,
+          `  apiKey: ${anthropicRuntimeKey},`,
+          `  baseURL: "${baseUrl}",`,
+          `});`,
+          ``,
+          `const stream = client.messages.stream({`,
+          `  model: "${model}",`,
+          `  max_tokens: 256,`,
+          `  messages: [{ role: "user", content: "${storyPrompt}" }],`,
+          `});`,
+          ``,
+          `for await (const event of stream) {`,
+          `  if (event.type === "content_block_delta" && event.delta.type === "text_delta") {`,
+          `    process.stdout.write(event.delta.text);`,
+          `  }`,
+          `}`,
+        ].join("\n");
+      }
       return [
         `import Anthropic from "@anthropic-ai/sdk";`,
         ``,
@@ -183,6 +293,22 @@ function buildSnippet({ apiFormat, language, model, baseUrl, apiKey }: SnippetIn
       ].join("\n");
     }
 
+    if (stream) {
+      return [
+        `import anthropic`,
+        ``,
+        `api_key = "${resolvedKey}"`,
+        `client = anthropic.Anthropic(api_key=api_key, base_url="${baseUrl}")`,
+        ``,
+        `with client.messages.stream(`,
+        `    model="${model}",`,
+        `    max_tokens=256,`,
+        `    messages=[{"role": "user", "content": "${storyPrompt}"}],`,
+        `) as stream:`,
+        `    for text in stream.text_stream:`,
+        `        print(text, end="", flush=True)`,
+      ].join("\n");
+    }
     return [
       `import anthropic`,
       ``,
@@ -200,8 +326,9 @@ function buildSnippet({ apiFormat, language, model, baseUrl, apiKey }: SnippetIn
   }
 
   if (language === "curl") {
+    const endpoint = stream ? "streamGenerateContent" : "generateContent";
     return [
-      `curl ${baseUrl}/models/${model}:generateContent \\\n  -H "Content-Type: application/json" \\\n  -H "x-goog-api-key: ${resolvedKey}" \\\n  -d '{`,
+      `curl ${baseUrl}/models/${model}:${endpoint} \\\n  -H "Content-Type: application/json" \\\n  -H "x-goog-api-key: ${resolvedKey}" \\\n  -d '{`,
       `  "contents": [`,
       `    {`,
       `      "role": "user",`,
@@ -215,6 +342,22 @@ function buildSnippet({ apiFormat, language, model, baseUrl, apiKey }: SnippetIn
   }
 
   if (language === "typescript") {
+    if (stream) {
+      return [
+        `import { GoogleGenerativeAI } from "@google/generative-ai";`,
+        ``,
+        `const genAI = new GoogleGenerativeAI(${geminiRuntimeKey}, {`,
+        `  apiEndpoint: "${baseUrl}",`,
+        `});`,
+        ``,
+        `const model = genAI.getGenerativeModel({ model: "${model}" });`,
+        `const result = await model.generateContentStream("${storyPrompt}");`,
+        ``,
+        `for await (const chunk of result.stream) {`,
+        `  process.stdout.write(chunk.text());`,
+        `}`,
+      ].join("\n");
+    }
     return [
       `import { GoogleGenerativeAI } from "@google/generative-ai";`,
       ``,
@@ -229,6 +372,20 @@ function buildSnippet({ apiFormat, language, model, baseUrl, apiKey }: SnippetIn
     ].join("\n");
   }
 
+  if (stream) {
+    return [
+      `import google.generativeai as genai`,
+      ``,
+      `api_key = "${resolvedKey}"`,
+      `genai.configure(api_key=api_key, api_endpoint="${baseUrl}")`,
+      ``,
+      `model = genai.GenerativeModel("${model}")`,
+      `response = model.generate_content("${storyPrompt}", stream=True)`,
+      ``,
+      `for chunk in response:`,
+      `    print(chunk.text, end="", flush=True)`,
+    ].join("\n");
+  }
   return [
     `import google.generativeai as genai`,
     ``,
@@ -320,6 +477,7 @@ export default function Quickstart() {
   const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   const [apiFormat, setApiFormat] = useState<ApiFormat>("openai-completions");
   const [language, setLanguage] = useState<CodeLanguage>("curl");
+  const [stream, setStream] = useState(false);
   const [selectedModel, setSelectedModel] = useState("");
   const [apiKeyChoice, setApiKeyChoice] = useState("");
   const [availableKeys, setAvailableKeys] = useState<ApiKeyOption[]>([]);
@@ -442,8 +600,9 @@ export default function Quickstart() {
       model: currentModel,
       baseUrl,
       apiKey: resolvedApiKey,
+      stream,
     });
-  }, [apiFormat, language, currentModel, baseUrl, resolvedApiKey]);
+  }, [apiFormat, language, currentModel, baseUrl, resolvedApiKey, stream]);
 
   const formatOptions: Array<{ value: ApiFormat; label: string }> = [
     { value: "openai-completions", label: t("formats.openai_completions") },
@@ -525,7 +684,7 @@ export default function Quickstart() {
 
             <div className="order-1 lg:order-2 min-w-0 rounded-xl sm:rounded-2xl border bg-muted/20 p-2 sm:p-4 backdrop-blur">
               <div className="flex flex-col gap-2 sm:gap-4">
-                <div className="grid gap-2 sm:gap-4 grid-cols-2">
+                <div className="grid gap-2 sm:gap-4 grid-cols-2 sm:grid-cols-3">
                   <div className="flex flex-col gap-1.5 sm:gap-2">
                     <Label className="text-[10px] sm:text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
                       {t("controls.api_format")}
@@ -566,6 +725,18 @@ export default function Quickstart() {
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5 sm:gap-2">
+                    <Label className="text-[10px] sm:text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+                      {t("controls.stream")}
+                    </Label>
+                    <div className="flex h-8 sm:h-9 items-center">
+                      <Switch
+                        checked={stream}
+                        onCheckedChange={setStream}
+                      />
+                    </div>
                   </div>
                 </div>
 

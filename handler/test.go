@@ -105,7 +105,7 @@ func ProviderTestHandler(c *gin.Context) {
 	}
 
 	// Test connectivity by fetching models
-	client := providers.GetClient(time.Second*time.Duration(30), chatModel.Proxy)
+	client := providers.GetClient(time.Second*360, chatModel.Proxy)
 	var testBody []byte
 	switch chatModel.Type {
 	case consts.StyleOpenAI:

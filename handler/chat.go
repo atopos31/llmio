@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -94,7 +95,7 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 		return
 	}
 	if !valid {
-		common.ErrorWithHttpStatus(c, http.StatusForbidden, http.StatusForbidden, "auth key has no permission to use this model")
+		common.ErrorWithHttpStatus(c, http.StatusForbidden, http.StatusForbidden, fmt.Sprintf("auth key has no permission to use %s", before.Model))
 		return
 	}
 	// 按模型获取可用 provider

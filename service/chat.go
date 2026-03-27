@@ -73,7 +73,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			// 加权负载均衡
 			id, err := balancer.Pop()
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, fmt.Errorf("balencer pop err: %v, traceID: %s", err, traceID)
 			}
 
 			modelWithProvider, ok := providersWithMeta.ModelWithProviderMap[id]

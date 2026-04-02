@@ -125,7 +125,10 @@
     "weight": "權重 (必須大於0)",
     "header_key_placeholder": "Header Key",
     "header_value_placeholder": "Header Value",
-    "cancel": "取消"
+    "cancel": "取消",
+    "extra_body": "額外請求體參數",
+    "extra_body_placeholder": "{\"chat_template_kwargs\": {\"enable_thinking\": false}}",
+    "extra_body_hint": "將 JSON 中的鍵值對注入到發往 provider 的請求體中，覆蓋用戶請求中的同名參數"
   },
   "test_dialog": {
     "title": "模型測試",

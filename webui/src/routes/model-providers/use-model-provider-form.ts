@@ -21,6 +21,7 @@ export const modelProviderFormSchema = z.object({
   with_header: z.boolean(),
   weight: z.number().positive({ message: "权重必须大于0" }),
   customer_headers: z.array(headerPairSchema).default([]),
+  extra_body: z.string().default(""),
 });
 
 export type ModelProviderFormValues = z.input<typeof modelProviderFormSchema>;
@@ -56,6 +57,7 @@ export const useModelProviderForm = ({
       with_header: false,
       weight: 1,
       customer_headers: [],
+      extra_body: "",
     };
   };
 
@@ -87,6 +89,15 @@ export const useModelProviderForm = ({
       }
     });
 
+    let extraBody: Record<string, unknown> = {};
+    if (values.extra_body && values.extra_body.trim()) {
+      try {
+        extraBody = JSON.parse(values.extra_body);
+      } catch {
+        // ignore parse errors, send empty object
+      }
+    }
+
     return {
       model_id: values.model_id,
       provider_name: values.provider_name,
@@ -96,6 +107,7 @@ export const useModelProviderForm = ({
       image: values.image,
       with_header: values.with_header,
       customer_headers: headers,
+      extra_body: extraBody,
       weight: values.weight,
     };
   };
@@ -106,6 +118,10 @@ export const useModelProviderForm = ({
       key,
       value,
     }));
+    let extraBodyStr = "";
+    if (association.ExtraBody && Object.keys(association.ExtraBody).length > 0) {
+      extraBodyStr = JSON.stringify(association.ExtraBody, null, 2);
+    }
     form.reset({
       model_id: association.ModelID,
       provider_name: association.ProviderModel,
@@ -116,6 +132,7 @@ export const useModelProviderForm = ({
       with_header: association.WithHeader,
       weight: association.Weight,
       customer_headers: headerPairs.length ? headerPairs : [],
+      extra_body: extraBodyStr,
     });
     setOpen(true);
   };

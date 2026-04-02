@@ -17,6 +17,7 @@ import (
 	"github.com/atopos31/llmio/pkg/token"
 	"github.com/atopos31/llmio/providers"
 	"github.com/samber/lo"
+	"github.com/tidwall/sjson"
 	"gorm.io/gorm"
 )
 
@@ -112,7 +113,18 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			withHeader := lo.FromPtrOr(modelWithProvider.WithHeader, false)
 			headers := BuildHeaders(reqMeta.Header, withHeader, modelWithProvider.CustomerHeaders, before.Stream)
 
-			req, err := chatModel.BuildReq(ctx, headers, modelWithProvider.ProviderModel, before.raw)
+			// 注入 ExtraBody 参数到请求体
+			rawBody := before.raw
+			if len(modelWithProvider.ExtraBody) > 0 {
+				for key, value := range modelWithProvider.ExtraBody {
+					rawBody, err = sjson.SetBytes(rawBody, key, value)
+					if err != nil {
+						slog.Warn("failed to set extra body key", "key", key, "error", err)
+					}
+				}
+			}
+
+			req, err := chatModel.BuildReq(ctx, headers, modelWithProvider.ProviderModel, rawBody)
 			if err != nil {
 				retryLog <- log.WithError(err)
 				// 构建请求失败 移除待选

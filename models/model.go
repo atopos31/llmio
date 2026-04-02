@@ -47,6 +47,7 @@ type ModelWithProvider struct {
 	WithHeader       *bool             // 是否透传header
 	Status           *bool             // 是否启用
 	CustomerHeaders  map[string]string `gorm:"serializer:json"` // 自定义headers
+	ExtraBody        map[string]any    `gorm:"serializer:json"` // 额外请求体参数
 	Weight           int
 }
 

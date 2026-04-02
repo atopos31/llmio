@@ -125,7 +125,10 @@
     "weight": "Weight (must be greater than 0)",
     "header_key_placeholder": "Header Key",
     "header_value_placeholder": "Header Value",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "extra_body": "Extra Request Body",
+    "extra_body_placeholder": "{\"chat_template_kwargs\": {\"enable_thinking\": false}}",
+    "extra_body_hint": "Injects key-value pairs from this JSON into the request body sent to the provider, overriding any matching user-supplied parameters"
   },
   "test_dialog": {
     "title": "Model Test",

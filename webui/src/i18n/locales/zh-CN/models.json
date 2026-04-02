@@ -125,7 +125,10 @@
     "weight": "权重 (必须大于0)",
     "header_key_placeholder": "Header Key",
     "header_value_placeholder": "Header Value",
-    "cancel": "取消"
+    "cancel": "取消",
+    "extra_body": "额外请求体参数",
+    "extra_body_placeholder": "{\"chat_template_kwargs\": {\"enable_thinking\": false}}",
+    "extra_body_hint": "将 JSON 中的键值对注入到发往 provider 的请求体中，覆盖用户请求中的同名参数"
   },
   "test_dialog": {
     "title": "模型测试",

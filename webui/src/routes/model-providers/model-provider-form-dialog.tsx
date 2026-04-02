@@ -340,6 +340,28 @@ export function ModelProviderFormDialog({
 
               <FormField
                 control={form.control}
+                name="extra_body"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('association_form.extra_body')}</FormLabel>
+                    <FormControl>
+                      <textarea
+                        {...field}
+                        className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        placeholder={t('association_form.extra_body_placeholder')}
+                        rows={3}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      {t('association_form.extra_body_hint')}
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name="weight"
                 render={({ field }) => (
                   <FormItem>

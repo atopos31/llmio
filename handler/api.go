@@ -52,6 +52,7 @@ type ModelWithProviderRequest struct {
 	Image            bool              `json:"image"`
 	WithHeader       bool              `json:"with_header"`
 	CustomerHeaders  map[string]string `json:"customer_headers"`
+	ExtraBody        map[string]any    `json:"extra_body"`
 	Weight           int               `json:"weight"`
 }
 
@@ -603,6 +604,11 @@ func CreateModelProvider(c *gin.Context) {
 		customerHeaders = map[string]string{}
 	}
 
+	extraBody := req.ExtraBody
+	if extraBody == nil {
+		extraBody = map[string]any{}
+	}
+
 	modelProvider := models.ModelWithProvider{
 		ModelID:          req.ModelID,
 		ProviderModel:    req.ProviderModel,
@@ -612,6 +618,7 @@ func CreateModelProvider(c *gin.Context) {
 		Image:            &req.Image,
 		WithHeader:       &req.WithHeader,
 		CustomerHeaders:  customerHeaders,
+		ExtraBody:        extraBody,
 		Weight:           req.Weight,
 	}
 
@@ -648,6 +655,11 @@ func UpdateModelProvider(c *gin.Context) {
 		customerHeaders = map[string]string{}
 	}
 
+	extraBody := req.ExtraBody
+	if extraBody == nil {
+		extraBody = map[string]any{}
+	}
+
 	// Check if model-provider association exists
 	_, err = gorm.G[models.ModelWithProvider](models.DB).Where("id = ?", id).First(c.Request.Context())
 	if err != nil {
@@ -669,6 +681,7 @@ func UpdateModelProvider(c *gin.Context) {
 		Image:            &req.Image,
 		WithHeader:       &req.WithHeader,
 		CustomerHeaders:  customerHeaders,
+		ExtraBody:        extraBody,
 		Weight:           req.Weight,
 	}
 

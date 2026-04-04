@@ -51,6 +51,9 @@ func Init(ctx context.Context, path string) {
 	if _, err := gorm.G[Model](DB).Where("breaker IS NULL").Update(ctx, "breaker", false); err != nil {
 		panic(err)
 	}
+	if _, err := gorm.G[AuthKey](DB).Where("io_log IS NULL").Update(ctx, "io_log", false); err != nil {
+		panic(err)
+	}
 	if _, err := gorm.G[ChatLog](DB).Where("auth_key_id IS NULL").Update(ctx, "auth_key_id", 0); err != nil {
 		panic(err)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/service"
 	"github.com/gin-gonic/gin"
+	"github.com/samber/lo"
 )
 
 // 用于系统数据操作相关鉴权
@@ -100,8 +101,10 @@ func checkAuthKey(c *gin.Context, key string, adminToken string) {
 	// 异步更新使用次数
 	go service.KeyUpdate(authKey.ID, time.Now())
 
-	allowAll := authKey.AllowAll != nil && *authKey.AllowAll
 	ctx = context.WithValue(ctx, consts.ContextKeyAuthKeyID, authKey.ID)
+	ctx = context.WithValue(ctx, consts.ContextKeyAuthKeyIOLog, lo.FromPtrOr(authKey.IOLog, false))
+
+	allowAll := lo.FromPtrOr(authKey.AllowAll, false)
 	ctx = context.WithValue(ctx, consts.ContextKeyAllowAllModel, allowAll)
 	// 如果不允许所有模型 则设置允许的模型列表
 	if !allowAll {

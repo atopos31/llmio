@@ -15,6 +15,7 @@
 
 ## 代码风格与命名约定
 - Go 代码统一使用 `go fmt` 和 tab 缩进；导出符号使用 UpperCamelCase ，局部变量使用 lowerCamelCase ，JSON 标签使用 snake_case。
+- 当前项目使用 Go 1.26；需要创建指针值时优先使用新版 `new(...)` 语法（例如 `new(true)` `new(false)` `new(ioLog)`），不要再引入 `boolPtr` 之类的辅助函数。
 - 错误处理遵循 `if err != nil` 模式，返回具备上下文的 `fmt.Errorf` 消息。
 - `webui/src/` 中 React 组件采用 PascalCase 文件和组件名，目录建议 kebab-case；提交前执行 `pnpm run lint` 保持 ESLint + TypeScript 规范。
 

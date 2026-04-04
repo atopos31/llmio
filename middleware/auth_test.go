@@ -152,6 +152,7 @@ func TestCheckAuthKey_ValidAuthKey_AllowAll(t *testing.T) {
 		Name:     "Test Project",
 		Key:      "test-key-456",
 		Status:   new(true),
+		IOLog:    new(true),
 		AllowAll: new(true),
 	}
 	if err := db.Create(&authKey).Error; err != nil {
@@ -177,6 +178,11 @@ func TestCheckAuthKey_ValidAuthKey_AllowAll(t *testing.T) {
 	allowAll := ctx.Value(consts.ContextKeyAllowAllModel)
 	if allowAll == nil || allowAll != true {
 		t.Error("expected AllowAllModel to be true")
+	}
+
+	ioLog := ctx.Value(consts.ContextKeyAuthKeyIOLog)
+	if ioLog == nil || ioLog != true {
+		t.Error("expected AuthKeyIOLog to be true")
 	}
 
 	// Should not have AllowModels when AllowAll is true
@@ -208,6 +214,7 @@ func TestCheckAuthKey_ValidAuthKey_RequireModel(t *testing.T) {
 		Name:     "Test Project",
 		Key:      "test-key-789",
 		Status:   new(true),
+		IOLog:    new(false),
 		AllowAll: new(false),
 		Models:   allowedModels,
 	}
@@ -244,6 +251,11 @@ func TestCheckAuthKey_ValidAuthKey_RequireModel(t *testing.T) {
 		t.Error("expected AllowModels to be []string")
 	} else if len(models) != len(allowedModels) {
 		t.Errorf("expected %d models, got %d", len(allowedModels), len(models))
+	}
+
+	ioLog := ctx.Value(consts.ContextKeyAuthKeyIOLog)
+	if ioLog == nil || ioLog != false {
+		t.Error("expected AuthKeyIOLog to be false")
 	}
 
 	t.Log("✓ Valid auth key with specific models works correctly")

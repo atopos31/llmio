@@ -18,7 +18,6 @@ export interface Model {
   Remark: string;
   MaxRetry: number;
   TimeOut: number;
-  IOLog: boolean;
   Strategy: string;
   Breaker?: boolean | null;
   DisplayOrder?: number;
@@ -55,6 +54,7 @@ export interface AuthKey {
   Name: string;
   Key: string;
   Status: boolean;
+  IOLog: boolean;
   AllowAll: boolean;
   Models: string[] | null;
   ExpiresAt: string | null;
@@ -182,7 +182,6 @@ export type ModelQuery = {
   page_size?: number;
   search?: string;
   strategy?: string;
-  io_log?: 'true' | 'false';
 };
 
 export async function getModels(params: ModelQuery = {}): Promise<PaginatedResponse<Model>> {
@@ -191,7 +190,6 @@ export async function getModels(params: ModelQuery = {}): Promise<PaginatedRespo
   if (params.page_size) searchParams.append('page_size', params.page_size.toString());
   if (params.search) searchParams.append('search', params.search);
   if (params.strategy) searchParams.append('strategy', params.strategy);
-  if (params.io_log) searchParams.append('io_log', params.io_log);
   const query = searchParams.toString();
   return apiRequest<PaginatedResponse<Model>>(query ? `/models?${query}` : '/models');
 }
@@ -205,7 +203,6 @@ export async function createModel(model: {
   remark: string;
   max_retry: number;
   time_out: number;
-  io_log: boolean;
   strategy: string;
   breaker: boolean;
 }): Promise<Model> {
@@ -220,7 +217,6 @@ export async function updateModel(id: number, model: {
   remark?: string;
   max_retry?: number;
   time_out?: number;
-  io_log?: boolean;
   strategy?: string;
   breaker?: boolean;
 }): Promise<Model> {
@@ -248,6 +244,7 @@ export type AuthKeyPayload = {
   name: string;
   key?: string;
   status: boolean;
+  io_log: boolean;
   allow_all: boolean;
   models: string[];
   expires_at?: string | null;

@@ -18,6 +18,7 @@ import (
 type AuthKeyRequest struct {
 	Name      string   `json:"name" binding:"required"`
 	Status    *bool    `json:"status"`
+	IOLog     *bool    `json:"io_log"`
 	AllowAll  *bool    `json:"allow_all"`
 	Models    []string `json:"models"`
 	ExpiresAt *string  `json:"expires_at"`
@@ -111,11 +112,16 @@ func CreateAuthKey(c *gin.Context) {
 	}
 
 	ctx := c.Request.Context()
+	ioLog := false
+	if req.IOLog != nil {
+		ioLog = *req.IOLog
+	}
 
 	authKey := models.AuthKey{
 		Name:      req.Name,
 		Key:       fmt.Sprintf("%s%s", consts.KeyPrefix, key),
 		Status:    req.Status,
+		IOLog:     new(ioLog),
 		AllowAll:  req.AllowAll,
 		Models:    sanitizeModels(req.Models),
 		ExpiresAt: expiresAt,
@@ -169,9 +175,15 @@ func UpdateAuthKey(c *gin.Context) {
 		expiresAt = &parsedExpiresAt
 	}
 
+	ioLog := false
+	if req.IOLog != nil {
+		ioLog = *req.IOLog
+	}
+
 	update := models.AuthKey{
 		Name:      req.Name,
 		Status:    req.Status,
+		IOLog:     new(ioLog),
 		AllowAll:  req.AllowAll,
 		Models:    sanitizeModels(req.Models),
 		ExpiresAt: expiresAt,

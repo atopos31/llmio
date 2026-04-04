@@ -33,7 +33,6 @@ type ModelRequest struct {
 	Remark   string `json:"remark"`
 	MaxRetry int    `json:"max_retry"`
 	TimeOut  int    `json:"time_out"`
-	IOLog    bool   `json:"io_log"`
 	Strategy string `json:"strategy"`
 	Breaker  bool   `json:"breaker"`
 }
@@ -262,16 +261,6 @@ func GetModels(c *gin.Context) {
 		}
 	}
 
-	if ioLog := strings.TrimSpace(c.Query("io_log")); ioLog != "" {
-		switch ioLog {
-		case "true", "false":
-			query = query.Where("io_log = ?", ioLog == "true")
-		default:
-			common.BadRequest(c, "invalid io_log filter")
-			return
-		}
-	}
-
 	list := make([]models.Model, 0)
 	total, err := common.PaginateQuery(query.Order("id DESC"), params, &list)
 	if err != nil {
@@ -330,7 +319,6 @@ func CreateModel(c *gin.Context) {
 		Remark:       req.Remark,
 		MaxRetry:     req.MaxRetry,
 		TimeOut:      req.TimeOut,
-		IOLog:        &req.IOLog,
 		Strategy:     strategy,
 		Breaker:      &req.Breaker,
 		DisplayOrder: maxDisplayOrder + 1,
@@ -381,7 +369,6 @@ func UpdateModel(c *gin.Context) {
 		Remark:   req.Remark,
 		MaxRetry: req.MaxRetry,
 		TimeOut:  req.TimeOut,
-		IOLog:    &req.IOLog,
 		Strategy: strategy,
 		Breaker:  &req.Breaker,
 	}

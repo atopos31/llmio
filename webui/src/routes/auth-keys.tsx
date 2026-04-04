@@ -52,8 +52,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDownIcon,
-  Eye,
-  EyeOff
+  Eye
 } from "lucide-react";
 import Loading from "@/components/loading";
 import { toast } from "sonner";
@@ -75,6 +74,7 @@ const formSchema = z.object({
   name: z.string().min(1),
   key: z.string().optional(),
   status: z.boolean(),
+  io_log: z.boolean(),
   allow_all: z.boolean(),
   models: z.array(z.string()),
   expires_at: z.string().nullable().optional(),
@@ -87,6 +87,7 @@ type AuthKeyFormValues = z.infer<typeof formSchema>;
 const defaultFormValues: AuthKeyFormValues = {
   name: "",
   status: true,
+  io_log: false,
   allow_all: true,
   models: [],
   expires_at: null,
@@ -129,7 +130,7 @@ export default function AuthKeysPage() {
   const [toggleLoadingId, setToggleLoadingId] = useState<number | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [open, setOpen] = useState(false);
-  const [revealedKeys, setRevealedKeys] = useState<Record<number, boolean>>({});
+  const [previewKey, setPreviewKey] = useState<AuthKey | null>(null);
 
 
   const form = useForm<AuthKeyFormValues>({
@@ -222,6 +223,7 @@ export default function AuthKeysPage() {
       name: key.Name,
       key: key.Key,
       status: key.Status,
+      io_log: key.IOLog,
       allow_all: key.AllowAll,
       models: key.Models ?? [],
       expires_at: key.ExpiresAt,
@@ -246,6 +248,7 @@ export default function AuthKeysPage() {
         name: values.name,
         key: values.key?.trim() || undefined,
         status: values.status,
+        io_log: values.io_log,
         allow_all: values.allow_all,
         models: values.allow_all ? [] : values.models,
         expires_at: values.expires_at ?? undefined,
@@ -329,14 +332,6 @@ export default function AuthKeysPage() {
     setPageSize(size);
   };
 
-  const toggleKeyVisibility = (id: number) => {
-    setRevealedKeys((prev) => ({
-      ...prev,
-      [id]: !prev[id],
-    }));
-  };
-
-
   return (
     <div className="h-full min-h-0 flex flex-col gap-2 p-1">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -410,6 +405,7 @@ export default function AuthKeysPage() {
                           <TableHead>{t('table.project')}</TableHead>
                           <TableHead className="min-w-64">{t('table.key')}</TableHead>
                           <TableHead>{t('table.scope')}</TableHead>
+                          <TableHead>{t('table.io_log')}</TableHead>
                           <TableHead>{t('table.expires_at')}</TableHead>
                           <TableHead>{t('table.usage_count')}</TableHead>
                           <TableHead>{t('table.last_used')}</TableHead>
@@ -423,11 +419,7 @@ export default function AuthKeysPage() {
                         const hasMoreModels = modelsToShow.length > 3;
                         const expired = item.ExpiresAt ? new Date(item.ExpiresAt) < new Date() : false;
                         const toggleDisabled = toggleLoadingId === item.ID;
-                        const isKeyVisible = Boolean(revealedKeys[item.ID]);
-                        const lastSix = item.Key.slice(-6);
-                        const hiddenLength = Math.max(0, item.Key.length - 6);
-                        const maskedKey = `${"*".repeat(hiddenLength)}${lastSix}`;
-                        const displayKey = isKeyVisible ? item.Key : maskedKey;
+                        const displayKey = item.Key.length > 6 ? `...${item.Key.slice(-6)}` : item.Key;
                         return (
                           <TableRow key={item.ID}>
                             <TableCell>
@@ -442,10 +434,10 @@ export default function AuthKeysPage() {
                                   size="icon"
                                   variant="ghost"
                                   className="size-8"
-                                  onClick={() => toggleKeyVisibility(item.ID)}
-                                  aria-label={isKeyVisible ? t('aria.hide_key') : t('aria.show_key')}
+                                  onClick={() => setPreviewKey(item)}
+                                  aria-label={t('aria.show_key')}
                                 >
-                                  {isKeyVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                                  <Eye className="size-4" />
                                 </Button>
                                 <Button
                                   size="icon"
@@ -472,6 +464,11 @@ export default function AuthKeysPage() {
                                   )}
                                 </div>
                               )}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={item.IOLog ? "default" : "outline"}>
+                                {item.IOLog ? t('table.io_log_on') : t('table.io_log_off')}
+                              </Badge>
                             </TableCell>
                             <TableCell>
                               <span className={cn(
@@ -527,11 +524,7 @@ export default function AuthKeysPage() {
                   const hasMoreModels = modelsToShow.length > 3;
                   const expired = item.ExpiresAt ? new Date(item.ExpiresAt) < new Date() : false;
                   const toggleDisabled = toggleLoadingId === item.ID;
-                  const isKeyVisible = Boolean(revealedKeys[item.ID]);
-                  const lastSix = item.Key.slice(-6);
-                  const hiddenLength = Math.max(0, item.Key.length - 6);
-                  const maskedKey = `${"*".repeat(hiddenLength)}${lastSix}`;
-                  const displayKey = isKeyVisible ? item.Key : maskedKey;
+                  const displayKey = item.Key.length > 6 ? `...${item.Key.slice(-6)}` : item.Key;
 
                   return (
                     <div key={item.ID} className="py-3 space-y-3">
@@ -557,10 +550,10 @@ export default function AuthKeysPage() {
                               size="icon"
                               variant="ghost"
                               className="size-8"
-                              onClick={() => toggleKeyVisibility(item.ID)}
-                              aria-label={isKeyVisible ? t('aria.hide_key') : t('aria.show_key')}
+                              onClick={() => setPreviewKey(item)}
+                              aria-label={t('aria.show_key')}
                             >
-                              {isKeyVisible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                              <Eye className="size-4" />
                             </Button>
                             <Button
                               size="icon"
@@ -578,6 +571,10 @@ export default function AuthKeysPage() {
                         <MobileInfoItem
                           label={t('mobile.scope')}
                           value={item.AllowAll ? <Badge>{t('table.all_models')}</Badge> : <Badge variant="outline">{t('table.specified_models')}</Badge>}
+                        />
+                        <MobileInfoItem
+                          label={t('mobile.io_log')}
+                          value={<Badge variant={item.IOLog ? "default" : "outline"}>{item.IOLog ? t('table.io_log_on') : t('table.io_log_off')}</Badge>}
                         />
                         <MobileInfoItem
                           label={t('mobile.expires_at')}
@@ -680,6 +677,17 @@ export default function AuthKeysPage() {
         </div>
       </div>
 
+      <Dialog open={previewKey !== null} onOpenChange={(open) => !open && setPreviewKey(null)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{previewKey?.Name}</DialogTitle>
+          </DialogHeader>
+          <div className="rounded-md border bg-muted/20 px-3 py-3">
+            <p className="font-mono text-sm break-all">{previewKey?.Key}</p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -697,6 +705,21 @@ export default function AuthKeysPage() {
                       <Input {...field} />
                     </FormControl>
                     <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="io_log"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel>{t('form.io_log_label')}</FormLabel>
+                    </div>
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
                   </FormItem>
                 )}
               />

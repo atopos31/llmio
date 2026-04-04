@@ -56,6 +56,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	}
 
 	authKeyID, _ := ctx.Value(consts.ContextKeyAuthKeyID).(uint)
+	authKeyIOLog, _ := ctx.Value(consts.ContextKeyAuthKeyIOLog).(bool)
 
 	traceID, err := token.GenerateRandomChars(10)
 	if err != nil {
@@ -105,7 +106,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				UserAgent:     reqMeta.UserAgent,
 				RemoteIP:      reqMeta.RemoteIP,
 				AuthKeyID:     authKeyID,
-				ChatIO:        providersWithMeta.IOLog,
+				ChatIO:        authKeyIOLog,
 				Retry:         retry,
 				ProxyTime:     time.Since(start),
 			}
@@ -268,7 +269,6 @@ type ProvidersWithMeta struct {
 	ProviderMap          map[uint]models.Provider
 	MaxRetry             int
 	TimeOut              int
-	IOLog                bool
 	Strategy             string
 	Breaker              bool
 }
@@ -339,7 +339,6 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 		ProviderMap:          providerMap,
 		MaxRetry:             model.MaxRetry,
 		TimeOut:              model.TimeOut,
-		IOLog:                lo.FromPtrOr(model.IOLog, false),
 		Strategy:             model.Strategy,
 		Breaker:              lo.FromPtrOr(model.Breaker, false),
 	}, nil

@@ -71,7 +71,6 @@ const renderStrategy = (strategy?: string) =>
   strategy === "rotor" ? "Rotor" : "Lottery";
 
 type StrategyFilter = "all" | "lottery" | "rotor";
-type IOLogFilter = "all" | "true" | "false";
 
 // 定义表单验证模式
 const formSchema = z.object({
@@ -79,7 +78,6 @@ const formSchema = z.object({
   remark: z.string(),
   max_retry: z.number().min(0, { message: "重试次数限制不能为负数" }),
   time_out: z.number().min(0, { message: "超时时间不能为负数" }),
-  io_log: z.boolean(),
   strategy: z.enum(["lottery", "rotor"]),
   breaker: z.boolean(),
 });
@@ -98,7 +96,6 @@ export default function ModelsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [strategyFilter, setStrategyFilter] = useState<StrategyFilter>("all");
-  const [ioLogFilter, setIoLogFilter] = useState<IOLogFilter>("all");
 
   // 初始化表单
   const form = useForm<z.infer<typeof formSchema>>({
@@ -108,7 +105,6 @@ export default function ModelsPage() {
       remark: "",
       max_retry: 10,
       time_out: 60,
-      io_log: false,
       strategy: "lottery",
       breaker: false,
     },
@@ -130,7 +126,6 @@ export default function ModelsPage() {
         page_size: pageSize,
         search: searchTerm || undefined,
         strategy: strategyFilter === "all" ? undefined : strategyFilter,
-        io_log: ioLogFilter === "all" ? undefined : (ioLogFilter as "true" | "false"),
       });
       setModels(response.data);
       setTotal(response.total);
@@ -152,7 +147,7 @@ export default function ModelsPage() {
 
   useEffect(() => {
     fetchModels();
-  }, [page, pageSize, searchTerm, strategyFilter, ioLogFilter]);
+  }, [page, pageSize, searchTerm, strategyFilter]);
 
   const handleCreate = async (values: z.infer<typeof formSchema>) => {
     try {
@@ -161,13 +156,12 @@ export default function ModelsPage() {
         remark: values.remark,
         max_retry: values.max_retry,
         time_out: values.time_out,
-        io_log: values.io_log,
         strategy: values.strategy,
         breaker: values.breaker,
       });
       setOpen(false);
       toast.success(`模型: ${values.name} 创建成功`);
-      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery", breaker: false });
+      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, strategy: "lottery", breaker: false });
       await fetchModels();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -183,14 +177,13 @@ export default function ModelsPage() {
         remark: values.remark,
         max_retry: values.max_retry,
         time_out: values.time_out,
-        io_log: values.io_log,
         strategy: values.strategy,
         breaker: values.breaker,
       });
       setOpen(false);
       toast.success(`模型: ${values.name} 更新成功`);
       setEditingModel(null);
-      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery", breaker: false });
+      form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, strategy: "lottery", breaker: false });
       await fetchModels();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -221,7 +214,6 @@ export default function ModelsPage() {
       remark: model.Remark,
       max_retry: model.MaxRetry,
       time_out: model.TimeOut,
-      io_log: model.IOLog,
       strategy: model.Strategy === "rotor" ? "rotor" : "lottery",
       breaker: model.Breaker ?? false,
     });
@@ -230,7 +222,7 @@ export default function ModelsPage() {
 
   const openCreateDialog = () => {
     setEditingModel(null);
-    form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, io_log: false, strategy: "lottery", breaker: false });
+    form.reset({ name: "", remark: "", max_retry: 10, time_out: 60, strategy: "lottery", breaker: false });
     setOpen(true);
   };
 
@@ -291,26 +283,6 @@ export default function ModelsPage() {
               </Select>
             </div>
             <div className="flex items-end col-span-2 sm:col-span-2 lg:col-span-1 gap-2">
-              <div className="flex-1">
-                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">IO 记录</Label>
-                <Select
-                  value={ioLogFilter}
-                  onValueChange={(value) => {
-                    setIoLogFilter(value as IOLogFilter);
-                    setPage(1);
-                  }}
-                >
-                  <SelectTrigger className="h-8 text-sm px-2 w-full">
-                    <SelectValue placeholder="IO 记录" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">全部</SelectItem>
-                    <SelectItem value="true">开启</SelectItem>
-                    <SelectItem value="false">关闭</SelectItem>
-                  </SelectContent>
-                </Select>
-
-              </div>
               <Button onClick={openCreateDialog} className="h-8 text-xs">
                 添加模型
               </Button>
@@ -342,7 +314,6 @@ export default function ModelsPage() {
                       <TableHead>重试次数限制</TableHead>
                       <TableHead>超时时间(秒)</TableHead>
                       <TableHead>负载策略</TableHead>
-                      <TableHead>IO 记录</TableHead>
                       <TableHead>操作</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -357,11 +328,6 @@ export default function ModelsPage() {
                         <TableCell>{model.MaxRetry}</TableCell>
                         <TableCell>{model.TimeOut}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{renderStrategy(model.Strategy)}</TableCell>
-                        <TableCell>
-                          <span className={model.IOLog ? "text-green-500" : "text-red-500"}>
-                            {model.IOLog ? '✓' : '✗'}
-                          </span>
-                        </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-2">
                             <Button
@@ -441,10 +407,6 @@ export default function ModelsPage() {
                     <MobileInfoItem label="重试次数" value={model.MaxRetry} />
                     <MobileInfoItem label="超时时间" value={`${model.TimeOut} 秒`} />
                     <MobileInfoItem label="负载策略" value={renderStrategy(model.Strategy)} />
-                    <MobileInfoItem
-                      label="IO 记录"
-                      value={<span className={model.IOLog ? "text-green-600" : "text-red-600"}>{model.IOLog ? '✓' : '✗'}</span>}
-                    />
                   </div>
                 </div>
               ))}
@@ -573,24 +535,6 @@ export default function ModelsPage() {
                   )}
                 />
               </div>
-
-              <FormField
-                control={form.control}
-                name="io_log"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-base">IO 记录</FormLabel>
-                    </div>
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
 
               <FormField
                 control={form.control}

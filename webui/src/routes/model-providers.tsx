@@ -75,7 +75,6 @@ type MobileInfoItemProps = {
 };
 
 type StrategyFilter = "all" | "lottery" | "rotor";
-type IOLogFilter = "all" | "true" | "false";
 
 const MobileInfoItem = ({ label, value }: MobileInfoItemProps) => (
   <div className="space-y-1">
@@ -92,7 +91,6 @@ const modelEditSchema = z.object({
   remark: z.string(),
   max_retry: z.number().min(0, { message: "重试次数限制不能为负数" }),
   time_out: z.number().min(0, { message: "超时时间不能为负数" }),
-  io_log: z.boolean(),
   strategy: z.enum(["lottery", "rotor"]),
   breaker: z.boolean(),
 });
@@ -130,7 +128,6 @@ export default function ModelProvidersPage() {
   const [modelSearchInput, setModelSearchInput] = useState("");
   const [modelSearchTerm, setModelSearchTerm] = useState("");
   const [modelStrategyFilter, setModelStrategyFilter] = useState<StrategyFilter>("all");
-  const [modelIOLogFilter, setModelIOLogFilter] = useState<IOLogFilter>("all");
 
   const modelEditForm = useForm<z.infer<typeof modelEditSchema>>({
     resolver: zodResolver(modelEditSchema),
@@ -139,7 +136,6 @@ export default function ModelProvidersPage() {
       remark: "",
       max_retry: 10,
       time_out: 60,
-      io_log: false,
       strategy: "lottery",
       breaker: false,
     },
@@ -545,7 +541,6 @@ export default function ModelProvidersPage() {
       remark: model.Remark ?? "",
       max_retry: model.MaxRetry,
       time_out: model.TimeOut,
-      io_log: !!model.IOLog,
       strategy: model.Strategy === "rotor" ? "rotor" : "lottery",
       breaker: model.Breaker ?? false,
     });
@@ -559,7 +554,6 @@ export default function ModelProvidersPage() {
       remark: "",
       max_retry: 10,
       time_out: 60,
-      io_log: false,
       strategy: "lottery",
       breaker: false,
     });
@@ -574,7 +568,6 @@ export default function ModelProvidersPage() {
       remark: "",
       max_retry: 10,
       time_out: 60,
-      io_log: false,
       strategy: "lottery",
       breaker: false,
     });
@@ -591,7 +584,6 @@ export default function ModelProvidersPage() {
           max_retry: values.max_retry,
           time_out: values.time_out,
           strategy: values.strategy,
-          io_log: values.io_log,
           breaker: values.breaker,
         });
 
@@ -605,7 +597,6 @@ export default function ModelProvidersPage() {
                 MaxRetry: updated.MaxRetry,
                 TimeOut: updated.TimeOut,
                 Strategy: updated.Strategy,
-                IOLog: updated.IOLog,
                 Breaker: updated.Breaker,
               }
               : model
@@ -619,7 +610,6 @@ export default function ModelProvidersPage() {
           max_retry: values.max_retry,
           time_out: values.time_out,
           strategy: values.strategy,
-          io_log: values.io_log,
           breaker: values.breaker,
         });
 
@@ -699,15 +689,11 @@ export default function ModelProvidersPage() {
   const filteredOverviewModels = orderedCardModels.filter((model) => {
     const matchesSearch = modelSearchTerm.length === 0 || model.Name.toLowerCase().includes(modelSearchTerm.toLowerCase());
     const matchesStrategy = modelStrategyFilter === "all" || model.Strategy === modelStrategyFilter;
-    const matchesIO =
-      modelIOLogFilter === "all" ||
-      (modelIOLogFilter === "true" && !!model.IOLog) ||
-      (modelIOLogFilter === "false" && !model.IOLog);
-    return matchesSearch && matchesStrategy && matchesIO;
+    return matchesSearch && matchesStrategy;
   });
 
   const hasModelOverviewFilter =
-    modelSearchTerm.length > 0 || modelStrategyFilter !== "all" || modelIOLogFilter !== "all";
+    modelSearchTerm.length > 0 || modelStrategyFilter !== "all";
   const modelPendingDelete = modelDeleteId ? models.find((model) => model.ID === modelDeleteId) : null;
 
   const handleDeleteModel = async () => {
@@ -786,26 +772,10 @@ export default function ModelProvidersPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex flex-col gap-1 text-xs">
-                <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.io_log')}</Label>
-                <div className="flex items-center gap-2">
-                  <Select
-                    value={modelIOLogFilter}
-                    onValueChange={(value) => setModelIOLogFilter(value as IOLogFilter)}
-                  >
-                    <SelectTrigger className="h-8 w-full text-xs px-2">
-                      <SelectValue placeholder={t('filters.io_log')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">{t('common:status.all')}</SelectItem>
-                      <SelectItem value="true">{t('filters.io_log_on')}</SelectItem>
-                      <SelectItem value="false">{t('filters.io_log_off')}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button onClick={openModelCreateDialog} className="h-8 text-xs shrink-0">
-                    {t('actions.add_model')}
-                  </Button>
-                </div>
+              <div className="flex items-end">
+                <Button onClick={openModelCreateDialog} className="h-8 text-xs shrink-0">
+                  {t('actions.add_model')}
+                </Button>
               </div>
             </div>
           </div>
@@ -899,7 +869,6 @@ export default function ModelProvidersPage() {
                         <TableHead className="text-center">{t('model_table.max_retry')}</TableHead>
                         <TableHead className="text-center">{t('model_table.timeout')}</TableHead>
                         <TableHead className="text-center">{t('model_table.strategy')}</TableHead>
-                        <TableHead className="text-center">{t('model_table.io_log')}</TableHead>
                         <TableHead className="text-center">{t('model_table.actions')}</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -931,11 +900,6 @@ export default function ModelProvidersPage() {
                           <TableCell className="text-center">{model.MaxRetry}</TableCell>
                           <TableCell className="text-center">{model.TimeOut}</TableCell>
                           <TableCell className="text-sm text-muted-foreground text-center">{renderStrategy(model.Strategy)}</TableCell>
-                          <TableCell className="text-center">
-                            <span className={model.IOLog ? "text-green-500" : "text-red-500"}>
-                              {model.IOLog ? "✓" : "✗"}
-                            </span>
-                          </TableCell>
                           <TableCell>
                             <div className="flex gap-2 justify-center">
                               <Button
@@ -1068,10 +1032,6 @@ export default function ModelProvidersPage() {
                       <MobileInfoItem label={t('mobile.timeout')} value={t('mobile.timeout_unit', { value: model.TimeOut })} />
                       <MobileInfoItem label={t('mobile.strategy')} value={renderStrategy(model.Strategy)} />
                       <MobileInfoItem label={t('mobile.associations')} value={getAssociationCountNumberText(model.ID)} />
-                      <MobileInfoItem
-                        label={t('mobile.io_log')}
-                        value={<span className={model.IOLog ? "text-green-500" : "text-red-500"}>{model.IOLog ? "✓" : "✗"}</span>}
-                      />
                     </div>
                   </div>
                 ))}
@@ -1451,24 +1411,6 @@ export default function ModelProvidersPage() {
                   )}
                 />
               </div>
-
-              <FormField
-                control={modelEditForm.control}
-                name="io_log"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-base">{t('model_form.io_log')}</FormLabel>
-                    </div>
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
 
               <FormField
                 control={modelEditForm.control}

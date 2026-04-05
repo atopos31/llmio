@@ -6,12 +6,12 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/providers"
+	"github.com/atopos31/llmio/service"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -988,22 +988,12 @@ func CleanLogs(c *gin.Context) {
 		deletedCount = result.RowsAffected
 
 	case "days":
-		// 计算 N 天前的时间
-		cutoffTime := time.Now().AddDate(0, 0, -req.Value)
-
-		// 先删除关联的 ChatIO
-		if err := models.DB.Unscoped().Where("log_id IN (SELECT id FROM chat_logs WHERE created_at < ?)", cutoffTime).Delete(&models.ChatIO{}).Error; err != nil {
-			common.InternalServerError(c, "Failed to delete chat IO: "+err.Error())
+		count, err := service.CleanLogsByDays(c.Request.Context(), req.Value)
+		if err != nil {
+			common.InternalServerError(c, "Failed to delete logs: "+err.Error())
 			return
 		}
-
-		// 删除日志
-		result := models.DB.Unscoped().Where("created_at < ?", cutoffTime).Delete(&models.ChatLog{})
-		if result.Error != nil {
-			common.InternalServerError(c, "Failed to delete logs: "+result.Error.Error())
-			return
-		}
-		deletedCount = result.RowsAffected
+		deletedCount = count
 
 	default:
 		common.BadRequest(c, "Invalid type: must be 'count' or 'days'")

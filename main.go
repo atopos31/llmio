@@ -15,6 +15,7 @@ import (
 	"github.com/atopos31/llmio/middleware"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/pkg/env"
+	"github.com/atopos31/llmio/service"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	_ "golang.org/x/crypto/x509roots/fallback"
@@ -27,6 +28,8 @@ func init() {
 }
 
 func main() {
+	service.StartLogCleanupScheduler(context.Background())
+
 	router := gin.Default()
 	// gzip压缩
 	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1"})))

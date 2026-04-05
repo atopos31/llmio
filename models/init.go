@@ -2,6 +2,7 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 
@@ -57,6 +58,9 @@ func Init(ctx context.Context, path string) {
 	if _, err := gorm.G[ChatLog](DB).Where("auth_key_id IS NULL").Update(ctx, "auth_key_id", 0); err != nil {
 		panic(err)
 	}
+	if err := ensureLogCleanupPolicyConfig(ctx); err != nil {
+		panic(err)
+	}
 
 	if env.GetWithDefault("DB_VACUUM", false) {
 		// 启动时执行 VACUUM 回收空间
@@ -99,6 +103,35 @@ func ensureModelDisplayOrder(ctx context.Context) error {
 		return nil
 	})
 }
+
+func ensureLogCleanupPolicyConfig(ctx context.Context) error {
+	count, err := gorm.G[Config](DB).Where("key = ?", KeyLogCleanupPolicy).Count(ctx, "*")
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	defaultLogCleanupPolicy, err := json.Marshal(LogCleanupPolicy{
+		Enabled:       false,
+		RetentionDays: 30,
+	})
+	if err != nil {
+		return err
+	}
+
+	config := Config{
+		Key:   KeyLogCleanupPolicy,
+		Value: string(defaultLogCleanupPolicy),
+	}
+	if err := gorm.G[Config](DB).Create(ctx, &config); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func ensureDBFile(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

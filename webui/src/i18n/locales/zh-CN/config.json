@@ -16,6 +16,19 @@
     "api_key_validation": "API Key 不能为空",
     "version_validation": "Version 不能为空"
   },
+  "log_cleanup": {
+    "title": "日志定时清理",
+    "desc": "配置请求日志的自动保留策略，服务会定期按天数清理过期日志",
+    "enabled": "启用自动清理",
+    "enabled_on": "已启用",
+    "enabled_off": "未启用",
+    "retention_days": "保留天数",
+    "retention_days_value": "保留最近 {{days}} 天",
+    "edit": "编辑配置",
+    "edit_title": "编辑日志定时清理配置",
+    "edit_desc": "修改日志自动清理开关和日志保留天数",
+    "retention_days_validation": "保留天数必须大于 0"
+  },
   "toast": {
     "test_success": "配置检测成功",
     "test_failed": "配置检测失败: {{message}}",

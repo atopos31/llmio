@@ -438,6 +438,11 @@ export interface AnthropicCountTokens {
   version: string;
 }
 
+export interface LogCleanupPolicy {
+  enabled: boolean;
+  retention_days: number;
+}
+
 export interface ConfigResponse {
   key: string;
   value: string;

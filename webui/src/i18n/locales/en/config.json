@@ -16,6 +16,19 @@
     "api_key_validation": "API Key is required",
     "version_validation": "Version is required"
   },
+  "log_cleanup": {
+    "title": "Scheduled Log Cleanup",
+    "desc": "Configure the automatic retention policy for request logs. The service will periodically remove expired logs by age.",
+    "enabled": "Enable Auto Cleanup",
+    "enabled_on": "Enabled",
+    "enabled_off": "Disabled",
+    "retention_days": "Retention Days",
+    "retention_days_value": "Keep the latest {{days}} day(s)",
+    "edit": "Edit Config",
+    "edit_title": "Edit Scheduled Log Cleanup",
+    "edit_desc": "Update the automatic cleanup toggle and log retention days",
+    "retention_days_validation": "Retention days must be greater than 0"
+  },
   "toast": {
     "test_success": "Config test passed",
     "test_failed": "Config test failed: {{message}}",

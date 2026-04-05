@@ -16,6 +16,19 @@
     "api_key_validation": "API Key 不能為空",
     "version_validation": "Version 不能為空"
   },
+  "log_cleanup": {
+    "title": "日誌定時清理",
+    "desc": "設定請求日誌的自動保留策略，服務會定期依天數清理過期日誌",
+    "enabled": "啟用自動清理",
+    "enabled_on": "已啟用",
+    "enabled_off": "未啟用",
+    "retention_days": "保留天數",
+    "retention_days_value": "保留最近 {{days}} 天",
+    "edit": "編輯設定",
+    "edit_title": "編輯日誌定時清理設定",
+    "edit_desc": "修改日誌自動清理開關與日誌保留天數",
+    "retention_days_validation": "保留天數必須大於 0"
+  },
   "toast": {
     "test_success": "設定檢測成功",
     "test_failed": "設定檢測失敗: {{message}}",

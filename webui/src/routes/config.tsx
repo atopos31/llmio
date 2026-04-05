@@ -24,7 +24,8 @@ import {
 } from '@/components/ui/form';
 import Loading from '@/components/loading';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { configAPI, type AnthropicCountTokens, testCountTokens } from '@/lib/api';
+import { Switch } from '@/components/ui/switch';
+import { configAPI, type AnthropicCountTokens, type LogCleanupPolicy, testCountTokens } from '@/lib/api';
 import { toast } from 'sonner';
 
 const anthropicConfigSchema = z.object({
@@ -35,14 +36,28 @@ const anthropicConfigSchema = z.object({
 
 type AnthropicConfigForm = z.infer<typeof anthropicConfigSchema>;
 
+const logCleanupConfigSchema = z.object({
+  enabled: z.boolean(),
+  retention_days: z.number().min(1),
+});
+
+type LogCleanupConfigForm = z.infer<typeof logCleanupConfigSchema>;
+
+const defaultLogCleanupConfig: LogCleanupPolicy = {
+  enabled: false,
+  retention_days: 30,
+};
+
 export default function ConfigPage() {
   const { t } = useTranslation(['config', 'common']);
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
-  const [config, setConfig] = useState<AnthropicCountTokens | null>(null);
+  const [anthropicOpen, setAnthropicOpen] = useState(false);
+  const [logCleanupOpen, setLogCleanupOpen] = useState(false);
+  const [anthropicConfig, setAnthropicConfig] = useState<AnthropicCountTokens | null>(null);
+  const [logCleanupConfig, setLogCleanupConfig] = useState<LogCleanupPolicy>(defaultLogCleanupConfig);
   const [testing, setTesting] = useState(false);
 
-  const form = useForm<AnthropicConfigForm>({
+  const anthropicForm = useForm<AnthropicConfigForm>({
     resolver: zodResolver(anthropicConfigSchema),
     defaultValues: {
       base_url: '',
@@ -51,14 +66,33 @@ export default function ConfigPage() {
     },
   });
 
+  const logCleanupForm = useForm<LogCleanupConfigForm>({
+    resolver: zodResolver(logCleanupConfigSchema),
+    defaultValues: defaultLogCleanupConfig,
+  });
+
   useEffect(() => {
     const fetchConfig = async () => {
       try {
         setLoading(true);
-        const response = await configAPI.getConfig('anthropic_count_tokens');
-        if (response.value) {
-          const anthropicConfig = JSON.parse(response.value) as AnthropicCountTokens;
-          setConfig(anthropicConfig);
+        const [anthropicResponse, logCleanupResponse] = await Promise.all([
+          configAPI.getConfig('anthropic_count_tokens'),
+          configAPI.getConfig('log_cleanup_policy'),
+        ]);
+
+        if (anthropicResponse.value) {
+          const nextAnthropicConfig = JSON.parse(anthropicResponse.value) as AnthropicCountTokens;
+          setAnthropicConfig(nextAnthropicConfig);
+        }
+
+        if (logCleanupResponse.value) {
+          const nextLogCleanupConfig = {
+            ...defaultLogCleanupConfig,
+            ...(JSON.parse(logCleanupResponse.value) as Partial<LogCleanupPolicy>),
+          };
+          setLogCleanupConfig(nextLogCleanupConfig);
+        } else {
+          setLogCleanupConfig(defaultLogCleanupConfig);
         }
       } catch (error) {
         console.error('Failed to load config:', error);
@@ -71,17 +105,18 @@ export default function ConfigPage() {
     fetchConfig();
   }, []);
 
-  const openEditDialog = () => {
-    form.reset({
-      base_url: config?.base_url || 'https://api.anthropic.com/v1',
-      api_key: config?.api_key || '',
-      version: config?.version || '2023-06-01',
+  const openAnthropicDialog = () => {
+    anthropicForm.reset({
+      base_url: anthropicConfig?.base_url || 'https://api.anthropic.com/v1',
+      api_key: anthropicConfig?.api_key || '',
+      version: anthropicConfig?.version || '2023-06-01',
     });
-    setOpen(true);
+    setAnthropicOpen(true);
   };
 
-  const closeDialog = () => {
-    setOpen(false);
+  const openLogCleanupDialog = () => {
+    logCleanupForm.reset(logCleanupConfig);
+    setLogCleanupOpen(true);
   };
 
   const testConfig = async () => {
@@ -98,14 +133,26 @@ export default function ConfigPage() {
     }
   };
 
-  const onSubmit = async (values: AnthropicConfigForm) => {
+  const onSubmitAnthropic = async (values: AnthropicConfigForm) => {
     try {
       await configAPI.updateConfig('anthropic_count_tokens', values);
-      setConfig(values);
+      setAnthropicConfig(values);
       toast.success(t('toast.save_success'));
-      setOpen(false);
+      setAnthropicOpen(false);
     } catch (error) {
       console.error('Failed to save config:', error);
+      toast.error(t('toast.save_failed'));
+    }
+  };
+
+  const onSubmitLogCleanup = async (values: LogCleanupConfigForm) => {
+    try {
+      await configAPI.updateConfig('log_cleanup_policy', values);
+      setLogCleanupConfig(values);
+      toast.success(t('toast.save_success'));
+      setLogCleanupOpen(false);
+    } catch (error) {
+      console.error('Failed to save log cleanup config:', error);
       toast.error(t('toast.save_failed'));
     }
   };
@@ -137,15 +184,15 @@ export default function ConfigPage() {
               <div className="space-y-2">
                 <Label>{t('anthropic.base_url')}</Label>
                 <p className="text-sm text-muted-foreground break-all">
-                  {config?.base_url || t('anthropic.not_configured')}
+                  {anthropicConfig?.base_url || t('anthropic.not_configured')}
                 </p>
               </div>
               <div className="space-y-2">
                 <Label>{t('anthropic.api_key')}</Label>
                 <p className="text-sm text-muted-foreground">
-                  {config?.api_key ? (
+                  {anthropicConfig?.api_key ? (
                     <span className="font-mono">
-                      {config.api_key.substring(0, 8)}...
+                      {anthropicConfig.api_key.substring(0, 8)}...
                     </span>
                   ) : (
                     t('anthropic.not_configured')
@@ -155,19 +202,19 @@ export default function ConfigPage() {
               <div className="space-y-2">
                 <Label>{t('anthropic.version')}</Label>
                 <p className="text-sm text-muted-foreground">
-                  {config?.version || t('anthropic.not_configured')}
+                  {anthropicConfig?.version || t('anthropic.not_configured')}
                 </p>
               </div>
             </div>
           </CardContent>
 
           <CardFooter className="flex justify-between">
-            <Button onClick={openEditDialog}>{t('anthropic.edit')}</Button>
+            <Button onClick={openAnthropicDialog}>{t('anthropic.edit')}</Button>
             <Button
               type="button"
               variant="outline"
               onClick={testConfig}
-              disabled={!config?.api_key || testing}
+              disabled={!anthropicConfig?.api_key || testing}
             >
               {testing ? (
                 <>
@@ -180,9 +227,35 @@ export default function ConfigPage() {
             </Button>
           </CardFooter>
         </Card>
+
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle>{t('log_cleanup.title')}</CardTitle>
+            <CardDescription>{t('log_cleanup.desc')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>{t('log_cleanup.enabled')}</Label>
+                <p className="text-sm text-muted-foreground">
+                  {logCleanupConfig.enabled ? t('log_cleanup.enabled_on') : t('log_cleanup.enabled_off')}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>{t('log_cleanup.retention_days')}</Label>
+                <p className="text-sm text-muted-foreground">
+                  {t('log_cleanup.retention_days_value', { days: logCleanupConfig.retention_days })}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+          <CardFooter>
+            <Button onClick={openLogCleanupDialog}>{t('log_cleanup.edit')}</Button>
+          </CardFooter>
+        </Card>
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={anthropicOpen} onOpenChange={setAnthropicOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t('anthropic.edit_title')}</DialogTitle>
@@ -191,10 +264,10 @@ export default function ConfigPage() {
               </DialogDescription>
           </DialogHeader>
 
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <Form {...anthropicForm}>
+            <form onSubmit={anthropicForm.handleSubmit(onSubmitAnthropic)} className="space-y-4">
               <FormField
-                control={form.control}
+                control={anthropicForm.control}
                 name="base_url"
                 render={({ field }) => (
                   <FormItem>
@@ -208,7 +281,7 @@ export default function ConfigPage() {
               />
 
               <FormField
-                control={form.control}
+                control={anthropicForm.control}
                 name="api_key"
                 render={({ field }) => (
                   <FormItem>
@@ -222,7 +295,7 @@ export default function ConfigPage() {
               />
 
               <FormField
-                control={form.control}
+                control={anthropicForm.control}
                 name="version"
                 render={({ field }) => (
                   <FormItem>
@@ -236,7 +309,61 @@ export default function ConfigPage() {
               />
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={closeDialog}>
+                <Button type="button" variant="outline" onClick={() => setAnthropicOpen(false)}>
+                  {t('common:actions.cancel')}
+                </Button>
+                <Button type="submit">{t('common:actions.save')}</Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={logCleanupOpen} onOpenChange={setLogCleanupOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{t('log_cleanup.edit_title')}</DialogTitle>
+            <DialogDescription>{t('log_cleanup.edit_desc')}</DialogDescription>
+          </DialogHeader>
+
+          <Form {...logCleanupForm}>
+            <form onSubmit={logCleanupForm.handleSubmit(onSubmitLogCleanup)} className="space-y-4">
+              <FormField
+                control={logCleanupForm.control}
+                name="enabled"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel>{t('log_cleanup.enabled')}</FormLabel>
+                    </div>
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={logCleanupForm.control}
+                name="retention_days"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('log_cleanup.retention_days')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        min={1}
+                        {...field}
+                        onChange={(event) => field.onChange(Number(event.target.value))}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setLogCleanupOpen(false)}>
                   {t('common:actions.cancel')}
                 </Button>
                 <Button type="submit">{t('common:actions.save')}</Button>

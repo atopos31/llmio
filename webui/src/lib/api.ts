@@ -499,6 +499,7 @@ export interface ChatIO {
   Input: string;
   OfString?: string | null;
   OfStringArray?: string[] | null;
+  Style?: string;
 }
 
 export interface LogsResponse {

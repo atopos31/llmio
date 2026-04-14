@@ -848,7 +848,24 @@ func GetChatIO(c *gin.Context) {
 		return
 	}
 
-	common.Success(c, chatIO)
+	// 查询关联的 ChatLog 获取 Style
+	var style string
+	chatLog, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", id).First(c.Request.Context())
+	if err == nil {
+		style = chatLog.Style
+	}
+
+	common.Success(c, gin.H{
+		"ID":            chatIO.ID,
+		"CreatedAt":     chatIO.CreatedAt,
+		"UpdatedAt":     chatIO.UpdatedAt,
+		"DeletedAt":     chatIO.DeletedAt,
+		"LogId":         chatIO.LogId,
+		"Input":         chatIO.Input,
+		"OfString":      chatIO.OfString,
+		"OfStringArray": chatIO.OfStringArray,
+		"Style":         style,
+	})
 }
 
 // GetUserAgents 获取所有不重复的用户代理种类

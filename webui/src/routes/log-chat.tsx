@@ -159,8 +159,9 @@ function RawJsonPanel({ raw, syntaxStyle }: { raw: string; syntaxStyle: SyntaxSt
 
 // ── Message Bubble ──
 
-function MessageBubble({ role, content, syntaxStyle }: { role: string; content: unknown; syntaxStyle: SyntaxStyle }) {
+function MessageBubble({ msg, syntaxStyle }: { msg: Record<string, unknown>; syntaxStyle: SyntaxStyle }) {
   const [open, setOpen] = useState(false);
+  const role = String(msg.role ?? msg.type ?? "unknown");
   const roleBadgeColor: Record<string, string> = {
     system: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
     user: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
@@ -169,8 +170,21 @@ function MessageBubble({ role, content, syntaxStyle }: { role: string; content: 
     developer: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
   };
 
-  const textContent = extractTextContent(content);
-  const isComplexContent = typeof content !== "string" || content.startsWith("[") || content.startsWith("{");
+  const content = msg.content;
+  const toolCalls = msg.tool_calls as Array<Record<string, unknown>> | undefined;
+  const hasToolCalls = toolCalls && toolCalls.length > 0;
+  const hasContent = content !== undefined && content !== null && content !== "";
+
+  const preview = hasContent
+    ? truncate(extractTextContent(content), 100)
+    : hasToolCalls
+      ? toolCalls.map(tc => {
+          const fn = tc.function as Record<string, unknown> | undefined;
+          return fn?.name ? String(fn.name) : "tool_call";
+        }).join(", ")
+      : "";
+
+  const isComplexContent = typeof content !== "string" || (typeof content === "string" && (content.startsWith("[") || content.startsWith("{")));
 
   return (
     <div className="border rounded-lg overflow-hidden">
@@ -183,14 +197,50 @@ function MessageBubble({ role, content, syntaxStyle }: { role: string; content: 
         <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${roleBadgeColor[role] ?? "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200"}`}>
           {role}
         </span>
-        {textContent && <span className="text-xs text-muted-foreground truncate">{truncate(textContent, 100)}</span>}
+        {hasToolCalls && !hasContent && (
+          <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+            tool_call
+          </span>
+        )}
+        {preview && <span className="text-xs text-muted-foreground truncate">{preview}</span>}
       </button>
       {open && (
-        <div className="border-t px-3 py-2">
-          {isComplexContent ? (
-            <JsonViewer data={content} syntaxStyle={syntaxStyle} />
-          ) : (
-            <pre className="whitespace-pre-wrap text-sm leading-relaxed break-words">{textContent}</pre>
+        <div className="border-t px-3 py-2 space-y-2">
+          {hasContent && (
+            isComplexContent ? (
+              <JsonViewer data={content} syntaxStyle={syntaxStyle} />
+            ) : (
+              <pre className="whitespace-pre-wrap text-sm leading-relaxed break-words">{extractTextContent(content)}</pre>
+            )
+          )}
+          {hasToolCalls && (
+            <div className="space-y-1.5">
+              {toolCalls.map((tc, i) => {
+                const fn = tc.function as Record<string, unknown> | undefined;
+                const name = fn?.name ? String(fn.name) : `tool_call_${i}`;
+                let args: unknown = fn?.arguments;
+                if (typeof args === "string") {
+                  try { args = JSON.parse(args); } catch { /* keep raw */ }
+                }
+                return (
+                  <div key={i} className="border rounded-md p-2 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+                        function
+                      </span>
+                      <span className="text-sm font-mono font-medium">{name}</span>
+                      {tc.id ? <span className="text-xs text-muted-foreground font-mono">{String(tc.id)}</span> : null}
+                    </div>
+                    {args != null ? (
+                      <JsonViewer data={args} syntaxStyle={syntaxStyle} />
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {!hasContent && !hasToolCalls && (
+            <span className="text-xs text-muted-foreground">(empty)</span>
           )}
         </div>
       )}
@@ -599,7 +649,7 @@ function MessagesView({ messages, syntaxStyle }: { messages: Array<Record<string
   return (
     <div className="space-y-2">
       {messages.map((msg, i) => (
-        <MessageBubble key={i} role={String(msg.role ?? msg.type ?? "unknown")} content={msg.content ?? msg} syntaxStyle={syntaxStyle} />
+        <MessageBubble key={i} msg={msg} syntaxStyle={syntaxStyle} />
       ))}
     </div>
   );

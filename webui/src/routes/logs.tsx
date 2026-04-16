@@ -1,5 +1,5 @@
 import { useState, useEffect, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -91,22 +91,46 @@ export default function LogsPage() {
   const { t } = useTranslation(['logs', 'common']);
   const [logs, setLogs] = useState<ChatLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(0);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [authKeys, setAuthKeys] = useState<AuthKeyItem[]>([]);
-  // 筛选条件
-  const [providerNameFilter, setProviderNameFilter] = useState<string>("all");
-  const [modelFilter, setModelFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [styleFilter, setStyleFilter] = useState<string>("all");
-  const [authKeyFilter, setAuthKeyFilter] = useState<string>("all");
-  const [traceIdFilter, setTraceIdFilter] = useState<string>("");
   const [availableStyles, setAvailableStyles] = useState<string[]>([]);
   const navigate = useNavigate();
+  // URL 同步的筛选和分页状态（浏览器返回时自动恢复）
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = Math.max(1, Number(searchParams.get('page')) || 1);
+  const pageSize = Math.max(1, Number(searchParams.get('pageSize')) || 20);
+  const providerNameFilter = searchParams.get('providerName') ?? 'all';
+  const modelFilter = searchParams.get('model') ?? 'all';
+  const statusFilter = searchParams.get('status') ?? 'all';
+  const styleFilter = searchParams.get('style') ?? 'all';
+  const authKeyFilter = searchParams.get('authKey') ?? 'all';
+  const traceIdFilter = searchParams.get('traceId') ?? '';
+
+  const patchParams = (patch: Record<string, string | number>) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      for (const [k, v] of Object.entries(patch)) {
+        const s = String(v);
+        const isDefault =
+          s === '' ||
+          (['providerName', 'model', 'status', 'style', 'authKey'].includes(k) && s === 'all') ||
+          (k === 'page' && s === '1') ||
+          (k === 'pageSize' && s === '20');
+        if (isDefault) next.delete(k);
+        else next.set(k, s);
+      }
+      return next;
+    }, { replace: true });
+  };
+  const setProviderNameFilter = (v: string) => patchParams({ providerName: v, page: 1 });
+  const setModelFilter = (v: string) => patchParams({ model: v, page: 1 });
+  const setStatusFilter = (v: string) => patchParams({ status: v, page: 1 });
+  const setStyleFilter = (v: string) => patchParams({ style: v, page: 1 });
+  const setAuthKeyFilter = (v: string) => patchParams({ authKey: v, page: 1 });
+  const setTraceIdFilter = (v: string) => patchParams({ traceId: v, page: 1 });
   // 详情弹窗
   const [selectedLog, setSelectedLog] = useState<ChatLog | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -169,19 +193,12 @@ export default function LogsPage() {
     fetchAuthKeys();
     fetchLogs();
   }, [page, pageSize, providerNameFilter, modelFilter, statusFilter, styleFilter, authKeyFilter, traceIdFilter]);
-  const handleFilterChange = () => {
-    setPage(1);
-  };
-  useEffect(() => {
-    handleFilterChange();
-  }, [providerNameFilter, modelFilter, statusFilter, styleFilter, authKeyFilter, traceIdFilter]);
   const handlePageChange = (newPage: number) => {
-    if (newPage >= 1 && newPage <= pages) setPage(newPage);
+    if (newPage >= 1 && newPage <= pages) patchParams({ page: newPage });
   };
   const handlePageSizeChange = (size: number) => {
     if (size === pageSize) return;
-    setPage(1);
-    setPageSize(size);
+    patchParams({ pageSize: size, page: 1 });
   };
   const handleRefresh = () => {
     fetchLogs();
@@ -229,10 +246,7 @@ export default function LogsPage() {
               <Input
                 placeholder={t('trace_id_placeholder')}
                 value={traceIdFilter}
-                onChange={(e) => {
-                  setTraceIdFilter(e.target.value);
-                  setPage(1);
-                }}
+                onChange={(e) => setTraceIdFilter(e.target.value)}
                 className="h-8 text-xs w-44 lg:w-64 pl-7"
               />
             </div>

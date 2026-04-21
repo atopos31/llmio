@@ -770,6 +770,7 @@ func GetRequestLogs(c *gin.Context) {
 	style := c.Query("style")
 	authKeyID := c.Query("auth_key_id")
 	traceID := c.Query("trace_id")
+	logID := c.Query("id")
 
 	// 构建查询条件
 	query := models.DB.Model(&models.ChatLog{})
@@ -796,6 +797,10 @@ func GetRequestLogs(c *gin.Context) {
 
 	if traceID != "" {
 		query = query.Where("trace_id = ?", traceID)
+	}
+
+	if logID != "" {
+		query = query.Where("id = ?", logID)
 	}
 
 	// 执行分页查询

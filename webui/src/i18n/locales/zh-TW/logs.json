@@ -1,6 +1,7 @@
 {
   "title": "請求日誌",
   "trace_id_placeholder": "TraceID 搜尋...",
+  "id_placeholder": "ID 搜尋...",
   "loading": "載入日誌資料",
   "no_data": "暫無請求日誌",
   "clean": {
@@ -32,6 +33,7 @@
     "status_error": "錯誤"
   },
   "table": {
+    "id": "ID",
     "time": "時間",
     "model": "模型",
     "project": "專案",

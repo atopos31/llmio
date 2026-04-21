@@ -525,6 +525,7 @@ export async function getLogs(
     style?: string;
     authKeyId?: string;
     traceId?: string;
+    id?: string;
   } = {}
 ): Promise<LogsResponse> {
   const params = new URLSearchParams();
@@ -538,6 +539,7 @@ export async function getLogs(
   if (filters.style) params.append("style", filters.style);
   if (filters.authKeyId) params.append("auth_key_id", filters.authKeyId);
   if (filters.traceId) params.append("trace_id", filters.traceId);
+  if (filters.id) params.append("id", filters.id);
 
   return apiRequest<LogsResponse>(`/logs?${params.toString()}`);
 }

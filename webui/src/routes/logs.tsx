@@ -108,6 +108,7 @@ export default function LogsPage() {
   const styleFilter = searchParams.get('style') ?? 'all';
   const authKeyFilter = searchParams.get('authKey') ?? 'all';
   const traceIdFilter = searchParams.get('traceId') ?? '';
+  const idFilter = searchParams.get('id') ?? '';
 
   const patchParams = (patch: Record<string, string | number>) => {
     setSearchParams(prev => {
@@ -131,6 +132,7 @@ export default function LogsPage() {
   const setStyleFilter = (v: string) => patchParams({ style: v, page: 1 });
   const setAuthKeyFilter = (v: string) => patchParams({ authKey: v, page: 1 });
   const setTraceIdFilter = (v: string) => patchParams({ traceId: v, page: 1 });
+  const setIdFilter = (v: string) => patchParams({ id: v, page: 1 });
   // 详情弹窗
   const [selectedLog, setSelectedLog] = useState<ChatLog | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -177,6 +179,7 @@ export default function LogsPage() {
         style: styleFilter === "all" ? undefined : styleFilter,
         authKeyId: authKeyFilter === "all" ? undefined : authKeyFilter,
         traceId: traceIdFilter.trim() || undefined,
+        id: idFilter.trim() || undefined,
       });
       setLogs(result.data);
       setTotal(result.total);
@@ -192,7 +195,7 @@ export default function LogsPage() {
     fetchModels();
     fetchAuthKeys();
     fetchLogs();
-  }, [page, pageSize, providerNameFilter, modelFilter, statusFilter, styleFilter, authKeyFilter, traceIdFilter]);
+  }, [page, pageSize, providerNameFilter, modelFilter, statusFilter, styleFilter, authKeyFilter, traceIdFilter, idFilter]);
   const handlePageChange = (newPage: number) => {
     if (newPage >= 1 && newPage <= pages) patchParams({ page: newPage });
   };
@@ -239,8 +242,17 @@ export default function LogsPage() {
       {/* 顶部标题和刷新 */}
       <div className="flex flex-col gap-2 flex-shrink-0">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <h2 className="text-2xl font-bold tracking-tight shrink-0">{t('title')}</h2>
+            <div className="relative">
+              <Search className="size-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder={t('id_placeholder')}
+                value={idFilter}
+                onChange={(e) => setIdFilter(e.target.value)}
+                className="h-8 text-xs w-44 lg:w-64 pl-7"
+              />
+            </div>
             <div className="relative">
               <Search className="size-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -362,9 +374,10 @@ export default function LogsPage() {
           <div className="h-full flex flex-col">
             <div className="flex-1 overflow-y-auto">
               <div className="hidden sm:block w-full">
-                <Table className="min-w-[1200px]">
+                <Table className="min-w-[1250px]">
                   <TableHeader className="z-10 sticky top-0 bg-secondary/90 backdrop-blur text-secondary-foreground">
                     <TableRow className="hover:bg-secondary/90">
+                      <TableHead>{t('table.id')}</TableHead>
                       <TableHead>{t('table.time')}</TableHead>
                       <TableHead>{t('table.model')}</TableHead>
                       <TableHead>{t('table.project')}</TableHead>
@@ -381,6 +394,7 @@ export default function LogsPage() {
                   <TableBody>
                     {logs?.map((log) => (
                       <TableRow key={log.ID}>
+                        <TableCell className="font-mono text-xs text-muted-foreground">{log.ID}</TableCell>
                         <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                           {new Date(log.CreatedAt).toLocaleString()}
                         </TableCell>
@@ -426,7 +440,10 @@ export default function LogsPage() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <h3 className="font-semibold text-sm truncate">{log.Name}</h3>
-                        <p className="text-[11px] text-muted-foreground">{new Date(log.CreatedAt).toLocaleString()}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          <span className="font-mono mr-2">#{log.ID}</span>
+                          {new Date(log.CreatedAt).toLocaleString()}
+                        </p>
                       </div>
                       <div className="flex items-center gap-2">
                         <span

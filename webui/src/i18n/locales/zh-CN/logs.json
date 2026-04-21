@@ -1,6 +1,7 @@
 {
   "title": "请求日志",
   "trace_id_placeholder": "TraceID 搜索...",
+  "id_placeholder": "ID 搜索...",
   "loading": "加载日志数据",
   "no_data": "暂无请求日志",
   "clean": {
@@ -32,6 +33,7 @@
     "status_error": "错误"
   },
   "table": {
+    "id": "ID",
     "time": "时间",
     "model": "模型",
     "project": "项目",

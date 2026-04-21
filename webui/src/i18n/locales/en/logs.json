@@ -1,6 +1,7 @@
 {
   "title": "Request Logs",
   "trace_id_placeholder": "Search TraceID...",
+  "id_placeholder": "Search ID...",
   "loading": "Loading logs",
   "no_data": "No request logs",
   "clean": {
@@ -32,6 +33,7 @@
     "status_error": "Error"
   },
   "table": {
+    "id": "ID",
     "time": "Time",
     "model": "Model",
     "project": "Project",

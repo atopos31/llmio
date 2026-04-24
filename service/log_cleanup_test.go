@@ -17,7 +17,7 @@ func setupLogCleanupTestDB(t *testing.T) func() {
 		t.Fatalf("failed to open test database: %v", err)
 	}
 
-	if err := db.AutoMigrate(&models.ChatLog{}, &models.ChatIO{}, &models.Config{}); err != nil {
+	if err := db.AutoMigrate(&models.ChatLog{}, &models.ChatIO{}, &models.Config{}, &models.LogCleanupRecord{}); err != nil {
 		t.Fatalf("failed to migrate test database: %v", err)
 	}
 

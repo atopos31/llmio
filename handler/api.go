@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/consts"
@@ -964,6 +965,7 @@ type CleanLogsRequest struct {
 
 // CleanLogs 清理日志
 func CleanLogs(c *gin.Context) {
+	start := time.Now()
 	var req CleanLogsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.BadRequest(c, "Invalid request: "+err.Error())
@@ -1022,5 +1024,40 @@ func CleanLogs(c *gin.Context) {
 		return
 	}
 
+	retentionDays := 0
+	if req.Type == "days" {
+		retentionDays = req.Value
+	}
+	record := models.LogCleanupRecord{
+		RetentionDays: retentionDays,
+		DeletedCount:  deletedCount,
+		DurationMs:    time.Since(start).Milliseconds(),
+		Source:        "manual",
+		Type:          req.Type,
+	}
+	if err := gorm.G[models.LogCleanupRecord](models.DB).Create(c.Request.Context(), &record); err != nil {
+		slog.Error("failed to save cleanup record", "error", err)
+	}
+
 	common.Success(c, map[string]any{"deleted_count": deletedCount})
+}
+
+// GetCleanupHistory 获取日志清理执行历史
+func GetCleanupHistory(c *gin.Context) {
+	params, err := common.ParsePagination(c)
+	if err != nil {
+		common.BadRequest(c, err.Error())
+		return
+	}
+
+	query := models.DB.Model(&models.LogCleanupRecord{}).Order("id DESC")
+
+	var records []models.LogCleanupRecord
+	total, err := common.PaginateQuery(query, params, &records)
+	if err != nil {
+		common.InternalServerError(c, "Failed to query cleanup history: "+err.Error())
+		return
+	}
+
+	common.Success(c, common.NewPaginationResponse(records, total, params))
 }

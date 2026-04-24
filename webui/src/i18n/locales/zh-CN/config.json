@@ -27,7 +27,18 @@
     "edit": "编辑配置",
     "edit_title": "编辑日志定时清理配置",
     "edit_desc": "修改日志自动清理开关和日志保留天数",
-    "retention_days_validation": "保留天数必须大于 0"
+    "retention_days_validation": "保留天数必须大于 0",
+    "view_history": "查看清理历史",
+    "history_title": "日志清理执行历史",
+    "history_desc": "查看定时清理和手动清理的执行记录",
+    "history_time": "执行时间",
+    "history_source": "触发方式",
+    "history_type": "清理模式",
+    "history_retention": "保留天数",
+    "history_deleted": "删除数量",
+    "history_duration": "耗时",
+    "source_scheduled": "定时清理",
+    "source_manual": "手动清理"
   },
   "toast": {
     "test_success": "配置检测成功",

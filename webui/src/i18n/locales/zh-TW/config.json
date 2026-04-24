@@ -27,7 +27,18 @@
     "edit": "編輯設定",
     "edit_title": "編輯日誌定時清理設定",
     "edit_desc": "修改日誌自動清理開關與日誌保留天數",
-    "retention_days_validation": "保留天數必須大於 0"
+    "retention_days_validation": "保留天數必須大於 0",
+    "view_history": "檢視清理歷史",
+    "history_title": "日誌清理執行歷史",
+    "history_desc": "檢視定時清理與手動清理的執行記錄",
+    "history_time": "執行時間",
+    "history_source": "觸發方式",
+    "history_type": "清理模式",
+    "history_retention": "保留天數",
+    "history_deleted": "刪除數量",
+    "history_duration": "耗時",
+    "source_scheduled": "定時清理",
+    "source_manual": "手動清理"
   },
   "toast": {
     "test_success": "設定檢測成功",

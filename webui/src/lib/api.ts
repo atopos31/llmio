@@ -563,6 +563,29 @@ export async function cleanLogs(params: {
   });
 }
 
+export interface LogCleanupRecord {
+  ID: number;
+  CreatedAt: string;
+  RetentionDays: number;
+  DeletedCount: number;
+  DurationMs: number;
+  Source: string;
+  Type: string;
+}
+
+export async function getCleanupHistory(params: {
+  page?: number;
+  page_size?: number;
+} = {}): Promise<PaginatedResponse<LogCleanupRecord>> {
+  const searchParams = new URLSearchParams();
+  if (params.page) searchParams.append('page', params.page.toString());
+  if (params.page_size) searchParams.append('page_size', params.page_size.toString());
+  const query = searchParams.toString();
+  return apiRequest<PaginatedResponse<LogCleanupRecord>>(
+    query ? `/logs/cleanup/history?${query}` : '/logs/cleanup/history'
+  );
+}
+
 // Test API functions
 export async function testCountTokens(): Promise<void> {
   return apiRequest<void>('/test/count_tokens');

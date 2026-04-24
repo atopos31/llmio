@@ -27,7 +27,18 @@
     "edit": "Edit Config",
     "edit_title": "Edit Scheduled Log Cleanup",
     "edit_desc": "Update the automatic cleanup toggle and log retention days",
-    "retention_days_validation": "Retention days must be greater than 0"
+    "retention_days_validation": "Retention days must be greater than 0",
+    "view_history": "View History",
+    "history_title": "Log Cleanup History",
+    "history_desc": "View records of scheduled and manual cleanup executions",
+    "history_time": "Time",
+    "history_source": "Source",
+    "history_type": "Mode",
+    "history_retention": "Retention",
+    "history_deleted": "Deleted",
+    "history_duration": "Duration",
+    "source_scheduled": "Scheduled",
+    "source_manual": "Manual"
   },
   "toast": {
     "test_success": "Config test passed",

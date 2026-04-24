@@ -109,6 +109,18 @@ func StartLogCleanupScheduler(ctx context.Context) {
 				"deleted_count", deletedCount,
 				"duration", time.Since(start),
 			)
+
+			record := models.LogCleanupRecord{
+				RetentionDays: policy.RetentionDays,
+				DeletedCount:  deletedCount,
+				DurationMs:    time.Since(start).Milliseconds(),
+				Source:        "scheduled",
+				Type:          "days",
+			}
+			if err := gorm.G[models.LogCleanupRecord](models.DB).Create(ctx, &record); err != nil {
+				slog.Error("failed to save cleanup record", "error", err)
+			}
+			models.TrimLogCleanupRecords(ctx, 100)
 		}
 
 		run()

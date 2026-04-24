@@ -25,7 +25,15 @@ import {
 import Loading from '@/components/loading';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
-import { configAPI, type AnthropicCountTokens, type LogCleanupPolicy, testCountTokens } from '@/lib/api';
+import { configAPI, type AnthropicCountTokens, type LogCleanupPolicy, type LogCleanupRecord, getCleanupHistory, testCountTokens } from '@/lib/api';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { toast } from 'sonner';
 
 const anthropicConfigSchema = z.object({
@@ -56,6 +64,11 @@ export default function ConfigPage() {
   const [anthropicConfig, setAnthropicConfig] = useState<AnthropicCountTokens | null>(null);
   const [logCleanupConfig, setLogCleanupConfig] = useState<LogCleanupPolicy>(defaultLogCleanupConfig);
   const [testing, setTesting] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<LogCleanupRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotal, setHistoryTotal] = useState(0);
 
   const anthropicForm = useForm<AnthropicConfigForm>({
     resolver: zodResolver(anthropicConfigSchema),
@@ -157,6 +170,20 @@ export default function ConfigPage() {
     }
   };
 
+  const fetchHistory = async (page: number = 1) => {
+    try {
+      setHistoryLoading(true);
+      const response = await getCleanupHistory({ page, page_size: 10 });
+      setHistory(response.data);
+      setHistoryTotal(response.total);
+      setHistoryPage(response.page);
+    } catch (error) {
+      console.error('Failed to load cleanup history:', error);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   if (loading) {
     return <Loading />;
   }
@@ -249,8 +276,11 @@ export default function ConfigPage() {
               </div>
             </div>
           </CardContent>
-          <CardFooter>
+          <CardFooter className="flex gap-2">
             <Button onClick={openLogCleanupDialog}>{t('log_cleanup.edit')}</Button>
+            <Button variant="outline" onClick={() => { fetchHistory(1); setHistoryOpen(true); }}>
+              {t('log_cleanup.view_history')}
+            </Button>
           </CardFooter>
         </Card>
       </div>
@@ -370,6 +400,72 @@ export default function ConfigPage() {
               </DialogFooter>
             </form>
           </Form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="!max-w-4xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{t('log_cleanup.history_title')}</DialogTitle>
+            <DialogDescription>{t('log_cleanup.history_desc')}</DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 min-h-0 overflow-auto">
+            {historyLoading ? (
+              <Loading />
+            ) : history.length === 0 ? (
+              <p className="text-center text-muted-foreground py-8">{t('common:no_data')}</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('log_cleanup.history_time')}</TableHead>
+                    <TableHead>{t('log_cleanup.history_source')}</TableHead>
+                    <TableHead>{t('log_cleanup.history_type')}</TableHead>
+                    <TableHead className="text-right">{t('log_cleanup.history_retention')}</TableHead>
+                    <TableHead className="text-right">{t('log_cleanup.history_deleted')}</TableHead>
+                    <TableHead className="text-right">{t('log_cleanup.history_duration')}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {history.map((record) => (
+                    <TableRow key={record.ID}>
+                      <TableCell className="whitespace-nowrap">{new Date(record.CreatedAt).toLocaleString()}</TableCell>
+                      <TableCell>
+                        {record.Source === 'scheduled'
+                          ? t('log_cleanup.source_scheduled')
+                          : t('log_cleanup.source_manual')}
+                      </TableCell>
+                      <TableCell>{record.Type}</TableCell>
+                      <TableCell className="text-right">
+                        {record.Type === 'days' ? t('log_cleanup.retention_days_value', { days: record.RetentionDays }) : '-'}
+                      </TableCell>
+                      <TableCell className="text-right">{record.DeletedCount}</TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        {record.DurationMs > 0 ? record.DurationMs + 'ms' : '-'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+
+          {historyTotal > 10 && (
+            <div className="flex items-center justify-between pt-2 border-t">
+              <span className="text-sm text-muted-foreground">
+                {t('common:pagination.summary', { total: historyTotal, page: historyPage, pages: Math.ceil(historyTotal / 10) })}
+              </span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={historyPage <= 1} onClick={() => fetchHistory(historyPage - 1)}>
+                  {t('common:pagination.prev')}
+                </Button>
+                <Button variant="outline" size="sm" disabled={historyPage * 10 >= historyTotal} onClick={() => fetchHistory(historyPage + 1)}>
+                  {t('common:pagination.next')}
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

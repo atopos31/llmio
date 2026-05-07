@@ -231,7 +231,7 @@ func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start ti
 		FirstChunkTime: firstChunkTime,
 		ChunkTime:      chunkTime,
 		Usage: models.Usage{
-			PromptTokens:     athropicUsage.InputTokens,
+			PromptTokens:     athropicUsage.InputTokens + athropicUsage.CacheReadInputTokens,
 			CompletionTokens: athropicUsage.OutputTokens,
 			TotalTokens:      totalTokens,
 			PromptTokensDetails: models.PromptTokensDetails{

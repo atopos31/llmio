@@ -16,6 +16,7 @@ LLMIO is a Go-based LLM load‑balancing gateway that provides a unified REST AP
 - **Admin Web UI**: React + TypeScript + Tailwind + Vite console for providers, models, associations, logs, and metrics.
 - **Rate limiting & failure handling**: Built‑in rate‑limit fallback and provider connectivity checks for fault isolation.
 - **Local persistence**: Pure Go SQLite (`db/llmio.db`) for config and request logs, ready to use out of the box.
+- **Session tracking**: Pass `session_id` in any request body (works with `extra_body` in OpenAI SDK) to tag logs with a session identifier. Filter and search by `session_id` in the admin UI or via `GET /api/logs?session_id=`.
 
 ## Deployment
 

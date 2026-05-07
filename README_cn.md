@@ -16,6 +16,7 @@ LLMIO 是一个基于 Go 的 LLM 负载均衡网关，为你的 LLM 客户端 (o
 - **可视化管理后台**：Web UI（React + TypeScript + Tailwind + Vite）覆盖提供商、模型、关联、日志与指标。
 - **速率与失败处理**：内建速率限制兜底与提供商连通性检测，保证故障隔离。
 - **本地持久化**：通过纯 Go 实现的 SQLite (`db/llmio.db`) 保存配置和调用记录，开箱即用。
+- **会话追踪**：在任意请求体中传入 `session_id` 字段（OpenAI SDK 可使用 `extra_body`），网关会将其记录到日志中，支持在管理界面搜索或通过 `GET /api/logs?session_id=` 接口过滤。
 
 ## 部署
 

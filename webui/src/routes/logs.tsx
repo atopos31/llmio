@@ -625,6 +625,28 @@ export default function LogsPage() {
                     <DetailCard label={t('detail.cached')} value={formatTokenValue(selectedLog.prompt_tokens_details.cached_tokens)} />
                   </div>
                 </div>
+                {(() => {
+                  const hasPricing = (selectedLog.input_price ?? 0) > 0 || (selectedLog.output_price ?? 0) > 0;
+                  const sym = selectedLog.currency === "USD" ? "$" : "¥";
+                  const cached = selectedLog.prompt_tokens_details?.cached_tokens ?? 0;
+                  const inputTokens = Math.max(0, selectedLog.prompt_tokens - cached);
+                  const fmtCost = (tokens: number, price: number) =>
+                    hasPricing && price > 0 ? `${sym}${(tokens / 1_000_000 * price).toFixed(6)}` : "-";
+                  const totalCost = inputTokens / 1e6 * (selectedLog.input_price ?? 0)
+                    + cached / 1e6 * (selectedLog.cache_read_price ?? 0)
+                    + selectedLog.completion_tokens / 1e6 * (selectedLog.output_price ?? 0);
+                  return (
+                    <div className="space-y-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('detail.billing')}</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                        <DetailCard label={t('detail.billing_input')} value={fmtCost(inputTokens, selectedLog.input_price ?? 0)} />
+                        <DetailCard label={t('detail.billing_cache')} value={fmtCost(cached, selectedLog.cache_read_price ?? 0)} />
+                        <DetailCard label={t('detail.billing_output')} value={fmtCost(selectedLog.completion_tokens, selectedLog.output_price ?? 0)} />
+                        <DetailCard label={t('detail.billing_total')} value={hasPricing ? `${sym}${totalCost.toFixed(6)}` : "-"} />
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </DialogContent>

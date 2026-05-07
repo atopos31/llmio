@@ -48,6 +48,10 @@ type ModelWithProvider struct {
 	CustomerHeaders  map[string]string `gorm:"serializer:json"` // 自定义headers
 	ExtraBody        map[string]any    `gorm:"serializer:json"` // 额外请求体参数
 	Weight           int
+	InputPrice       *float64 `json:"input_price"`
+	CacheReadPrice   *float64 `json:"cache_read_price"`
+	OutputPrice      *float64 `json:"output_price"`
+	Currency         string   `json:"currency"`
 }
 
 type ChatLog struct {
@@ -72,6 +76,10 @@ type ChatLog struct {
 	Tps            float64
 	Size           int // 响应大小 字节
 	Usage
+	InputPrice     float64 `json:"input_price"`
+	CacheReadPrice float64 `json:"cache_read_price"`
+	OutputPrice    float64 `json:"output_price"`
+	Currency       string  `json:"currency"`
 }
 
 func (l ChatLog) WithError(err error) ChatLog {

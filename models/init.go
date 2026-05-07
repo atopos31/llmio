@@ -62,6 +62,19 @@ func Init(ctx context.Context, path string) {
 	if err := ensureLogCleanupPolicyConfig(ctx); err != nil {
 		panic(err)
 	}
+	zero := 0.0
+	if _, err := gorm.G[ModelWithProvider](DB).Where("input_price IS NULL").Update(ctx, "input_price", &zero); err != nil {
+		panic(err)
+	}
+	if _, err := gorm.G[ModelWithProvider](DB).Where("cache_read_price IS NULL").Update(ctx, "cache_read_price", &zero); err != nil {
+		panic(err)
+	}
+	if _, err := gorm.G[ModelWithProvider](DB).Where("output_price IS NULL").Update(ctx, "output_price", &zero); err != nil {
+		panic(err)
+	}
+	if _, err := gorm.G[ModelWithProvider](DB).Where("currency = '' OR currency IS NULL").Update(ctx, "currency", "CNY"); err != nil {
+		panic(err)
+	}
 
 	if env.GetWithDefault("DB_VACUUM", false) {
 		// 启动时执行 VACUUM 回收空间

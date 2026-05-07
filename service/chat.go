@@ -97,19 +97,23 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			slog.Info("using provider", "provider", provider.Name, "model", modelWithProvider.ProviderModel)
 
 			log := models.ChatLog{
-				Name:          before.Model,
-				TraceID:       traceID,
-				ProviderModel: modelWithProvider.ProviderModel,
-				ProviderName:  provider.Name,
-				Status:        consts.StatusRunning,
-				Style:         style,
-				UserAgent:     reqMeta.UserAgent,
-				RemoteIP:      reqMeta.RemoteIP,
-				AuthKeyID:     authKeyID,
-				SessionID:     before.SessionID,
-				ChatIO:        authKeyIOLog,
-				Retry:         retry,
-				ProxyTime:     time.Since(start),
+				Name:           before.Model,
+				TraceID:        traceID,
+				ProviderModel:  modelWithProvider.ProviderModel,
+				ProviderName:   provider.Name,
+				Status:         consts.StatusRunning,
+				Style:          style,
+				UserAgent:      reqMeta.UserAgent,
+				RemoteIP:       reqMeta.RemoteIP,
+				AuthKeyID:      authKeyID,
+				SessionID:      before.SessionID,
+				ChatIO:         authKeyIOLog,
+				Retry:          retry,
+				ProxyTime:      time.Since(start),
+				InputPrice:     lo.FromPtrOr(modelWithProvider.InputPrice, 0),
+				CacheReadPrice: lo.FromPtrOr(modelWithProvider.CacheReadPrice, 0),
+				OutputPrice:    lo.FromPtrOr(modelWithProvider.OutputPrice, 0),
+				Currency:       modelWithProvider.Currency,
 			}
 			// 根据请求原始请求头 是否透传请求头 自定义请求头 构建新的请求头
 			withHeader := lo.FromPtrOr(modelWithProvider.WithHeader, false)

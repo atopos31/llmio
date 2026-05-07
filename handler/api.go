@@ -54,6 +54,10 @@ type ModelWithProviderRequest struct {
 	CustomerHeaders  map[string]string `json:"customer_headers"`
 	ExtraBody        map[string]any    `json:"extra_body"`
 	Weight           int               `json:"weight"`
+	InputPrice       float64           `json:"input_price"`
+	CacheReadPrice   float64           `json:"cache_read_price"`
+	OutputPrice      float64           `json:"output_price"`
+	Currency         string            `json:"currency"`
 }
 
 // ModelProviderStatusRequest represents the request body for updating provider status
@@ -608,6 +612,10 @@ func CreateModelProvider(c *gin.Context) {
 		CustomerHeaders:  customerHeaders,
 		ExtraBody:        extraBody,
 		Weight:           req.Weight,
+		InputPrice:       &req.InputPrice,
+		CacheReadPrice:   &req.CacheReadPrice,
+		OutputPrice:      &req.OutputPrice,
+		Currency:         req.Currency,
 	}
 
 	defaultStatus := true
@@ -659,7 +667,6 @@ func UpdateModelProvider(c *gin.Context) {
 		return
 	}
 
-	// Update fields
 	updates := models.ModelWithProvider{
 		ModelID:          req.ModelID,
 		ProviderID:       req.ProviderID,
@@ -671,6 +678,10 @@ func UpdateModelProvider(c *gin.Context) {
 		CustomerHeaders:  customerHeaders,
 		ExtraBody:        extraBody,
 		Weight:           req.Weight,
+		InputPrice:       &req.InputPrice,
+		CacheReadPrice:   &req.CacheReadPrice,
+		OutputPrice:      &req.OutputPrice,
+		Currency:         req.Currency,
 	}
 
 	if _, err := gorm.G[models.ModelWithProvider](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {

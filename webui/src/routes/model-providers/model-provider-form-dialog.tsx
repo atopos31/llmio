@@ -195,6 +195,24 @@ export function ModelProviderFormDialog({
                   </FormItem>
                 )}
               />
+              <FormField
+                control={form.control}
+                name="weight"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('association_form.weight')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type="number"
+                        min="1"
+                        onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <FormLabel>{t('association_form.capabilities')}</FormLabel>
               <FormField
                 control={form.control}
@@ -360,24 +378,90 @@ export function ModelProviderFormDialog({
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="weight"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('association_form.weight')}</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        type="number"
-                        min="1"
-                        onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm font-medium">{t('association_form.billing_section')}</p>
+                  <p className="text-xs text-muted-foreground">{t('association_form.billing_desc')}</p>
+                </div>
+                <FormField
+                  control={form.control}
+                  name="currency"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('association_form.currency')}</FormLabel>
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <FormControl>
+                          <SelectTrigger className="form-select w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="CNY">CNY (¥)</SelectItem>
+                          <SelectItem value="USD">USD ($)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="input_price"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('association_form.input_price')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="number"
+                          min="0"
+                          step="0.25"
+                          onChange={(e) => field.onChange(Math.round((parseFloat(e.target.value) || 0) * 100) / 100)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="cache_read_price"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('association_form.cache_read_price')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="number"
+                          min="0"
+                          step="0.25"
+                          onChange={(e) => field.onChange(Math.round((parseFloat(e.target.value) || 0) * 100) / 100)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="output_price"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('association_form.output_price')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          type="number"
+                          min="0"
+                          step="0.25"
+                          onChange={(e) => field.onChange(Math.round((parseFloat(e.target.value) || 0) * 100) / 100)}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             </div>
 
             <DialogFooter>

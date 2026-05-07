@@ -81,7 +81,12 @@
     "total": "總計",
     "cached": "快取",
     "io_yes": "是",
-    "io_no": "否"
+    "io_no": "否",
+    "billing": "計費",
+    "billing_input": "輸入",
+    "billing_cache": "快取命中",
+    "billing_output": "輸出",
+    "billing_total": "總計"
   },
   "chat_io": {
     "request_input": "請求輸入",

@@ -36,6 +36,10 @@ export interface ModelWithProvider {
   ExtraBody: Record<string, unknown> | null;
   Status: boolean | null;
   Weight: number;
+  InputPrice: number;
+  CacheReadPrice: number;
+  OutputPrice: number;
+  Currency: string;
 }
 
 export interface PaginatedResponse<T> {
@@ -329,6 +333,10 @@ export async function createModelProvider(association: {
   customer_headers: Record<string, string>;
   extra_body: Record<string, unknown>;
   weight: number;
+  input_price: number;
+  cache_read_price: number;
+  output_price: number;
+  currency: string;
 }): Promise<ModelWithProvider> {
   return apiRequest<ModelWithProvider>('/model-providers', {
     method: 'POST',
@@ -347,6 +355,10 @@ export async function updateModelProvider(id: number, association: {
   customer_headers?: Record<string, string>;
   extra_body?: Record<string, unknown>;
   weight?: number;
+  input_price?: number;
+  cache_read_price?: number;
+  output_price?: number;
+  currency?: string;
 }): Promise<ModelWithProvider> {
   return apiRequest<ModelWithProvider>(`/model-providers/${id}`, {
     method: 'PUT',
@@ -485,6 +497,10 @@ export interface ChatLog {
   total_tokens: number;
   prompt_tokens_details: PromptTokensDetails;
   key_name: string;
+  input_price: number;
+  cache_read_price: number;
+  output_price: number;
+  currency: string;
 }
 
 export interface PromptTokensDetails {

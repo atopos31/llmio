@@ -128,7 +128,13 @@
     "cancel": "Cancel",
     "extra_body": "Extra Request Body",
     "extra_body_placeholder": "{\"chat_template_kwargs\": {\"enable_thinking\": false}}",
-    "extra_body_hint": "Injects key-value pairs from this JSON into the request body sent to the provider, overriding any matching user-supplied parameters"
+    "extra_body_hint": "Injects key-value pairs from this JSON into the request body sent to the provider, overriding any matching user-supplied parameters",
+    "billing_section": "Billing",
+    "billing_desc": "Per million tokens",
+    "currency": "Currency",
+    "input_price": "Input Price",
+    "cache_read_price": "Cache Read Price",
+    "output_price": "Output Price"
   },
   "test_dialog": {
     "title": "Model Test",

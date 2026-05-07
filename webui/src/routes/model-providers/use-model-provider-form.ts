@@ -22,6 +22,10 @@ export const modelProviderFormSchema = z.object({
   weight: z.number().positive({ message: "权重必须大于0" }),
   customer_headers: z.array(headerPairSchema).default([]),
   extra_body: z.string().default(""),
+  input_price: z.number().min(0).default(0),
+  cache_read_price: z.number().min(0).default(0),
+  output_price: z.number().min(0).default(0),
+  currency: z.enum(["CNY", "USD"]).default("CNY"),
 });
 
 export type ModelProviderFormValues = z.input<typeof modelProviderFormSchema>;
@@ -58,6 +62,10 @@ export const useModelProviderForm = ({
       weight: 1,
       customer_headers: [],
       extra_body: "",
+      input_price: 0,
+      cache_read_price: 0,
+      output_price: 0,
+      currency: "CNY",
     };
   };
 
@@ -109,6 +117,10 @@ export const useModelProviderForm = ({
       customer_headers: headers,
       extra_body: extraBody,
       weight: values.weight,
+      input_price: values.input_price ?? 0,
+      cache_read_price: values.cache_read_price ?? 0,
+      output_price: values.output_price ?? 0,
+      currency: values.currency ?? "CNY",
     };
   };
 
@@ -133,6 +145,10 @@ export const useModelProviderForm = ({
       weight: association.Weight,
       customer_headers: headerPairs.length ? headerPairs : [],
       extra_body: extraBodyStr,
+      input_price: association.InputPrice ?? 0,
+      cache_read_price: association.CacheReadPrice ?? 0,
+      output_price: association.OutputPrice ?? 0,
+      currency: (association.Currency as "CNY" | "USD") || "CNY",
     });
     setOpen(true);
   };

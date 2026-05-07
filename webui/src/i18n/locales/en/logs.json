@@ -1,6 +1,7 @@
 {
   "title": "Request Logs",
   "trace_id_placeholder": "Search TraceID...",
+  "session_id_placeholder": "Search Session ID...",
   "id_placeholder": "Search ID...",
   "loading": "Loading logs",
   "no_data": "No request logs",
@@ -56,6 +57,7 @@
     "title": "Log Detail: {{id}}",
     "created_at": "Created At:",
     "trace_id": "Trace ID:",
+    "session_id": "Session ID:",
     "status": "Status:",
     "error_title": "Error Message",
     "basic_info": "Basic Info",

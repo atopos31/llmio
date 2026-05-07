@@ -771,6 +771,7 @@ func GetRequestLogs(c *gin.Context) {
 	style := c.Query("style")
 	authKeyID := c.Query("auth_key_id")
 	traceID := c.Query("trace_id")
+	sessionID := c.Query("session_id")
 	logID := c.Query("id")
 
 	// 构建查询条件
@@ -798,6 +799,10 @@ func GetRequestLogs(c *gin.Context) {
 
 	if traceID != "" {
 		query = query.Where("trace_id = ?", traceID)
+	}
+
+	if sessionID != "" {
+		query = query.Where("session_id = ?", sessionID)
 	}
 
 	if logID != "" {

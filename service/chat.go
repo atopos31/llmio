@@ -106,6 +106,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				UserAgent:     reqMeta.UserAgent,
 				RemoteIP:      reqMeta.RemoteIP,
 				AuthKeyID:     authKeyID,
+				SessionID:     before.SessionID,
 				ChatIO:        authKeyIOLog,
 				Retry:         retry,
 				ProxyTime:     time.Since(start),
@@ -278,10 +279,11 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			if _, err := SaveChatLog(ctx, models.ChatLog{
-				Name:   before.Model,
-				Status: consts.StatusError,
-				Style:  style,
-				Error:  err.Error(),
+				Name:      before.Model,
+				Status:    consts.StatusError,
+				Style:     style,
+				SessionID: before.SessionID,
+				Error:     err.Error(),
 			}); err != nil {
 				return nil, err
 			}

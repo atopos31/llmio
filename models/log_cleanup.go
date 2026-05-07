@@ -18,7 +18,7 @@ type LogCleanupRecord struct {
 // TrimLogCleanupRecords 保留最近 limit 条记录，删除多余的旧记录
 func TrimLogCleanupRecords(ctx context.Context, limit int) {
 	var maxID uint
-	if err := gorm.G[LogCleanupRecord](DB).Select("id").Order("id DESC").Offset(limit - 1).Limit(1).Scan(ctx, &maxID); err != nil || maxID == 0 {
+	if err := gorm.G[LogCleanupRecord](DB).Select("id").Order("id DESC").Offset(limit-1).Limit(1).Scan(ctx, &maxID); err != nil || maxID == 0 {
 		return
 	}
 	DB.Unscoped().Where("id < ?", maxID).Delete(&LogCleanupRecord{})

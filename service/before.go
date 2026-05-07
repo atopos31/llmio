@@ -14,6 +14,7 @@ type Before struct {
 	toolCall         bool
 	structuredOutput bool
 	image            bool
+	SessionID        string
 	raw              []byte
 }
 
@@ -120,6 +121,7 @@ func NewBeforerGemini(model string, stream bool) Beforer {
 			toolCall:         toolCall,
 			structuredOutput: structuredOutput,
 			image:            image,
+			SessionID:        gjson.GetBytes(data, "session_id").String(),
 			raw:              data,
 		}, nil
 	}
@@ -172,6 +174,7 @@ func BeforerOpenAI(data []byte) (*Before, error) {
 		toolCall:         toolCall,
 		structuredOutput: structuredOutput,
 		image:            image,
+		SessionID:        gjson.GetBytes(data, "session_id").String(),
 		raw:              data,
 	}, nil
 }
@@ -213,6 +216,7 @@ func BeforerOpenAIRes(data []byte) (*Before, error) {
 		toolCall:         toolCall,
 		structuredOutput: structuredOutput,
 		image:            image,
+		SessionID:        gjson.GetBytes(data, "session_id").String(),
 		raw:              data,
 	}, nil
 }
@@ -250,6 +254,7 @@ func BeforerAnthropic(data []byte) (*Before, error) {
 		toolCall:         toolCall,
 		structuredOutput: toolCall,
 		image:            image,
+		SessionID:        gjson.GetBytes(data, "session_id").String(),
 		raw:              data,
 	}, nil
 }

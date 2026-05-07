@@ -465,6 +465,7 @@ export interface ChatLog {
   CreatedAt: string;
   Name: string;
   TraceID: string;
+  SessionID?: string;
   ProviderModel: string;
   ProviderName: string;
   Status: string;
@@ -525,6 +526,7 @@ export async function getLogs(
     style?: string;
     authKeyId?: string;
     traceId?: string;
+    sessionId?: string;
     id?: string;
   } = {}
 ): Promise<LogsResponse> {
@@ -539,6 +541,7 @@ export async function getLogs(
   if (filters.style) params.append("style", filters.style);
   if (filters.authKeyId) params.append("auth_key_id", filters.authKeyId);
   if (filters.traceId) params.append("trace_id", filters.traceId);
+  if (filters.sessionId) params.append("session_id", filters.sessionId);
   if (filters.id) params.append("id", filters.id);
 
   return apiRequest<LogsResponse>(`/logs?${params.toString()}`);

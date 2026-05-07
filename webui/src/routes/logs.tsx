@@ -108,6 +108,7 @@ export default function LogsPage() {
   const styleFilter = searchParams.get('style') ?? 'all';
   const authKeyFilter = searchParams.get('authKey') ?? 'all';
   const traceIdFilter = searchParams.get('traceId') ?? '';
+  const sessionIdFilter = searchParams.get('sessionId') ?? '';
   const idFilter = searchParams.get('id') ?? '';
 
   const patchParams = (patch: Record<string, string | number>) => {
@@ -132,6 +133,7 @@ export default function LogsPage() {
   const setStyleFilter = (v: string) => patchParams({ style: v, page: 1 });
   const setAuthKeyFilter = (v: string) => patchParams({ authKey: v, page: 1 });
   const setTraceIdFilter = (v: string) => patchParams({ traceId: v, page: 1 });
+  const setSessionIdFilter = (v: string) => patchParams({ sessionId: v, page: 1 });
   const setIdFilter = (v: string) => patchParams({ id: v, page: 1 });
   // 详情弹窗
   const [selectedLog, setSelectedLog] = useState<ChatLog | null>(null);
@@ -179,6 +181,7 @@ export default function LogsPage() {
         style: styleFilter === "all" ? undefined : styleFilter,
         authKeyId: authKeyFilter === "all" ? undefined : authKeyFilter,
         traceId: traceIdFilter.trim() || undefined,
+        sessionId: sessionIdFilter.trim() || undefined,
         id: idFilter.trim() || undefined,
       });
       setLogs(result.data);
@@ -195,7 +198,7 @@ export default function LogsPage() {
     fetchModels();
     fetchAuthKeys();
     fetchLogs();
-  }, [page, pageSize, providerNameFilter, modelFilter, statusFilter, styleFilter, authKeyFilter, traceIdFilter, idFilter]);
+  }, [page, pageSize, providerNameFilter, modelFilter, statusFilter, styleFilter, authKeyFilter, traceIdFilter, sessionIdFilter, idFilter]);
   const handlePageChange = (newPage: number) => {
     if (newPage >= 1 && newPage <= pages) patchParams({ page: newPage });
   };
@@ -259,6 +262,15 @@ export default function LogsPage() {
                 placeholder={t('trace_id_placeholder')}
                 value={traceIdFilter}
                 onChange={(e) => setTraceIdFilter(e.target.value)}
+                className="h-8 text-xs w-44 lg:w-64 pl-7"
+              />
+            </div>
+            <div className="relative">
+              <Search className="size-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder={t('session_id_placeholder')}
+                value={sessionIdFilter}
+                onChange={(e) => setSessionIdFilter(e.target.value)}
                 className="h-8 text-xs w-44 lg:w-64 pl-7"
               />
             </div>
@@ -555,6 +567,12 @@ export default function LogsPage() {
                       <div className="text-sm">
                         <span className="text-muted-foreground">{t('detail.trace_id')}</span>
                         <span className="font-mono text-xs break-all">{selectedLog.TraceID}</span>
+                      </div>
+                    )}
+                    {selectedLog.SessionID && (
+                      <div className="text-sm">
+                        <span className="text-muted-foreground">{t('detail.session_id')}</span>
+                        <span className="font-mono text-xs break-all">{selectedLog.SessionID}</span>
                       </div>
                     )}
                     <div className="text-sm">

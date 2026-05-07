@@ -1,6 +1,7 @@
 {
   "title": "請求日誌",
   "trace_id_placeholder": "TraceID 搜尋...",
+  "session_id_placeholder": "Session ID 搜尋...",
   "id_placeholder": "ID 搜尋...",
   "loading": "載入日誌資料",
   "no_data": "暫無請求日誌",
@@ -56,6 +57,7 @@
     "title": "日誌詳情: {{id}}",
     "created_at": "建立時間：",
     "trace_id": "Trace ID：",
+    "session_id": "Session ID：",
     "status": "狀態：",
     "error_title": "錯誤訊息",
     "basic_info": "基本資訊",

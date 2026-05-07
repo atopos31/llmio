@@ -84,7 +84,7 @@
     "io_no": "否",
     "billing": "计费",
     "billing_input": "输入",
-    "billing_cache": "缓存命中",
+    "billing_cache": "缓存",
     "billing_output": "输出",
     "billing_total": "总计"
   },

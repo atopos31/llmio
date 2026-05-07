@@ -620,9 +620,9 @@ export default function LogsPage() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('detail.token_usage')}</p>
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <DetailCard label={t('detail.input')} value={formatTokenValue(selectedLog.prompt_tokens)} />
+                    <DetailCard label={t('detail.cached')} value={formatTokenValue(selectedLog.prompt_tokens_details.cached_tokens)} />
                     <DetailCard label={t('detail.output')} value={formatTokenValue(selectedLog.completion_tokens)} />
                     <DetailCard label={t('detail.total')} value={formatTokenValue(selectedLog.total_tokens)} />
-                    <DetailCard label={t('detail.cached')} value={formatTokenValue(selectedLog.prompt_tokens_details.cached_tokens)} />
                   </div>
                 </div>
                 {(() => {

@@ -84,7 +84,7 @@
     "io_no": "否",
     "billing": "計費",
     "billing_input": "輸入",
-    "billing_cache": "快取命中",
+    "billing_cache": "快取",
     "billing_output": "輸出",
     "billing_total": "總計"
   },

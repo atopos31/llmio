@@ -84,7 +84,7 @@
     "io_no": "No",
     "billing": "Billing",
     "billing_input": "Input",
-    "billing_cache": "Cache Hit",
+    "billing_cache": "Cache",
     "billing_output": "Output",
     "billing_total": "Total"
   },

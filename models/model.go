@@ -47,11 +47,11 @@ type ModelWithProvider struct {
 	Status           *bool             // 是否启用
 	CustomerHeaders  map[string]string `gorm:"serializer:json"` // 自定义headers
 	ExtraBody        map[string]any    `gorm:"serializer:json"` // 额外请求体参数
-	Weight           int
-	InputPrice       *float64 `json:"input_price"`
-	CacheReadPrice   *float64 `json:"cache_read_price"`
-	OutputPrice      *float64 `json:"output_price"`
-	Currency         string   `json:"currency"`
+	Weight         int
+	InputPrice     *float64
+	CacheReadPrice *float64
+	OutputPrice    *float64
+	Currency       string
 }
 
 type ChatLog struct {

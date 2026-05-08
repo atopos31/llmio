@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { FieldArrayWithId, UseFormReturn } from "react-hook-form";
 import {
@@ -37,6 +38,47 @@ type ModelProviderFormDialogProps = {
   sortProviderModels: (providerId: number, query: string) => ProviderModel[];
   loadProviderModels: (providerId: number, force?: boolean) => Promise<void>;
 };
+
+function PriceInput({ value, onChange, onBlur, name }: {
+  value: number;
+  onChange: (val: number) => void;
+  onBlur?: () => void;
+  name?: string;
+}) {
+  const [display, setDisplay] = useState(value === 0 ? "" : String(value));
+  const isFocused = useRef(false);
+
+  // 仅在外部重置（非用户输入）时同步 display
+  useEffect(() => {
+    if (!isFocused.current) {
+      setDisplay(value === 0 ? "" : String(value));
+    }
+  }, [value]);
+
+  return (
+    <Input
+      type="number"
+      step="0.25"
+      name={name}
+      onInvalid={(e) => e.preventDefault()}
+      value={display}
+      onFocus={() => { isFocused.current = true; }}
+      onChange={(e) => {
+        setDisplay(e.target.value);
+        const val = parseFloat(e.target.value);
+        if (!isNaN(val)) onChange(Math.round(val * 1000) / 1000);
+      }}
+      onBlur={() => {
+        isFocused.current = false;
+        const val = parseFloat(display);
+        const final = isNaN(val) ? 0 : Math.round(val * 1000) / 1000;
+        onChange(final);
+        setDisplay(final === 0 ? "" : String(final));
+        onBlur?.();
+      }}
+    />
+  );
+}
 
 export function ModelProviderFormDialog({
   open,
@@ -411,13 +453,7 @@ export function ModelProviderFormDialog({
                     <FormItem>
                       <FormLabel>{t('association_form.input_price')}</FormLabel>
                       <FormControl>
-                        <Input
-                          {...field}
-                          type="number"
-                          min="0"
-                          step="0.25"
-                          onChange={(e) => field.onChange(Math.round((parseFloat(e.target.value) || 0) * 100) / 100)}
-                        />
+                        <PriceInput value={field.value ?? 0} onChange={field.onChange} onBlur={field.onBlur} name={field.name} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -430,13 +466,7 @@ export function ModelProviderFormDialog({
                     <FormItem>
                       <FormLabel>{t('association_form.cache_read_price')}</FormLabel>
                       <FormControl>
-                        <Input
-                          {...field}
-                          type="number"
-                          min="0"
-                          step="0.25"
-                          onChange={(e) => field.onChange(Math.round((parseFloat(e.target.value) || 0) * 100) / 100)}
-                        />
+                        <PriceInput value={field.value ?? 0} onChange={field.onChange} onBlur={field.onBlur} name={field.name} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -449,13 +479,7 @@ export function ModelProviderFormDialog({
                     <FormItem>
                       <FormLabel>{t('association_form.output_price')}</FormLabel>
                       <FormControl>
-                        <Input
-                          {...field}
-                          type="number"
-                          min="0"
-                          step="0.25"
-                          onChange={(e) => field.onChange(Math.round((parseFloat(e.target.value) || 0) * 100) / 100)}
-                        />
+                        <PriceInput value={field.value ?? 0} onChange={field.onChange} onBlur={field.onBlur} name={field.name} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

@@ -2,7 +2,7 @@
 
 English | [中文](README_cn.md)
 
-LLMIO is a Go-based LLM load‑balancing gateway that provides a unified REST API, weighted scheduling, logging, and a modern admin UI for LLM clients (openclaw / claude code / codex / gemini cli / cherry studio / open webui). It helps you integrate OpenAI, Anthropic, Gemini, and other model capabilities in a single service.
+LLMIO is a Go-based LLM load‑balancing gateway that provides a unified REST API, weighted scheduling, observability, and a modern admin UI for LLM clients (openclaw / claude code / codex / gemini cli / cherry studio / open webui). It helps you integrate OpenAI, Anthropic, Gemini, and other model capabilities in a single service.
 
 **QQ group: 1083599685**
 
@@ -17,6 +17,7 @@ LLMIO is a Go-based LLM load‑balancing gateway that provides a unified REST AP
 - **Rate limiting & failure handling**: Built‑in rate‑limit fallback and provider connectivity checks for fault isolation.
 - **Local persistence**: Pure Go SQLite (`db/llmio.db`) for config and request logs, ready to use out of the box.
 - **Session tracking**: Pass `session_id` in any request body (works with `extra_body` in OpenAI SDK) to tag logs with a session identifier. Filter and search by `session_id` in the admin UI or via `GET /api/logs?session_id=`.
+- **Observability**: Every request is recorded with TraceID, latency breakdown (proxy / first-chunk / completion time), TPS, token usage (input / cached / output), and optional full IO logging. Per-request cost is calculated from configurable per-million-token prices (CNY / USD) and shown in the log detail view alongside provider and model metadata.
 
 ## Deployment
 

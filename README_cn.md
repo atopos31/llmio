@@ -2,7 +2,7 @@
 
 中文 | [English](README.md)
 
-LLMIO 是一个基于 Go 的 LLM 负载均衡网关，为你的 LLM 客户端 (openclaw / claude code / codex / gemini cli / cherry studio / open webui ) 提供统一的 REST API、权重调度、日志记录与现代化管理界面，帮助你在一个服务中整合 OpenAI、Anthropic、Gemini 等不同模型能力。
+LLMIO 是一个基于 Go 的 LLM 负载均衡网关，为你的 LLM 客户端 (openclaw / claude code / codex / gemini cli / cherry studio / open webui ) 提供统一的 REST API、权重调度、可观测性与现代化管理界面，帮助你在一个服务中整合 OpenAI、Anthropic、Gemini 等不同模型能力。
 
 **QQ 群：1083599685**
 
@@ -17,6 +17,7 @@ LLMIO 是一个基于 Go 的 LLM 负载均衡网关，为你的 LLM 客户端 (o
 - **速率与失败处理**：内建速率限制兜底与提供商连通性检测，保证故障隔离。
 - **本地持久化**：通过纯 Go 实现的 SQLite (`db/llmio.db`) 保存配置和调用记录，开箱即用。
 - **会话追踪**：在任意请求体中传入 `session_id` 字段（OpenAI SDK 可使用 `extra_body`），网关会将其记录到日志中，支持在管理界面搜索或通过 `GET /api/logs?session_id=` 接口过滤。
+- **可观测性**：每次请求均记录 TraceID、延迟分解（代理耗时 / 首包耗时 / 完成耗时）、TPS、Token 用量（输入 / 缓存 / 输出）及可选全量 IO 日志。支持按每百万 Token 单价（人民币 / 美元）计算单次请求费用，在日志详情中与提供商、模型等元数据一并展示。
 
 ## 部署
 

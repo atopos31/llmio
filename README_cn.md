@@ -162,11 +162,16 @@ export GEMINI_API_KEY=<YOUR_TOKEN>
 
 ## 截图
 
-![系统主页](./docs/home.jpeg)
-
-![多对一关联](./docs/with.jpeg)
-
-![日志](./docs/log.jpeg)
+<table>
+  <tr>
+    <td align="center"><img src="./docs/home.jpeg" alt="系统主页" /><br/><sub><b>系统主页</b> — 请求量、Token 用量与提供商指标总览</sub></td>
+    <td align="center"><img src="./docs/with.jpeg" alt="多对一关联" /><br/><sub><b>模型关联</b> — 为同一模型配置多个提供商，支持权重、能力筛选与计费单价</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="./docs/log.jpeg" alt="日志" /><br/><sub><b>请求日志</b> — 按模型、状态、TraceID、Session ID 等多维度检索与筛选</sub></td>
+    <td align="center"><img src="./docs/chat-io.png" alt="会话 IO" /><br/><sub><b>会话 IO</b> — 查看单次请求的完整输入输出、延迟分解与 Token 计费明细</sub></td>
+  </tr>
+</table>
 
 ## 许可证
 

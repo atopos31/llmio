@@ -162,11 +162,16 @@ export GEMINI_API_KEY=<YOUR_TOKEN>
 
 ## Screenshots
 
-![Dashboard](./docs/home.jpeg)
-
-![Associations](./docs/with.jpeg)
-
-![Logs](./docs/log.jpeg)
+<table>
+  <tr>
+    <td align="center"><img src="./docs/home.jpeg" alt="Dashboard" /><br/><sub><b>Dashboard</b> — Overview of request volume, token usage and provider metrics</sub></td>
+    <td align="center"><img src="./docs/with.jpeg" alt="Associations" /><br/><sub><b>Model Associations</b> — Configure multiple providers per model with weight, capability filters and per-token pricing</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="./docs/log.jpeg" alt="Logs" /><br/><sub><b>Request Logs</b> — Multi-dimensional search and filtering by model, status, TraceID, Session ID and more</sub></td>
+    <td align="center"><img src="./docs/chat-io.png" alt="Chat IO" /><br/><sub><b>Session IO</b> — Inspect full request / response, latency breakdown and per-token billing detail for any log entry</sub></td>
+  </tr>
+</table>
 
 ## License
 

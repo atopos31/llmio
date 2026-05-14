@@ -41,7 +41,7 @@ import enConfig from './locales/en/config.json';
 export const SUPPORTED_LANGUAGES = [
   { code: 'zh-CN', label: '简体中文' },
   { code: 'zh-TW', label: '繁體中文' },
-  { code: 'en',    label: 'English' },
+  { code: 'en-US', label: 'English' },
 ] as const;
 
 export type SupportedLanguage = typeof SUPPORTED_LANGUAGES[number]['code'];
@@ -52,40 +52,40 @@ void i18n
   .init({
     resources: {
       'zh-CN': {
-        common:      zhCNCommon,
-        layout:      zhCNLayout,
-        home:        zhCNHome,
-        quickstart:  zhCNQuickstart,
-        login:       zhCNLogin,
-        providers:   zhCNProviders,
-        models:      zhCNModels,
-        logs:        zhCNLogs,
+        common: zhCNCommon,
+        layout: zhCNLayout,
+        home: zhCNHome,
+        quickstart: zhCNQuickstart,
+        login: zhCNLogin,
+        providers: zhCNProviders,
+        models: zhCNModels,
+        logs: zhCNLogs,
         'auth-keys': zhCNAuthKeys,
-        config:      zhCNConfig,
+        config: zhCNConfig,
       },
       'zh-TW': {
-        common:      zhTWCommon,
-        layout:      zhTWLayout,
-        home:        zhTWHome,
-        quickstart:  zhTWQuickstart,
-        login:       zhTWLogin,
-        providers:   zhTWProviders,
-        models:      zhTWModels,
-        logs:        zhTWLogs,
+        common: zhTWCommon,
+        layout: zhTWLayout,
+        home: zhTWHome,
+        quickstart: zhTWQuickstart,
+        login: zhTWLogin,
+        providers: zhTWProviders,
+        models: zhTWModels,
+        logs: zhTWLogs,
         'auth-keys': zhTWAuthKeys,
-        config:      zhTWConfig,
+        config: zhTWConfig,
       },
-      en: {
-        common:      enCommon,
-        layout:      enLayout,
-        home:        enHome,
-        quickstart:  enQuickstart,
-        login:       enLogin,
-        providers:   enProviders,
-        models:      enModels,
-        logs:        enLogs,
+      'en-US': {
+        common: enCommon,
+        layout: enLayout,
+        home: enHome,
+        quickstart: enQuickstart,
+        login: enLogin,
+        providers: enProviders,
+        models: enModels,
+        logs: enLogs,
         'auth-keys': enAuthKeys,
-        config:      enConfig,
+        config: enConfig,
       },
     },
     fallbackLng: 'zh-CN',
@@ -110,16 +110,16 @@ declare module 'i18next' {
   interface CustomTypeOptions {
     defaultNS: 'common';
     resources: {
-      common:      typeof zhCNCommon;
-      layout:      typeof zhCNLayout;
-      home:        typeof zhCNHome;
-      quickstart:  typeof zhCNQuickstart;
-      login:       typeof zhCNLogin;
-      providers:   typeof zhCNProviders;
-      models:      typeof zhCNModels;
-      logs:        typeof zhCNLogs;
+      common: typeof zhCNCommon;
+      layout: typeof zhCNLayout;
+      home: typeof zhCNHome;
+      quickstart: typeof zhCNQuickstart;
+      login: typeof zhCNLogin;
+      providers: typeof zhCNProviders;
+      models: typeof zhCNModels;
+      logs: typeof zhCNLogs;
       'auth-keys': typeof zhCNAuthKeys;
-      config:      typeof zhCNConfig;
+      config: typeof zhCNConfig;
     };
   }
 }

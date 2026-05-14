@@ -5,6 +5,13 @@ import { Link, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   FaHome,
   FaRocket,
   FaCloud,
@@ -150,19 +157,18 @@ export default function Layout() {
           </Badge>
 
           {/* Language switcher */}
-          <div className="flex items-center gap-1">
-            {SUPPORTED_LANGUAGES.map((lang) => (
-              <Button
-                key={lang.code}
-                variant={i18n.language === lang.code ? "secondary" : "ghost"}
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => handleLanguageChange(lang.code)}
-              >
-                {lang.label}
-              </Button>
-            ))}
-          </div>
+          <Select value={i18n.language} onValueChange={(v) => handleLanguageChange(v as SupportedLanguage)}>
+            <SelectTrigger className="!h-6 !py-0 w-[80px] text-xs px-2 [&_svg:not([class*='size-'])]:size-3">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SUPPORTED_LANGUAGES.map((lang) => (
+                <SelectItem key={lang.code} value={lang.code} className="text-xs">
+                  {lang.code}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           <Button
             variant="ghost"

@@ -216,29 +216,28 @@ func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start ti
 		return nil, nil, err
 	}
 
-	var athropicUsage AnthropicUsage
+	var anthropicUsage AnthropicUsage
 	usage := []byte(usageStr)
 	if json.Valid(usage) {
-		if err := json.Unmarshal(usage, &athropicUsage); err != nil {
+		if err := json.Unmarshal(usage, &anthropicUsage); err != nil {
 			return nil, nil, err
 		}
 	}
 
 	chunkTime := time.Since(start) - firstChunkTime
-	totalTokens := athropicUsage.InputTokens + athropicUsage.OutputTokens
 
 	return &models.ChatLog{
 		FirstChunkTime: firstChunkTime,
 		ChunkTime:      chunkTime,
 		Usage: models.Usage{
-			PromptTokens:     athropicUsage.InputTokens + athropicUsage.CacheReadInputTokens,
-			CompletionTokens: athropicUsage.OutputTokens,
-			TotalTokens:      totalTokens,
+			PromptTokens:     anthropicUsage.InputTokens + anthropicUsage.CacheReadInputTokens,
+			CompletionTokens: anthropicUsage.OutputTokens,
+			TotalTokens:      anthropicUsage.InputTokens + anthropicUsage.CacheReadInputTokens + anthropicUsage.OutputTokens,
 			PromptTokensDetails: models.PromptTokensDetails{
-				CachedTokens: athropicUsage.CacheReadInputTokens,
+				CachedTokens: anthropicUsage.CacheReadInputTokens,
 			},
 		},
-		Tps:  float64(athropicUsage.OutputTokens) / time.Since(start).Seconds(),
+		Tps:  float64(anthropicUsage.OutputTokens) / time.Since(start).Seconds(),
 		Size: size,
 	}, &output, nil
 }

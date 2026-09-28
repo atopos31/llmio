@@ -46,7 +46,7 @@ func TestBuildHeadersStripsAcceptEncoding(t *testing.T) {
 	src.Set("X-Trace", "keep-me")
 
 	t.Run("透传模式下剔除且保留其他头", func(t *testing.T) {
-		header := BuildHeaders(src, true, nil, false)
+		header := BuildHeaders(src, true, nil, false, HeaderVars{})
 		if got := header.Get("Accept-Encoding"); got != "" {
 			t.Errorf("Accept-Encoding = %q, want empty", got)
 		}
@@ -59,16 +59,30 @@ func TestBuildHeadersStripsAcceptEncoding(t *testing.T) {
 	})
 
 	t.Run("非透传模式下为空", func(t *testing.T) {
-		header := BuildHeaders(src, false, nil, false)
+		header := BuildHeaders(src, false, nil, false, HeaderVars{})
 		if got := header.Get("Accept-Encoding"); got != "" {
 			t.Errorf("Accept-Encoding = %q, want empty", got)
 		}
 	})
 
 	t.Run("自定义头无法重新引入", func(t *testing.T) {
-		header := BuildHeaders(src, true, map[string]string{"Accept-Encoding": "gzip"}, false)
+		header := BuildHeaders(src, true, map[string]string{"Accept-Encoding": "gzip"}, false, HeaderVars{})
 		if got := header.Get("Accept-Encoding"); got != "" {
 			t.Errorf("Accept-Encoding = %q, want empty even when set via customer headers", got)
+		}
+	})
+
+	t.Run("流式请求关闭 Nginx 缓冲", func(t *testing.T) {
+		header := BuildHeaders(src, false, nil, true, HeaderVars{})
+		if got := header.Get("X-Accel-Buffering"); got != "no" {
+			t.Errorf("X-Accel-Buffering = %q, want no", got)
+		}
+	})
+
+	t.Run("非流式请求不设置缓冲头", func(t *testing.T) {
+		header := BuildHeaders(src, false, nil, false, HeaderVars{})
+		if got := header.Get("X-Accel-Buffering"); got != "" {
+			t.Errorf("X-Accel-Buffering = %q, want empty", got)
 		}
 	})
 }
@@ -107,7 +121,7 @@ func TestBuildHeadersKeepsGzipResponseReadable(t *testing.T) {
 	src.Set("Content-Type", "application/json")
 
 	// withHeader=true 即开启请求头透传的关联配置
-	header := BuildHeaders(src, true, nil, false)
+	header := BuildHeaders(src, true, nil, false, HeaderVars{})
 
 	req, err := http.NewRequest(http.MethodPost, upstream.URL, strings.NewReader(`{"model":"mock-model"}`))
 	if err != nil {

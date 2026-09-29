@@ -94,6 +94,10 @@ func main() {
 		api.GET("/metrics/use/:days", handler.Metrics)
 		api.GET("/metrics/counts", handler.Counts)
 		api.GET("/metrics/projects", handler.ProjectCounts)
+		// Analytics aggregation. 单端点覆盖时间序列、多维下钻、延迟分布与错误分析，
+		// 保证一次请求对应一个时间切片（见 handler/stats.go 的说明）。
+		api.GET("/metrics/stats", handler.Stats)
+		api.GET("/metrics/granularities", handler.StatsGranularities)
 		// Provider management
 		api.GET("/providers/template", handler.GetProviderTemplates)
 		api.GET("/providers", handler.GetProviders)

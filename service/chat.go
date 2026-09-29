@@ -280,6 +280,11 @@ func BuildHeaders(source http.Header, withHeader bool, customHeaders map[string]
 		header.Set(key, value)
 	}
 
+	// Accept-Encoding 必须留给 Go Transport 自行协商：一旦该头被显式设置（透传客户端头或自定义头），
+	// Transport 就不再透明解压上游响应，压缩后的字节会被原样记录进 ChatIO（乱码），
+	// 同时 usage 解析失败导致 token 统计为 0。放在自定义头之后删除，避免配置重新引入该问题。
+	header.Del("Accept-Encoding")
+
 	return header
 }
 

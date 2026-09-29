@@ -1,8 +1,28 @@
 # llmio_dashboard → llmio 合并与整站重设计方案
 
-> 状态：待评审 · 拟稿 2026-09-29
+> 状态：已评审 · 进行中（分支 `feat/console-redesign`）
+> 拟稿 2026-09-29 · 最后更新 2026-09-29
 > 目标：把 `E:\Projects\llmio_dashboard` 的能力并入 `E:\Projects\llmio`，**同时把整个管理台重新设计**——重设即合并方案。
 > 前置阅读：`.impeccable.md`（设计上下文与已验证色板）
+
+## 进度
+
+| 步 | 状态 | 提交 |
+|---|---|---|
+| S1 后端聚合引擎 | ✅ 完成 | `3edf182` feat(api) · `4a8c088` perf(models) |
+| S2 设计系统落地 | ⬜ 未开始 | — |
+| S3 新壳 + 总览 + 分析页 | ⬜ 未开始 | — |
+| S4 日志 / 请求内容 / 对比 | ⬜ 未开始 | — |
+| S5 配额后端 + 配额页 | ⬜ 未开始 | — |
+| S6 配置类页面 + 收尾 | ⬜ 未开始 | — |
+
+S1 交付内容与偏差：
+
+- 新增 `GET /api/metrics/stats`（单端点：趋势 / 五维下钻 / 延迟 / 错误 / 排行榜）与 `GET /api/metrics/granularities`
+- `service/stats.go` 全部 30 个函数语句覆盖 **100%**；`handler/stats.go` 同理
+- ChatLog 补 4 个索引（含 3 个复合），并展开 `gorm.Model` 以便给 `created_at` 打复合标签
+- 顺带修掉一处既有问题：`models` 的测试未关闭 SQLite 连接，导致 `go test ./...` 在 Windows 上恒为红（`764f2f7`）
+- **偏差**：既有的 `/api/metrics/use|counts|projects` 未按原计划改为转调新引擎。它们带 `topN=5` + `"others"` 塌缩，直接转调会改变响应结构并打断现有前端；留待 S3/S4 页面迁移后一并退役
 
 ---
 

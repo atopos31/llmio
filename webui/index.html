@@ -1,13 +1,30 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="./src/assets/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
     <title>LLMIO</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+    <!--
+      字体自托管（见 src/assets/fonts/）。
+      刻意不引 Google Fonts CDN：本项目是离线单二进制工具，部署环境常无外网出口，
+      外链字体会阻塞首屏渲染并在离线时回退到默认字体。
+    -->
+    <script>
+      // 首屏主题初始化，必须内联且早于样式表，否则会出现"先浅色再变深色"的闪烁。
+      // 与 src/components/theme-provider.tsx 的 THEME_STORAGE_KEY 保持一致。
+      // 只在用户显式选过 light/dark 时写属性；选 system 时交给 CSS 的
+      // prefers-color-scheme，这样系统切换外观时页面才会跟随。
+      (function () {
+        try {
+          var s = localStorage.getItem("llmio-theme");
+          if (s === "dark" || s === "light") {
+            document.documentElement.setAttribute("data-theme", s);
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

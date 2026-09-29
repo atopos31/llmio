@@ -14,7 +14,11 @@
   "header": {
     "current_version": "目前版本",
     "new_version_hint": "有新版本 {{version}} 可用",
-    "logout": "登出"
+    "logout": "登出",
+    "theme_label": "外觀",
+    "theme_light": "淺色",
+    "theme_dark": "深色",
+    "theme_system": "跟隨系統"
   },
   "update_dialog": {
     "title": "發現新版本 {{version}}",

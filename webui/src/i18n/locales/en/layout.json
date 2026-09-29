@@ -14,7 +14,11 @@
   "header": {
     "current_version": "Current Version",
     "new_version_hint": "New version {{version}} available",
-    "logout": "Logout"
+    "logout": "Logout",
+    "theme_label": "Appearance",
+    "theme_light": "Light",
+    "theme_dark": "Dark",
+    "theme_system": "System"
   },
   "update_dialog": {
     "title": "New Version Available: {{version}}",

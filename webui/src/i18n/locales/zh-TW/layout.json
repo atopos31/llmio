@@ -6,7 +6,10 @@
     "models": "模型管理",
     "logs": "請求日誌",
     "auth_keys": "金鑰管理",
-    "config": "系統設定"
+    "config": "系統設定",
+    "group_observe": "觀察",
+    "group_config": "設定",
+    "primary_label": "主導覽"
   },
   "sidebar": {
     "collapse": "收起選單"
@@ -18,7 +21,9 @@
     "theme_label": "外觀",
     "theme_light": "淺色",
     "theme_dark": "深色",
-    "theme_system": "跟隨系統"
+    "theme_system": "跟隨系統",
+    "language_label": "介面語言",
+    "skip_to_content": "跳至主內容"
   },
   "update_dialog": {
     "title": "發現新版本 {{version}}",

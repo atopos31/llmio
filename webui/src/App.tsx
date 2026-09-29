@@ -24,8 +24,15 @@ const PageLoader = () => (
 );
 
 function App() {
+  // 不显式传 storageKey：让 ThemeProvider 用 @/lib/theme 里的默认键，
+  // 与 index.html 中首屏内联脚本读取的键保持同一真相来源。
+  //
+  // 原先这里硬编码了另一个 storageKey，与首屏脚本读的键不一致，
+  // 会让首屏脚本写入的主题 Provider 读不到，表现为刷新后主题闪回、
+  // 或切换后下次打开又变回去。这类错误不报错，由
+  // src/lib/design-tokens.test.ts 的断言守住。
   return (
-    <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
+    <ThemeProvider defaultTheme="system">
       <Router>
         <Suspense fallback={<PageLoader />}>
           <Routes>

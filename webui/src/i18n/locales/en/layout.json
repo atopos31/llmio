@@ -6,7 +6,10 @@
     "models": "Models",
     "logs": "Request Logs",
     "auth_keys": "API Keys",
-    "config": "System Config"
+    "config": "System Config",
+    "group_observe": "Observe",
+    "group_config": "Configure",
+    "primary_label": "Primary navigation"
   },
   "sidebar": {
     "collapse": "Collapse Menu"
@@ -18,7 +21,9 @@
     "theme_label": "Appearance",
     "theme_light": "Light",
     "theme_dark": "Dark",
-    "theme_system": "System"
+    "theme_system": "System",
+    "language_label": "Language",
+    "skip_to_content": "Skip to content"
   },
   "update_dialog": {
     "title": "New Version Available: {{version}}",

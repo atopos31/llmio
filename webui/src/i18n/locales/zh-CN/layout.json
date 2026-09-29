@@ -6,7 +6,10 @@
     "models": "模型管理",
     "logs": "请求日志",
     "auth_keys": "密钥管理",
-    "config": "系统配置"
+    "config": "系统配置",
+    "group_observe": "观察",
+    "group_config": "配置",
+    "primary_label": "主导航"
   },
   "sidebar": {
     "collapse": "收起菜单"
@@ -18,7 +21,9 @@
     "theme_label": "外观",
     "theme_light": "浅色",
     "theme_dark": "深色",
-    "theme_system": "跟随系统"
+    "theme_system": "跟随系统",
+    "language_label": "界面语言",
+    "skip_to_content": "跳到主内容"
   },
   "update_dialog": {
     "title": "发现新版本 {{version}}",

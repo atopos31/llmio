@@ -1,6 +1,8 @@
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
+import { THEME_STORAGE_KEY } from "@/lib/theme"
+
 /**
  * 设计系统的回归测试。
  *
@@ -242,6 +244,20 @@ describe("无障碍基线", () => {
     expect(css).not.toMatch(/--foreground:\s*(#000|#000000)\b/)
   })
 
+  it("首屏脚本与 ThemeProvider 用同一个 storageKey", () => {
+    // 这两处曾经不一致：index.html 的内联脚本读 'llmio-theme'，
+    // 而 App.tsx 给 ThemeProvider 传了 'vite-ui-theme'。
+    // 后果是首屏脚本写的主题 Provider 读不到，表现为刷新后主题闪回/切换不生效。
+    // 这类错误不会报错，只能靠断言守住。
+    expect(html).toContain(THEME_STORAGE_KEY)
+    expect(html).not.toContain("vite-ui-theme")
+
+    // 断言前先剥掉注释：说明性文字里会提到被禁的写法，
+    // 不剥离的话会把注释本身判为违规
+    const app = stripComments(read("src/App.tsx"))
+    expect(app).not.toMatch(/storageKey\s*=/)
+  })
+
   it("首屏主题初始化脚本内联在 html 中（避免闪烁）", () => {
     expect(html).toContain("llmio-theme")
     expect(html).toMatch(/<script>[\s\S]*data-theme[\s\S]*<\/script>/)
@@ -263,6 +279,11 @@ describe("文档与代码一致", () => {
     expect(impeccable).toContain("键盘")
   })
 })
+
+// 剥掉行注释与块注释，用于在断言里排除说明性文字
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "")
+}
 
 /** 递归收集源码文件（跳过测试与夹具）。 */
 function collectSourceFiles(dir: string): string[] {

@@ -1,225 +1,461 @@
-"use client"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
+import { AlertTriangle, ArrowUpRight, RefreshCw } from "lucide-react"
+import { Link } from "react-router-dom"
+import { toast } from "sonner"
 
-import { useState, useEffect, Suspense, lazy, memo, useCallback } from "react";
-import { useTranslation } from "react-i18next";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import Loading from "@/components/loading";
+import { FirstChunkHistogram, RequestTrendChart, TokenTrendChart } from "@/components/charts/trend-charts"
+import { StatusMark } from "@/components/status-mark"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { getStats, type StatsResult } from "@/lib/api"
 import {
-  getMetrics,
-  getModelCounts,
-  getProjectCounts
-} from "@/lib/api";
-import type { MetricsData, ModelCount, ProjectCount } from "@/lib/api";
-import { toast } from "sonner";
-import { RefreshCw } from "lucide-react";
+  compactNumber,
+  formatCost,
+  formatNumber,
+  formatPercent,
+  formatSeconds,
+} from "@/lib/format"
 
-// 懒加载图表组件
-const ChartPieDonutText = lazy(() => import("@/components/charts/pie-chart").then(module => ({ default: module.ChartPieDonutText })));
-const ModelRankingChart = lazy(() => import("@/components/charts/bar-chart").then(module => ({ default: module.ModelRankingChart })));
-const ProjectChartPieDonutText = lazy(() => import("@/components/charts/project-pie-chart").then(module => ({ default: module.ProjectChartPieDonutText })));
-const ProjectRankingChart = lazy(() => import("@/components/charts/project-bar-chart").then(module => ({ default: module.ProjectRankingChart })));
+/** 时间范围预设。值与后端的 from/to 参数直接对应。 */
+type RangeKey = "today" | "last_24h" | "last_7d" | "last_30d"
 
-// Animated counter component
-const AnimatedCounter = ({ value, duration = 1000 }: { value: number; duration?: number }) => {
-  const [count, setCount] = useState(0);
+const RANGE_HOURS: Record<RangeKey, number | "today"> = {
+  today: "today",
+  last_24h: 24,
+  last_7d: 24 * 7,
+  last_30d: 24 * 30,
+}
+
+/** 范围 → 后端接受的秒级时间戳。 */
+function rangeToQuery(key: RangeKey): { from: string; to: string } {
+  const now = new Date()
+  const to = Math.floor(now.getTime() / 1000)
+  const spec = RANGE_HOURS[key]
+  if (spec === "today") {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    return { from: String(Math.floor(start.getTime() / 1000)), to: String(to) }
+  }
+  return { from: String(to - spec * 3600), to: String(to) }
+}
+
+export default function Home() {
+  const { t } = useTranslation(["home", "common"])
+  const [range, setRange] = useState<RangeKey>("last_24h")
+  const [stats, setStats] = useState<StatsResult | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true)
+      try {
+        const data = await getStats(rangeToQuery(range))
+        setStats(data)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        toast.error(t("home:load_failed", { message }))
+      } finally {
+        setLoading(false)
+      }
+    },
+    [range, t]
+  )
 
   useEffect(() => {
-    let startTime: number | null = null;
-    const animateCount = (timestamp: number) => {
-      if (!startTime) startTime = timestamp;
-      const progress = timestamp - startTime;
-      const progressRatio = Math.min(progress / duration, 1);
-      const currentValue = Math.floor(progressRatio * value);
+    void load()
+  }, [load])
 
-      setCount(currentValue);
+  const kpi = stats?.kpi
+  const hasData = (kpi?.total ?? 0) > 0
 
-      if (progress < duration) {
-        requestAnimationFrame(animateCount);
-      }
-    };
+  // 按实体的稳定全集分配颜色。这里用 stats.byModel 的**全部**名称（而非
+  // 图表里出现的子集）作为 universe，保证筛选后颜色不漂移。
+  const modelNames = useMemo(
+    () => (stats?.byModel ?? []).map((g) => g.name),
+    [stats]
+  )
 
-    requestAnimationFrame(animateCount);
-  }, [value, duration]);
-
-  return <div className="text-3xl font-bold">{count.toLocaleString()}</div>;
-};
-
-type HomeHeaderProps = {
-  onRefresh: () => void;
-};
-
-const HomeHeader = memo(({ onRefresh }: HomeHeaderProps) => {
-  const { t } = useTranslation('home');
   return (
-    <div className="flex flex-col gap-2 flex-shrink-0">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className="text-2xl font-bold tracking-tight">{t('title')}</h2>
+    <div className="flex h-full min-h-0 flex-col gap-3 p-1">
+      {/* 筛选行在内容之上一整行：它作用于页面上所有图表，因此不能塞进某张卡片里 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="mr-auto text-xl font-semibold tracking-tight">{t("home:title")}</h2>
+
+        <div
+          role="radiogroup"
+          aria-label={t("home:range.label")}
+          className="flex items-center gap-0.5 rounded-md border border-border bg-background p-0.5"
+        >
+          {(["today", "last_24h", "last_7d", "last_30d"] as RangeKey[]).map((key) => {
+            const active = range === key
+            return (
+              <Button
+                key={key}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                variant="ghost"
+                size="sm"
+                className={
+                  active
+                    ? "h-7 bg-accent px-2.5 text-xs text-accent-foreground"
+                    : "h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                }
+                onClick={() => setRange(key)}
+              >
+                {t(`home:range.${key}` as never)}
+              </Button>
+            )
+          })}
         </div>
+
         <Button
-          onClick={onRefresh}
           variant="outline"
           size="icon"
-          className="ml-auto shrink-0"
-          aria-label={t('refresh')}
-          title={t('refresh')}
+          className="size-8"
+          onClick={() => void load()}
+          aria-label={t("home:refresh")}
+          title={t("home:refresh")}
         >
           <RefreshCw className="size-4" />
         </Button>
       </div>
-    </div>
-  );
-});
 
-export default function Home() {
-  const [loading, setLoading] = useState(true);
+      {stats?.truncated && (
+        <div className="flex items-start gap-2 rounded-md border border-border bg-accent/40 px-3 py-2 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-status-warning-ink" aria-hidden="true" />
+          <span>{t("home:truncated_warning")}</span>
+        </div>
+      )}
 
-  // Real data from APIs
-  const [todayMetrics, setTodayMetrics] = useState<MetricsData>({ reqs: 0, tokens: 0 });
-  const [totalMetrics, setTotalMetrics] = useState<MetricsData>({ reqs: 0, tokens: 0 });
-  const [modelCounts, setModelCounts] = useState<ModelCount[]>([]);
-  const [projectCounts, setProjectCounts] = useState<ProjectCount[]>([]);
-
-  const { t } = useTranslation('home');
-
-  const fetchTodayMetrics = useCallback(async () => {
-    try {
-      const data = await getMetrics(0);
-      setTodayMetrics(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(t('errors.today_metrics', { message }));
-      console.error(err);
-    }
-  }, [t]);
-
-  const fetchTotalMetrics = useCallback(async () => {
-    try {
-      const data = await getMetrics(30);
-      setTotalMetrics(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(t('errors.total_metrics', { message }));
-      console.error(err);
-    }
-  }, [t]);
-
-  const fetchModelCounts = useCallback(async () => {
-    try {
-      const data = await getModelCounts();
-      setModelCounts(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(t('errors.model_counts', { message }));
-      console.error(err);
-    }
-  }, [t]);
-
-  const fetchProjectCounts = useCallback(async () => {
-    try {
-      const data = await getProjectCounts();
-      setProjectCounts(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(t('errors.project_counts', { message }));
-      console.error(err);
-    }
-  }, [t]);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    await Promise.all([fetchTodayMetrics(), fetchTotalMetrics(), fetchModelCounts(), fetchProjectCounts()]);
-    setLoading(false);
-  }, [fetchModelCounts, fetchProjectCounts, fetchTodayMetrics, fetchTotalMetrics]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  return (
-    <div className="h-full min-h-0 flex flex-col gap-2 p-1">
-      <HomeHeader onRefresh={() => void load()} />
-
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {loading ? (
-          <div className="flex h-full items-center justify-center">
-            <Loading message={t('loading')} />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {loading && !stats ? (
+          <div className="space-y-3">
+            <div className="h-20 animate-pulse rounded-lg bg-muted" />
+            <div className="h-56 animate-pulse rounded-lg bg-muted" />
           </div>
+        ) : !hasData ? (
+          <EmptyState
+            title={t("home:empty.no_data")}
+            hint={t("home:empty.no_data_hint")}
+          />
         ) : (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>{t('cards.today_requests')}</CardTitle>
-                  <CardDescription>{t('cards.today_requests_desc')}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <AnimatedCounter value={todayMetrics.reqs} />
-                </CardContent>
-              </Card>
+          <div className="space-y-3">
+            {/* 主视觉数字。全页仅此一个 ≥48px 的数字，用比例数字（tabular 会让它显松） */}
+            <HeroRow
+              inFlight={kpi!.running}
+              inFlightLabel={t("home:in_flight")}
+              inFlightHint={t("home:in_flight_hint")}
+            />
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>{t('cards.today_tokens')}</CardTitle>
-                  <CardDescription>{t('cards.today_tokens_desc')}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <AnimatedCounter value={todayMetrics.tokens} />
-                </CardContent>
-              </Card>
+            <KpiRow stats={stats!} />
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>{t('cards.monthly_requests')}</CardTitle>
-                  <CardDescription>{t('cards.monthly_requests_desc')}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <AnimatedCounter value={totalMetrics.reqs} />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>{t('cards.monthly_tokens')}</CardTitle>
-                  <CardDescription>{t('cards.monthly_tokens_desc')}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <AnimatedCounter value={totalMetrics.tokens} />
-                </CardContent>
-              </Card>
+            {/* 趋势拆成两张单轴图。原实现把请求数与 Token 放一张图用双轴，
+                那会凭空造出数据里没有的相关性（规范里的头号禁项）。 */}
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <ChartCard title={t("home:trend.requests")}>
+                <RequestTrendChart data={stats!.trend} />
+              </ChartCard>
+              <ChartCard title={t("home:trend.tokens")}>
+                <TokenTrendChart data={stats!.trend} />
+              </ChartCard>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Suspense fallback={<div className="h-64 flex items-center justify-center">
-                <Loading message={t('loading_chart')} />
-              </div>}>
-                <ChartPieDonutText data={modelCounts} />
-              </Suspense>
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              <ChartCard
+                title={t("home:latency.title")}
+                note={t("home:latency.percentile_note")}
+              >
+                <FirstChunkHistogram samples={stats!.latency.firstChunk.list} />
+                <PercentileRow stats={stats!} />
+              </ChartCard>
 
-              <Suspense fallback={<div className="h-64 flex items-center justify-center">
-                <Loading message={t('loading_chart')} />
-              </div>}>
-                <ProjectChartPieDonutText data={projectCounts} />
-              </Suspense>
+              <ChartCard title={t("home:errors.title")}>
+                <ErrorList stats={stats!} unavailable={t("home:errors.empty")} />
+              </ChartCard>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Suspense fallback={<div className="h-64 flex items-center justify-center">
-                <Loading message={t('loading_chart')} />
-              </div>}>
-                <ModelRankingChart data={modelCounts} />
-              </Suspense>
-
-              <Suspense fallback={<div className="h-64 flex items-center justify-center">
-                <Loading message={t('loading_chart')} />
-              </div>}>
-                <ProjectRankingChart data={projectCounts} />
-              </Suspense>
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+              <LeaderboardCard
+                title={t("home:top.tps")}
+                rows={stats!.topTps}
+                metric={(r) => `${r.tps.toFixed(1)} ${t("home:top.tps")}`}
+                empty={t("home:top.empty")}
+              />
+              <LeaderboardCard
+                title={t("home:top.slowest")}
+                rows={stats!.slowest}
+                metric={(r) => formatSeconds(r.firstChunkMs / 1000)}
+                empty={t("home:top.empty")}
+              />
+              <LeaderboardCard
+                title={t("home:top.recent_errors")}
+                rows={stats!.recentErrors}
+                metric={(r) => r.error?.slice(0, 40) ?? ""}
+                empty={t("home:top.empty")}
+                tone="critical"
+              />
             </div>
+
+            {/* 与模型名的稳定全集挂钩，保证未来加图表时颜色口径一致 */}
+            <span className="sr-only">{modelNames.join(",")}</span>
           </div>
         )}
       </div>
     </div>
-  );
+  )
+}
+
+/**
+ * 主视觉区。
+ *
+ * 首屏回答"现在正在发生什么"，所以主角是**在途请求数**而不是累计量——
+ * 累计数字说明不了当下是否健康。累计量随后在 KPI 行里呈现。
+ */
+function HeroRow({
+  inFlight,
+  inFlightLabel,
+  inFlightHint,
+}: {
+  inFlight: number
+  inFlightLabel: string
+  inFlightHint: string
+}) {
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-end gap-x-8 gap-y-2 py-4">
+        <div>
+          <div className="text-xs text-muted-foreground">{inFlightLabel}</div>
+          {/* 比例数字而非 tnum：等宽数字在大号时看起来松散 */}
+          <div className="text-5xl font-semibold leading-none tracking-tight">
+            {formatNumber(inFlight)}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">{inFlightHint}</div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** KPI 行。用一排紧凑读数而非四张大卡——大卡会把信息密度压得过低。 */
+function KpiRow({ stats }: { stats: StatsResult }) {
+  const { t } = useTranslation("home")
+  const k = stats.kpi
+
+  const items: { label: string; value: string; hint?: string }[] = [
+    { label: t("kpi.requests"), value: formatNumber(k.total) },
+    {
+      label: t("kpi.success_rate"),
+      value: formatPercent(k.successRate),
+      hint: t("kpi.success_rate_hint"),
+    },
+    {
+      label: t("kpi.tokens"),
+      value: compactNumber(k.totalTokens),
+      hint: t("kpi.tokens_hint", {
+        prompt: formatNumber(k.promptTokens),
+        completion: formatNumber(k.completionTokens),
+      }),
+    },
+    {
+      label: t("kpi.cache_hit"),
+      value: formatPercent(k.cacheHitRate),
+      hint: t("kpi.cache_hit_hint", {
+        cached: formatNumber(k.cachedTokens),
+        prompt: formatNumber(k.promptTokens),
+      }),
+    },
+    {
+      label: t("kpi.retries"),
+      value: formatNumber(k.totalRetries),
+      hint: t("kpi.retries_hint", { avg: k.avgRetries.toFixed(2) }),
+    },
+    { label: t("kpi.avg_tps"), value: stats.latency.tps.avg.toFixed(1) },
+    { label: t("kpi.first_chunk_p50"), value: formatSeconds(stats.latency.firstChunk.p50) },
+    {
+      label: t("kpi.cost"),
+      value: formatCost(k.cost, k.currency),
+      hint: t("kpi.cost_hint"),
+    },
+  ]
+
+  return (
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+      {items.map((it) => (
+        <Card key={it.label}>
+          <CardContent className="py-3">
+            <div className="truncate text-xs text-muted-foreground" title={it.label}>
+              {it.label}
+            </div>
+            {/* 读数列用等宽数字，纵向对齐 */}
+            <div className="reading mt-1 truncate text-lg font-semibold" title={it.value}>
+              {it.value}
+            </div>
+            {it.hint && (
+              <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={it.hint}>
+                {it.hint}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
+}
+
+function ChartCard({
+  title,
+  note,
+  children,
+}: {
+  title: string
+  note?: string
+  children: React.ReactNode
+}) {
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        {note && <p className="text-[11px] text-muted-foreground">{note}</p>}
+      </CardHeader>
+      <CardContent className="min-w-0">{children}</CardContent>
+    </Card>
+  )
+}
+
+function PercentileRow({ stats }: { stats: StatsResult }) {
+  const { t } = useTranslation("home")
+  const l = stats.latency.firstChunk
+  const cells = [
+    { label: t("latency.p50"), v: l.p50 },
+    { label: t("latency.p90"), v: l.p90 },
+    { label: t("latency.p95"), v: l.p95 },
+    { label: t("latency.p99"), v: l.p99 },
+  ]
+  return (
+    <div className="mt-3 grid grid-cols-4 gap-2 border-t border-border pt-3">
+      {cells.map((c) => (
+        <div key={c.label}>
+          <div className="text-[11px] text-muted-foreground">{c.label}</div>
+          <div className="reading text-sm font-medium">{formatSeconds(c.v)}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * 错误列表。
+ *
+ * 用**列表而非环形图**：错误类别是要比较的量，环形图对接近的值不可靠；
+ * 且类别数可能超过 7，那时图表本就不如表格。类别名 + 计数 + 受影响对象
+ * 用文字直给，不依赖颜色传达。
+ */
+function ErrorList({ stats, unavailable }: { stats: StatsResult; unavailable: string }) {
+  const { t } = useTranslation(["home", "common"])
+  if (stats.errors.length === 0) {
+    return <p className="py-6 text-center text-sm text-muted-foreground">{unavailable}</p>
+  }
+  return (
+    <ul className="space-y-3">
+      {stats.errors.slice(0, 5).map((g) => (
+        <li key={g.code}>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-sm font-medium">
+              <StatusMark status="error" label={g.type} />
+            </span>
+            <span className="reading text-sm text-muted-foreground">
+              {t("home:errors.count", { count: g.count })}
+            </span>
+          </div>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground">
+            {g.providers.length > 0 && (
+              <span>
+                {t("home:errors.affected_providers")}：
+                {g.providers.map((p) => `${p.name}(${p.count})`).join("、")}
+              </span>
+            )}
+            {g.models.length > 0 && (
+              <span>
+                {t("home:errors.affected_models")}：
+                {g.models.map((m) => `${m.name}(${m.count})`).join("、")}
+              </span>
+            )}
+          </div>
+          {g.samples[0] && (
+            <Link
+              to={`/logs/${g.samples[0].id}/chat-io`}
+              className="mt-1 inline-flex items-center gap-1 text-[11px] text-primary underline-offset-2 hover:underline"
+            >
+              {t("home:errors.view_log")}
+              <ArrowUpRight className="size-3" aria-hidden="true" />
+            </Link>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function LeaderboardCard({
+  title,
+  rows,
+  metric,
+  empty,
+  tone,
+}: {
+  title: string
+  rows: StatsResult["topTps"]
+  metric: (row: StatsResult["topTps"][number]) => string
+  empty: string
+  tone?: "critical"
+}) {
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <p className="py-4 text-center text-xs text-muted-foreground">{empty}</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {rows.map((r) => (
+              <li key={r.id}>
+                <Link
+                  to={`/logs/${r.id}/chat-io`}
+                  className="flex items-baseline justify-between gap-2 rounded-sm px-1 py-0.5 text-xs hover:bg-accent"
+                >
+                  <span className="min-w-0 truncate" title={`${r.model} · ${r.provider}`}>
+                    {r.model}
+                    <span className="text-muted-foreground"> · {r.provider}</span>
+                  </span>
+                  <span
+                    className={
+                      tone === "critical"
+                        ? "reading shrink-0 text-status-critical-ink"
+                        : "reading shrink-0"
+                    }
+                  >
+                    {metric(r)}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function EmptyState({ title, hint }: { title: string; hint: string }) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col items-center gap-1 py-16 text-center">
+        <p className="text-sm font-medium">{title}</p>
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      </CardContent>
+    </Card>
+  )
 }

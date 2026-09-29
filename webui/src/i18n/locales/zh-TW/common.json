@@ -22,13 +22,14 @@
   },
   "status": {
     "success": "成功",
-    "running": "執行中",
-    "error": "錯誤",
+    "running": "在途",
+    "error": "失敗",
     "enabled": "啟用",
     "disabled": "停用",
     "active": "已啟用",
     "inactive": "已停用",
-    "all": "全部"
+    "all": "全部",
+    "unknown": "未知"
   },
   "pagination": {
     "summary": "共 {{total}} 筆，第 {{page}} / {{pages}} 頁",
@@ -42,5 +43,9 @@
   "unknown": "未知",
   "yes": "是",
   "no": "否",
-  "cannot_undo": "此操作無法復原。"
+  "cannot_undo": "此操作無法復原。",
+  "table": {
+    "view": "檢視",
+    "no_data": "暫無資料"
+  }
 }

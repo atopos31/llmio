@@ -435,7 +435,8 @@ export interface StatsKPI {
   cost: number;
   currency: string;
   totalRetries: number;
-  retryRate: number;
+  /** 平均每请求重试次数。不是比率——该值可以大于 1 */
+  avgRetries: number;
 }
 
 export interface TrendPoint {
@@ -448,6 +449,8 @@ export interface TrendPoint {
   tokens: number;
   prompt: number;
   completion: number;
+  /** prompt 中命中缓存的部分，供 Token 构成图拆出"非缓存输入" */
+  cached: number;
   avgTps: number;
   avgFirstChunkMs: number;
 }

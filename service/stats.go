@@ -361,19 +361,28 @@ type KPI struct {
 	Cost             float64 `json:"cost"`
 	Currency         string  `json:"currency"`
 	TotalRetries     int64   `json:"totalRetries"`
-	RetryRate        float64 `json:"retryRate"`
+	// AvgRetries 是"平均每请求重试次数"，**不是比率**。
+	//
+	// 原实现把它命名为 retryRate 并以百分比呈现，但 ChatLog.Retry 是
+	// "该请求重试了几次"，求和后可以超过请求总数——实测出现过 106.7%
+	// 这种读数，一个"率"超过 100% 本身就是错的标签。
+	AvgRetries float64 `json:"avgRetries"`
 }
 
 // TrendPoint 是时间序列的一个桶。
 type TrendPoint struct {
-	Ts              int64   `json:"ts"` // 桶起点，Unix 毫秒
-	Total           int64   `json:"total"`
-	Success         int64   `json:"success"`
-	Error           int64   `json:"error"`
-	Running         int64   `json:"running"`
-	Tokens          int64   `json:"tokens"`
-	Prompt          int64   `json:"prompt"`
-	Completion      int64   `json:"completion"`
+	Ts         int64 `json:"ts"` // 桶起点，Unix 毫秒
+	Total      int64 `json:"total"`
+	Success    int64 `json:"success"`
+	Error      int64 `json:"error"`
+	Running    int64 `json:"running"`
+	Tokens     int64 `json:"tokens"`
+	Prompt     int64 `json:"prompt"`
+	Completion int64 `json:"completion"`
+	// Cached 是 prompt 中命中缓存的部分。单列出来的原因：Token 构成图要画
+	// "非缓存输入 + 缓存读 + 输出"，若只有 prompt 就无法把缓存单独拆出，
+	// 而缓存命中正是本项目的观测重点（见 KPI 的 CacheHitRate）。
+	Cached          int64   `json:"cached"`
 	AvgTps          float64 `json:"avgTps"`
 	AvgFirstChunkMs float64 `json:"avgFirstChunkMs"`
 }
@@ -612,6 +621,7 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 		p.Tokens += l.TotalTokens
 		p.Prompt += l.PromptTokens
 		p.Completion += l.CompletionTokens
+		p.Cached += l.PromptTokensDetails.CachedTokens
 		p.AvgTps += l.Tps
 		p.AvgFirstChunkMs += fcMs
 
@@ -676,7 +686,8 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 	res.KPI.Finished = res.KPI.Success + res.KPI.Failed
 	res.KPI.SuccessRate = ratio(res.KPI.Success, res.KPI.Finished) * 100
 	res.KPI.CacheHitRate = ratio(res.KPI.CachedTokens, res.KPI.PromptTokens) * 100
-	res.KPI.RetryRate = ratio(res.KPI.TotalRetries, res.KPI.Total) * 100
+	// 平均每请求重试次数（不是百分比：该值可以大于 1）
+	res.KPI.AvgRetries = ratio(res.KPI.TotalRetries, res.KPI.Total)
 
 	// ---- 时间序列收尾：均值与排序 ----
 	for _, ts := range bucketOrder {
@@ -1038,18 +1049,22 @@ func ComputeStats(ctx context.Context, f StatsFilter) (*StatsResult, bool, error
 	}
 	res := Aggregate(logs, f)
 	res.Truncated = truncated
-	resolveKeyNames(ctx, &res)
+	resolveKeyGroups(ctx, &res)
 	return &res, truncated, nil
 }
 
-// resolveKeyNames 把 ByKey 分组的裸 ID 换成 AuthKey 名称。
+// resolveKeyGroups 把 ByKey 分组的裸 ID 换成 AuthKey 名称，并**按名称合并**。
 //
 // 只在 ComputeStats 里做（而非 Aggregate）：聚合保持纯函数无 IO，
 // 便于逐字段对拍与测试；名称解析是展示层的补全，需要查库。
 //
-// 名称沿用 AuthKey.Name（即面板里的"项目名称"），这也是原 dashboard
-// 的"项目"维度口径；查不到名称时保留 ID 而不是丢弃，避免统计凭空少一截。
-func resolveKeyNames(ctx context.Context, res *StatsResult) {
+// 为什么必须合并：多个 AuthKey 可以是同一个项目（典型场景是轮换密钥但
+// 沿用项目名）。若不合并，图上会出现两行同名标签，读者无法理解为什么
+// 同名却分开统计。既有的 /api/metrics/projects 端点也是合并同名项的口径。
+//
+// 名称沿用 AuthKey.Name（面板里的"项目名称"）；名称为空或查不到时
+// **保留 ID 而不丢弃**，避免统计凭空少一截。
+func resolveKeyGroups(ctx context.Context, res *StatsResult) {
 	ids := make([]uint, 0, len(res.ByKey))
 	for _, g := range res.ByKey {
 		if g.Name == "admin" || g.Name == "-" {
@@ -1063,28 +1078,93 @@ func resolveKeyNames(ctx context.Context, res *StatsResult) {
 		return
 	}
 
+	byID := map[uint]string{}
 	var keys []models.AuthKey
 	if err := models.DB.WithContext(ctx).
 		Select("id", "name").
 		Where("id IN ?", ids).
-		Find(&keys).Error; err != nil {
-		// 查不到就保留 ID：名称缺失不该让整个统计失败
-		return
-	}
-
-	byID := make(map[uint]string, len(keys))
-	for _, k := range keys {
-		if name := strings.TrimSpace(k.Name); name != "" {
-			byID[k.ID] = name
+		Find(&keys).Error; err == nil {
+		for _, k := range keys {
+			if name := strings.TrimSpace(k.Name); name != "" {
+				byID[k.ID] = name
+			}
 		}
 	}
-	for i := range res.ByKey {
-		id, err := strconv.ParseUint(res.ByKey[i].Name, 10, 64)
-		if err != nil {
+	// 查询失败时 byID 为空，下方会保留 ID，统计不受影响
+
+	// 合并同名分组，保持首次出现的顺序
+	merged := make([]GroupStat, 0, len(res.ByKey))
+	index := map[string]int{}
+	for _, g := range res.ByKey {
+		name := g.Name
+		if id, err := strconv.ParseUint(g.Name, 10, 64); err == nil {
+			if resolved, ok := byID[uint(id)]; ok {
+				name = resolved
+			}
+		}
+		g.Name = name
+		if at, ok := index[name]; ok {
+			merged[at] = mergeGroupStats(merged[at], g)
 			continue
 		}
-		if name, ok := byID[uint(id)]; ok {
-			res.ByKey[i].Name = name
-		}
+		index[name] = len(merged)
+		merged = append(merged, g)
 	}
+	sort.SliceStable(merged, func(i, j int) bool {
+		if merged[i].Total != merged[j].Total {
+			return merged[i].Total > merged[j].Total
+		}
+		return merged[i].Name < merged[j].Name
+	})
+	res.ByKey = merged
+}
+
+// mergeGroupStats 合并两个同名分组。
+//
+// 计数类直接相加；比率类**从合并后的计数重算**（不能对两个比率取平均）；
+// 均值类按成功请求数加权——GroupStat 的成功数正是这些均值的原分母，
+// 因此可以精确还原。
+//
+// P95 无法精确合并：它由原始样本的最近秩算出，合并后需要全部样本才能重算，
+// 而分组里只留了分位值。此处取两者较大值作为**上界**，宁可略保守也不谎报。
+func mergeGroupStats(a, b GroupStat) GroupStat {
+	// 先记下 a 原来的成功数：下方的均值加权需要它，
+	// 而 a.Success 紧接着就会被合并值覆盖。不用"先加后减"来还原——
+	// 那依赖求值顺序，改动一处就会静默算错。
+	aSuccess := a.Success
+
+	a.Total += b.Total
+	a.Success += b.Success
+	a.Error += b.Error
+	a.Running += b.Running
+	a.Prompt += b.Prompt
+	a.Completion += b.Completion
+	a.TotalTokens += b.TotalTokens
+	a.Cached += b.Cached
+	a.Retries += b.Retries
+	a.Cost += b.Cost
+
+	a.SuccessRate = ratio(a.Success, a.Success+a.Error) * 100
+	a.CacheHitRate = ratio(a.Cached, a.Prompt) * 100
+
+	a.AvgTps = weightedMean(a.AvgTps, aSuccess, b.AvgTps, b.Success)
+	a.AvgFirstChunkMs = weightedMean(a.AvgFirstChunkMs, aSuccess, b.AvgFirstChunkMs, b.Success)
+	a.AvgProxyMs = weightedMean(a.AvgProxyMs, aSuccess, b.AvgProxyMs, b.Success)
+
+	if b.MaxTps > a.MaxTps {
+		a.MaxTps = b.MaxTps
+	}
+	if b.P95FirstChunkMs > a.P95FirstChunkMs {
+		a.P95FirstChunkMs = b.P95FirstChunkMs
+	}
+	return a
+}
+
+// weightedMean 按计数加权平均。两组计数都为 0 时返回 0 而非 NaN。
+func weightedMean(a float64, aCount int64, b float64, bCount int64) float64 {
+	total := aCount + bCount
+	if total <= 0 {
+		return 0
+	}
+	return (a*float64(aCount) + b*float64(bCount)) / float64(total)
 }

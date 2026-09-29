@@ -1,8 +1,93 @@
 {
   "title": "系统概览",
   "refresh": "刷新概览",
-  "loading": "加载系统概览",
-  "loading_chart": "加载图表...",
+  "loading": "正在加载系统概览",
+  "loading_chart": "正在加载图表...",
+  "in_flight": "在途请求",
+  "in_flight_hint": "此刻仍在处理中的请求",
+  "range": {
+    "label": "时间范围",
+    "today": "今天",
+    "last_24h": "近 24 小时",
+    "last_7d": "近 7 天",
+    "last_30d": "近 30 天",
+    "custom": "自定义"
+  },
+  "granularity": "分桶",
+  "granularity_auto": "自动",
+  "truncated_warning": "数据量超过单次扫描上限，统计可能不完整；请收窄时间范围。",
+  "kpi": {
+    "requests": "请求数",
+    "success_rate": "成功率",
+    "success_rate_hint": "成功 /（成功+失败），不含在途",
+    "tokens": "Token",
+    "tokens_hint": "输入 {{prompt}} · 输出 {{completion}}",
+    "cache_hit": "缓存命中率",
+    "cache_hit_hint": "命中 {{cached}} / 输入 {{prompt}}",
+    "retries": "重试次数",
+    "retries_hint": "平均每请求 {{avg}} 次",
+    "avg_tps": "平均 TPS",
+    "first_chunk_p50": "首包 P50",
+    "cost": "成本",
+    "cost_hint": "按请求时的价格快照累计"
+  },
+  "trend": {
+    "title": "趋势",
+    "requests": "请求趋势",
+    "tokens": "Token 消耗趋势",
+    "success": "成功",
+    "error": "失败",
+    "running": "在途",
+    "input": "非缓存输入",
+    "cached": "缓存读",
+    "output": "输出"
+  },
+  "latency": {
+    "title": "首包耗时分布",
+    "count": "请求数",
+    "p50": "P50",
+    "p90": "P90",
+    "p95": "P95",
+    "p99": "P99",
+    "percentile_note": "分位数为最近秩（非插值），小样本下 P90/95/99 可能同值"
+  },
+  "errors": {
+    "title": "错误分析",
+    "empty": "该时间范围内没有失败请求",
+    "count": "{{count}} 次",
+    "affected_providers": "受影响供应商",
+    "affected_models": "受影响模型",
+    "samples": "样本",
+    "view_log": "查看请求详情"
+  },
+  "breakdown": {
+    "title": "分布",
+    "by_model": "按模型",
+    "by_provider": "按供应商",
+    "by_key": "按密钥",
+    "by_ua": "按客户端",
+    "name": "名称",
+    "requests": "请求",
+    "success_rate": "成功率",
+    "tps": "TPS（均值 / 峰值）",
+    "first_chunk": "首包（均值 / P95）",
+    "cache": "缓存命中",
+    "retries": "重试",
+    "cost": "成本",
+    "more": "还有 {{count}} 项未显示"
+  },
+  "top": {
+    "tps": "TPS 榜首",
+    "slowest": "最慢首包",
+    "recent_errors": "最近失败",
+    "empty": "暂无数据",
+    "first_chunk": "首包",
+    "tokens": "输出 Token"
+  },
+  "empty": {
+    "no_data": "该时间范围内没有请求",
+    "no_data_hint": "换一个时间范围，或确认网关是否已有流量"
+  },
   "cards": {
     "today_requests": "今日请求",
     "today_requests_desc": "今日处理的请求总数",
@@ -13,10 +98,11 @@
     "monthly_tokens": "本月 Tokens",
     "monthly_tokens_desc": "最近30天处理的 Tokens 总数"
   },
-  "errors": {
+  "errors_legacy": {
     "today_metrics": "获取今日指标失败: {{message}}",
-    "total_metrics": "获取总计指标失败: {{message}}",
+    "total_metrics": "获取总指标失败: {{message}}",
     "model_counts": "获取模型调用统计失败: {{message}}",
     "project_counts": "获取项目调用统计失败: {{message}}"
-  }
+  },
+  "load_failed": "加载统计失败：{{message}}"
 }

@@ -613,8 +613,8 @@ func TestAggregateSuccessRateZeroDenominator(t *testing.T) {
 	if res.KPI.CacheHitRate != 0 {
 		t.Fatalf("prompt 为 0 时缓存命中率应为 0，实得 %v", res.KPI.CacheHitRate)
 	}
-	if res.KPI.RetryRate != 0 {
-		t.Fatalf("重试率应为 0，实得 %v", res.KPI.RetryRate)
+	if res.KPI.AvgRetries != 0 {
+		t.Fatalf("平均重试次数应为 0，实得 %v", res.KPI.AvgRetries)
 	}
 }
 
@@ -681,6 +681,10 @@ func TestAggregateTrendBuckets(t *testing.T) {
 	}
 	if res.Trend[0].Tokens != 150 || res.Trend[0].Prompt != 75 || res.Trend[0].Completion != 75 {
 		t.Fatalf("桶 1 token 不符：%+v", res.Trend[0])
+	}
+	// 缓存读单列，供 Token 构成图拆出"非缓存输入"
+	if res.Trend[0].Cached != 0 {
+		t.Fatalf("桶 1 缓存读应为 0，实得 %d", res.Trend[0].Cached)
 	}
 	if diff := res.Trend[0].AvgTps - 5; diff > 1e-9 || diff < -1e-9 {
 		t.Fatalf("桶 1 平均 TPS 应为 (10+0)/2=5，实得 %v", res.Trend[0].AvgTps)
@@ -1525,7 +1529,7 @@ func TestComputeStatsPropagatesDBError(t *testing.T) {
 // 分组名称解析
 // ---------------------------------------------------------------------------
 
-func TestResolveKeyNames(t *testing.T) {
+func TestResolveKeyGroups(t *testing.T) {
 	setupStatsDB(t)
 	ctx := context.Background()
 
@@ -1555,38 +1559,42 @@ func TestResolveKeyNames(t *testing.T) {
 			{Name: "999999"}, // 查不到 → 保留 ID
 		},
 	}
-	resolveKeyNames(ctx, res)
+	resolveKeyGroups(ctx, res)
 
-	if res.ByKey[0].Name != "admin" {
-		t.Fatalf("admin 应保持不变，实得 %q", res.ByKey[0].Name)
+	// 合并后按总量降序、同量按名称排序，因此不能靠下标断言，改为按集合比较
+	got := map[string]bool{}
+	for _, g := range res.ByKey {
+		got[g.Name] = true
 	}
-	if res.ByKey[1].Name != "-" {
-		t.Fatalf("- 应保持不变，实得 %q", res.ByKey[1].Name)
+	for _, want := range []string{
+		"admin",
+		"-",
+		"前端项目",                                  // 名称已 trim 空白
+		strconv.FormatUint(uint64(blankID), 10), // 空名保留 ID
+		"999999",                                // 查不到的保留 ID
+	} {
+		if !got[want] {
+			t.Fatalf("缺少分组 %q，实得 %v", want, got)
+		}
 	}
-	if res.ByKey[2].Name != "前端项目" {
-		t.Fatalf("应解析为名称并 trim 空白，实得 %q", res.ByKey[2].Name)
-	}
-	if res.ByKey[3].Name != strconv.FormatUint(uint64(blankID), 10) {
-		t.Fatalf("空名应保留 ID，实得 %q", res.ByKey[3].Name)
-	}
-	if res.ByKey[4].Name != "999999" {
-		t.Fatalf("查不到的 ID 应保留，实得 %q", res.ByKey[4].Name)
+	if len(res.ByKey) != 5 {
+		t.Fatalf("应有 5 组，实得 %d：%v", len(res.ByKey), got)
 	}
 }
 
-func TestResolveKeyNamesNoKeyGroups(t *testing.T) {
+func TestResolveKeyGroupsNoIDs(t *testing.T) {
 	setupStatsDB(t)
 
 	// 只有 admin 与 "-" 时不需要查库，直接返回
 	res := &StatsResult{ByKey: []GroupStat{{Name: "admin"}, {Name: "-"}}}
-	resolveKeyNames(context.Background(), res)
+	resolveKeyGroups(context.Background(), res)
 
 	if res.ByKey[0].Name != "admin" || res.ByKey[1].Name != "-" {
 		t.Fatalf("不应改动：%+v", res.ByKey)
 	}
 }
 
-func TestResolveKeyNamesQueryErrorKeepsIDs(t *testing.T) {
+func TestResolveKeyGroupsQueryErrorKeepsIDs(t *testing.T) {
 	setupStatsDB(t)
 
 	// 先建表再删表：setupStatsDB 只迁移了 chat_logs，
@@ -1599,14 +1607,14 @@ func TestResolveKeyNamesQueryErrorKeepsIDs(t *testing.T) {
 		t.Fatalf("drop: %v", err)
 	}
 	res := &StatsResult{ByKey: []GroupStat{{Name: "7"}}}
-	resolveKeyNames(context.Background(), res)
+	resolveKeyGroups(context.Background(), res)
 
 	if res.ByKey[0].Name != "7" {
 		t.Fatalf("查询失败时应保留 ID，实得 %q", res.ByKey[0].Name)
 	}
 }
 
-func TestComputeStatsResolvesKeyNames(t *testing.T) {
+func TestComputeStatsResolvesKeyGroups(t *testing.T) {
 	setupStatsDB(t)
 	ctx := context.Background()
 
@@ -1630,5 +1638,165 @@ func TestComputeStatsResolvesKeyNames(t *testing.T) {
 	}
 	if len(res.ByKey) != 1 || res.ByKey[0].Name != "报表项目" {
 		t.Fatalf("ByKey 应解析为名称：%+v", res.ByKey)
+	}
+}
+
+// 多个 AuthKey 可以是同一个项目（轮换密钥但沿用项目名）。
+// 若不合并，图上会出现两行同名标签，读者无法理解为什么同名却分开统计。
+func TestResolveKeyGroupsMergesSameName(t *testing.T) {
+	setupStatsDB(t)
+	ctx := context.Background()
+
+	if err := models.DB.AutoMigrate(&models.AuthKey{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	// 两个不同 ID、同一名称
+	a := models.AuthKey{Name: "同一项目", Key: "k-a"}
+	b := models.AuthKey{Name: "同一项目", Key: "k-b"}
+	for _, k := range []*models.AuthKey{&a, &b} {
+		if err := models.DB.Create(k).Error; err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	res := &StatsResult{ByKey: []GroupStat{
+		{
+			Name:  strconv.FormatUint(uint64(a.ID), 10),
+			Total: 3, Success: 2, Error: 1, Prompt: 100, Completion: 10,
+			TotalTokens: 110, Cached: 40, Retries: 1, Cost: 1.5,
+			AvgTps: 10, AvgFirstChunkMs: 100, AvgProxyMs: 200, MaxTps: 30, P95FirstChunkMs: 300,
+		},
+		{
+			Name:  strconv.FormatUint(uint64(b.ID), 10),
+			Total: 5, Success: 4, Error: 1, Prompt: 300, Completion: 30,
+			TotalTokens: 330, Cached: 60, Retries: 2, Cost: 2.5,
+			AvgTps: 20, AvgFirstChunkMs: 200, AvgProxyMs: 400, MaxTps: 50, P95FirstChunkMs: 250,
+		},
+	}}
+	resolveKeyGroups(ctx, res)
+
+	if len(res.ByKey) != 1 {
+		t.Fatalf("同名分组应合并为 1 组，实得 %d：%+v", len(res.ByKey), res.ByKey)
+	}
+	g := res.ByKey[0]
+	if g.Name != "同一项目" {
+		t.Fatalf("名称应为解析后的项目名，实得 %q", g.Name)
+	}
+	// 计数类相加
+	if g.Total != 8 || g.Success != 6 || g.Error != 2 {
+		t.Fatalf("计数未正确相加：%+v", g)
+	}
+	if g.Prompt != 400 || g.Completion != 40 || g.TotalTokens != 440 || g.Cached != 100 {
+		t.Fatalf("token 未正确相加：%+v", g)
+	}
+	if g.Retries != 3 {
+		t.Fatalf("重试未相加：%d", g.Retries)
+	}
+	if diff := g.Cost - 4.0; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("成本未相加：%v", g.Cost)
+	}
+	// 比率必须从合并后的计数重算，不能对两个比率取平均
+	// 成功率 = 6/(6+2) = 75%
+	if diff := g.SuccessRate - 75; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("成功率应重算为 75，实得 %v", g.SuccessRate)
+	}
+	// 缓存命中 = 100/400 = 25%
+	if diff := g.CacheHitRate - 25; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("缓存命中率应重算为 25，实得 %v", g.CacheHitRate)
+	}
+	// 均值按成功数加权：(10*2 + 20*4)/6 = 16.67
+	if diff := g.AvgTps - 100.0/6.0; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("平均 TPS 应按成功数加权，实得 %v", g.AvgTps)
+	}
+	// (100*2 + 200*4)/6 = 1000/6
+	if diff := g.AvgFirstChunkMs - 1000.0/6.0; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("平均首包应加权，实得 %v", g.AvgFirstChunkMs)
+	}
+	// (200*2 + 400*4)/6 = 2000/6
+	if diff := g.AvgProxyMs - 2000.0/6.0; diff > 1e-9 || diff < -1e-9 {
+		t.Fatalf("平均代理耗时应加权，实得 %v", g.AvgProxyMs)
+	}
+	// 峰值取较大者
+	if g.MaxTps != 50 {
+		t.Fatalf("峰值应取较大者 50，实得 %v", g.MaxTps)
+	}
+	// P95 无法精确合并，取上界
+	if g.P95FirstChunkMs != 300 {
+		t.Fatalf("P95 应取上界 300，实得 %v", g.P95FirstChunkMs)
+	}
+}
+
+func TestResolveKeyGroupsKeepsDistinctNames(t *testing.T) {
+	setupStatsDB(t)
+	ctx := context.Background()
+
+	if err := models.DB.AutoMigrate(&models.AuthKey{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	names := []string{"甲项目", "乙项目"}
+	ids := make([]uint, 0, 2)
+	for i, n := range names {
+		k := models.AuthKey{Name: n, Key: "k" + strconv.Itoa(i)}
+		if err := models.DB.Create(&k).Error; err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+		ids = append(ids, k.ID)
+	}
+
+	res := &StatsResult{ByKey: []GroupStat{
+		{Name: strconv.FormatUint(uint64(ids[0]), 10), Total: 1},
+		{Name: strconv.FormatUint(uint64(ids[1]), 10), Total: 2},
+	}}
+	resolveKeyGroups(ctx, res)
+
+	if len(res.ByKey) != 2 {
+		t.Fatalf("不同名不应合并，实得 %d", len(res.ByKey))
+	}
+	// 按总量降序：乙项目(2) 在前
+	if res.ByKey[0].Name != "乙项目" || res.ByKey[1].Name != "甲项目" {
+		t.Fatalf("排序不符：%+v", res.ByKey)
+	}
+}
+
+func TestWeightedMean(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		a, b           float64
+		aCount, bCount int64
+		want           float64
+	}{
+		{name: "等权", a: 10, b: 20, aCount: 1, bCount: 1, want: 15},
+		{name: "按计数加权", a: 10, b: 20, aCount: 1, bCount: 3, want: 17.5},
+		{name: "b 计数为 0 时取 a", a: 7, b: 99, aCount: 5, bCount: 0, want: 7},
+		{name: "a 计数为 0 时取 b", a: 99, b: 7, aCount: 0, bCount: 5, want: 7},
+		{name: "两组都为 0 时返回 0 而非 NaN", a: 5, b: 5, aCount: 0, bCount: 0, want: 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := weightedMean(tc.a, tc.aCount, tc.b, tc.bCount)
+			if diff := got - tc.want; diff > 1e-9 || diff < -1e-9 {
+				t.Fatalf("want %v, got %v", tc.want, got)
+			}
+		})
+	}
+}
+
+// 峰值取两者较大值，两个方向都要覆盖：
+// 上例会命中 MaxTps 分支，但 P95 恰好是 a 更大（if 体未执行）。
+func TestMergeGroupStatsTakesLargerMaxima(t *testing.T) {
+	t.Parallel()
+
+	a := GroupStat{Name: "x", Success: 1, MaxTps: 10, P95FirstChunkMs: 100}
+	b := GroupStat{Name: "x", Success: 1, MaxTps: 99, P95FirstChunkMs: 999}
+	got := mergeGroupStats(a, b)
+
+	if got.MaxTps != 99 {
+		t.Fatalf("MaxTps 应取较大者 99，实得 %v", got.MaxTps)
+	}
+	if got.P95FirstChunkMs != 999 {
+		t.Fatalf("P95 应取上界 999，实得 %v", got.P95FirstChunkMs)
 	}
 }

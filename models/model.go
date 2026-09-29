@@ -96,6 +96,10 @@ type ChatLog struct {
 	CacheReadPrice float64 `json:"cache_read_price"`
 	OutputPrice    float64 `json:"output_price"`
 	Currency       string  `json:"currency"`
+	// PeakPeriod 记录本条请求命中的计费时段名，空表示按基础价计费。
+	// 只作展示与排查用——价格本身已按实际生效值快照到上面三个字段，
+	// 因此成本计算不依赖本字段，改了时段配置也不会影响历史成本。
+	PeakPeriod string `json:"peak_period,omitempty"`
 }
 
 func (l ChatLog) WithError(err error) ChatLog {

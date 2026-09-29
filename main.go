@@ -142,6 +142,14 @@ func main() {
 		api.GET("/config/:key", handler.GetConfigByKey)
 		api.PUT("/config/:key", handler.UpdateConfigByKey)
 
+		// Peak (time-of-day / workday) pricing.
+		// 独立成一组而非并入通用 config 端点：需要结构化校验、默认值补齐，
+		// 以及节假日同步这个带外网调用的动作。
+		api.GET("/peak-pricing", handler.GetPeakPricing)
+		api.PUT("/peak-pricing", handler.UpdatePeakPricing)
+		api.POST("/peak-pricing/preview", handler.PreviewPeakPricing)
+		api.POST("/peak-pricing/holidays/sync", handler.SyncPeakHolidays)
+
 		// Provider connectivity test
 		api.GET("/test/:id", handler.ProviderTestHandler)
 		api.GET("/test/react/:id", handler.TestReactHandler)

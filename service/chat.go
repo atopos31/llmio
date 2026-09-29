@@ -100,6 +100,15 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 			slog.Info("using provider", "provider", provider.Name, "model", modelWithProvider.ProviderModel)
 
+			// 分时段计价：按请求发起时刻解析出生效单价并快照进日志。
+			// 快照的是实际生效价，因此历史成本不会被后来的时段配置改动所改写。
+			inputPrice, cacheReadPrice, outputPrice, peakPeriod := ResolvePricingFor(
+				ctx, start,
+				lo.FromPtrOr(modelWithProvider.InputPrice, 0),
+				lo.FromPtrOr(modelWithProvider.CacheReadPrice, 0),
+				lo.FromPtrOr(modelWithProvider.OutputPrice, 0),
+			)
+
 			log := models.ChatLog{
 				Name:           before.Model,
 				TraceID:        traceID,
@@ -114,10 +123,11 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				ChatIO:         authKeyIOLog,
 				Retry:          retry,
 				ProxyTime:      time.Since(start),
-				InputPrice:     lo.FromPtrOr(modelWithProvider.InputPrice, 0),
-				CacheReadPrice: lo.FromPtrOr(modelWithProvider.CacheReadPrice, 0),
-				OutputPrice:    lo.FromPtrOr(modelWithProvider.OutputPrice, 0),
+				InputPrice:     inputPrice,
+				CacheReadPrice: cacheReadPrice,
+				OutputPrice:    outputPrice,
 				Currency:       modelWithProvider.Currency,
+				PeakPeriod:     peakPeriod,
 			}
 			// 根据请求原始请求头 是否透传请求头 自定义请求头 构建新的请求头
 			withHeader := lo.FromPtrOr(modelWithProvider.WithHeader, false)

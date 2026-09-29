@@ -967,6 +967,11 @@ func UpdateConfigByKey(c *gin.Context) {
 		}
 	}
 
+	// 写入后让相关缓存失效，否则新配置要等 TTL 过期才生效
+	if key == models.KeyPeakPricing {
+		service.InvalidatePeakPricing()
+	}
+
 	common.Success(c, map[string]string{
 		"key":   config.Key,
 		"value": config.Value,

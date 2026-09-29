@@ -48,7 +48,7 @@ func TestChatLogIndexes(t *testing.T) {
 		}
 	}
 
-	// 复���索引的列顺序决定它能否被 `WHERE 前导列 = ? AND created_at >= ?` 命中，
+	// 复合索引的列顺序决定它能否被 `WHERE 前导列 = ? AND created_at >= ?` 命中，
 	// 因此不仅要有，还要顺序正确。前导列必须是等值过滤的那个字段。
 	composites := map[string][]string{
 		"idx_chat_logs_status_created": {"status", "created_at"},

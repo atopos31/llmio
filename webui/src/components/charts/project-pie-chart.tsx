@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next"
 import { Pie, PieChart } from "recharts"
 import {
   Card,
@@ -13,7 +14,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-import type { ProjectCount } from "@/lib/api"
+import type { ProjectCount, StatMetric } from "@/lib/api"
 
 const predefinedColors = [
   "var(--chart-1)",
@@ -28,10 +29,10 @@ const predefinedColors = [
   "var(--chart-10)",
 ]
 
-const generateChartConfig = (data: ProjectCount[]) => {
+const generateChartConfig = (data: ProjectCount[], metricLabel: string) => {
   const config: ChartConfig = {
-    calls: {
-      label: "调用次数",
+    value: {
+      label: metricLabel,
     },
   }
 
@@ -48,23 +49,25 @@ const generateChartConfig = (data: ProjectCount[]) => {
 const generateChartData = (data: ProjectCount[]) => {
   return data.map((item, index) => ({
     project: item.project,
-    calls: item.calls,
+    value: item.value,
     fill: predefinedColors[index % predefinedColors.length],
   }))
 }
 
 interface ProjectChartPieDonutTextProps {
   data: ProjectCount[]
+  metric: StatMetric
 }
 
-export function ProjectChartPieDonutText({ data }: ProjectChartPieDonutTextProps) {
+export function ProjectChartPieDonutText({ data, metric }: ProjectChartPieDonutTextProps) {
+  const { t } = useTranslation('home')
   const chartData = generateChartData(data)
-  const chartConfig = generateChartConfig(data)
+  const chartConfig = generateChartConfig(data, t(metric === 'tokens' ? 'charts.metric_tokens' : 'charts.metric_count'))
 
   return (
     <Card className="flex flex-col">
       <CardHeader className="items-center pb-0">
-        <CardTitle>项目调用次数占比</CardTitle>
+        <CardTitle>{t(metric === 'tokens' ? 'charts.project_pie_tokens' : 'charts.project_pie_count')}</CardTitle>
       </CardHeader>
       <CardContent className="flex-1 pb-0">
         <ChartContainer
@@ -78,7 +81,7 @@ export function ProjectChartPieDonutText({ data }: ProjectChartPieDonutTextProps
             />
             <Pie
               data={chartData}
-              dataKey="calls"
+              dataKey="value"
               nameKey="project"
               label
               labelLine={false}

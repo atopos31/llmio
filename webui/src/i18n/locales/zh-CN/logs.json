@@ -40,6 +40,7 @@
     "project": "项目",
     "status": "状态",
     "tokens": "Tokens",
+    "cache": "缓存",
     "size": "响应大小",
     "duration": "耗时",
     "provider_model": "提供商模型",
@@ -49,6 +50,7 @@
   },
   "mobile": {
     "tokens": "Tokens",
+    "cache": "缓存",
     "duration": "耗时",
     "provider": "提供商",
     "type": "类型"
@@ -80,6 +82,7 @@
     "output": "输出",
     "total": "总计",
     "cached": "缓存",
+    "cache_rate": "缓存率",
     "io_yes": "是",
     "io_no": "否",
     "billing": "计费",

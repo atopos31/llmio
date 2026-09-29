@@ -389,31 +389,49 @@ export async function getProviderMetrics(): Promise<ProviderMetric[]> {
 }
 
 // Metrics API functions
+// 统计口径：按调用数量 或 按 Tokens
+export type StatMetric = "count" | "tokens";
+
 export interface MetricsData {
   reqs: number;
   tokens: number;
+  prompt_tokens: number;
+  cached_tokens: number;
 }
 
 export interface ModelCount {
   model: string;
-  calls: number;
+  value: number;
 }
 
 export interface ProjectCount {
   project: string;
-  calls: number;
+  value: number;
 }
 
 export async function getMetrics(days: number): Promise<MetricsData> {
   return apiRequest<MetricsData>(`/metrics/use/${days}`);
 }
 
-export async function getModelCounts(): Promise<ModelCount[]> {
-  return apiRequest<ModelCount[]>('/metrics/counts');
+export async function getModelCounts(metric: StatMetric = "count"): Promise<ModelCount[]> {
+  return apiRequest<ModelCount[]>(`/metrics/counts?by=${metric}`);
 }
 
-export async function getProjectCounts(): Promise<ProjectCount[]> {
-  return apiRequest<ProjectCount[]>('/metrics/projects');
+export async function getProjectCounts(metric: StatMetric = "count"): Promise<ProjectCount[]> {
+  return apiRequest<ProjectCount[]>(`/metrics/projects?by=${metric}`);
+}
+
+// Tokens 用量趋势的时间维度
+export type TimelineRange = "today" | "24h" | "7d" | "30d" | "90d";
+
+export interface TimelinePoint {
+  bucket: string;        // 本地时间桶标签：按小时为 "2026-09-29 06:00"，按天为 "2026-09-29"
+  tokens: number;        // 总 tokens
+  cached_tokens: number; // 缓存 tokens
+}
+
+export async function getTimeline(range: TimelineRange): Promise<TimelinePoint[]> {
+  return apiRequest<TimelinePoint[]>(`/metrics/timeline?range=${range}`);
 }
 
 // Test API functions

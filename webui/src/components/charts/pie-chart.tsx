@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next"
 import { Pie, PieChart } from "recharts"
 import {
   Card,
@@ -13,7 +14,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-import type { ModelCount } from "@/lib/api"
+import type { ModelCount, StatMetric } from "@/lib/api"
 
 // 预定义颜色数组，按顺序生成颜色
 const predefinedColors = [
@@ -30,10 +31,10 @@ const predefinedColors = [
 ]
 
 // 根据模型数据生成图表配置
-const generateChartConfig = (data: ModelCount[]) => {
+const generateChartConfig = (data: ModelCount[], metricLabel: string) => {
   const config: ChartConfig = {
-    calls: {
-      label: "调用次数",
+    value: {
+      label: metricLabel,
     },
   }
   
@@ -51,23 +52,25 @@ const generateChartConfig = (data: ModelCount[]) => {
 const generateChartData = (data: ModelCount[]) => {
   return data.map((item, index) => ({
     model: item.model,
-    calls: item.calls,
+    value: item.value,
     fill: predefinedColors[index % predefinedColors.length],
   }))
 }
 
 interface ChartPieDonutTextProps {
   data: ModelCount[]
+  metric: StatMetric
 }
 
-export function ChartPieDonutText({ data }: ChartPieDonutTextProps) {
+export function ChartPieDonutText({ data, metric }: ChartPieDonutTextProps) {
+  const { t } = useTranslation('home')
   const chartData = generateChartData(data)
-  const chartConfig = generateChartConfig(data)
+  const chartConfig = generateChartConfig(data, t(metric === 'tokens' ? 'charts.metric_tokens' : 'charts.metric_count'))
   
   return (
     <Card className="flex flex-col">
       <CardHeader className="items-center pb-0">
-        <CardTitle>模型调用次数占比</CardTitle>
+        <CardTitle>{t(metric === 'tokens' ? 'charts.model_pie_tokens' : 'charts.model_pie_count')}</CardTitle>
       </CardHeader>
       <CardContent className="flex-1 pb-0">
         <ChartContainer
@@ -81,7 +84,7 @@ export function ChartPieDonutText({ data }: ChartPieDonutTextProps) {
             />
             <Pie
               data={chartData}
-              dataKey="calls"
+              dataKey="value"
               nameKey="model"
               label
               labelLine={false}

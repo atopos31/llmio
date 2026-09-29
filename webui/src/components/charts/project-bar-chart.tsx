@@ -1,5 +1,6 @@
 "use client"
 
+import { useTranslation } from "react-i18next"
 import { Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from "recharts"
 
 import {
@@ -14,7 +15,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-import type { ProjectCount } from "@/lib/api"
+import type { ProjectCount, StatMetric } from "@/lib/api"
 
 const predefinedColors = [
   "var(--chart-1)",
@@ -29,10 +30,10 @@ const predefinedColors = [
   "var(--chart-10)",
 ]
 
-const generateChartConfig = (data: ProjectCount[]) => {
+const generateChartConfig = (data: ProjectCount[], metricLabel: string) => {
   const config: ChartConfig = {
-    calls: {
-      label: "调用次数",
+    value: {
+      label: metricLabel,
     },
   }
 
@@ -49,23 +50,25 @@ const generateChartConfig = (data: ProjectCount[]) => {
 const generateChartData = (data: ProjectCount[]) => {
   return data.map((item, index) => ({
     project: item.project,
-    calls: item.calls,
+    value: item.value,
     fill: predefinedColors[index % predefinedColors.length],
   }))
 }
 
 interface ProjectRankingChartProps {
   data: ProjectCount[]
+  metric: StatMetric
 }
 
-export function ProjectRankingChart({ data }: ProjectRankingChartProps) {
+export function ProjectRankingChart({ data, metric }: ProjectRankingChartProps) {
+  const { t } = useTranslation('home')
   const chartData = generateChartData(data)
-  const chartConfig = generateChartConfig(data)
+  const chartConfig = generateChartConfig(data, t(metric === 'tokens' ? 'charts.metric_tokens' : 'charts.metric_count'))
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>项目调用排行</CardTitle>
+        <CardTitle>{t(metric === 'tokens' ? 'charts.project_bar_tokens' : 'charts.project_bar_count')}</CardTitle>
       </CardHeader>
       <CardContent>
         <ChartContainer config={chartConfig} className="aspect-auto h-[320px] w-full">
@@ -84,7 +87,7 @@ export function ProjectRankingChart({ data }: ProjectRankingChartProps) {
               tickFormatter={(value) => String(value)}
             />
             <YAxis
-              dataKey="calls"
+              dataKey="value"
               tickLine={false}
               axisLine={false}
               tickFormatter={(value) => Number(value).toLocaleString()}
@@ -95,12 +98,12 @@ export function ProjectRankingChart({ data }: ProjectRankingChartProps) {
               content={<ChartTooltipContent indicator="line" hideLabel />}
             />
             <Bar
-              dataKey="calls"
-              fill="var(--color-calls)"
+              dataKey="value"
+              fill="var(--color-value)"
               radius={[8, 8, 0, 0]}
             >
               <LabelList
-                dataKey="calls"
+                dataKey="value"
                 position="top"
                 offset={12}
                 className="fill-foreground font-medium"

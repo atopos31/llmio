@@ -40,6 +40,7 @@
     "project": "專案",
     "status": "狀態",
     "tokens": "Tokens",
+    "cache": "快取",
     "size": "回應大小",
     "duration": "耗時",
     "provider_model": "供應商模型",
@@ -49,6 +50,7 @@
   },
   "mobile": {
     "tokens": "Tokens",
+    "cache": "快取",
     "duration": "耗時",
     "provider": "供應商",
     "type": "類型"
@@ -80,6 +82,7 @@
     "output": "輸出",
     "total": "總計",
     "cached": "快取",
+    "cache_rate": "快取率",
     "io_yes": "是",
     "io_no": "否",
     "billing": "計費",

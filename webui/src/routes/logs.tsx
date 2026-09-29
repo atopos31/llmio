@@ -54,6 +54,11 @@ const DetailCard = ({ label, value, mono = false }: DetailCardProps) => (
 const formatDurationValue = (value?: number) => (typeof value === "number" ? formatTime(value) : "-");
 const formatTokenValue = (value?: number) => (typeof value === "number" ? value.toLocaleString() : "-");
 const formatTpsValue = (value?: number) => (typeof value === "number" ? value.toFixed(2) : "-");
+// 缓存率 = 缓存 token / 输入 token
+const formatCacheRate = (cached?: number, promptTokens?: number) =>
+  typeof cached === "number" && typeof promptTokens === "number" && promptTokens > 0
+    ? `${((cached / promptTokens) * 100).toFixed(2)}%`
+    : "-";
 const getStatusTextClass = (status: string) => {
   switch (status) {
     case "success":
@@ -386,7 +391,7 @@ export default function LogsPage() {
           <div className="h-full flex flex-col">
             <div className="flex-1 overflow-y-auto">
               <div className="hidden sm:block w-full">
-                <Table className="min-w-[1250px]">
+                <Table className="min-w-[1360px]">
                   <TableHeader className="z-10 sticky top-0 bg-secondary/90 backdrop-blur text-secondary-foreground">
                     <TableRow className="hover:bg-secondary/90">
                       <TableHead>{t('table.id')}</TableHead>
@@ -395,6 +400,7 @@ export default function LogsPage() {
                       <TableHead>{t('table.project')}</TableHead>
                       <TableHead>{t('table.status')}</TableHead>
                       <TableHead>{t('table.tokens')}</TableHead>
+                      <TableHead>{t('table.cache')}</TableHead>
                       <TableHead>{t('table.size')}</TableHead>
                       <TableHead>{t('table.duration')}</TableHead>
                       <TableHead>{t('table.provider_model')}</TableHead>
@@ -418,6 +424,15 @@ export default function LogsPage() {
                           </span>
                         </TableCell>
                         <TableCell>{log.total_tokens}</TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {formatTokenValue(log.prompt_tokens_details?.cached_tokens)}
+                          <span
+                            className="text-muted-foreground ml-1"
+                            title={t('detail.cache_rate')}
+                          >
+                            ({formatCacheRate(log.prompt_tokens_details?.cached_tokens, log.prompt_tokens)})
+                          </span>
+                        </TableCell>
                         <TableCell className="text-xs">
                           {log.Size ? formatBytes(log.Size) : '-'}
                         </TableCell>
@@ -482,6 +497,10 @@ export default function LogsPage() {
                       <div className="space-y-1">
                         <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{t('mobile.tokens')}</p>
                         <p className="font-medium">{log.total_tokens}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {t('mobile.cache')}: {formatTokenValue(log.prompt_tokens_details?.cached_tokens)}
+                          {' '}({formatCacheRate(log.prompt_tokens_details?.cached_tokens, log.prompt_tokens)})
+                        </p>
                       </div>
                       <div className="space-y-1">
                         <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{t('mobile.duration')}</p>
@@ -618,9 +637,10 @@ export default function LogsPage() {
                 </div>
                 <div className="space-y-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('detail.token_usage')}</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                     <DetailCard label={t('detail.input')} value={formatTokenValue(selectedLog.prompt_tokens)} />
-                    <DetailCard label={t('detail.cached')} value={formatTokenValue(selectedLog.prompt_tokens_details.cached_tokens)} />
+                    <DetailCard label={t('detail.cached')} value={formatTokenValue(selectedLog.prompt_tokens_details?.cached_tokens)} />
+                    <DetailCard label={t('detail.cache_rate')} value={formatCacheRate(selectedLog.prompt_tokens_details?.cached_tokens, selectedLog.prompt_tokens)} />
                     <DetailCard label={t('detail.output')} value={formatTokenValue(selectedLog.completion_tokens)} />
                     <DetailCard label={t('detail.total')} value={formatTokenValue(selectedLog.total_tokens)} />
                   </div>

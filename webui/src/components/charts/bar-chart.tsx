@@ -1,5 +1,6 @@
 "use client"
 
+import { useTranslation } from "react-i18next"
 import { Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from "recharts"
 
 import {
@@ -14,7 +15,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-import type { ModelCount } from "@/lib/api"
+import type { ModelCount, StatMetric } from "@/lib/api"
 
 // 预定义颜色数组，按顺序生成颜色
 const predefinedColors = [
@@ -31,10 +32,10 @@ const predefinedColors = [
 ]
 
 // 根据模型数据生成图表配置
-const generateChartConfig = (data: ModelCount[]) => {
+const generateChartConfig = (data: ModelCount[], metricLabel: string) => {
   const config: ChartConfig = {
-    calls: {
-      label: "调用次数",
+    value: {
+      label: metricLabel,
     },
   }
 
@@ -52,23 +53,25 @@ const generateChartConfig = (data: ModelCount[]) => {
 const generateChartData = (data: ModelCount[]) => {
   return data.map((item, index) => ({
     model: item.model,
-    calls: item.calls,
+    value: item.value,
     fill: predefinedColors[index % predefinedColors.length],
   }))
 }
 
 interface ModelRankingChartProps {
   data: ModelCount[]
+  metric: StatMetric
 }
 
-export function ModelRankingChart({ data }: ModelRankingChartProps) {
+export function ModelRankingChart({ data, metric }: ModelRankingChartProps) {
+  const { t } = useTranslation('home')
   const chartData = generateChartData(data)
-  const chartConfig = generateChartConfig(data)
+  const chartConfig = generateChartConfig(data, t(metric === 'tokens' ? 'charts.metric_tokens' : 'charts.metric_count'))
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>模型调用排行</CardTitle>
+        <CardTitle>{t(metric === 'tokens' ? 'charts.model_bar_tokens' : 'charts.model_bar_count')}</CardTitle>
       </CardHeader>
       <CardContent>
         <ChartContainer config={chartConfig} className="aspect-auto h-[320px] w-full">
@@ -87,7 +90,7 @@ export function ModelRankingChart({ data }: ModelRankingChartProps) {
               tickFormatter={(value) => String(value)}
             />
             <YAxis
-              dataKey="calls"
+              dataKey="value"
               tickLine={false}
               axisLine={false}
               tickFormatter={(value) => Number(value).toLocaleString()}
@@ -98,12 +101,12 @@ export function ModelRankingChart({ data }: ModelRankingChartProps) {
               content={<ChartTooltipContent indicator="line" hideLabel />}
             />
             <Bar
-              dataKey="calls"
-              fill="var(--color-calls)"
+              dataKey="value"
+              fill="var(--color-value)"
               radius={[8, 8, 0, 0]}
             >
               <LabelList
-                dataKey="calls"
+                dataKey="value"
                 position="top"
                 offset={12}
                 className="fill-foreground font-medium"

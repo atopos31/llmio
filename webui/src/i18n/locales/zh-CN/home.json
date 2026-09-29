@@ -11,12 +11,42 @@
     "monthly_requests": "本月请求",
     "monthly_requests_desc": "最近30天处理的请求总数",
     "monthly_tokens": "本月 Tokens",
-    "monthly_tokens_desc": "最近30天处理的 Tokens 总数"
+    "monthly_tokens_desc": "最近30天处理的 Tokens 总数",
+    "cached_tokens": "缓存 Tokens",
+    "cache_rate": "缓存率"
+  },
+  "charts": {
+    "metric_label": "统计口径",
+    "by_count": "按数量统计",
+    "by_tokens": "按 Tokens 统计",
+    "metric_count": "调用次数",
+    "metric_tokens": "Tokens",
+    "model_pie_count": "模型调用次数占比",
+    "model_pie_tokens": "模型 Tokens 占比",
+    "model_bar_count": "模型调用排行",
+    "model_bar_tokens": "模型 Tokens 排行",
+    "project_pie_count": "项目调用次数占比",
+    "project_pie_tokens": "项目 Tokens 占比",
+    "project_bar_count": "项目调用排行",
+    "project_bar_tokens": "项目 Tokens 排行"
+  },
+  "timeline": {
+    "title": "Tokens 用量趋势",
+    "range_label": "时间维度",
+    "range_today": "今天",
+    "range_24h": "24小时内",
+    "range_7d": "最近7天",
+    "range_30d": "最近30天",
+    "range_90d": "最近90天",
+    "series_total": "总 Tokens",
+    "series_cached": "缓存 Tokens",
+    "empty": "该时间范围内暂无数据"
   },
   "errors": {
     "today_metrics": "获取今日指标失败: {{message}}",
     "total_metrics": "获取总计指标失败: {{message}}",
     "model_counts": "获取模型调用统计失败: {{message}}",
-    "project_counts": "获取项目调用统计失败: {{message}}"
+    "project_counts": "获取项目调用统计失败: {{message}}",
+    "timeline": "获取 Tokens 用量趋势失败: {{message}}"
   }
 }

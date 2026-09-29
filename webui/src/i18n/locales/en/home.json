@@ -11,12 +11,42 @@
     "monthly_requests": "Monthly Requests",
     "monthly_requests_desc": "Total requests in the last 30 days",
     "monthly_tokens": "Monthly Tokens",
-    "monthly_tokens_desc": "Total tokens in the last 30 days"
+    "monthly_tokens_desc": "Total tokens in the last 30 days",
+    "cached_tokens": "Cached Tokens",
+    "cache_rate": "Cache Rate"
+  },
+  "charts": {
+    "metric_label": "Metric",
+    "by_count": "By Calls",
+    "by_tokens": "By Tokens",
+    "metric_count": "Calls",
+    "metric_tokens": "Tokens",
+    "model_pie_count": "Model Call Share",
+    "model_pie_tokens": "Model Token Share",
+    "model_bar_count": "Model Call Ranking",
+    "model_bar_tokens": "Model Token Ranking",
+    "project_pie_count": "Project Call Share",
+    "project_pie_tokens": "Project Token Share",
+    "project_bar_count": "Project Call Ranking",
+    "project_bar_tokens": "Project Token Ranking"
+  },
+  "timeline": {
+    "title": "Token Usage Trend",
+    "range_label": "Time Range",
+    "range_today": "Today",
+    "range_24h": "Last 24 Hours",
+    "range_7d": "Last 7 Days",
+    "range_30d": "Last 30 Days",
+    "range_90d": "Last 90 Days",
+    "series_total": "Total Tokens",
+    "series_cached": "Cached Tokens",
+    "empty": "No data in this time range"
   },
   "errors": {
     "today_metrics": "Failed to fetch today's metrics: {{message}}",
     "total_metrics": "Failed to fetch total metrics: {{message}}",
     "model_counts": "Failed to fetch model usage stats: {{message}}",
-    "project_counts": "Failed to fetch project usage stats: {{message}}"
+    "project_counts": "Failed to fetch project usage stats: {{message}}",
+    "timeline": "Failed to fetch token usage trend: {{message}}"
   }
 }

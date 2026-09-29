@@ -127,7 +127,7 @@ describe("分类色板", () => {
   })
 
   it("恰好 8 槽，没有第 9 槽", () => {
-    // 分��色板的上限是硬约束：第 9 个色相在色盲模拟下与已有槽位无法区分
+    // 分类色板的上限是硬约束：第 9 个色相在色盲模拟下与已有槽位无法区分
     expect(css).not.toMatch(/--series-9\s*:/)
     expect(css).not.toMatch(/--color-series-9\s*:/)
   })
@@ -174,7 +174,7 @@ describe("禁止的设计模式", () => {
   const banned: { name: string; re: RegExp }[] = [
     {
       name: "侧边条纹（border-left/right 宽度 > 1px 的强调条）",
-      // 允许 border-left-width: 1px 的发丝���与 0，禁止 2px 及以上的色条
+      // 允许 border-left-width: 1px 的发丝线与 0，禁止 2px 及以上的色条
       re: /border-(?:left|right)(?:-width)?\s*:\s*(?!1px|0|thin|medium|var\(--border-width\))\d+px/g,
     },
     { name: "渐变文字（background-clip: text 配渐变）", re: /background-clip\s*:\s*text/g },

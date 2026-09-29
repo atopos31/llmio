@@ -11,7 +11,7 @@ afterEach(() => {
   try {
     localStorage.clear()
   } catch {
-    // 某些环境下 localStorage 不可用，主题是���示偏好，清不掉不影响测试
+    // 某些环境下 localStorage 不可用，主题是展示偏好，清不掉不影响测试
   }
   document.documentElement.removeAttribute("data-theme")
   document.documentElement.classList.remove("light", "dark")

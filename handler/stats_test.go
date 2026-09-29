@@ -314,8 +314,8 @@ func TestStatsHandler(t *testing.T) {
 	setupHandlerDB(t)
 
 	base := time.Date(2026, 9, 29, 10, 0, 0, 0, time.Local)
-	ok := models.ChatLog{Model: gorm.Model{CreatedAt: base}, Status: consts.StatusSuccess, Name: "gpt-4o", ProviderName: "p1", Currency: "CNY"}
-	bad := models.ChatLog{Model: gorm.Model{CreatedAt: base.Add(time.Minute)}, Status: consts.StatusError, Name: "claude", ProviderName: "p2", Error: `status: 429, body: rate limited`, Currency: "CNY"}
+	ok := models.ChatLog{CreatedAt: base, Status: consts.StatusSuccess, Name: "gpt-4o", ProviderName: "p1", Currency: "CNY"}
+	bad := models.ChatLog{CreatedAt: base.Add(time.Minute), Status: consts.StatusError, Name: "claude", ProviderName: "p2", Error: `status: 429, body: rate limited`, Currency: "CNY"}
 	for _, l := range []models.ChatLog{ok, bad} {
 		row := l
 		if err := models.DB.Create(&row).Error; err != nil {

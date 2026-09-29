@@ -42,12 +42,13 @@ func setupStatsDB(t *testing.T) {
 // logAt 构造一条位于指定时刻的日志，减少各用例的样板。
 func logAt(id uint, ts time.Time, status string) models.ChatLog {
 	return models.ChatLog{
-		Model:      gorm.Model{ID: id, CreatedAt: ts},
-		Status:     status,
-		Name:       "gpt-4o",
-		ProviderName: "prov-a",
+		ID:            id,
+		CreatedAt:     ts,
+		Status:        status,
+		Name:          "gpt-4o",
+		ProviderName:  "prov-a",
 		ProviderModel: "gpt-4o-2024",
-		Currency:   "CNY",
+		Currency:      "CNY",
 	}
 }
 
@@ -1389,9 +1390,9 @@ func TestLoadChatLogsFilters(t *testing.T) {
 
 	base := time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)
 	seed := []models.ChatLog{
-		{Model: gorm.Model{CreatedAt: base.Add(1 * time.Minute)}, Status: consts.StatusSuccess, Name: "gpt-4o", ProviderName: "prov-a", ProviderModel: "m-a", UserAgent: "ua-a", AuthKeyID: 1, Currency: "CNY"},
-		{Model: gorm.Model{CreatedAt: base.Add(2 * time.Minute)}, Status: consts.StatusError, Name: "claude", ProviderName: "prov-b", ProviderModel: "m-b", UserAgent: "ua-b", AuthKeyID: 2, Currency: "CNY"},
-		{Model: gorm.Model{CreatedAt: base.Add(3 * time.Minute)}, Status: consts.StatusRunning, Name: "gpt-4o", ProviderName: "prov-a", ProviderModel: "m-a", UserAgent: "ua-a", AuthKeyID: 0, Currency: "CNY"},
+		{CreatedAt: base.Add(1 * time.Minute), Status: consts.StatusSuccess, Name: "gpt-4o", ProviderName: "prov-a", ProviderModel: "m-a", UserAgent: "ua-a", AuthKeyID: 1, Currency: "CNY"},
+		{CreatedAt: base.Add(2 * time.Minute), Status: consts.StatusError, Name: "claude", ProviderName: "prov-b", ProviderModel: "m-b", UserAgent: "ua-b", AuthKeyID: 2, Currency: "CNY"},
+		{CreatedAt: base.Add(3 * time.Minute), Status: consts.StatusRunning, Name: "gpt-4o", ProviderName: "prov-a", ProviderModel: "m-a", UserAgent: "ua-a", AuthKeyID: 0, Currency: "CNY"},
 	}
 	for i := range seed {
 		if err := models.DB.Create(&seed[i]).Error; err != nil {

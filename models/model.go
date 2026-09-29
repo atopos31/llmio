@@ -54,17 +54,33 @@ type ModelWithProvider struct {
 	Currency         string
 }
 
+// ChatLog 请求日志，也是分析聚合的事实表。
+//
+// 此处刻意不内嵌 gorm.Model：分析聚合全部按 created_at 过滤与分桶，
+// 需要 created_at 参与复合索引，而内嵌结构的字段无法单独打标签。
+// 字段集合与 gorm.Model 等价（ID / CreatedAt / UpdatedAt / DeletedAt），
+// 因此对外仍以 ID、CreatedAt、DeletedAt 访问，JSON 形态不变。
+//
+// 索引按聚合的实际查询形态设计：
+//   - created_at 单列：范围过滤 + ORDER BY
+//   - status, created_at：趋势与成功率
+//   - auth_key_id, created_at：按 Key 下钻
+//   - name, created_at：按模型下钻
 type ChatLog struct {
-	gorm.Model
-	Name          string `gorm:"index"`
+	ID        uint      `gorm:"primarykey"`
+	CreatedAt time.Time `gorm:"index;index:idx_chat_logs_status_created,priority:2;index:idx_chat_logs_key_created,priority:2;index:idx_chat_logs_name_created,priority:2"`
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+
+	Name          string `gorm:"index;index:idx_chat_logs_name_created,priority:1"`
 	TraceID       string `gorm:"index"`
 	ProviderModel string `gorm:"index"`
 	ProviderName  string `gorm:"index"`
-	Status        string `gorm:"index"` // error or success
+	Status        string `gorm:"index;index:idx_chat_logs_status_created,priority:1"` // error or success
 	Style         string // 类型
 	UserAgent     string `gorm:"index"` // 用户代理
 	RemoteIP      string // 访问ip
-	AuthKeyID     uint   `gorm:"index"` // 使用的AuthKey ID
+	AuthKeyID     uint   `gorm:"index;index:idx_chat_logs_key_created,priority:1"` // 使用的AuthKey ID
 	SessionID     string `gorm:"index"` // 请求体中的session_id
 	ChatIO        bool   // 是否开启IO记录
 

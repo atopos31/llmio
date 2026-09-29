@@ -435,9 +435,9 @@ output(value)            → 提交契约 JSON
 - 选中行的"对比"工作流保留，上限 6，非 success 不可选
 - 详情抽屉：身份 / 性能 / Token 与费用 / 错误，保留单位自适应格式化
 
-**请求内容 `/logs/:id/chat-io`**
+**请求内容 `/logs/:id/chat-io`**（已重做）
 - 保留流式分片重组、`reasoning_content`、`tool_calls` 参数分片合并、tool 结果反查
-- **markdown 渲染需换**：原实现是正则拼 HTML（无列表/链接/表格/行内代码）并 `v-html` 注入——既有 XSS 面也有功能缺口。改用成熟渲染器 + 默认转义
+- **更正（2026-09-29）**：本节原先写「原实现是正则拼 HTML 并 `v-html` 注入，存在 XSS 面」——**这条描述是错的**。`v-html` 属于 dashboard 的 Vue 实现，被误套到了 React 版上。React 版用 `react-syntax-highlighter`，经查其实现**不含 `innerHTML`**，因此没有该 XSS 面。真实的改进点是体积：为给 JSON 染色，该库把约 627KB 的样式表打进了日志详情页的加载路径。已改为自绘的 `JsonTree`（零依赖、可折叠、类型双通道编码），该 chunk 不再随本页加载。
 - 消息体折叠阈值保留（800 字符），但**渐隐遮罩不要用硬编码 `#fff`**（深色下会错）
 
 **对比 `/compare?ids=`**

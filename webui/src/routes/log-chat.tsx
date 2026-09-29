@@ -1,20 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
+import { JsonTree } from "@/components/json-tree";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import Loading from "@/components/loading";
-import { useTheme } from "@/components/theme-provider";
 import { getChatIO, type ChatIO } from "@/lib/api";
 import { copyToClipboard } from "@/lib/utils";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { duotoneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { duotoneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { toast } from "sonner";
 import { Copy, Check, ChevronRight, ChevronDown, Code } from "lucide-react";
-
-type SyntaxStyle = typeof duotoneLight;
+import { seriesVar } from "@/lib/palette";
+import { cn } from "@/lib/utils";
 
 // i18n key mapping for field labels
 const fieldLabelKeys: Record<string, string> = {
@@ -31,6 +28,34 @@ const fieldLabelKeys: Record<string, string> = {
 };
 
 // ── Copy Button ──
+
+/**
+ * 角色 / 标记徽章。
+ *
+ * 用分类色板的固定槽位着色，并通过行内 style 取 CSS 变量——
+ * 这样深浅两套主题自动切换，无需为每个角色各写一份 dark: 类。
+ *
+ * 颜色只是辅助：徽章上始终有文字（角色名 / tool_call / function），
+ * 身份不依赖颜色传达，色盲读者同样可读。
+ */
+function RoleBadge({ name, slot, variant = "solid" }: { name: string; slot: number; variant?: "solid" | "muted" }) {
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium",
+        variant === "muted" && "bg-transparent"
+      )}
+      style={{
+        color: seriesVar(slot),
+        borderColor: `color-mix(in oklch, ${seriesVar(slot)} 40%, transparent)`,
+        backgroundColor:
+          variant === "solid" ? `color-mix(in oklch, ${seriesVar(slot)} 14%, transparent)` : undefined,
+      }}
+    >
+      {name}
+    </span>
+  );
+}
 
 function CopyButton({ text }: { text: string }) {
   const { t } = useTranslation("logs");
@@ -83,29 +108,15 @@ function CollapsibleSection({ title, subtitle, badge, defaultOpen = false, child
 
 // ── JSON Viewer ──
 
-function JsonViewer({ data, syntaxStyle }: { data: unknown; syntaxStyle: SyntaxStyle }) {
-  const text = typeof data === "string" ? data : JSON.stringify(data, null, 2);
-  return (
-    <div className="relative w-full overflow-x-auto rounded-md bg-muted/50 font-mono text-sm leading-6">
-      <div className="absolute top-1 right-1 z-10">
-        <CopyButton text={text} />
-      </div>
-      <SyntaxHighlighter
-        language="json"
-        style={syntaxStyle}
-        customStyle={{
-          margin: 0,
-          background: "transparent",
-          padding: "0.75rem",
-          fontSize: "0.8rem",
-          lineHeight: "1.4rem",
-          whiteSpace: "pre",
-        }}
-      >
-        {text}
-      </SyntaxHighlighter>
-    </div>
-  );
+/**
+ * JSON 视图。
+ *
+ * 改用自绘的 JsonTree 替代语法高亮库：本页内容几乎全是 JSON，而为了染色
+ * 要额外加载约 640KB 的样式表。JsonTree 体积归零，且多了可折叠与按节点
+ * 定位的能力——大请求体不必一次性铺开。
+ */
+function JsonViewer({ data }: { data: unknown }) {
+  return <JsonTree data={data} />;
 }
 
 // ── Raw JSON Toggle ──
@@ -126,7 +137,7 @@ function RawJsonButton({ show, toggle }: { show: boolean; toggle: () => void }) 
   );
 }
 
-function RawJsonPanel({ raw, syntaxStyle }: { raw: string; syntaxStyle: SyntaxStyle }) {
+function RawJsonPanel({ raw }: { raw: string }) {
   const formatted = useMemo(() => {
     try {
       return JSON.stringify(JSON.parse(raw), null, 2);
@@ -135,40 +146,33 @@ function RawJsonPanel({ raw, syntaxStyle }: { raw: string; syntaxStyle: SyntaxSt
     }
   }, [raw]);
 
+  // 原始面板刻意**不折叠**：它的用途就是"整段可框选复制"，
+  // 树形视图会让选择跨层级变得困难。格式化失败时原样展示。
   return (
-    <div className="relative w-full overflow-x-auto rounded-md border bg-muted/50 font-mono text-sm leading-6">
-      <div className="absolute top-1 right-1 z-10">
+    <div className="relative w-full overflow-x-auto rounded-md border border-border bg-muted/30">
+      <div className="absolute top-2 right-2 z-10">
         <CopyButton text={raw} />
       </div>
-      <SyntaxHighlighter
-        language="json"
-        style={syntaxStyle}
-        customStyle={{
-          margin: 0,
-          background: "transparent",
-          padding: "0.75rem",
-          fontSize: "0.8rem",
-          lineHeight: "1.4rem",
-          whiteSpace: "pre",
-        }}
-      >
-        {formatted}
-      </SyntaxHighlighter>
+      <pre className="p-3 font-mono text-xs leading-relaxed whitespace-pre">{formatted}</pre>
     </div>
   );
 }
 
 // ── Message Bubble ──
 
-function MessageBubble({ msg, syntaxStyle }: { msg: Record<string, unknown>; syntaxStyle: SyntaxStyle }) {
+function MessageBubble({ msg }: { msg: Record<string, unknown>; }) {
   const [open, setOpen] = useState(false);
   const role = String(msg.role ?? msg.type ?? "unknown");
-  const roleBadgeColor: Record<string, string> = {
-    system: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-    user: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-    assistant: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-    tool: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
-    developer: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+  // 角色用**分类色板的固定槽位**着色：角色是稳定的身份，槽位顺序固定，
+  // 同一个角色在任何请求里都是同一个颜色。原来这里是 5 个角色 × 2 主题的
+  // 手写 Tailwind 调色板映射，既绕过设计 token，也必然与色板漂移。
+  // 颜色只是辅助——角色名本身就在徽章上，不依赖颜色传达身份。
+  const roleSlot: Record<string, number> = {
+    system: 6,
+    user: 0,
+    assistant: 5,
+    tool: 1,
+    developer: 3,
   };
 
   const content = msg.content;
@@ -195,13 +199,9 @@ function MessageBubble({ msg, syntaxStyle }: { msg: Record<string, unknown>; syn
         onClick={() => setOpen(!open)}
       >
         {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
-        <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${roleBadgeColor[role] ?? "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200"}`}>
-          {role}
-        </span>
+        <RoleBadge name={role} slot={roleSlot[role] ?? 2} />
         {hasToolCalls && !hasContent && (
-          <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
-            tool_call
-          </span>
+          <RoleBadge name="tool_call" slot={7} variant="muted" />
         )}
         {preview && <span className="text-xs text-muted-foreground truncate">{preview}</span>}
       </button>
@@ -209,7 +209,7 @@ function MessageBubble({ msg, syntaxStyle }: { msg: Record<string, unknown>; syn
         <div className="border-t px-3 py-2 space-y-2">
           {hasContent && (
             isComplexContent ? (
-              <JsonViewer data={content} syntaxStyle={syntaxStyle} />
+              <JsonViewer data={content} />
             ) : (
               <pre className="whitespace-pre-wrap text-sm leading-relaxed break-words">{extractTextContent(content)}</pre>
             )
@@ -226,14 +226,12 @@ function MessageBubble({ msg, syntaxStyle }: { msg: Record<string, unknown>; syn
                 return (
                   <div key={i} className="border rounded-md p-2 space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
-                        function
-                      </span>
+                      <RoleBadge name="function" slot={7} variant="muted" />
                       <span className="text-sm font-mono font-medium">{name}</span>
                       {tc.id ? <span className="text-xs text-muted-foreground font-mono">{String(tc.id)}</span> : null}
                     </div>
                     {args != null ? (
-                      <JsonViewer data={args} syntaxStyle={syntaxStyle} />
+                      <JsonViewer data={args} />
                     ) : null}
                   </div>
                 );
@@ -568,7 +566,7 @@ function mergeStreamChunks(style: string, chunks: string[]): { content: string; 
 
 // ── Input Display ──
 
-function InputSection({ raw, style, syntaxStyle }: { raw: string; style: string; syntaxStyle: SyntaxStyle }) {
+function InputSection({ raw, style }: { raw: string; style: string; }) {
   const { t } = useTranslation("logs");
   const rawToggle = useRawJsonToggle(raw);
   const parsed = useMemo(() => {
@@ -593,7 +591,7 @@ function InputSection({ raw, style, syntaxStyle }: { raw: string; style: string;
         </CardHeader>
         <CardContent className="space-y-2">
           {rawToggle.show ? (
-            <RawJsonPanel raw={raw} syntaxStyle={syntaxStyle} />
+            <RawJsonPanel raw={raw} />
           ) : (
             <pre className="whitespace-pre-wrap text-sm bg-muted/50 rounded-md p-3 border">{raw}</pre>
           )}
@@ -610,7 +608,7 @@ function InputSection({ raw, style, syntaxStyle }: { raw: string; style: string;
       </CardHeader>
       <CardContent className="space-y-2">
         {rawToggle.show ? (
-          <RawJsonPanel raw={raw} syntaxStyle={syntaxStyle} />
+          <RawJsonPanel raw={raw} />
         ) : (
           fields.map(field => (
             <CollapsibleSection
@@ -621,19 +619,19 @@ function InputSection({ raw, style, syntaxStyle }: { raw: string; style: string;
               defaultOpen={false}
             >
               {field.key === "messages" || field.key === "input" ? (
-                <MessagesView messages={field.value as Array<Record<string, unknown>>} syntaxStyle={syntaxStyle} />
+                <MessagesView messages={field.value as Array<Record<string, unknown>>} />
               ) : field.key === "tools" ? (
-                <ToolsView tools={field.value as unknown[]} style={style} syntaxStyle={syntaxStyle} />
+                <ToolsView tools={field.value as unknown[]} style={style} />
               ) : field.key === "model" ? (
                 <span className="text-sm font-mono">{String(field.value)}</span>
               ) : field.key === "system" || field.key === "instructions" || field.key === "systemInstruction" ? (
                 typeof field.value === "string" ? (
                   <pre className="whitespace-pre-wrap text-sm leading-relaxed break-words">{field.value}</pre>
                 ) : (
-                  <JsonViewer data={field.value} syntaxStyle={syntaxStyle} />
+                  <JsonViewer data={field.value} />
                 )
               ) : (
-                <JsonViewer data={field.value} syntaxStyle={syntaxStyle} />
+                <JsonViewer data={field.value} />
               )}
             </CollapsibleSection>
           ))
@@ -643,14 +641,14 @@ function InputSection({ raw, style, syntaxStyle }: { raw: string; style: string;
   );
 }
 
-function MessagesView({ messages, syntaxStyle }: { messages: Array<Record<string, unknown>>; syntaxStyle: SyntaxStyle }) {
+function MessagesView({ messages }: { messages: Array<Record<string, unknown>>; }) {
   if (!Array.isArray(messages)) {
-    return <JsonViewer data={messages} syntaxStyle={syntaxStyle} />;
+    return <JsonViewer data={messages} />;
   }
   return (
     <div className="space-y-2">
       {messages.map((msg, i) => (
-        <MessageBubble key={i} msg={msg} syntaxStyle={syntaxStyle} />
+        <MessageBubble key={i} msg={msg} />
       ))}
     </div>
   );
@@ -733,23 +731,23 @@ function extractTools(style: string, tools: unknown[]): ToolInfo[] {
   return result;
 }
 
-function ToolsView({ tools, style, syntaxStyle }: { tools: unknown[]; style: string; syntaxStyle: SyntaxStyle }) {
+function ToolsView({ tools, style }: { tools: unknown[]; style: string; }) {
   const parsed = useMemo(() => extractTools(style, tools), [style, tools]);
 
   if (parsed.length === 0) {
-    return <JsonViewer data={tools} syntaxStyle={syntaxStyle} />;
+    return <JsonViewer data={tools} />;
   }
 
   return (
     <div className="space-y-2">
       {parsed.map((tool, i) => (
-        <ToolItem key={i} tool={tool} syntaxStyle={syntaxStyle} />
+        <ToolItem key={i} tool={tool} />
       ))}
     </div>
   );
 }
 
-function ToolItem({ tool, syntaxStyle }: { tool: ToolInfo; syntaxStyle: SyntaxStyle }) {
+function ToolItem({ tool }: { tool: ToolInfo; }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -760,7 +758,8 @@ function ToolItem({ tool, syntaxStyle }: { tool: ToolInfo; syntaxStyle: SyntaxSt
         onClick={() => setOpen(!open)}
       >
         {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
-        <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+        <RoleBadge name="tool" slot={1} variant="muted" />
+        <span className="hidden">
           function
         </span>
         <span className="text-sm font-mono font-medium">{tool.name}</span>
@@ -776,7 +775,7 @@ function ToolItem({ tool, syntaxStyle }: { tool: ToolInfo; syntaxStyle: SyntaxSt
           {tool.parameters != null ? (
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-1">Parameters</p>
-              <JsonViewer data={tool.parameters} syntaxStyle={syntaxStyle} />
+              <JsonViewer data={tool.parameters} />
             </div>
           ) : null}
           {!tool.description && tool.parameters == null ? (
@@ -790,7 +789,7 @@ function ToolItem({ tool, syntaxStyle }: { tool: ToolInfo; syntaxStyle: SyntaxSt
 
 // ── Output Display ──
 
-function OutputSection({ chatIO, style, syntaxStyle }: { chatIO: ChatIO; style: string; syntaxStyle: SyntaxStyle }) {
+function OutputSection({ chatIO, style }: { chatIO: ChatIO; style: string; }) {
   const { t } = useTranslation("logs");
   const parsed = useMemo(
     () => parseOutput(style, chatIO.OfString, chatIO.OfStringArray),
@@ -821,7 +820,7 @@ function OutputSection({ chatIO, style, syntaxStyle }: { chatIO: ChatIO; style: 
       </CardHeader>
       <CardContent className="space-y-3">
         {rawToggle.show ? (
-          <RawJsonPanel raw={rawOutput} syntaxStyle={syntaxStyle} />
+          <RawJsonPanel raw={rawOutput} />
         ) : (
           <>
             {(parsed.model || parsed.finishReason) && (
@@ -845,13 +844,13 @@ function OutputSection({ chatIO, style, syntaxStyle }: { chatIO: ChatIO; style: 
 
             {parsed.usage && (
               <CollapsibleSection title={t("chat_io.usage")}>
-                <JsonViewer data={parsed.usage} syntaxStyle={syntaxStyle} />
+                <JsonViewer data={parsed.usage} />
               </CollapsibleSection>
             )}
 
             {parsed.type === "complete" && parsed.raw != null && typeof parsed.raw === "object" ? (
               <CollapsibleSection title={t("chat_io.full_response")}>
-                <JsonViewer data={parsed.raw} syntaxStyle={syntaxStyle} />
+                <JsonViewer data={parsed.raw} />
               </CollapsibleSection>
             ) : null}
 
@@ -876,38 +875,6 @@ function OutputSection({ chatIO, style, syntaxStyle }: { chatIO: ChatIO; style: 
 
 // ── Theme hook ──
 
-function useSyntaxStyle(): SyntaxStyle {
-  const { theme } = useTheme();
-
-  const defaultPrefersDark = useMemo(() => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches;
-  }, []);
-
-  const [isDark, setIsDark] = useState<boolean>(() => {
-    if (theme === "system") return defaultPrefersDark;
-    return theme === "dark";
-  });
-
-  useEffect(() => {
-    if (theme === "system") {
-      if (typeof window === "undefined") {
-        setIsDark(false);
-        return;
-      }
-      const media = window.matchMedia("(prefers-color-scheme: dark)");
-      const listener = (event: MediaQueryListEvent) => setIsDark(event.matches);
-      setIsDark(media.matches);
-      media.addEventListener("change", listener);
-      return () => media.removeEventListener("change", listener);
-    }
-    setIsDark(theme === "dark");
-    return undefined;
-  }, [theme]);
-
-  return isDark ? duotoneDark : duotoneLight;
-}
-
 // ── Page ──
 
 export default function LogChatPage() {
@@ -917,7 +884,6 @@ export default function LogChatPage() {
   const [chatIO, setChatIO] = useState<ChatIO | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadErrorMessage, setLoadErrorMessage] = useState<string | null>(null);
-  const syntaxStyle = useSyntaxStyle();
   const style = chatIO?.Style ?? "openai";
 
   useEffect(() => {
@@ -992,8 +958,8 @@ export default function LogChatPage() {
 
       {!loadErrorMessage && chatIO && (
         <div className="space-y-6">
-          <InputSection raw={chatIO.Input} style={style} syntaxStyle={syntaxStyle} />
-          <OutputSection chatIO={chatIO} style={style} syntaxStyle={syntaxStyle} />
+          <InputSection raw={chatIO.Input} style={style} />
+          <OutputSection chatIO={chatIO} style={style} />
         </div>
       )}
     </div>

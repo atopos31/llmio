@@ -31,7 +31,8 @@
     "provider_placeholder": "選擇供應商",
     "status_success": "成功",
     "status_running": "執行中",
-    "status_error": "錯誤"
+    "status_error": "錯誤",
+    "clear": "清除篩選"
   },
   "table": {
     "id": "ID",
@@ -45,7 +46,12 @@
     "provider_model": "供應商模型",
     "type": "類型",
     "provider": "供應商",
-    "actions": "操作"
+    "actions": "操作",
+    "cache": "快取",
+    "cache_value": "{{percent}}%（{{tokens}}）",
+    "detail": "檢視詳情",
+    "view_io": "檢視請求內容",
+    "io_unavailable": "該請求未記錄內容（需成功且開啟 IO 記錄）"
   },
   "mobile": {
     "tokens": "Tokens",
@@ -120,5 +126,19 @@
     "fetch_failed": "取得會話日誌失敗",
     "io_not_found": "未找到會話記錄，IO 記錄可能未啟用。",
     "empty": "(空)"
+  },
+  "auto_refresh": {
+    "label": "自動重新整理",
+    "off": "不自動",
+    "every": "每 {{sec}} 秒"
+  },
+  "compare": {
+    "select_all": "全選本頁可比較項",
+    "select_row": "選擇 #{{id}} 用於對比",
+    "selected": "已選 {{count}}/{{max}} 項",
+    "limit": "最多對比 {{max}} 項",
+    "remove": "移除 #{{id}}",
+    "clear": "清除選擇",
+    "open": "對比"
   }
 }

@@ -31,7 +31,8 @@
     "provider_placeholder": "选择提供商",
     "status_success": "成功",
     "status_running": "运行中",
-    "status_error": "错误"
+    "status_error": "错误",
+    "clear": "清空筛选"
   },
   "table": {
     "id": "ID",
@@ -45,7 +46,12 @@
     "provider_model": "提供商模型",
     "type": "类型",
     "provider": "提供商",
-    "actions": "操作"
+    "actions": "操作",
+    "cache": "缓存",
+    "cache_value": "{{percent}}%（{{tokens}}）",
+    "detail": "查看详情",
+    "view_io": "查看请求内容",
+    "io_unavailable": "该请求未记录内容（需成功且开启 IO 记录）"
   },
   "mobile": {
     "tokens": "Tokens",
@@ -120,5 +126,19 @@
     "fetch_failed": "获取会话日志失败",
     "io_not_found": "未找到会话记录，IO 记录可能未启用。",
     "empty": "(空)"
+  },
+  "auto_refresh": {
+    "label": "自动刷新",
+    "off": "不自动",
+    "every": "每 {{sec}} 秒"
+  },
+  "compare": {
+    "select_all": "全选本页可比较项",
+    "select_row": "选择 #{{id}} 用于对比",
+    "selected": "已选 {{count}}/{{max}} 项",
+    "limit": "最多对比 {{max}} 项",
+    "remove": "移除 #{{id}}",
+    "clear": "清空选择",
+    "open": "对比"
   }
 }

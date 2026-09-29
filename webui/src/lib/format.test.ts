@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest"
 
 import {
   compactNumber,
+  formatBytes,
   currencySymbol,
   formatBucketLabel,
   formatClock,
   formatCost,
   formatDateTime,
   formatDurationMs,
+  formatDurationNs,
   formatFull,
   formatNumber,
   formatPercent,
@@ -204,5 +206,63 @@ describe("formatSeconds", () => {
   it("零与非法值", () => {
     expect(formatSeconds(0)).toBe("0s")
     expect(formatSeconds(Number.NaN)).toBe("0s")
+  })
+})
+
+describe("formatDurationNs", () => {
+  it("小于 1µs 用纳秒", () => {
+    expect(formatDurationNs(500)).toBe("500ns")
+  })
+
+  it("1µs 到 1ms 用微秒", () => {
+    expect(formatDurationNs(1_000)).toBe("1µs")
+    expect(formatDurationNs(250_000)).toBe("250µs")
+  })
+
+  it("1ms 到 1s 用毫秒", () => {
+    expect(formatDurationNs(1_000_000)).toBe("1ms")
+    expect(formatDurationNs(1_500_000)).toBe("1.5ms")
+  })
+
+  it("1s 起用秒", () => {
+    expect(formatDurationNs(1_000_000_000)).toBe("1s")
+    expect(formatDurationNs(2_500_000_000)).toBe("2.5s")
+  })
+
+  it("与 formatDurationMs 严格区分单位", () => {
+    // 同一数值当纳秒读是 1s，当毫秒读是 1000000s——相差 1e6 倍。
+    // 这正是不能用"按数值大小猜单位"的原因：猜错就是错一个量级。
+    expect(formatDurationNs(1_000_000_000)).toBe("1s")
+    expect(formatDurationMs(1_000_000_000)).toBe("1000000s")
+    expect(formatDurationNs(1_000_000_000)).not.toBe(formatDurationMs(1_000_000_000))
+  })
+
+  it("零与非法值", () => {
+    expect(formatDurationNs(0)).toBe("0ms")
+    expect(formatDurationNs(Number.NaN)).toBe("0ms")
+  })
+})
+
+describe("formatBytes", () => {
+  it("小于 1KB 用字节", () => {
+    expect(formatBytes(0)).toBe("0 B")
+    expect(formatBytes(512)).toBe("512 B")
+    expect(formatBytes(1023)).toBe("1023 B")
+  })
+
+  it("逐级换单位", () => {
+    expect(formatBytes(1024)).toBe("1 KB")
+    expect(formatBytes(2048)).toBe("2 KB")
+    expect(formatBytes(1024 ** 2)).toBe("1 MB")
+    expect(formatBytes(1024 ** 3)).toBe("1 GB")
+  })
+
+  it("保留一位小数（去掉无意义的 .0）", () => {
+    expect(formatBytes(1536)).toBe("1.5 KB")
+    expect(formatBytes(1024 ** 2 * 2.5)).toBe("2.5 MB")
+  })
+
+  it("非法值回落到 0 B", () => {
+    expect(formatBytes(Number.NaN)).toBe("0 B")
   })
 })

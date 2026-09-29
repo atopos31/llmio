@@ -9,7 +9,8 @@
     "config": "System Config",
     "group_observe": "Observe",
     "group_config": "Configure",
-    "primary_label": "Primary navigation"
+    "primary_label": "Primary navigation",
+    "compare": "Compare"
   },
   "sidebar": {
     "collapse": "Collapse Menu"

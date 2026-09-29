@@ -720,6 +720,18 @@ export async function getLogs(
   return apiRequest<LogsResponse>(`/logs?${params.toString()}`);
 }
 
+/**
+ * 取单条日志。
+ *
+ * 复用列表端点的 `id` 过滤（后端已支持），而不是新增单条端点——
+ * 对比页一次最多取 6 条，代价可接受，换来的是后端接口面不再扩大。
+ * 查不到时返回 null，由调用方决定如何呈现（对比页会明确列出"该条已不存在"）。
+ */
+export async function getLogById(id: number): Promise<ChatLog | null> {
+  const res = await getLogs(1, 1, { id: String(id) });
+  return res.data[0] ?? null;
+}
+
 export async function getChatIO(logId: number): Promise<ChatIO> {
   return apiRequest<ChatIO>(`/logs/${logId}/chat-io`);
 }

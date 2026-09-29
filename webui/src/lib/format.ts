@@ -110,3 +110,30 @@ export function formatSeconds(sec: number): string {
   const s = Math.round(sec % 60)
   return `${m}m${s}s`
 }
+
+/**
+ * 纳秒 → 自适应单位（µs / ms / s）。
+ *
+ * 与 formatDurationMs 分开是因为数据源单位不同：日志的 ProxyTime /
+ * FirstChunkTime / ChunkTime 是 Go 的 time.Duration，JSON 出来是**纳秒**。
+ * 交给调用方显式选择，胜过在同一函数里靠数值大小猜单位——
+ * 猜测在跨数量级时会静默给出错一个量级的结果。
+ */
+export function formatDurationNs(ns: number): string {
+  if (!Number.isFinite(ns) || ns === 0) return "0ms"
+  const abs = Math.abs(ns)
+  if (abs < 1_000) return `${ns.toFixed(0)}ns`
+  if (abs < 1_000_000) return `${trim(ns / 1_000)}µs`
+  if (abs < 1_000_000_000) return `${trim(ns / 1_000_000)}ms`
+  return `${trim(ns / 1_000_000_000)}s`
+}
+
+/** 字节 → 自适应单位（B / KB / MB / GB）。 */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes === 0) return "0 B"
+  const abs = Math.abs(bytes)
+  if (abs < 1024) return `${Math.round(bytes)} B`
+  if (abs < 1024 ** 2) return `${trim(bytes / 1024)} KB`
+  if (abs < 1024 ** 3) return `${trim(bytes / 1024 ** 2)} MB`
+  return `${trim(bytes / 1024 ** 3)} GB`
+}

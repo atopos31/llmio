@@ -22,6 +22,7 @@ import {
   FaCog,
   FaKey,
   FaExternalLinkAlt,
+  FaColumns,
 } from "react-icons/fa"
 import { toast } from "sonner"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -39,6 +40,7 @@ import {
 type NavLabelKey =
   | "nav.home"
   | "nav.logs"
+  | "nav.compare"
   | "nav.providers"
   | "nav.models"
   | "nav.auth_keys"
@@ -62,6 +64,7 @@ const NAV_GROUPS: { labelKey: NavGroupLabelKey; items: NavItem[] }[] = [
     items: [
       { to: "/", labelKey: "nav.home", icon: <FaHome /> },
       { to: "/logs", labelKey: "nav.logs", icon: <FaFileAlt /> },
+      { to: "/compare", labelKey: "nav.compare", icon: <FaColumns /> },
     ],
   },
   {

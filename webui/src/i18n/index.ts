@@ -13,6 +13,7 @@ import zhCNModels from './locales/zh-CN/models.json';
 import zhCNLogs from './locales/zh-CN/logs.json';
 import zhCNAuthKeys from './locales/zh-CN/auth-keys.json';
 import zhCNConfig from './locales/zh-CN/config.json';
+import zhCNCompare from './locales/zh-CN/compare.json';
 
 // zh-TW
 import zhTWCommon from './locales/zh-TW/common.json';
@@ -25,6 +26,7 @@ import zhTWModels from './locales/zh-TW/models.json';
 import zhTWLogs from './locales/zh-TW/logs.json';
 import zhTWAuthKeys from './locales/zh-TW/auth-keys.json';
 import zhTWConfig from './locales/zh-TW/config.json';
+import zhTWCompare from './locales/zh-TW/compare.json';
 
 // en
 import enCommon from './locales/en/common.json';
@@ -37,6 +39,7 @@ import enModels from './locales/en/models.json';
 import enLogs from './locales/en/logs.json';
 import enAuthKeys from './locales/en/auth-keys.json';
 import enConfig from './locales/en/config.json';
+import enCompare from './locales/en/compare.json';
 
 export const SUPPORTED_LANGUAGES = [
   { code: 'zh-CN', label: '简体中文' },
@@ -62,6 +65,7 @@ void i18n
         logs: zhCNLogs,
         'auth-keys': zhCNAuthKeys,
         config: zhCNConfig,
+        compare: zhCNCompare,
       },
       'zh-TW': {
         common: zhTWCommon,
@@ -74,6 +78,7 @@ void i18n
         logs: zhTWLogs,
         'auth-keys': zhTWAuthKeys,
         config: zhTWConfig,
+        compare: zhTWCompare,
       },
       'en-US': {
         common: enCommon,
@@ -86,11 +91,12 @@ void i18n
         logs: enLogs,
         'auth-keys': enAuthKeys,
         config: enConfig,
+        compare: enCompare,
       },
     },
     fallbackLng: 'zh-CN',
     defaultNS: 'common',
-    ns: ['common', 'layout', 'home', 'quickstart', 'login', 'providers', 'models', 'logs', 'auth-keys', 'config'],
+    ns: ['common', 'layout', 'home', 'quickstart', 'login', 'providers', 'models', 'logs', 'auth-keys', 'config', 'compare'],
     detection: {
       order: ['localStorage', 'navigator'],
       lookupLocalStorage: 'llmio-language',
@@ -120,6 +126,7 @@ declare module 'i18next' {
       logs: typeof zhCNLogs;
       'auth-keys': typeof zhCNAuthKeys;
       config: typeof zhCNConfig;
+      compare: typeof zhCNCompare;
     };
   }
 }

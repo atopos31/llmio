@@ -1,0 +1,45 @@
+{
+  "title": "请求对比（{{count}} 条）",
+  "back": "返回日志",
+  "reload": "重新加载",
+  "more": "还有 {{count}} 项未显示",
+  "empty": {
+    "no_ids": "没有选择要对比的请求",
+    "go_logs": "去日志页选择"
+  },
+  "partial": "有 {{total}} 条中 {{ok}} 条缺少请求内容记录，前缀分析只基于有内容的部分。",
+  "prefix": {
+    "title": "缓存公共前缀",
+    "length": "公共前缀条目数",
+    "composition": "其中 工具 {{tools}} · 系统提示 {{system}} · 消息 {{messages}}",
+    "none": "这些请求没有任何公共前缀——第一个条目就不同，缓存无法复用。",
+    "note": "前缀按缓存的实际渲染顺序计算：工具 → 系统提示 → 消息。前缀中任何一处变化都会使其后全部失效。"
+  },
+  "diverge": {
+    "title": "各请求的分叉点"
+  },
+  "table": {
+    "id": "ID",
+    "status": "状态",
+    "model": "模型",
+    "diverge": "起分叉处",
+    "cache": "缓存命中",
+    "tokens": "Token",
+    "tps": "TPS",
+    "first_chunk": "首包",
+    "missing": "不存在",
+    "load_failed": "加载失败",
+    "no_diverge": "完全包含公共前缀",
+    "from_entry": "第 {{n}} 项起"
+  },
+  "entry": {
+    "tool": "工具 {{name}}",
+    "system": "系统提示",
+    "message": "消息 {{role}}"
+  },
+  "detail": {
+    "contains_prefix": "该请求完整包含公共前缀，没有分叉。",
+    "no_content": "该请求没有记录请求内容（需成功且开启 IO 记录）。",
+    "share": "与其余请求共享前 {{n}} 项，共 {{total}} 项；以下是从分叉处开始的条目。"
+  }
+}

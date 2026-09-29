@@ -31,7 +31,8 @@
     "provider_placeholder": "Select provider",
     "status_success": "Success",
     "status_running": "Running",
-    "status_error": "Error"
+    "status_error": "Error",
+    "clear": "Clear filters"
   },
   "table": {
     "id": "ID",
@@ -45,7 +46,12 @@
     "provider_model": "Provider Model",
     "type": "Type",
     "provider": "Provider",
-    "actions": "Actions"
+    "actions": "Actions",
+    "cache": "Cache",
+    "cache_value": "{{percent}}% ({{tokens}})",
+    "detail": "View details",
+    "view_io": "View request content",
+    "io_unavailable": "No body recorded (requires success and IO logging enabled)"
   },
   "mobile": {
     "tokens": "Tokens",
@@ -120,5 +126,19 @@
     "fetch_failed": "Failed to fetch session log",
     "io_not_found": "No session record found. IO logging may not be enabled.",
     "empty": "(empty)"
+  },
+  "auto_refresh": {
+    "label": "Auto refresh",
+    "off": "Off",
+    "every": "Every {{sec}}s"
+  },
+  "compare": {
+    "select_all": "Select all comparable rows on this page",
+    "select_row": "Select #{{id}} for comparison",
+    "selected": "{{count}}/{{max}} selected",
+    "limit": "You can compare at most {{max}}",
+    "remove": "Remove #{{id}}",
+    "clear": "Clear selection",
+    "open": "Compare"
   }
 }

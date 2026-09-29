@@ -125,7 +125,13 @@ func ProviderTestHandler(c *gin.Context) {
 	if chatModel.WithHeader != nil {
 		withHeader = *chatModel.WithHeader
 	}
-	header := service.BuildHeaders(c.Request.Header, withHeader, chatModel.CustomerHeaders, false)
+	header := service.BuildHeaders(c.Request.Header, withHeader, chatModel.CustomerHeaders, false, service.HeaderVars{
+		// 连通性测试使用固定会话值：既满足强制要求会话头的上游（如 opencode），
+		// 也便于按该值检索测试流量
+		Session:       "llmio-connectivity-test",
+		Model:         chatModel.Model,
+		ProviderModel: chatModel.Model,
+	})
 	req, err := providerInstance.BuildReq(ctx, header, chatModel.Model, []byte(testBody))
 	if err != nil {
 		common.ErrorWithHttpStatus(c, http.StatusOK, 502, "Failed to connect to provider: "+err.Error())

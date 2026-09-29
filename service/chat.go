@@ -63,6 +63,10 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		return nil, nil, err
 	}
 
+	// 会话键在重试循环外解析一次：同一次请求的各次重试共用同一会话��，
+	// 避免重试期间会话漂移（随机兜底分支尤其需要）
+	sessionKey := ResolveSessionKey(reqMeta.Header, before.SessionID, before.Model, authKeyID, before.raw)
+
 	timer := time.NewTimer(time.Second * time.Duration(providersWithMeta.TimeOut))
 	defer timer.Stop()
 	for retry := range providersWithMeta.MaxRetry {
@@ -117,7 +121,14 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			}
 			// 根据请求原始请求头 是否透传请求头 自定义请求头 构建新的请求头
 			withHeader := lo.FromPtrOr(modelWithProvider.WithHeader, false)
-			headers := BuildHeaders(reqMeta.Header, withHeader, modelWithProvider.CustomerHeaders, before.Stream)
+			headers := BuildHeaders(reqMeta.Header, withHeader, modelWithProvider.CustomerHeaders, before.Stream, HeaderVars{
+				Session:       sessionKey,
+				SessionID:     before.SessionID,
+				Model:         before.Model,
+				ProviderModel: modelWithProvider.ProviderModel,
+				TraceID:       traceID,
+				AuthKeyID:     authKeyID,
+			})
 
 			rawBody, err := buildUpstreamBody(before.raw, modelWithProvider.ExtraBody)
 			if err != nil {
@@ -262,7 +273,7 @@ func SaveChatLog(ctx context.Context, log models.ChatLog) (uint, error) {
 	return log.ID, nil
 }
 
-func BuildHeaders(source http.Header, withHeader bool, customHeaders map[string]string, stream bool) http.Header {
+func BuildHeaders(source http.Header, withHeader bool, customHeaders map[string]string, stream bool, vars HeaderVars) http.Header {
 	header := http.Header{}
 	if withHeader {
 		header = source.Clone()
@@ -277,7 +288,14 @@ func BuildHeaders(source http.Header, withHeader bool, customHeaders map[string]
 	header.Del("X-Goog-Api-Key")
 
 	for key, value := range customHeaders {
-		header.Set(key, value)
+		// 支持 {{...}} 占位符动态求值（如会话键）；字面量值行为不变
+		rendered := renderHeaderValue(value, vars)
+		if rendered == "" {
+			// 已配置的自定义头必须给出非空值：部分上游（如 opencode）缺少该头
+			// 或值为空都会直接返回 400，空值等同于未配置
+			rendered = newRandomID()
+		}
+		header.Set(key, rendered)
 	}
 
 	// Accept-Encoding 必须留给 Go Transport 自行协商：一旦该头被显式设置（透传客户端头或自定义头），

@@ -9,6 +9,23 @@ import (
 	"gorm.io/gorm"
 )
 
+// closeOnCleanup 注册在测试结束时关闭连接。
+//
+// 必须有这一步：Windows 上文件被占用时 t.TempDir 的清理会失败。
+// t.Cleanup 为 LIFO，TempDir 的清理最早注册因而最后执行，
+// 所以此处注册的关闭一定跑在它之前。
+func closeOnCleanup(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	t.Cleanup(func() {
+		if db == nil {
+			return
+		}
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+}
+
 func TestInit_BackfillsAuthKeyIOLogToFalse(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "llmio.db")
 
@@ -16,6 +33,7 @@ func TestInit_BackfillsAuthKeyIOLogToFalse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open seed database: %v", err)
 	}
+	closeOnCleanup(t, db)
 
 	if err := db.Exec(`
 		CREATE TABLE auth_keys (
@@ -43,6 +61,8 @@ func TestInit_BackfillsAuthKeyIOLogToFalse(t *testing.T) {
 	}
 
 	Init(context.Background(), path)
+	// Init 会另外打开一个连到同一文件的连接并写入包级 DB，同样需要关闭
+	closeOnCleanup(t, DB)
 
 	authKey, err := gorm.G[AuthKey](DB).Where("key = ?", "legacy-key").First(context.Background())
 	if err != nil {

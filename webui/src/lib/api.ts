@@ -408,6 +408,160 @@ export async function getMetrics(days: number): Promise<MetricsData> {
   return apiRequest<MetricsData>(`/metrics/use/${days}`);
 }
 
+// ---------------------------------------------------------------------------
+// 分析聚合（GET /api/metrics/stats）
+//
+// 单端点返回一个时间切片的全部视图：趋势、五维下钻、延迟分布、错误分析、
+// 排行榜。之所以不按维度拆成多个端点，是为了让一次请求对应一个切片——
+// 前端「筛选行作用于其下所有图表」的约定因此天然成立，不会出现各图之间
+// 因分别请求而产生的时间窗漂移。
+//
+// 字段名与后端 service/stats.go 的 json tag 一一对应，改后端务必同步这里。
+// ---------------------------------------------------------------------------
+
+export interface StatsKPI {
+  total: number;
+  success: number;
+  failed: number;
+  running: number;
+  /** success + failed，**不含 running**（在途请求不该拉低成功率） */
+  finished: number;
+  successRate: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cachedTokens: number;
+  cacheHitRate: number;
+  cost: number;
+  currency: string;
+  totalRetries: number;
+  retryRate: number;
+}
+
+export interface TrendPoint {
+  /** 桶起点，Unix 毫秒 */
+  ts: number;
+  total: number;
+  success: number;
+  error: number;
+  running: number;
+  tokens: number;
+  prompt: number;
+  completion: number;
+  avgTps: number;
+  avgFirstChunkMs: number;
+}
+
+export interface GroupStat {
+  name: string;
+  total: number;
+  success: number;
+  error: number;
+  running: number;
+  successRate: number;
+  prompt: number;
+  completion: number;
+  totalTokens: number;
+  cached: number;
+  cacheHitRate: number;
+  avgTps: number;
+  maxTps: number;
+  avgFirstChunkMs: number;
+  /** 最近秩分位，非插值 */
+  p95FirstChunkMs: number;
+  avgProxyMs: number;
+  retries: number;
+  cost: number;
+}
+
+export interface ErrorSample {
+  id: number;
+  createdAt: number;
+  error: string;
+}
+
+export interface ErrorGroup {
+  type: string;
+  code: string;
+  count: number;
+  providers: { name: string; count: number }[];
+  models: { name: string; count: number }[];
+  samples: ErrorSample[];
+}
+
+export interface LatencyStat {
+  p50: number;
+  p90: number;
+  p95: number;
+  p99: number;
+  avg: number;
+  max: number;
+  /** 已升序排序的原始样本，可直接画分布 */
+  list: number[];
+}
+
+export interface StatsLogRow {
+  id: number;
+  createdAt: number;
+  model: string;
+  provider: string;
+  keyName: string;
+  tps: number;
+  firstChunkMs: number;
+  completionTokens: number;
+  promptTokens: number;
+  error?: string;
+  retry: number;
+}
+
+export interface StatsResult {
+  generatedAt: number;
+  bucketMs: number;
+  /** 命中单次扫描上限时为 true，说明时间窗太宽，数字可能不完整 */
+  truncated: boolean;
+  range: { from: number; to: number };
+  kpi: StatsKPI;
+  trend: TrendPoint[];
+  byModel: GroupStat[];
+  byProvider: GroupStat[];
+  byKey: GroupStat[];
+  byName: GroupStat[];
+  byUa: GroupStat[];
+  errors: ErrorGroup[];
+  errorTrend: TrendPoint[];
+  latency: { firstChunk: LatencyStat; tps: LatencyStat; proxyMs: LatencyStat };
+  topTps: StatsLogRow[];
+  slowest: StatsLogRow[];
+  recentErrors: StatsLogRow[];
+}
+
+export interface StatsQuery {
+  /** Unix 秒/毫秒、RFC3339 或 YYYY-MM-DD，后端都接受 */
+  from?: string;
+  to?: string;
+  /** 分桶档位，缺省 auto */
+  granularity?: string;
+  provider?: string;
+  model?: string;
+  name?: string;
+  status?: string;
+  ua?: string;
+  key_id?: string;
+}
+
+export async function getStats(query: StatsQuery = {}): Promise<StatsResult> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== null && value !== "") params.append(key, value);
+  }
+  const qs = params.toString();
+  return apiRequest<StatsResult>(`/metrics/stats${qs ? `?${qs}` : ""}`);
+}
+
+export async function getStatsGranularities(): Promise<string[]> {
+  return apiRequest<string[]>("/metrics/granularities");
+}
+
 export async function getModelCounts(): Promise<ModelCount[]> {
   return apiRequest<ModelCount[]>('/metrics/counts');
 }

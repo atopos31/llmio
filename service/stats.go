@@ -380,24 +380,24 @@ type TrendPoint struct {
 
 // GroupStat 是单个分组的统计。
 type GroupStat struct {
-	Name             string  `json:"name"`
-	Total            int64   `json:"total"`
-	Success          int64   `json:"success"`
-	Error            int64   `json:"error"`
-	Running          int64   `json:"running"`
-	SuccessRate      float64 `json:"successRate"`
-	Prompt           int64   `json:"prompt"`
-	Completion       int64   `json:"completion"`
-	TotalTokens      int64   `json:"totalTokens"`
-	Cached           int64   `json:"cached"`
-	CacheHitRate     float64 `json:"cacheHitRate"`
-	AvgTps           float64 `json:"avgTps"`
-	MaxTps           float64 `json:"maxTps"`
-	AvgFirstChunkMs  float64 `json:"avgFirstChunkMs"`
-	P95FirstChunkMs  float64 `json:"p95FirstChunkMs"`
-	AvgProxyMs       float64 `json:"avgProxyMs"`
-	Retries          int64   `json:"retries"`
-	Cost             float64 `json:"cost"`
+	Name            string  `json:"name"`
+	Total           int64   `json:"total"`
+	Success         int64   `json:"success"`
+	Error           int64   `json:"error"`
+	Running         int64   `json:"running"`
+	SuccessRate     float64 `json:"successRate"`
+	Prompt          int64   `json:"prompt"`
+	Completion      int64   `json:"completion"`
+	TotalTokens     int64   `json:"totalTokens"`
+	Cached          int64   `json:"cached"`
+	CacheHitRate    float64 `json:"cacheHitRate"`
+	AvgTps          float64 `json:"avgTps"`
+	MaxTps          float64 `json:"maxTps"`
+	AvgFirstChunkMs float64 `json:"avgFirstChunkMs"`
+	P95FirstChunkMs float64 `json:"p95FirstChunkMs"`
+	AvgProxyMs      float64 `json:"avgProxyMs"`
+	Retries         int64   `json:"retries"`
+	Cost            float64 `json:"cost"`
 }
 
 // ErrorSample 是一条可点击的错误样本。
@@ -451,23 +451,23 @@ type LogRow struct {
 
 // StatsResult 是聚合输出的完整结果。
 type StatsResult struct {
-	GeneratedAt int64                  `json:"generatedAt"`
-	BucketMs    int64                  `json:"bucketMs"`
-	Truncated   bool                   `json:"truncated"`
-	Range       RangeInfo              `json:"range"`
-	KPI         KPI                    `json:"kpi"`
-	Trend       []TrendPoint           `json:"trend"`
-	ByModel     []GroupStat            `json:"byModel"`
-	ByProvider  []GroupStat            `json:"byProvider"`
-	ByKey       []GroupStat            `json:"byKey"`
-	ByName      []GroupStat            `json:"byName"`
-	ByUserAgent []GroupStat            `json:"byUa"`
-	Errors      []ErrorGroup           `json:"errors"`
-	ErrorTrend  []TrendPoint           `json:"errorTrend"`
-	Latency     LatencyBreakdown       `json:"latency"`
-	TopTps      []LogRow               `json:"topTps"`
-	Slowest     []LogRow               `json:"slowest"`
-	RecentError []LogRow               `json:"recentErrors"`
+	GeneratedAt int64            `json:"generatedAt"`
+	BucketMs    int64            `json:"bucketMs"`
+	Truncated   bool             `json:"truncated"`
+	Range       RangeInfo        `json:"range"`
+	KPI         KPI              `json:"kpi"`
+	Trend       []TrendPoint     `json:"trend"`
+	ByModel     []GroupStat      `json:"byModel"`
+	ByProvider  []GroupStat      `json:"byProvider"`
+	ByKey       []GroupStat      `json:"byKey"`
+	ByName      []GroupStat      `json:"byName"`
+	ByUserAgent []GroupStat      `json:"byUa"`
+	Errors      []ErrorGroup     `json:"errors"`
+	ErrorTrend  []TrendPoint     `json:"errorTrend"`
+	Latency     LatencyBreakdown `json:"latency"`
+	TopTps      []LogRow         `json:"topTps"`
+	Slowest     []LogRow         `json:"slowest"`
+	RecentError []LogRow         `json:"recentErrors"`
 }
 
 // RangeInfo 是本次聚合实际覆盖的时间范围。
@@ -1038,5 +1038,53 @@ func ComputeStats(ctx context.Context, f StatsFilter) (*StatsResult, bool, error
 	}
 	res := Aggregate(logs, f)
 	res.Truncated = truncated
+	resolveKeyNames(ctx, &res)
 	return &res, truncated, nil
+}
+
+// resolveKeyNames 把 ByKey 分组的裸 ID 换成 AuthKey 名称。
+//
+// 只在 ComputeStats 里做（而非 Aggregate）：聚合保持纯函数无 IO，
+// 便于逐字段对拍与测试；名称解析是展示层的补全，需要查库。
+//
+// 名称沿用 AuthKey.Name（即面板里的"项目名称"），这也是原 dashboard
+// 的"项目"维度口径；查不到名称时保留 ID 而不是丢弃，避免统计凭空少一截。
+func resolveKeyNames(ctx context.Context, res *StatsResult) {
+	ids := make([]uint, 0, len(res.ByKey))
+	for _, g := range res.ByKey {
+		if g.Name == "admin" || g.Name == "-" {
+			continue
+		}
+		if id, err := strconv.ParseUint(g.Name, 10, 64); err == nil {
+			ids = append(ids, uint(id))
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+
+	var keys []models.AuthKey
+	if err := models.DB.WithContext(ctx).
+		Select("id", "name").
+		Where("id IN ?", ids).
+		Find(&keys).Error; err != nil {
+		// 查不到就保留 ID：名称缺失不该让整个统计失败
+		return
+	}
+
+	byID := make(map[uint]string, len(keys))
+	for _, k := range keys {
+		if name := strings.TrimSpace(k.Name); name != "" {
+			byID[k.ID] = name
+		}
+	}
+	for i := range res.ByKey {
+		id, err := strconv.ParseUint(res.ByKey[i].Name, 10, 64)
+		if err != nil {
+			continue
+		}
+		if name, ok := byID[uint(id)]; ok {
+			res.ByKey[i].Name = name
+		}
+	}
 }

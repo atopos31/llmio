@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -376,10 +377,10 @@ func TestCost(t *testing.T) {
 		{
 			name: "无缓存读",
 			in: models.ChatLog{
-				Usage:           models.Usage{PromptTokens: 1_000_000, CompletionTokens: 1_000_000},
-				InputPrice:      1,
-				CacheReadPrice:  1,
-				OutputPrice:     1,
+				Usage:          models.Usage{PromptTokens: 1_000_000, CompletionTokens: 1_000_000},
+				InputPrice:     1,
+				CacheReadPrice: 1,
+				OutputPrice:    1,
 			},
 			want: 2,
 		},
@@ -569,7 +570,7 @@ func TestAggregateKPI(t *testing.T) {
 		t.Fatalf("Finished want 3, got %d", res.KPI.Finished)
 	}
 	// 成功率分母为 success+failed=3，排除 running
-	if diff := res.KPI.SuccessRate - (2.0/3.0*100); diff > 1e-9 || diff < -1e-9 {
+	if diff := res.KPI.SuccessRate - (2.0 / 3.0 * 100); diff > 1e-9 || diff < -1e-9 {
 		t.Fatalf("SuccessRate want %v, got %v", 2.0/3.0*100, res.KPI.SuccessRate)
 	}
 	if res.KPI.PromptTokens != 1050 {
@@ -581,7 +582,7 @@ func TestAggregateKPI(t *testing.T) {
 	if res.KPI.CachedTokens != 150 {
 		t.Fatalf("CachedTokens want 150, got %d", res.KPI.CachedTokens)
 	}
-	if diff := res.KPI.CacheHitRate - (150.0/1050.0*100); diff > 1e-9 || diff < -1e-9 {
+	if diff := res.KPI.CacheHitRate - (150.0 / 1050.0 * 100); diff > 1e-9 || diff < -1e-9 {
 		t.Fatalf("CacheHitRate got %v", res.KPI.CacheHitRate)
 	}
 	if res.KPI.TotalRetries != 3 {
@@ -1517,5 +1518,117 @@ func TestComputeStatsPropagatesDBError(t *testing.T) {
 	}
 	if _, _, err := LoadChatLogs(context.Background(), StatsFilter{}); err == nil {
 		t.Fatal("表不存在时 LoadChatLogs 应返回错误")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 分组名称解析
+// ---------------------------------------------------------------------------
+
+func TestResolveKeyNames(t *testing.T) {
+	setupStatsDB(t)
+	ctx := context.Background()
+
+	// 需要 auth_keys 表
+	if err := models.DB.AutoMigrate(&models.AuthKey{}); err != nil {
+		t.Fatalf("migrate auth_keys: %v", err)
+	}
+	keys := []models.AuthKey{
+		{Name: "  前端项目  ", Key: "k1"}, // 带空白，应被 trim
+		{Name: "后端项目", Key: "k2"},
+		{Name: "   ", Key: "k3"}, // 空名，应保留 ID
+	}
+	for i := range keys {
+		if err := models.DB.Create(&keys[i]).Error; err != nil {
+			t.Fatalf("seed key: %v", err)
+		}
+	}
+	idOf := keys[0].ID
+	blankID := keys[2].ID
+
+	res := &StatsResult{
+		ByKey: []GroupStat{
+			{Name: "admin"}, // 0 → 保持
+			{Name: "-"},     // 未知 → 保持
+			{Name: strconv.FormatUint(uint64(idOf), 10)},    // 解析为名称
+			{Name: strconv.FormatUint(uint64(blankID), 10)}, // 空名 → 保留 ID
+			{Name: "999999"}, // 查不到 → 保留 ID
+		},
+	}
+	resolveKeyNames(ctx, res)
+
+	if res.ByKey[0].Name != "admin" {
+		t.Fatalf("admin 应保持不变，实得 %q", res.ByKey[0].Name)
+	}
+	if res.ByKey[1].Name != "-" {
+		t.Fatalf("- 应保持不变，实得 %q", res.ByKey[1].Name)
+	}
+	if res.ByKey[2].Name != "前端项目" {
+		t.Fatalf("应解析为名称并 trim 空白，实得 %q", res.ByKey[2].Name)
+	}
+	if res.ByKey[3].Name != strconv.FormatUint(uint64(blankID), 10) {
+		t.Fatalf("空名应保留 ID，实得 %q", res.ByKey[3].Name)
+	}
+	if res.ByKey[4].Name != "999999" {
+		t.Fatalf("查不到的 ID 应保留，实得 %q", res.ByKey[4].Name)
+	}
+}
+
+func TestResolveKeyNamesNoKeyGroups(t *testing.T) {
+	setupStatsDB(t)
+
+	// 只有 admin 与 "-" 时不需要查库，直接返回
+	res := &StatsResult{ByKey: []GroupStat{{Name: "admin"}, {Name: "-"}}}
+	resolveKeyNames(context.Background(), res)
+
+	if res.ByKey[0].Name != "admin" || res.ByKey[1].Name != "-" {
+		t.Fatalf("不应改动：%+v", res.ByKey)
+	}
+}
+
+func TestResolveKeyNamesQueryErrorKeepsIDs(t *testing.T) {
+	setupStatsDB(t)
+
+	// 先建表再删表：setupStatsDB 只迁移了 chat_logs，
+	// 直接 DROP 一张不存在的表会报错，掩盖了要测的分支
+	if err := models.DB.AutoMigrate(&models.AuthKey{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	// 删表让查询失败：应保留 ID 而不是让统计整体失败
+	if err := models.DB.Exec("DROP TABLE auth_keys").Error; err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+	res := &StatsResult{ByKey: []GroupStat{{Name: "7"}}}
+	resolveKeyNames(context.Background(), res)
+
+	if res.ByKey[0].Name != "7" {
+		t.Fatalf("查询失败时应保留 ID，实得 %q", res.ByKey[0].Name)
+	}
+}
+
+func TestComputeStatsResolvesKeyNames(t *testing.T) {
+	setupStatsDB(t)
+	ctx := context.Background()
+
+	if err := models.DB.AutoMigrate(&models.AuthKey{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	k := models.AuthKey{Name: "报表项目", Key: "sk-test"}
+	if err := models.DB.Create(&k).Error; err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	l := logAt(1, time.Now(), consts.StatusSuccess)
+	l.AuthKeyID = k.ID
+	if err := models.DB.Create(&l).Error; err != nil {
+		t.Fatalf("seed log: %v", err)
+	}
+
+	res, _, err := ComputeStats(ctx, StatsFilter{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.ByKey) != 1 || res.ByKey[0].Name != "报表项目" {
+		t.Fatalf("ByKey 应解析为名称：%+v", res.ByKey)
 	}
 }

@@ -82,24 +82,6 @@ export interface SystemConfig {
   min_weight: number;
 }
 
-export interface SystemStatus {
-  total_providers: number;
-  total_models: number;
-  active_requests: number;
-  uptime: string;
-  version: string;
-}
-
-export interface ProviderMetric {
-  provider_id: number;
-  provider_name: string;
-  success_rate: number;
-  avg_response_time: number;
-  total_requests: number;
-  success_count: number;
-  failure_count: number;
-}
-
 // Generic API request function
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
@@ -385,15 +367,6 @@ export async function deleteModelProvider(id: number): Promise<void> {
   await apiRequest<void>(`/model-providers/${id}`, {
     method: 'DELETE',
   });
-}
-
-// System API functions
-export async function getSystemStatus(): Promise<SystemStatus> {
-  return apiRequest<SystemStatus>('/status');
-}
-
-export async function getProviderMetrics(): Promise<ProviderMetric[]> {
-  return apiRequest<ProviderMetric[]>('/metrics/providers');
 }
 
 // ---------------------------------------------------------------------------

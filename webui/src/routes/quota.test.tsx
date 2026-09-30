@@ -4,11 +4,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import QuotaPage from "@/routes/quota"
 import { getQuotaConfig, runQuotaSources } from "@/lib/api"
-import type {
-  QuotaConfigResponse,
-  QuotaItem,
-  QuotaRunResult,
-  QuotaSourceResult,
+import {
+  QUOTA_VIEW_STORAGE_KEY,
+  QUOTA_VIEW_VERSION,
+  saveQuotaView,
+  type QuotaConfigResponse,
+  type QuotaItem,
+  type QuotaRunResult,
+  type QuotaSourceResult,
+  type QuotaViewPrefs,
 } from "@/lib/quota"
 
 // 列表里既有本页自己用的两个取数，也有子对话框（编辑器 / 导入 / 全局设置）
@@ -191,6 +195,72 @@ describe("额度页 · 有数据", () => {
     expect(screen.getByText(/1\/1 个数据源正常/)).toBeInTheDocument()
     // 卡片自己的读数：摘要条上没有它，能证明卡片确实渲染了
     expect(screen.getByText("12ms")).toBeInTheDocument()
+  })
+})
+
+describe("额度页 · 用量环卡片", () => {
+  /** 一份"卡片用环"的展示偏好，条目样式由调用方给。 */
+  function seedView(overrides: QuotaViewPrefs["overrides"]) {
+    localStorage.setItem(
+      QUOTA_VIEW_STORAGE_KEY,
+      saveQuotaView({
+        chartStyle: "ring",
+        showMeta: false,
+        version: QUOTA_VIEW_VERSION,
+        overrides,
+      })
+    )
+  }
+
+  function twoItems() {
+    return runResult([
+      source({
+        items: [
+          item({ id: "plan", label: "套餐", percent: 10, status: "ok" }),
+          item({ id: "card", label: "信用卡", percent: 85, status: "warning" }),
+        ],
+      }),
+    ])
+  }
+
+  it("指定了环的那条画环，其余画进度条而不是退化成文字", async () => {
+    // 用户要的是"选定哪几个显示用量环，其他进度条"。旧版只有固定的
+    // "最紧张的那条画环、其余只列文字"，既选不了，也没有条可看。
+    seedView({ "s1::plan": { chartStyle: "ring" } })
+    mocked.runQuotaSources.mockResolvedValue(twoItems())
+    const { container } = render(<QuotaPage />)
+
+    await screen.findByText(/共 2 条余量/)
+    expect(container.querySelectorAll('[data-slot="usage-ring"]')).toHaveLength(1)
+    const meters = screen.getAllByRole("meter")
+    expect(meters).toHaveLength(1)
+    // 画条的那条是没被选中的"信用卡"，不是被选中的"套餐"
+    expect(meters[0]).toHaveAccessibleName(/信用卡/)
+  })
+
+  it("一条都没指定时回落到最紧张的那条，与旧版行为一致", async () => {
+    seedView({})
+    mocked.runQuotaSources.mockResolvedValue(twoItems())
+    const { container } = render(<QuotaPage />)
+
+    await screen.findByText(/共 2 条余量/)
+    expect(container.querySelectorAll('[data-slot="usage-ring"]')).toHaveLength(1)
+    // 环画的是最紧张的"信用卡"（85%），"套餐"让出位置去画进度条。
+    // 按环的读屏文本断言：页面上"信用卡"与"85%"各出现不止一次（摘要条也有），
+    // 只有环里那一条带得上这个组合。
+    expect(container.querySelector('[data-slot="usage-ring"]')).toHaveTextContent("信用卡 85%")
+    expect(screen.getAllByRole("meter")).toHaveLength(1)
+  })
+
+  it("条目被指定为纯文字时不摆进度条", async () => {
+    seedView({ "s1::plan": { chartStyle: "text" } })
+    mocked.runQuotaSources.mockResolvedValue(twoItems())
+    const { container } = render(<QuotaPage />)
+
+    await screen.findByText(/共 2 条余量/)
+    // "套餐"被指定成纯文字，于是既不是环、也不该有进度条
+    expect(container.querySelectorAll('[data-slot="usage-ring"]')).toHaveLength(1)
+    expect(screen.queryAllByRole("meter")).toHaveLength(0)
   })
 })
 

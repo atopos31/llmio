@@ -542,14 +542,30 @@ export interface QuotaViewPrefs {
   showMeta: boolean
   /** 键：数据源 id，或 `sourceId::itemId`。 */
   overrides: Record<string, QuotaOverride>
+  /** 存储格式版本，见 QUOTA_VIEW_VERSION。 */
+  version: number
 }
 
 export const QUOTA_VIEW_STORAGE_KEY = "llmio-quota-view-v1"
+
+/**
+ * 当前存储格式版本。
+ *
+ * 1 → 2：条目级 `chartStyle` 的含义变了。v1 的样式是**整张卡片**生效的，
+ * 早期版本却把它写在条目上，因此读到 v1 数据时要把条目级样式提升到数据源级，
+ * 否则用户此前设置过的样式会被静默忽略。v2 起条目级样式是**真正的**条目级，
+ * 提升会反过来毁掉用户的选择（把卡片的默认样式也一起改掉），所以只对 v1 做。
+ *
+ * 兼容性：v1 数据升级后**保留**条目上的样式——提升是把同一个值同时放在两级，
+ * 与升级前渲染出来的一模一样。
+ */
+export const QUOTA_VIEW_VERSION = 2
 
 export const DEFAULT_QUOTA_VIEW: QuotaViewPrefs = {
   chartStyle: "progress",
   showMeta: true,
   overrides: {},
+  version: QUOTA_VIEW_VERSION,
 }
 
 const CHART_STYLE_VALUES: QuotaChartStyle[] = ["progress", "ring", "bar", "text"]
@@ -565,7 +581,7 @@ export function loadQuotaView(raw: string | null): QuotaViewPrefs {
   if (!raw) return { ...DEFAULT_QUOTA_VIEW, overrides: {} }
   try {
     const parsed = JSON.parse(raw) as Partial<QuotaViewPrefs>
-    const overrides = normalizeOverrides(parsed.overrides)
+    const overrides = normalizeOverrides(parsed.overrides, parsed.version !== QUOTA_VIEW_VERSION)
     return {
       chartStyle:
         parsed.chartStyle && CHART_STYLE_VALUES.includes(parsed.chartStyle)
@@ -573,6 +589,9 @@ export function loadQuotaView(raw: string | null): QuotaViewPrefs {
           : "progress",
       showMeta: parsed.showMeta !== false,
       overrides,
+      // 读出来就是当前版本：否则每次加载都要重跑一遍 v1 的提升，
+      // 而用户已经明确选过"这条画环、卡片默认进度条"时那会改掉卡片样式
+      version: QUOTA_VIEW_VERSION,
     }
   } catch {
     return { ...DEFAULT_QUOTA_VIEW, overrides: {} }
@@ -582,22 +601,27 @@ export function loadQuotaView(raw: string | null): QuotaViewPrefs {
 /**
  * 归一覆盖表。
  *
- * 历史迁移：早期版本把 chartStyle 写在**条目**上，但样式是整张卡片生效的。
- * 这里把条目上的 chartStyle 提升到数据源级再删除，否则用户此前的设置
- * 会被静默忽略（表现为"我改过样式，怎么没生效"，且无从排查）。
+ * `promoteLegacy` 只在读到 v1 数据时为真（见 QUOTA_VIEW_VERSION）：那时
+ * 条目上的 chartStyle 表达的是**卡片**样式，提升到数据源级才不会让用户
+ * 此前的设置被静默忽略（表现为"我改过样式，怎么没生效"，且无从排查）。
+ *
+ * 提升时**保留**条目上的原值：v2 起条目样式是条目级的，留着它渲染结果与
+ * v1 完全一致，而删掉就意味着用户再点开这条时会看到"没设置过"。
  */
-function normalizeOverrides(input: unknown): Record<string, QuotaOverride> {
+function normalizeOverrides(
+  input: unknown,
+  promoteLegacy: boolean
+): Record<string, QuotaOverride> {
   if (!input || typeof input !== "object") return {}
   const out: Record<string, QuotaOverride> = {}
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
     if (!value || typeof value !== "object") continue
     const patch = { ...(value as QuotaOverride) }
-    if (key.includes("::") && patch.chartStyle) {
+    if (promoteLegacy && key.includes("::") && patch.chartStyle) {
       const sid = key.split("::")[0]
       if (!out[sid]?.chartStyle) {
         out[sid] = { ...out[sid], chartStyle: patch.chartStyle }
       }
-      delete patch.chartStyle
     }
     // 对象展开 undefined 是空操作，因此这里不需要兜底分支
     if (Object.keys(patch).length) out[key] = { ...out[key], ...patch }
@@ -638,6 +662,51 @@ export function itemOverrideKey(sourceId: string, itemId: string): string {
 /** 该数据源最终生效的图表样式：源级覆盖 > 全局默认。 */
 export function styleOf(prefs: QuotaViewPrefs, sourceId: string): QuotaChartStyle {
   return prefs.overrides[sourceId]?.chartStyle || prefs.chartStyle
+}
+
+/**
+ * 这一条**自己**指定的样式；没指定过就是 undefined（跟随卡片）。
+ *
+ * 与 styleOf 的区别是要紧的：卡片样式决定整张卡怎么摆，条目样式只决定
+ * 这一条在卡片里长什么样。卡片是 ring 时条目指定 progress，意思是
+ * "别的画环，这条画进度条"。
+ */
+export function itemStyleOf(
+  prefs: QuotaViewPrefs,
+  sourceId: string,
+  itemId: string
+): QuotaChartStyle | undefined {
+  return prefs.overrides[itemOverrideKey(sourceId, itemId)]?.chartStyle
+}
+
+/**
+ * 环样式卡片的分组：哪几条画环、哪几条不画。
+ *
+ * 规则（用户要的是"选定哪几个显示用量环，其他画进度条"）：
+ *
+ *   - 明确指定了 ring 的条目画环；
+ *   - 一个都没指定时回落到**默认那一条**（最紧张的，仅在有百分比的条目里挑），
+ *     保持卡片在没有人工干预时与从前一样；
+ *   - 明确指定了别的样式的条目**不参与**默认回落——用户既然说了"这条画进度条"，
+ *     它就不该因为恰好最紧张又被拎出来画环。
+ *
+ * 返回值里 `rest` 是除环以外的全部条目（顺序不变），由调用方决定各自画什么。
+ */
+export function ringLayout(
+  prefs: QuotaViewPrefs,
+  sourceId: string,
+  items: QuotaItem[]
+): { rings: QuotaItem[]; rest: QuotaItem[] } {
+  const rings = items.filter((it) => itemStyleOf(prefs, sourceId, it.id) === "ring")
+  if (rings.length) {
+    return { rings, rest: items.filter((it) => !rings.includes(it)) }
+  }
+  const pool = items.filter(
+    (it) => it.percent !== null && itemStyleOf(prefs, sourceId, it.id) === undefined
+  )
+  const fallback = tightestItem(pool)
+  if (!fallback) return { rings: [], rest: items }
+  return { rings: [fallback], rest: items.filter((it) => it.id !== fallback.id) }
 }
 
 /** 数据源被删除时清理它的全部覆盖，避免残留（否则重建同名源会"继承"旧设置）。 */

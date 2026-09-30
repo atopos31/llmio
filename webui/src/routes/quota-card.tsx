@@ -7,11 +7,12 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Meter } from "@/components/ui/meter"
 import {
   itemOverrideKey,
+  itemStyleOf,
   itemsOf,
   renderItemText,
+  ringLayout,
   sourceTypeKey,
   styleOf,
-  tightestItem,
   windowLabel,
   type QuotaChartStyle,
   type QuotaItem,
@@ -62,7 +63,6 @@ export function QuotaCard({
     (it) => !prefs.overrides[itemOverrideKey(source.id, it.id)]?.hidden
   )
   const hiddenCount = allItems.length - visibleItems.length
-  const tightest = tightestItem(visibleItems)
 
   return (
     <Card className="flex min-w-0 flex-col gap-2 py-3">
@@ -175,7 +175,6 @@ export function QuotaCard({
                 style={style}
                 items={visibleItems}
                 showMeta={showMeta}
-                tightest={tightest}
                 prefs={prefs}
                 sourceId={source.id}
                 editable={editable}
@@ -205,7 +204,6 @@ function QuotaChart({
   style,
   items,
   showMeta,
-  tightest,
   prefs,
   sourceId,
   editable,
@@ -214,7 +212,6 @@ function QuotaChart({
   style: QuotaChartStyle
   items: QuotaItem[]
   showMeta: boolean
-  tightest: QuotaItem | null
   prefs: QuotaViewPrefs
   sourceId: string
   editable: boolean
@@ -300,39 +297,61 @@ function QuotaChart({
   }
 
   // 用量环：meter（单一比例对上限），不是仪表盘。
-  // 取最紧张的一条，其余以文字列出——环形只适合承载**一个**比例。
+  //
+  // 画哪几条由条目自己的样式决定（`ringLayout`）：用户在条目对话框里勾了
+  // "用量环"的就画环，没勾过时回落到最紧张的那一条——一张卡上放不下几个环，
+  // 因此默认仍然只挑一个。其余的画进度条而不是只列文字：同一份数据，
+  // 有比例的至少该把比例画出来，"其余一律退化成文字"是旧版固定死的取舍。
   if (style === "ring") {
-    if (!tightest) {
+    const { rings, rest } = ringLayout(prefs, sourceId, items)
+    if (!rings.length) {
       return (
         <p className="py-3 text-center text-xs text-muted-foreground">
           {t("card.no_percent")}
         </p>
       )
     }
-    const pct = tightest.percent as number
     return (
       <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-4">
-          <UsageRing percent={pct} fill={fillFor(pct)} label={labelOf(tightest)} />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] font-medium" title={labelOf(tightest)}>
-              {labelOf(tightest)}
-            </p>
-            <p className="reading text-sm font-semibold">{textOf(tightest)}</p>
-            <div className="mt-1 flex items-center gap-1.5">
-              <QuotaStatusBadge status={tightest.status} compact />
-              <span className="reading text-xs text-muted-foreground">
-                {t("card.bar_used", { percent: round1(pct) })}
-              </span>
-            </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+          {rings.map((it) => {
+            const pct = it.percent as number
+            return (
+              <div key={it.id} className="flex min-w-0 items-center gap-3">
+                <UsageRing percent={pct} fill={fillFor(pct)} label={labelOf(it)} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-medium" title={labelOf(it)}>
+                    {labelOf(it)}
+                  </p>
+                  <p className="reading text-sm font-semibold">{textOf(it)}</p>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <QuotaStatusBadge status={it.status} compact />
+                    <span className="reading text-xs text-muted-foreground">
+                      {t("card.bar_used", { percent: round1(pct) })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        {/* 画环之外的条目仍要能看到，否则"隐藏了几条"就成了信息黑洞 */}
+        {rest.length > 0 && (
+          <div className="flex flex-col gap-2 border-t border-dashed border-border pt-2">
+            {rest.map((it) =>
+              itemRow(
+                it,
+                it.percent === null || itemStyleOf(prefs, sourceId, it.id) === "text" ? null : (
+                  <Meter
+                    value={it.percent}
+                    fill={fillFor(it.percent)}
+                    trackLabel={`${labelOf(it)} ${percentText(it)}`}
+                  />
+                )
+              )
+            )}
           </div>
-        </div>
-        {/* 环上只放得下一条；其余的仍要能看到，否则"隐藏了几条"就成了信息黑洞 */}
-        <div className="flex flex-col gap-1.5 border-t border-dashed border-border pt-2">
-          {items
-            .filter((it) => it.id !== tightest.id)
-            .map((it) => itemRow(it))}
-        </div>
+        )}
       </div>
     )
   }
@@ -398,7 +417,9 @@ function UsageRing({
   const r = 34
   const c = 2 * Math.PI * r
   return (
-    <div className="relative size-20 shrink-0">
+    // data-slot 与 Meter 的那一处同义：环是装饰性的 SVG，
+    // 无障碍树上没有可依赖的 role，"哪几条画了环"只能靠它数出来
+    <div data-slot="usage-ring" className="relative size-20 shrink-0">
       <svg viewBox="0 0 80 80" className="size-20 -rotate-90">
         <circle cx="40" cy="40" r={r} fill="none" stroke="var(--muted)" strokeWidth="8" />
         <circle

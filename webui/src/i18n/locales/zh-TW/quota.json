@@ -164,8 +164,8 @@
     "tokens": "可用佔位符",
     "preview": "預覽",
     "chart_style": "圖表樣式",
-    "chart_style_placeholder": "跟隨資料來源 / 全域",
-    "chart_style_hint": "圖表樣式是整張卡片生效的，這裡修改會寫入該資料來源的樣式（等同卡片上的刷子按鈕）。",
+    "chart_style_placeholder": "跟隨卡片",
+    "chart_style_hint": "只影響這一條：卡片是「用量環」時，選了「用量環」的項目才畫環（一條都沒選時預設取最緊張的那一條），其餘畫進度條。",
     "hidden": "隱藏",
     "hidden_hint": "隱藏後不計入此卡的顯示（資料仍會查詢）",
     "reset": "清除該條自訂"

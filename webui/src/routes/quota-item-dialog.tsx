@@ -11,11 +11,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import {
+  CHART_STYLES,
   defaultFormat,
   FORMAT_TOKENS,
   renderItemText,
+  type QuotaChartStyle,
   type QuotaItem,
   type QuotaOverride,
   type QuotaOverridePatch,
@@ -130,6 +139,32 @@ export function QuotaItemDialog({
             <span className="reading text-sm font-semibold">{preview || "—"}</span>
           </Row>
 
+          {/*
+            条目样式。卡片是"环"时，这一栏决定这一条画不画环——卡上放不下
+            很多个环，用户要的正是"指定哪几个画环，其他画进度条"。
+            选"跟随卡片"表示不参与（回落到卡片的默认挑选）。
+          */}
+          <Row label={t("item.chart_style")}>
+            <Select
+              value={override.chartStyle ?? "__inherit"}
+              onValueChange={(v) =>
+                onChange({ chartStyle: v === "__inherit" ? null : (v as QuotaChartStyle) })
+              }
+            >
+              <SelectTrigger className="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__inherit">{t("item.chart_style_placeholder")}</SelectItem>
+                {CHART_STYLES.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {t(s.labelKey as never, { ns: "quota" })}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Row>
+
           <Row label={t("item.hidden")}>
             <div className="flex items-center gap-2">
               <Switch
@@ -142,9 +177,7 @@ export function QuotaItemDialog({
             </div>
           </Row>
 
-          <p className="text-[11px] text-muted-foreground">
-            {t("item.chart_style_hint")}
-          </p>
+          <p className="text-[11px] text-muted-foreground">{t("item.chart_style_hint")}</p>
         </div>
 
         <DialogFooter className="sm:justify-between">
@@ -152,7 +185,7 @@ export function QuotaItemDialog({
             variant="ghost"
             className="text-status-critical-ink"
             onClick={() => {
-              onChange({ label: "", format: "", hidden: false })
+              onChange({ label: "", format: "", chartStyle: null, hidden: false })
               onOpenChange(false)
             }}
           >

@@ -16,6 +16,9 @@ import {
   loadQuotaView,
   pruneOverrides,
   QUOTA_VIEW_STORAGE_KEY,
+  QUOTA_VIEW_VERSION,
+  itemStyleOf,
+  ringLayout,
   queryToText,
   quotaStatusTone,
   renderItemText,
@@ -321,7 +324,12 @@ describe("FORMAT_TOKENS", () => {
 
 describe("loadQuotaView", () => {
   it("没有存过时给默认值", () => {
-    expect(loadQuotaView(null)).toEqual({ chartStyle: "progress", showMeta: true, overrides: {} })
+    expect(loadQuotaView(null)).toEqual({
+      chartStyle: "progress",
+      showMeta: true,
+      overrides: {},
+      version: QUOTA_VIEW_VERSION,
+    })
   })
 
   it("空串也走默认（localStorage 里可能是空值）", () => {
@@ -334,6 +342,7 @@ describe("loadQuotaView", () => {
       chartStyle: "progress",
       showMeta: true,
       overrides: {},
+      version: QUOTA_VIEW_VERSION,
     })
   })
 
@@ -353,16 +362,33 @@ describe("loadQuotaView", () => {
     expect(loadQuotaView(JSON.stringify({})).showMeta).toBe(true)
   })
 
-  it("把早期写在条目上的 chartStyle 提升到数据源级", () => {
-    // 样式是整张卡片生效的，早期版本却把它写在单条余量上。
+  it("v1 数据把条目上的 chartStyle 提升到数据源级，且条目上那份留着", () => {
+    // v1 里样式是整张卡片生效的，早期版本却把它写在单条余量上。
     // 不做迁移的话，用户此前的设置会被静默忽略——表现为
     // "我明明改过样式，怎么没生效"，且无从排查。
+    //
+    // 提升是**两边都放**同一个值，而不是搬走：v2 起条目样式是条目级的，
+    // 留着它渲染结果与 v1 一模一样；删掉则会让用户再打开这条时看到"没设置过"。
     const got = loadQuotaView(
       JSON.stringify({ overrides: { "s1::i1": { chartStyle: "ring" } } })
     )
     expect(got.overrides.s1).toEqual({ chartStyle: "ring" })
-    // 迁移后该 :: 键本身应消失（它的内容已全被提升）
-    expect(got.overrides["s1::i1"]).toBeUndefined()
+    expect(got.overrides["s1::i1"]).toEqual({ chartStyle: "ring" })
+    // 读出来就是当前版本，否则每次加载都要重跑一遍提升
+    expect(got.version).toBe(QUOTA_VIEW_VERSION)
+  })
+
+  it("v2 数据不再提升：条目样式就是条目自己的", () => {
+    // 用户明确选了"这条画环、卡片默认进度条"。再提升一次会把整张卡片
+    // 也改成环——那正是这次要修掉的毛病。
+    const got = loadQuotaView(
+      JSON.stringify({
+        version: QUOTA_VIEW_VERSION,
+        overrides: { "s1::i1": { chartStyle: "ring" } },
+      })
+    )
+    expect(got.overrides.s1).toBeUndefined()
+    expect(got.overrides["s1::i1"]).toEqual({ chartStyle: "ring" })
   })
 
   it("迁移时数据源已有样式则不覆盖它", () => {
@@ -374,12 +400,12 @@ describe("loadQuotaView", () => {
     expect(got.overrides.s1).toEqual({ chartStyle: "bar" })
   })
 
-  it("迁移时保留条目上的其它字段", () => {
+  it("迁移时条目上的其它字段原样保留", () => {
     const got = loadQuotaView(
       JSON.stringify({ overrides: { "s1::i1": { chartStyle: "ring", label: "自定义" } } })
     )
     expect(got.overrides.s1).toEqual({ chartStyle: "ring" })
-    expect(got.overrides["s1::i1"]).toEqual({ label: "自定义" })
+    expect(got.overrides["s1::i1"]).toEqual({ chartStyle: "ring", label: "自定义" })
   })
 
   it("非 :: 的键原样保留", () => {
@@ -460,6 +486,55 @@ describe("styleOf / itemOverrideKey / pruneOverrides", () => {
       keep: { name: "A" },
       "keep::i": { label: "L" },
     })
+  })
+})
+
+describe("itemStyleOf / ringLayout", () => {
+  const pct = (id: string, percent: number, status: QuotaItem["status"] = "ok") =>
+    item({ id, percent, status })
+
+  it("条目样式只认条目自己的键，没设置过就是 undefined", () => {
+    const p = prefs({
+      chartStyle: "progress",
+      overrides: { s: { chartStyle: "ring" }, "s::a": { chartStyle: "text" } },
+    })
+    expect(itemStyleOf(p, "s", "a")).toBe("text")
+    // 源级样式不是条目样式：它决定整张卡怎么摆
+    expect(itemStyleOf(p, "s", "b")).toBeUndefined()
+  })
+
+  it("指定了环的条目就是画环的那几条，其余全进 rest", () => {
+    const p = prefs({
+      overrides: { "s::a": { chartStyle: "ring" }, "s::b": { chartStyle: "ring" } },
+    })
+    const items = [pct("a", 10), pct("b", 90), pct("c", 50)]
+    const got = ringLayout(p, "s", items)
+    expect(got.rings.map((i) => i.id)).toEqual(["a", "b"])
+    expect(got.rest.map((i) => i.id)).toEqual(["c"])
+  })
+
+  it("一条都没指定时回落到最紧张的那条（与旧版一样）", () => {
+    const got = ringLayout(prefs(), "s", [pct("lo", 10), pct("hi", 90)])
+    expect(got.rings.map((i) => i.id)).toEqual(["hi"])
+    expect(got.rest.map((i) => i.id)).toEqual(["lo"])
+  })
+
+  it("明确指定了别样式的条目不参与回落——它不该因为最紧张又被拎出来画环", () => {
+    const p = prefs({ overrides: { "s::hi": { chartStyle: "progress" } } })
+    const got = ringLayout(p, "s", [pct("hi", 90), pct("lo", 10)])
+    expect(got.rings.map((i) => i.id)).toEqual(["lo"])
+    expect(got.rest.map((i) => i.id)).toEqual(["hi"])
+  })
+
+  it("可回落的条目都挑不出来时给空环，由调用方说「没有可画的」", () => {
+    // 两条都没有百分比：算不出比例就没有可比性
+    expect(ringLayout(prefs(), "s", [item({ id: "a" }), item({ id: "b" })])).toEqual({
+      rings: [],
+      rest: [item({ id: "a" }), item({ id: "b" })].map((i) => i),
+    })
+    // 或者用户把每条都指定成了别的样式
+    const p = prefs({ overrides: { "s::a": { chartStyle: "text" } } })
+    expect(ringLayout(p, "s", [pct("a", 90)]).rings).toEqual([])
   })
 })
 

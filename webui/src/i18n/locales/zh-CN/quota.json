@@ -164,8 +164,8 @@
     "tokens": "可用占位符",
     "preview": "预览",
     "chart_style": "图表样式",
-    "chart_style_placeholder": "跟随数据源 / 全局",
-    "chart_style_hint": "图表样式是整张卡片生效的，这里修改会写入该数据源的样式（等同卡片上的刷子按钮）。",
+    "chart_style_placeholder": "跟随卡片",
+    "chart_style_hint": "只影响这一条：卡片是「用量环」时，选了「用量环」的条目才画环（一条都没选时默认取最紧张的那条），其余画进度条。",
     "hidden": "隐藏",
     "hidden_hint": "隐藏后不计入此卡的展示（数据仍会查询）",
     "reset": "清除该条自定义"

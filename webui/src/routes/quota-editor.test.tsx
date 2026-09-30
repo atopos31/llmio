@@ -173,7 +173,7 @@ describe("数据源编辑器 · 编辑已有源", () => {
       enabled: true,
       type: "http",
       url: "https://api.example.com/usage",
-      headers: { "x-foo": "bar" },
+      headers: { "x-foo": "bar", "x-org": "acme" },
       query: { page: "1" },
       constants: { window: "month" },
       map: { label: "name", unit: "=CREDITS" },
@@ -183,7 +183,8 @@ describe("数据源编辑器 · 编辑已有源", () => {
     // 高级项默认折叠，展开才渲染
     await user.click(screen.getByRole("button", { name: "展开高级" }))
 
-    expect(screen.getByDisplayValue('{"x-foo":"bar"}')).toBeInTheDocument()
+    // 请求头是"每行一条 KEY=VALUE"，与其他几个多行框同一套写法
+    expect(screen.getByDisplayValue(/x-foo=bar\s*x-org=acme/)).toBeInTheDocument()
     expect(screen.getByDisplayValue("page=1")).toBeInTheDocument()
     expect(screen.getByDisplayValue("window=month")).toBeInTheDocument()
     // 字面量在文本里写成双等号，回填要能认回来
@@ -193,10 +194,86 @@ describe("数据源编辑器 · 编辑已有源", () => {
 
     await waitFor(() => expect(mocked.update).toHaveBeenCalledTimes(1))
     const sent = mocked.update.mock.calls[0][0]
-    expect(sent.headers).toEqual({ "x-foo": "bar" })
+    // 多个请求头要一个不少地带上：以前是 JSON 文本框，语法错一点就整份丢掉
+    expect(sent.headers).toEqual({ "x-foo": "bar", "x-org": "acme" })
     expect(sent.query).toEqual({ page: "1" })
     expect(sent.constants).toEqual({ window: "month" })
     expect(sent.map).toEqual({ label: "name", unit: "=CREDITS" })
+  })
+
+  /**
+   * HTTP 类型的"请求定制"。
+   *
+   * 原先有两处填了等于没填：请求头是 JSON 文本框（写错一个逗号就整份静默丢掉），
+   * 查询参数则从编辑器一路存到配置、却被服务端丢在 toHTTPConfig 之外——
+   * 界面上看不出任何差别，只有真正去拉一次才发现参数没发出去。
+   * 两头都改过了，这一组钉的是"用户填的能存下来、能原样回传"。
+   */
+  it("多行填写的请求头与查询参数随保存提交", async () => {
+    const user = userEvent.setup()
+    renderDialog({
+      id: "s7",
+      name: "中转站",
+      enabled: true,
+      type: "http",
+      url: "https://api.example.com/usage",
+    })
+
+    await user.click(screen.getByRole("button", { name: "展开高级" }))
+    await user.type(screen.getByPlaceholderText("如 page=1&size=20"), "page=2&size=5")
+    // 一行一条：换行即"再加一个头"，不必先学会 JSON
+    await user.type(
+      screen.getByPlaceholderText("如 x-foo=bar（一行一条）"),
+      "x-foo=bar{enter}x-org=acme"
+    )
+    await user.click(screen.getByRole("button", { name: "保存" }))
+
+    await waitFor(() => expect(mocked.update).toHaveBeenCalledTimes(1))
+    const sent = mocked.update.mock.calls[0][0]
+    expect(sent.headers).toEqual({ "x-foo": "bar", "x-org": "acme" })
+    // 存成对象而不是那串文本：服务端 joinURL 认的是对象/字符串两种写法
+    expect(sent.query).toEqual({ page: "2", size: "5" })
+  })
+
+  it("basic 鉴权给出用户名输入框，改过的用户名随保存提交", async () => {
+    // 后端把 auth.user 拼进 Authorization: Basic，没有输入项就只能发出
+    // "空用户名:口令"，而界面上完全看不出少了东西
+    const user = userEvent.setup()
+    renderDialog({
+      id: "s8",
+      name: "中转站",
+      enabled: true,
+      type: "http",
+      url: "https://api.example.com/usage",
+      auth: { type: "basic", user: "alice" },
+    })
+
+    const name = screen.getByPlaceholderText("用户名")
+    expect(name).toHaveValue("alice")
+    // basic 的头名由后端定死，摆一个改了不生效的框只会让人以为自己配错了
+    expect(screen.queryByPlaceholderText("x-api-key")).not.toBeInTheDocument()
+
+    await user.clear(name)
+    await user.type(name, "bob")
+    await user.click(screen.getByRole("button", { name: "保存" }))
+
+    await waitFor(() => expect(mocked.update).toHaveBeenCalledTimes(1))
+    // type 也要跟着回来：只发 user 会被服务端当成"改了整套鉴权"
+    expect(mocked.update.mock.calls[0][0].auth).toEqual({ type: "basic", user: "bob" })
+  })
+
+  it("bearer 鉴权不给用户名框，头名照旧可改", async () => {
+    renderDialog({
+      id: "s9",
+      name: "中转站",
+      enabled: true,
+      type: "http",
+      url: "https://api.example.com/usage",
+      auth: { type: "bearer", header: "Authorization" },
+    })
+
+    expect(screen.queryByPlaceholderText("用户名")).not.toBeInTheDocument()
+    expect(screen.getByDisplayValue("Authorization")).toBeInTheDocument()
   })
 
   it("改一处、存一次，别的字段不受牵连", async () => {

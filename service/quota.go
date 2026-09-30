@@ -747,6 +747,7 @@ func toHTTPConfig(src quota.Source) quota.HTTPAdapterConfig {
 		Name:      src.Name,
 		URL:       src.URL,
 		Method:    src.Method,
+		Query:     src.Query,
 		Headers:   src.Headers,
 		Body:      src.Body,
 		ItemsPath: src.ItemsPath,

@@ -87,6 +87,7 @@ func TestStoreLoadErrorsPropagate(t *testing.T) {
 func TestToHTTPConfigWithAuth(t *testing.T) {
 	src := quota.Source{
 		ID: "h", Name: "H", URL: "https://x", Method: "POST",
+		Query:     map[string]any{"page": "1"},
 		Headers:   map[string]any{"X-A": "1"},
 		Body:      map[string]any{"k": 1},
 		Auth:      &quota.HTTPAuth{Type: "bearer", Header: "Authorization"},
@@ -97,6 +98,10 @@ func TestToHTTPConfigWithAuth(t *testing.T) {
 	got := toHTTPConfig(src)
 	if got.URL != "https://x" || got.Method != "POST" || got.TimeoutMs != 7000 {
 		t.Fatalf("基础字段不符: %#v", got)
+	}
+	// 这一栏以前没被拷贝：编辑器填得下、配置里存得住，取数时不发出去
+	if got.Query == nil || got.Query.(map[string]any)["page"] != "1" {
+		t.Fatalf("查询参数丢失: %#v", got.Query)
 	}
 	// Auth 是指针，必须解引用带过去，否则鉴权配置会丢
 	if got.Auth.Type != "bearer" || got.Auth.Header != "Authorization" {
@@ -120,6 +125,9 @@ func TestToBuiltinConfig(t *testing.T) {
 	}
 	if got.Env["K"] != "V" || got.ID != "b" || got.Name != "B" {
 		t.Fatalf("env/id/name 不符: %#v", got)
+	}
+	if got.Query == nil || got.Query.(map[string]any)["a"] != "1" {
+		t.Fatalf("查询参数丢失: %#v", got.Query)
 	}
 }
 

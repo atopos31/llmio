@@ -197,6 +197,7 @@ func TestMaskSource(t *testing.T) {
 			"COOKIE_JAR":   "session=abcdefgh", // cookie -> 打码
 			"SOME_TOKEN":   "t0k3n0k3n0k3n0k",  // token -> 打码
 		},
+		Auth:         &HTTPAuth{Type: "header", Header: "X-Token", Token: "static-token-abcdef"},
 		ScriptSource: "output({used:1})",
 	})
 	if !IsMasked(s.APIKey) {
@@ -210,9 +211,39 @@ func TestMaskSource(t *testing.T) {
 			t.Fatalf("变量 %s 应被打码，实得 %q", k, s.Env[k])
 		}
 	}
+	// auth.token 可以写死字面量令牌（留空才回落到 {{apiKey}}），也是一处凭据
+	if s.Auth == nil || !IsMasked(s.Auth.Token) {
+		t.Fatalf("auth.token 应被打码，实得 %#v", s.Auth)
+	}
+	// 非凭据字段原样带下去：编辑器要回显它们
+	if s.Auth.Type != "header" || s.Auth.Header != "X-Token" {
+		t.Fatalf("auth 的非凭据字段不应改动，实得 %#v", s.Auth)
+	}
 	// scriptSource 是例外：编辑器必须能显示它
 	if s.ScriptSource != "output({used:1})" {
 		t.Fatalf("脚本源码不应被打码，实得 %q", s.ScriptSource)
+	}
+}
+
+// Auth 是指针，脱敏时若直接改 *out.Auth 就会连带改掉调用方那份配置。
+// MaskConfig 的不变量是"只读副本"，这里单独钉住。
+func TestMaskSourceDoesNotMutateAuthPointer(t *testing.T) {
+	orig := Source{Auth: &HTTPAuth{Type: "bearer", Token: "static-token-abcdef"}}
+	out := MaskSource(orig)
+	if !IsMasked(out.Auth.Token) {
+		t.Fatalf("副本应已脱敏，实得 %q", out.Auth.Token)
+	}
+	if orig.Auth.Token != "static-token-abcdef" {
+		t.Fatalf("原对象的 auth 不应被改动，实得 %q", orig.Auth.Token)
+	}
+}
+
+func TestMaskSourceKeepsAuthWithoutToken(t *testing.T) {
+	// 未写死令牌时 token 为空，不该被换成 "****"——空有明确含义：
+	// 回落到 {{apiKey}}。写成掩码会让"空"与"改过"分不清。
+	out := MaskSource(Source{Auth: &HTTPAuth{Type: "bearer"}})
+	if out.Auth.Token != "" {
+		t.Fatalf("空 token 应保持空，实得 %q", out.Auth.Token)
 	}
 }
 
@@ -250,6 +281,7 @@ func TestHasSecret(t *testing.T) {
 func TestResolveSourceSecrets(t *testing.T) {
 	saved := &Source{
 		APIKey: "sk-real",
+		Auth:   &HTTPAuth{Type: "header", Header: "X-Token", Token: "static-token-abcdef"},
 		Env:    map[string]string{"SCNET_USER": "alice", "SCNET_PASS": "realpass"},
 	}
 
@@ -290,6 +322,49 @@ func TestResolveSourceSecrets(t *testing.T) {
 		out2 := ResolveSourceSecrets(Source{Env: map[string]string{"SCNET_PASS": ""}}, saved)
 		if out2.Env["SCNET_PASS"] != "" {
 			t.Fatalf("留空应保持留空，实得 %q", out2.Env["SCNET_PASS"])
+		}
+	})
+
+	t.Run("auth.token 掩码时还原", func(t *testing.T) {
+		// header 名这次被改过：还原只该动 token，不能把整个 auth 换成 saved 那份
+		out := ResolveSourceSecrets(
+			Source{Auth: &HTTPAuth{Type: "header", Header: "X-New", Token: "stat****cdef"}}, saved)
+		if out.Auth.Token != "static-token-abcdef" {
+			t.Fatalf("掩码应还原，实得 %q", out.Auth.Token)
+		}
+		if out.Auth.Header != "X-New" {
+			t.Fatalf("同一对象里的其它字段应保留，实得 %#v", out.Auth)
+		}
+	})
+
+	t.Run("auth.token 留空时还原（编辑器不回显明文）", func(t *testing.T) {
+		out := ResolveSourceSecrets(Source{Auth: &HTTPAuth{Type: "header"}}, saved)
+		if out.Auth.Token != "static-token-abcdef" {
+			t.Fatalf("留空应还原，实得 %q", out.Auth.Token)
+		}
+	})
+
+	t.Run("auth.token 是新值时采用", func(t *testing.T) {
+		out := ResolveSourceSecrets(Source{Auth: &HTTPAuth{Type: "header", Token: "new-token"}}, saved)
+		if out.Auth.Token != "new-token" {
+			t.Fatalf("新值应被采用，实得 %q", out.Auth.Token)
+		}
+	})
+
+	t.Run("本次没带 auth 时不凭空造一个", func(t *testing.T) {
+		// auth 为 nil 表示这次请求压根不用鉴权（切到 none），
+		// 这里不该把它还原回来——那会让"改成 none"永远生效不了。
+		out := ResolveSourceSecrets(Source{}, saved)
+		if out.Auth != nil {
+			t.Fatalf("auth 为 nil 应保持 nil，实得 %#v", out.Auth)
+		}
+	})
+
+	t.Run("saved 无 auth 时保持原样", func(t *testing.T) {
+		out := ResolveSourceSecrets(
+			Source{Auth: &HTTPAuth{Type: "bearer", Token: ""}}, &Source{APIKey: "k"})
+		if out.Auth.Token != "" {
+			t.Fatalf("无可还原的令牌时应保持空，实得 %q", out.Auth.Token)
 		}
 	})
 

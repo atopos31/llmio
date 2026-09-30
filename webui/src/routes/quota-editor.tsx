@@ -177,7 +177,10 @@ function initial(src: QuotaSource | null): QuotaSource {
  */
 function textsOf(src: QuotaSource | null) {
   return {
-    headers: jsonToText(src?.headers),
+    // 请求头用"每行一条 KEY=VALUE"，与 constants / map / env 同一套写法。
+    // 原来是 JSON 文本框：写错一个逗号就被静默丢掉（build 里判不出对象就不写），
+    // 而且"加一个头"要先学会 JSON 的语法——这层语法不是这一步要说的事。
+    headers: kvToText(src?.headers),
     map: kvToText(src?.map),
     query: queryToText(src?.query),
     body: jsonToText(src?.body),
@@ -250,8 +253,8 @@ export function QuotaEditorDialog({
   /** 界面上是"每行一条"的文本框，这里拼回结构化配置。 */
   const build = (): QuotaSource => {
     const out: QuotaSource = { ...form }
-    const headers = parseJSON(texts.headers)
-    if (headers && typeof headers === "object") out.headers = headers as Record<string, unknown>
+    const headers = parseKV(texts.headers)
+    if (Object.keys(headers).length) out.headers = headers
     const query = texts.query.trim()
       ? Object.fromEntries(new URLSearchParams(texts.query))
       : undefined
@@ -462,14 +465,30 @@ export function QuotaEditorDialog({
                   </Select>
                   {form.auth && form.auth.type !== "none" && (
                     <>
-                      <Input
-                        className="max-w-44"
-                        value={form.auth.header ?? ""}
-                        placeholder={t("editor.auth_header_placeholder")}
-                        onChange={(e) =>
-                          patch({ auth: { ...(form.auth ?? { type: "bearer" }), header: e.target.value } })
-                        }
-                      />
+                      {/* basic 的用户名没有默认值可回落，缺了它 basic 就是"空用户名+口令"，
+                          服务端只会把 user 拼成空串发出去，谁也看不出哪里不对 */}
+                      {form.auth.type === "basic" && (
+                        <Input
+                          className="max-w-44"
+                          value={form.auth.user ?? ""}
+                          placeholder={t("editor.auth_user_placeholder")}
+                          onChange={(e) =>
+                            patch({ auth: { ...(form.auth ?? { type: "basic" }), user: e.target.value } })
+                          }
+                        />
+                      )}
+                      {/* basic 的头名不由这里决定（后端固定发 Authorization），
+                          摆一个改了不生效的输入框比不摆更费解 */}
+                      {form.auth.type !== "basic" && (
+                        <Input
+                          className="max-w-44"
+                          value={form.auth.header ?? ""}
+                          placeholder={t("editor.auth_header_placeholder")}
+                          onChange={(e) =>
+                            patch({ auth: { ...(form.auth ?? { type: "bearer" }), header: e.target.value } })
+                          }
+                        />
+                      )}
                       <Input
                         type="password"
                         className="max-w-56"
@@ -553,16 +572,16 @@ export function QuotaEditorDialog({
                     </SelectContent>
                   </Select>
                 </Field>
-                <Field label={t("editor.query")}>
+                <Field label={t("editor.query")} hint={t("editor.query_hint")}>
                   <Input
                     value={texts.query}
                     placeholder={t("editor.query_placeholder")}
                     onChange={(e) => setText("query", e.target.value)}
                   />
                 </Field>
-                <Field label={t("editor.headers")}>
+                <Field label={t("editor.headers")} hint={t("editor.headers_hint")}>
                   <Textarea
-                    rows={2}
+                    rows={3}
                     className="reading text-xs"
                     value={texts.headers}
                     placeholder={t("editor.headers_placeholder")}

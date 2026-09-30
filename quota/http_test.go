@@ -356,9 +356,12 @@ func TestSortedKeys(t *testing.T) {
 //
 // 必须在 handler 内部就把 body 读出来：请求返回后 r.Body 已被消费，读不到内容。
 type recordedReq struct {
-	Method  string
-	Headers http.Header
-	Body    string
+	Method string
+	// RawQuery 是服务端收到的查询串（不含 "?"）。查询参数是拼在 URL 上的，
+	// 不打点就只能从 Items 反推，而"参数有没有真的发出去"恰恰是这里要断言的。
+	RawQuery string
+	Headers  http.Header
+	Body     string
 }
 
 func newJSONServer(t *testing.T, status int, body string) (*httptest.Server, *recordedReq) {
@@ -367,6 +370,7 @@ func newJSONServer(t *testing.T, status int, body string) (*httptest.Server, *re
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		rec.Method = r.Method
+		rec.RawQuery = r.URL.RawQuery
 		rec.Headers = r.Header.Clone()
 		rec.Body = string(b)
 		w.Header().Set("Content-Type", "application/json")
@@ -536,6 +540,86 @@ func TestRunHTTPHeadersInterpolated(t *testing.T) {
 	if got := rec.Headers.Get("X-Num"); got != "7" {
 		t.Fatalf("非字符串 header 值不符: %q", got)
 	}
+}
+
+// 查询参数原先**根本没被读**：http 类型的编辑器能填、配置里也存着，
+// 但从 toHTTPConfig 到这里一路被丢掉，填了等于没填且没有任何提示。
+// 因此这一组既钉"发得出去"，也钉两种写法与空值/已有 ? 的边界。
+func TestRunHTTPQueryAppended(t *testing.T) {
+	t.Run("对象形式按 URL 编码拼在 url 之后", func(t *testing.T) {
+		srv, rec := newJSONServer(t, 200, `{}`)
+		if _, err := RunHTTP(HTTPAdapterConfig{
+			URL:   srv.URL + "/usage",
+			Query: map[string]any{"page": 1, "key": "a b"},
+		}, HTTPAdapterVars{}, nil); err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if got := rec.RawQuery; got != "key=a+b&page=1" {
+			t.Fatalf("查询串不符: %q", got)
+		}
+	})
+
+	t.Run("字符串形式原样附加", func(t *testing.T) {
+		srv, rec := newJSONServer(t, 200, `{}`)
+		if _, err := RunHTTP(HTTPAdapterConfig{
+			URL:   srv.URL + "/usage",
+			Query: "page=2&size=5",
+		}, HTTPAdapterVars{}, nil); err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if got := rec.RawQuery; got != "page=2&size=5" {
+			t.Fatalf("查询串不符: %q", got)
+		}
+	})
+
+	t.Run("url 上已有查询串时接 & 而不是 ?", func(t *testing.T) {
+		srv, rec := newJSONServer(t, 200, `{}`)
+		if _, err := RunHTTP(HTTPAdapterConfig{
+			URL:   srv.URL + "/usage?token=t",
+			Query: map[string]any{"page": 1},
+		}, HTTPAdapterVars{}, nil); err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if got := rec.RawQuery; got != "token=t&page=1" {
+			t.Fatalf("应接在已有查询串之后: %q", got)
+		}
+	})
+
+	t.Run("空值跳过，未配置查询串时保持原样", func(t *testing.T) {
+		srv, rec := newJSONServer(t, 200, `{}`)
+		if _, err := RunHTTP(HTTPAdapterConfig{
+			URL:   srv.URL + "/usage",
+			Query: map[string]any{"keep": "1", "drop": ""},
+		}, HTTPAdapterVars{}, nil); err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if got := rec.RawQuery; got != "keep=1" {
+			t.Fatalf("空值应被跳过: %q", got)
+		}
+
+		srv2, rec2 := newJSONServer(t, 200, `{}`)
+		if _, err := RunHTTP(HTTPAdapterConfig{URL: srv2.URL + "/usage"}, HTTPAdapterVars{}, nil); err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if got := rec2.RawQuery; got != "" {
+			t.Fatalf("未配置查询串时不应凭空加 ?: %q", got)
+		}
+	})
+
+	t.Run("占位符在 url 里插值，查询值不插值（与内置适配器一致）", func(t *testing.T) {
+		// 这条是**刻意的差别**而非遗漏：内置适配器也只对 url/header 做 Fill，
+		// 查询值原样发出。两边保持一致，免得同一份配置换个类型就变个行为。
+		srv, rec := newJSONServer(t, 200, `{}`)
+		if _, err := RunHTTP(HTTPAdapterConfig{
+			URL:   srv.URL + "/usage/{{id}}",
+			Query: "k={{id}}",
+		}, HTTPAdapterVars{ID: "p9"}, nil); err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if got := rec.RawQuery; got != "k={{id}}" {
+			t.Fatalf("查询值不应插值: %q", got)
+		}
+	})
 }
 
 func TestRunHTTPMethodDefaultIsGet(t *testing.T) {

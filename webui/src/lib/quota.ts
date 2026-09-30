@@ -187,7 +187,11 @@ export interface QuotaSource {
   // http
   url?: string
   body?: unknown
-  auth?: { type: string; header?: string }
+  /**
+   * 鉴权。`user` 只对 basic 有意义，`token` 留空时后端回落到 {{apiKey}}
+   * （因此密钥那一栏填的是 apiKey，不是这里）。
+   */
+  auth?: { type: string; header?: string; user?: string; token?: string }
   constants?: Record<string, unknown>
 
   // script

@@ -275,13 +275,23 @@ func IsMasked(v string) bool {
 
 // MaskSource 返回脱敏后的副本，可直接下发给前端。
 //
-// **响应永不回传明文**：apiKey 打码；env 里键名像密钥的打码。
+// **响应永不回传明文**：apiKey、auth.token 打码；env 里键名像密钥的打码。
 // 例外是 scriptSource——编辑器必须显示它才能编辑，它本身不含凭据
 // （凭据应从 env 读）。
 func MaskSource(s Source) Source {
 	out := s
 	if out.APIKey != "" {
 		out.APIKey = MaskSecret(out.APIKey)
+	}
+	// auth.token 支持写死一个字面量令牌（留空才回落到 {{apiKey}}），
+	// 因此它也是一处凭据，与 apiKey 同样打码。
+	//
+	// HTTPAuth 是指针，脱敏必须换一个新对象赋值：直接改 out.Auth.Token
+	// 会顺着指针改到调用方手里那份配置上（MaskConfig 的不变量是"只读副本"）。
+	if out.Auth != nil && out.Auth.Token != "" {
+		auth := *out.Auth
+		auth.Token = MaskSecret(auth.Token)
+		out.Auth = &auth
 	}
 	if len(out.Env) > 0 {
 		masked := make(map[string]string, len(out.Env))
@@ -314,11 +324,13 @@ func HasSecret(s Source) bool {
 
 // ResolveSourceSecrets 把"前端回传的掩码/空值"还原成已保存的真实凭据。
 //
-// 两条规则（与原实现一致，差别是刻意的）：
+// 三条规则（前两条与原实现一致，差别是刻意的）：
 //
 //   - apiKey：**空值也还原**。编辑弹窗不回显明文密钥，用户不动它就是空的，
 //     不能因此把已保存的密钥抹掉。
 //   - env：只有掩码值才还原，真正留空的保持留空——用户可能就是想把某个变量清掉。
+//   - auth.token：与 apiKey 同规则（留空或掩码都还原）。它只在 http 类型下有，
+//     且编辑器尚未提供输入框，回传的一定是掩码或空值。
 func ResolveSourceSecrets(incoming Source, saved *Source) Source {
 	out := incoming
 	if saved == nil {
@@ -326,6 +338,15 @@ func ResolveSourceSecrets(incoming Source, saved *Source) Source {
 	}
 	if out.APIKey == "" || IsMasked(out.APIKey) {
 		out.APIKey = saved.APIKey
+	}
+	// 与 apiKey 同规则：留空或掩码都还原。编辑器不回显明文令牌，
+	// 用户不动它时回传的就是掩码；若在这里判成"用户清空了"，
+	// 一次无关的编辑就会把已保存的令牌抹掉。
+	if out.Auth != nil && saved.Auth != nil &&
+		(out.Auth.Token == "" || IsMasked(out.Auth.Token)) {
+		auth := *out.Auth
+		auth.Token = saved.Auth.Token
+		out.Auth = &auth
 	}
 	if len(out.Env) > 0 {
 		resolved := make(map[string]string, len(out.Env))

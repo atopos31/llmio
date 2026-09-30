@@ -37,6 +37,11 @@ type HTTPAdapterConfig struct {
 	// Body 仅在非 GET 时发送。字符串按字面量（插值后）发；对象序列化为 JSON。
 	Body any      `json:"body"`
 	Auth HTTPAuth `json:"auth"`
+	// Query 是附加在 URL 之后的查询参数，与内置适配器同一套写法（对象或字符串）。
+	//
+	// 这一项原先只有内置适配器有：http 类型的编辑器让你填、配置里也存下来了，
+	// 但 toHTTPConfig 不拷贝、这里也不读，于是填了等于没填，而且没有任何提示。
+	Query any `json:"query"`
 	// ItemsPath 是数组所在的点路径；留空表示整个响应体就是条目容器。
 	ItemsPath string `json:"itemsPath"`
 	// Map 是「输出字段 → 上游路径」的映射。值以 "=" 开头表示字面量。
@@ -231,6 +236,9 @@ func RunHTTP(cfg HTTPAdapterConfig, vars HTTPAdapterVars, client *http.Client) (
 	if urlStr == "" {
 		return nil, fmt.Errorf("未配置 url")
 	}
+	// 查询参数附加在填好占位符的 URL 之后；两种写法（对象 / 字符串）与内置适配器
+	// 共用 joinURL，因此两边对"空值跳过""已有 ? 时接 &"的判定不会各自漂移。
+	urlStr = joinURL(urlStr, "", cfg.Query)
 
 	headers := map[string]string{"Accept": "application/json"}
 	for k, v := range cfg.Headers {

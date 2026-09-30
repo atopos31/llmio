@@ -172,8 +172,6 @@ func main() {
 		api.POST("/quota/sources/:id/refresh", handler.RefreshQuotaSource)
 		// 试跑不改变任何状态，因此只读模式下也开放
 		api.POST("/quota/test", handler.TestQuotaSource)
-		api.GET("/quota/discover", handler.DiscoverQuotaSources)
-		api.POST("/quota/import", handler.ImportQuotaSource)
 
 		// Provider connectivity test
 		api.GET("/test/:id", handler.ProviderTestHandler)

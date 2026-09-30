@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -11,16 +10,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/quota"
-	"gorm.io/gorm"
 )
 
-// 本文件是配额子系统的编排层。分三层，与 stats.go 同一约定：
+// 本文件是配额子系统的编排层。分两层，与 stats.go 同一约定：
 //
-//  1. 纯函数（分类、排序、摘要、发现建议）——无 IO，可完整覆盖
+//  1. 纯函数（排序、摘要）——无 IO，可完整覆盖
 //  2. QuotaStore —— 配置读写 + 缓存 + 扇出调度
-//  3. 从上游 llmio 供应商发现/导入
 //
 // 设计约定：对外可见的口径（排序规则、摘要口径、"最差"的定义）都写在注释里，
 // 因为它们是行为承诺——前端会直接展示这些结果。
@@ -56,25 +52,6 @@ const (
 // ---------------------------------------------------------------------------
 // 对外结果类型
 // ---------------------------------------------------------------------------
-
-// UpstreamSuggestion 是对一个 llmio 供应商建议的配额源配置。
-type UpstreamSuggestion struct {
-	Type    quota.DataSourceType `json:"type"`
-	Builtin string               `json:"builtin,omitempty"`
-	Note    string               `json:"note,omitempty"`
-}
-
-// UpstreamCandidate 是从上游发现的一个可导入供应商。
-type UpstreamCandidate struct {
-	UpstreamID      uint               `json:"upstreamId"`
-	Name            string             `json:"name"`
-	Type            string             `json:"type"`
-	BaseURL         string             `json:"baseUrl"`
-	APIKeyMasked    string             `json:"apiKeyMasked"`
-	HasAPIKey       bool               `json:"hasApiKey"`
-	AlreadyImported bool               `json:"alreadyImported"`
-	Suggested       UpstreamSuggestion `json:"suggested"`
-}
 
 // SourceResult 是一个数据源的取数结果。
 type SourceResult struct {
@@ -206,135 +183,6 @@ func BuildSummary(results []SourceResult) QuotaSummary {
 	return sum
 }
 
-// SuggestForUpstream 按供应商名与地址建议配额源类型。
-//
-// 启发式（与原实现一致）：命中已知供应商给内置适配器，否则给 HTTP 类型让用户自填。
-func SuggestForUpstream(name, baseURL string) UpstreamSuggestion {
-	hay := strings.ToLower(name + " " + baseURL)
-	switch {
-	case strings.Contains(hay, "deepseek"):
-		return UpstreamSuggestion{
-			Type: quota.TypeBuiltin, Builtin: "deepseek",
-			Note: "已实测的官方余额接口",
-		}
-	case strings.Contains(hay, "moonshot") || strings.Contains(hay, "kimi"):
-		return UpstreamSuggestion{
-			Type: quota.TypeBuiltin, Builtin: "moonshot",
-			Note: "Moonshot / Kimi 官方余额接口",
-		}
-	case strings.Contains(hay, "scnet") || strings.Contains(hay, "超算"):
-		return UpstreamSuggestion{
-			Type: quota.TypeBuiltin, Builtin: "scnet",
-			Note: "官方 API 无用量端点，内置适配器走控制台会话（需填账号口令）",
-		}
-	case strings.Contains(hay, "opencode"):
-		return UpstreamSuggestion{
-			Type: quota.TypeBuiltin, Builtin: "opencode",
-			Note: "内置适配器走控制台会话（需填会话 Cookie 与 x-org-id）",
-		}
-	default:
-		return UpstreamSuggestion{
-			Type: quota.TypeHTTP,
-			Note: "未识别的供应商，请用 HTTP 类型手动配置接口地址与字段映射",
-		}
-	}
-}
-
-// upstreamProviderConfig 是上游 llmio 里 Provider.Config 的形状。
-//
-// 只取发现/导入需要的两个字段。键名沿用 providers 包（base_url / api_key），
-// 不在这里另立一套解读。
-type upstreamProviderConfig struct {
-	BaseURL string `json:"base_url"`
-	APIKey  string `json:"api_key"`
-}
-
-// ParseUpstreamProviderConfig 从 Provider.Config JSON 里取地址与密钥。
-//
-// 解析失败返回空值而不是报错：上游某个供应商配置坏了，
-// 不该让整张发现表都打不开。
-func ParseUpstreamProviderConfig(raw string) (baseURL, apiKey string) {
-	var cfg upstreamProviderConfig
-	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
-		return "", ""
-	}
-	return cfg.BaseURL, cfg.APIKey
-}
-
-// ImportedSourceID 是从某个上游供应商导入的数据源 id。
-//
-// 统一前缀是为了让「已导入」判定稳定——重复导入同一个上游不该产生第二个源。
-func ImportedSourceID(upstreamID uint) string {
-	return fmt.Sprintf("llmio-%d", upstreamID)
-}
-
-// BuildCandidates 由上游供应商列表构造发现表。
-func BuildCandidates(providers []models.Provider, existingIDs map[string]bool) []UpstreamCandidate {
-	out := make([]UpstreamCandidate, 0, len(providers))
-	for _, p := range providers {
-		baseURL, apiKey := ParseUpstreamProviderConfig(p.Config)
-		out = append(out, UpstreamCandidate{
-			UpstreamID:      p.ID,
-			Name:            p.Name,
-			Type:            p.Type,
-			BaseURL:         baseURL,
-			APIKeyMasked:    quota.MaskSecret(apiKey),
-			HasAPIKey:       strings.TrimSpace(apiKey) != "",
-			AlreadyImported: existingIDs[ImportedSourceID(p.ID)],
-			Suggested:       SuggestForUpstream(p.Name, baseURL),
-		})
-	}
-	return out
-}
-
-// BuildImportedSource 按建议构造要导入的数据源。
-//
-// **密钥由服务端从上游配置直接取，不经过浏览器**（计划 §3.3）。
-// 这条在同源之后依然要显式保持：前端只提交 upstreamId。
-func BuildImportedSource(p models.Provider) (quota.Source, error) {
-	baseURL, apiKey := ParseUpstreamProviderConfig(p.Config)
-	sup := SuggestForUpstream(p.Name, baseURL)
-
-	src := quota.Source{
-		ID:      ImportedSourceID(p.ID),
-		Name:    p.Name,
-		Type:    sup.Type,
-		Note:    sup.Note,
-		BaseURL: baseURL,
-		APIKey:  apiKey,
-	}
-
-	switch sup.Type {
-	case quota.TypeBuiltin:
-		src.Builtin = sup.Builtin
-		envKeys, needsLogin := builtinLoginEnvKeys(sup.Builtin)
-		if needsLogin {
-			// 登录型适配器导入时先**禁用**并留出待填的 env 键：
-			// 直接启用会立刻报"缺少账号口令"，标成禁用更贴合"还需你补一步"的事实。
-			src.Enabled = false
-			src.Env = map[string]string{}
-			for _, k := range envKeys {
-				src.Env[k] = ""
-			}
-		} else {
-			src.Enabled = true
-		}
-	case quota.TypeHTTP:
-		// 未识别的供应商：给一个占位地址并禁用，等用户补全接口与字段映射。
-		// 启用一个必然失败的源只会让面板一直报错。
-		src.Enabled = false
-		if baseURL != "" {
-			src.URL = strings.TrimSuffix(baseURL, "/") + "/user/balance"
-		}
-		src.Method = http.MethodGet
-		src.ItemsPath = ""
-		src.Map = map[string]any{}
-	default:
-		return quota.Source{}, fmt.Errorf("无法为供应商 %q 推导出配额源类型", p.Name)
-	}
-	return src, nil
-}
-
 // builtinLoginEnvKeys 返回需要登录的适配器所要求的 env 键。
 func builtinLoginEnvKeys(id string) ([]string, bool) {
 	for _, b := range quota.ListBuiltins() {
@@ -343,16 +191,6 @@ func builtinLoginEnvKeys(id string) ([]string, bool) {
 		}
 	}
 	return nil, false
-}
-
-// builtinExists 判断内置适配器是否存在。
-func builtinExists(id string) bool {
-	for _, b := range quota.ListBuiltins() {
-		if b.ID == id {
-			return true
-		}
-	}
-	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -836,78 +674,4 @@ func (s *QuotaStore) findSaved(id string) *quota.Source {
 		}
 	}
 	return nil
-}
-
-// ---------------------------------------------------------------------------
-// 发现与导入
-// ---------------------------------------------------------------------------
-
-// Discover 列出上游供应商并给出导入建议。
-func (s *QuotaStore) Discover(providers []models.Provider) ([]UpstreamCandidate, error) {
-	cfg, err := s.Load()
-	if err != nil {
-		return nil, err
-	}
-	existing := map[string]bool{}
-	for _, src := range cfg.Sources {
-		existing[src.ID] = true
-	}
-	return BuildCandidates(providers, existing), nil
-}
-
-// ImportFromUpstream 从上游供应商导入一个数据源。
-//
-// 密钥在服务端直接取自上游配置并写入配额配置，**不经过浏览器**。
-// 导入时**不做完整校验**：登录型适配器的 env 还是空的，用户随后才补；
-// 但类型与地址必须能推导出来，否则存下去也是个坏配置。
-func (s *QuotaStore) ImportFromUpstream(p models.Provider) (quota.Source, error) {
-	cfg, err := s.Load()
-	if err != nil {
-		return quota.Source{}, err
-	}
-	id := ImportedSourceID(p.ID)
-	for _, src := range cfg.Sources {
-		if src.ID == id {
-			return quota.Source{}, fmt.Errorf("该供应商已导入为数据源 %s", id)
-		}
-	}
-
-	src, err := BuildImportedSource(p)
-	if err != nil {
-		return quota.Source{}, err
-	}
-	switch src.Type {
-	case quota.TypeBuiltin:
-		if !builtinExists(src.Builtin) {
-			return quota.Source{}, fmt.Errorf("未知内置适配器：%s", src.Builtin)
-		}
-	case quota.TypeHTTP:
-		if strings.TrimSpace(src.URL) == "" {
-			return quota.Source{}, fmt.Errorf("无法从上游配置推导出接口地址，请手动配置后再导入")
-		}
-	}
-
-	cfg.Sources = append(cfg.Sources, src)
-	if err := quota.SaveConfig(s.path, cfg); err != nil {
-		return quota.Source{}, err
-	}
-	s.Invalidate(src.ID)
-	return quota.MaskSource(src), nil
-}
-
-// ---------------------------------------------------------------------------
-// 数据库薄层：给 handler 用的供应商查询
-// ---------------------------------------------------------------------------
-
-// GetProvidersForQuota 列出上游供应商，供配额发现使用。
-//
-// 放在这里而不是让 handler 直接查库：handler 不应知道 GORM 的存在
-// （与 stats.go 的 LoadChatLogs 同一约定）。
-func GetProvidersForQuota(ctx context.Context) ([]models.Provider, error) {
-	return gorm.G[models.Provider](models.DB).Find(ctx)
-}
-
-// FindProviderForQuota 按 id 取一个供应商，供配额导入使用。
-func FindProviderForQuota(ctx context.Context, id uint) (models.Provider, error) {
-	return gorm.G[models.Provider](models.DB).Where("id = ?", id).First(ctx)
 }

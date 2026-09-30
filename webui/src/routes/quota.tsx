@@ -12,7 +12,6 @@ import { toast } from "sonner"
 
 import { QuotaCard, QuotaStatusBadge } from "@/routes/quota-card"
 import { QuotaEditorDialog } from "@/routes/quota-editor"
-import { QuotaImportDialog } from "@/routes/quota-import"
 import { QuotaItemDialog } from "@/routes/quota-item-dialog"
 import { QuotaSettingsDialog } from "@/routes/quota-settings"
 import { QuotaSourceViewDialog } from "@/routes/quota-source-view"
@@ -81,7 +80,6 @@ export default function QuotaPage() {
     source: QuotaSourceResult
     item: QuotaItem
   } | null>(null)
-  const [importOpen, setImportOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   const prefsRef = useRef(prefs)
@@ -362,9 +360,6 @@ export default function QuotaPage() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onSelect={openManual}>{t("menu.manual")}</DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setImportOpen(true)}>
-              {t("menu.import")}
-            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuLabel>{t("settings.title")}</DropdownMenuLabel>
             <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>
@@ -460,15 +455,10 @@ export default function QuotaPage() {
             hint={t("empty.desc")}
             action={
               editable && (
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={openManual}>
-                    <Plus className="size-3.5" />
-                    {t("menu.manual")}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
-                    {t("menu.import")}
-                  </Button>
-                </div>
+                <Button size="sm" onClick={openManual}>
+                  <Plus className="size-3.5" />
+                  {t("menu.manual")}
+                </Button>
               )
             }
           />
@@ -547,17 +537,6 @@ export default function QuotaPage() {
           onChange={(patch) =>
             setOverride(`${itemCtx.source.id}::${itemCtx.item.id}`, patch)
           }
-        />
-      )}
-
-      {importOpen && (
-        <QuotaImportDialog
-          open
-          onOpenChange={setImportOpen}
-          // 导入后的数据源 id 由服务端按 llmio-<upstreamId> 生成
-          // （service.ImportedSourceID），这里用同一条规则换算，
-          // 以便只重取刚导入的那一条而不是整轮重跑。
-          onImported={(upstreamId) => void refreshOne(`llmio-${upstreamId}`)}
         />
       )}
 

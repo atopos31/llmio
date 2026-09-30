@@ -61,13 +61,12 @@
   "menu": {
     "add_source": "数据源",
     "manual": "手动添加",
-    "import": "从 llmio 导入",
     "settings": "全局设置",
     "reset_view": "重置展示自定义"
   },
   "empty": {
     "title": "还没有配置数据源",
-    "desc": "添加一个数据源，或从上游 llmio 供应商导入。支持三种类型：内置适配器（已实测的官方接口）、HTTP 接口（自填地址与字段映射）、脚本（在沙箱里跑一段 JS）。"
+    "desc": "添加一个数据源。支持三种类型：内置适配器（已实测的官方接口）、HTTP 接口（自填地址与字段映射）、脚本（在沙箱里跑一段 JS）。"
   },
   "error": {
     "load": "读取余量失败",
@@ -190,24 +189,6 @@
     "warning_at": "告警阈值（%）",
     "warning_at_hint": "使用率达到该比例即标记为「告警」。",
     "config_path": "配置文件"
-  },
-  "import": {
-    "title": "从 llmio 导入",
-    "desc": "下面是你已在网关里配置的供应商。导入后密钥由服务端直接取用，不会经过浏览器。",
-    "loading": "正在读取供应商…",
-    "empty": "网关里还没有配置供应商",
-    "name": "供应商",
-    "base_url": "接口地址",
-    "api_key": "密钥",
-    "no_key": "未配置",
-    "suggested": "建议",
-    "unrecognized": "未识别，需手动配置",
-    "status": "状态",
-    "imported": "已导入",
-    "import": "导入",
-    "importing": "导入中…",
-    "imported_ok": "已导入 {{name}}",
-    "note_hint": "登录型适配器会以禁用状态导入，请在编辑里补上账号口令后再启用。"
   },
   "charts": {
     "table_view": "表格视图",

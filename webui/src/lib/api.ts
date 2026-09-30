@@ -6,7 +6,6 @@ import type {
   QuotaRunResult,
   QuotaSource,
   QuotaTestResult,
-  QuotaUpstreamCandidate,
 } from "@/lib/quota"
 
 const API_BASE = '/api';
@@ -894,23 +893,5 @@ export async function testQuotaSource(source: QuotaSource): Promise<QuotaTestRes
   return apiRequest<QuotaTestResult>("/quota/test", {
     method: "POST",
     body: JSON.stringify(source),
-  });
-}
-
-/** 列出上游 llmio 供应商并给出导入建议（密钥已掩码）。 */
-export async function discoverQuotaSources(): Promise<QuotaUpstreamCandidate[]> {
-  return apiRequest<QuotaUpstreamCandidate[]>("/quota/discover");
-}
-
-/**
- * 从上游供应商导入一个数据源。
- *
- * **只提交 upstreamId**：密钥由服务端直接从上游配置取，不经过浏览器。
- * 传别的字段不会生效，也不要在这里加密钥——那正是这条设计要避免的。
- */
-export async function importQuotaSource(upstreamId: number): Promise<QuotaSource> {
-  return apiRequest<QuotaSource>("/quota/import", {
-    method: "POST",
-    body: JSON.stringify({ upstreamId }),
   });
 }

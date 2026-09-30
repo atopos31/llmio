@@ -61,13 +61,12 @@
   "menu": {
     "add_source": "Sources",
     "manual": "Add manually",
-    "import": "Import from llmio",
     "settings": "Global settings",
     "reset_view": "Reset display overrides"
   },
   "empty": {
     "title": "No data sources configured",
-    "desc": "Add a source, or import one from an upstream llmio provider. Three types are supported: built-in adapters (verified official endpoints), HTTP endpoints (your own URL and field map), and scripts (a piece of JS run in a sandbox)."
+    "desc": "Add a source. Three types are supported: built-in adapters (verified official endpoints), HTTP endpoints (your own URL and field map), and scripts (a piece of JS run in a sandbox)."
   },
   "error": {
     "load": "Failed to read quota",
@@ -190,24 +189,6 @@
     "warning_at": "Warning threshold (%)",
     "warning_at_hint": "Usage at or above this ratio is marked as a warning.",
     "config_path": "Config file"
-  },
-  "import": {
-    "title": "Import from llmio",
-    "desc": "These are the providers already configured in the gateway. After import the key is read by the server directly and never passes through the browser.",
-    "loading": "Loading providers…",
-    "empty": "No providers configured in the gateway yet",
-    "name": "Provider",
-    "base_url": "Base URL",
-    "api_key": "API key",
-    "no_key": "not set",
-    "suggested": "Suggested",
-    "unrecognized": "Unrecognized — needs manual setup",
-    "status": "Status",
-    "imported": "Imported",
-    "import": "Import",
-    "importing": "Importing…",
-    "imported_ok": "Imported {{name}}",
-    "note_hint": "Login-based adapters are imported disabled; fill in the credentials in the editor before enabling."
   },
   "charts": {
     "table_view": "Table view",

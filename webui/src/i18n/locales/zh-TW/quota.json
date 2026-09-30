@@ -61,13 +61,12 @@
   "menu": {
     "add_source": "資料來源",
     "manual": "手動新增",
-    "import": "從 llmio 匯入",
     "settings": "全域設定",
     "reset_view": "重設顯示自訂"
   },
   "empty": {
     "title": "還沒有設定資料來源",
-    "desc": "新增一個資料來源，或從上游 llmio 供應商匯入。支援三種類型：內建轉接器（已實測的官方介面）、HTTP 介面（自填位址與欄位對應）、腳本（在沙箱裡跑一段 JS）。"
+    "desc": "新增一個資料來源。支援三種類型：內建轉接器（已實測的官方介面）、HTTP 介面（自填位址與欄位對應）、腳本（在沙箱裡跑一段 JS）。"
   },
   "error": {
     "load": "讀取餘量失敗",
@@ -190,24 +189,6 @@
     "warning_at": "告警門檻（%）",
     "warning_at_hint": "使用率達到該比例即標記為「告警」。",
     "config_path": "設定檔"
-  },
-  "import": {
-    "title": "從 llmio 匯入",
-    "desc": "下面是你在閘道裡已設定的供應商。匯入後金鑰由伺服端直接取用，不會經過瀏覽器。",
-    "loading": "正在讀取供應商…",
-    "empty": "閘道裡還沒有設定供應商",
-    "name": "供應商",
-    "base_url": "介面位址",
-    "api_key": "金鑰",
-    "no_key": "未設定",
-    "suggested": "建議",
-    "unrecognized": "未識別，需手動設定",
-    "status": "狀態",
-    "imported": "已匯入",
-    "import": "匯入",
-    "importing": "匯入中…",
-    "imported_ok": "已匯入 {{name}}",
-    "note_hint": "登入型轉接器會以停用狀態匯入，請在編輯裡補上帳號密碼後再啟用。"
   },
   "charts": {
     "table_view": "表格檢視",

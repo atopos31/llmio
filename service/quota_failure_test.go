@@ -6,9 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/quota"
-	"gorm.io/gorm"
 )
 
 // 本文件补两类分支：
@@ -68,15 +66,6 @@ func TestStoreSaveFailuresSurface(t *testing.T) {
 		}
 	})
 
-	t.Run("ImportFromUpstream 写不回", func(t *testing.T) {
-		_, err := newUnwritableStore(t).ImportFromUpstream(models.Provider{
-			Model: gorm.Model{ID: 1}, Name: "DeepSeek",
-			Config: `{"base_url":"https://api.deepseek.com","api_key":"k"}`,
-		})
-		if err == nil {
-			t.Fatal("写盘失败应报错")
-		}
-	})
 }
 
 func TestStoreUpsertFirstWithEmptyIDThenAgain(t *testing.T) {
@@ -103,46 +92,5 @@ func TestStoreUpsertFirstWithEmptyIDThenAgain(t *testing.T) {
 	cfg, _ := s.Load()
 	if len(cfg.Sources) != 1 {
 		t.Fatalf("更新不该新增一项: %#v", cfg.Sources)
-	}
-}
-
-func TestBuildImportedSourceUnsupportedProvider(t *testing.T) {
-	// 名字与地址都不含任何已知关键词、且没有 base_url：
-	// 建议出 HTTP 类型，地址推不出来，留空由用户补
-	src, err := BuildImportedSource(models.Provider{Model: gorm.Model{ID: 7}, Name: ""})
-	if err != nil {
-		t.Fatalf("不应报错: %v", err)
-	}
-	if src.Type != quota.TypeHTTP || src.URL != "" {
-		t.Fatalf("应给空的 HTTP 源: %#v", src)
-	}
-	if src.Enabled {
-		t.Fatal("地址未知时应先禁用，等用户补全")
-	}
-}
-
-func TestStoreImportFromUpstreamWithoutURL(t *testing.T) {
-	// HTTP 类型但推导不出地址 -> 明确要求手工配置，而不是导入一个永远失败的源
-	_, err := newTestStore(t).ImportFromUpstream(models.Provider{Model: gorm.Model{ID: 8}})
-	if err == nil || !strings.Contains(err.Error(), "无法从上游配置推导") {
-		t.Fatalf("应要求手工配置，实得 %v", err)
-	}
-}
-
-func TestStoreImportFromUpstreamHTTPEnabled(t *testing.T) {
-	// 未识别供应商但给了 base_url：带出占位地址，仍保持禁用
-	s := newTestStore(t)
-	got, err := s.ImportFromUpstream(models.Provider{
-		Model: gorm.Model{ID: 9}, Name: "某个中转站",
-		Config: `{"base_url":"https://relay.example.com/","api_key":"sk-x"}`,
-	})
-	if err != nil {
-		t.Fatalf("不应报错: %v", err)
-	}
-	if got.Type != quota.TypeHTTP || got.URL != "https://relay.example.com/user/balance" {
-		t.Fatalf("占位地址不符: %#v", got)
-	}
-	if got.Enabled {
-		t.Fatal("未识别的供应商应保持禁用")
 	}
 }

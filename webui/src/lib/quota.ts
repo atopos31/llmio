@@ -238,17 +238,6 @@ export interface QuotaConfigResponse {
   defaultWarning: number
 }
 
-export interface QuotaUpstreamCandidate {
-  upstreamId: number
-  name: string
-  type: string
-  baseUrl: string
-  apiKeyMasked: string
-  hasApiKey: boolean
-  alreadyImported: boolean
-  suggested: { type: QuotaSourceType; builtin?: string; note?: string }
-}
-
 // ---------------------------------------------------------------------------
 // 编辑器回填（完整配置 ↔ 表单）
 // ---------------------------------------------------------------------------

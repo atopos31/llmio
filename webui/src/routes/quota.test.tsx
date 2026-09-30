@@ -26,8 +26,6 @@ vi.mock("@/lib/api", () => ({
   updateQuotaSource: vi.fn(),
   deleteQuotaSource: vi.fn(),
   testQuotaSource: vi.fn(),
-  discoverQuotaSources: vi.fn(),
-  importQuotaSource: vi.fn(),
 }))
 
 const mocked = {
@@ -132,7 +130,6 @@ describe("额度页 · 空", () => {
 
     expect(await screen.findByText("还没有配置数据源")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "手动添加" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "从 llmio 导入" })).toBeInTheDocument()
     // 一条余量都没有，摘要条就没有可说的
     expect(screen.queryByText("最紧张")).not.toBeInTheDocument()
   })

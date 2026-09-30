@@ -178,58 +178,6 @@ func TestQuotaSource(c *gin.Context) {
 	common.Success(c, quotaStore.TestSource(c.Request.Context(), src))
 }
 
-// DiscoverQuotaSources 列出上游 llmio 供应商并给出导入建议。
-func DiscoverQuotaSources(c *gin.Context) {
-	providers, err := service.GetProvidersForQuota(c.Request.Context())
-	if err != nil {
-		common.InternalServerError(c, err.Error())
-		return
-	}
-	got, err := quotaStore.Discover(providers)
-	if err != nil {
-		common.InternalServerError(c, err.Error())
-		return
-	}
-	common.Success(c, got)
-}
-
-// ImportQuotaSource 从上游供应商导入一个数据源。
-//
-// 只接受 upstreamId，**不接受任何密钥字段**：密钥由服务端直接从上游配置取，
-// 不经过浏览器（计划 §3.3）。这条在同源之后依然要显式保持。
-func ImportQuotaSource(c *gin.Context) {
-	if !requireQuotaWrite(c) {
-		return
-	}
-	var body struct {
-		UpstreamID uint `json:"upstreamId"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		common.BadRequest(c, "请求体应形如 {\"upstreamId\": 1}")
-		return
-	}
-	if body.UpstreamID == 0 {
-		common.BadRequest(c, "缺少 upstreamId")
-		return
-	}
-
-	p, err := service.FindProviderForQuota(c.Request.Context(), body.UpstreamID)
-	if err != nil {
-		common.NotFound(c, "未找到上游供应商")
-		return
-	}
-	src, err := quotaStore.ImportFromUpstream(p)
-	if err != nil {
-		if isQuotaInputError(err) {
-			common.BadRequest(c, err.Error())
-			return
-		}
-		common.InternalServerError(c, err.Error())
-		return
-	}
-	common.Success(c, src)
-}
-
 // ---------------------------------------------------------------------------
 // 小工具
 // ---------------------------------------------------------------------------
@@ -262,7 +210,7 @@ func isQuotaInputError(err error) bool {
 	msg := err.Error()
 	for _, kw := range []string{
 		"需要填写", "未知内置适配器", "未知数据源类型", "需要账号会话",
-		"已存在", "已导入", "不能为负", "应在", "重复", "无法从上游配置推导",
+		"已存在", "不能为负", "应在", "重复",
 	} {
 		if strings.Contains(msg, kw) {
 			return true

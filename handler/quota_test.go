@@ -107,7 +107,6 @@ func TestQuotaWritesBlockedWhenReadOnly(t *testing.T) {
 	}{
 		{"新增", func(c *gin.Context) { UpsertQuotaSource(c) }},
 		{"删除", func(c *gin.Context) { c.Params = gin.Params{{Key: "id", Value: "x"}}; DeleteQuotaSource(c) }},
-		{"导入", func(c *gin.Context) { ImportQuotaSource(c) }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -409,95 +408,6 @@ func withTestDB(t *testing.T, providers ...models.Provider) {
 	}
 }
 
-func TestDiscoverQuotaSources(t *testing.T) {
-	withTempQuotaStore(t)
-	withTestDB(t, models.Provider{
-		Name: "DeepSeek", Type: "openai",
-		Config: `{"base_url":"https://api.deepseek.com","api_key":"sk-abcdefghij"}`,
-	})
-
-	c, w := jsonCtx(t, http.MethodGet, "/api/quota/discover", nil)
-	DiscoverQuotaSources(c)
-
-	resp := decodeResp(t, w)
-	if resp.Code != http.StatusOK {
-		t.Fatalf("应成功: %#v", resp)
-	}
-	list := resp.Data.([]any)
-	if len(list) != 1 {
-		t.Fatalf("应得 1 项，实得 %d", len(list))
-	}
-	item := list[0].(map[string]any)
-	if item["suggested"].(map[string]any)["builtin"] != "deepseek" {
-		t.Fatalf("建议不符: %#v", item["suggested"])
-	}
-	// 密钥必须掩码
-	if strings.Contains(w.Body.String(), "sk-abcdefghij") {
-		t.Fatalf("发现表泄漏明文密钥: %s", w.Body.String())
-	}
-}
-
-func TestImportQuotaSource(t *testing.T) {
-	withTempQuotaStore(t)
-	withTestDB(t, models.Provider{
-		Name: "DeepSeek", Type: "openai",
-		Config: `{"base_url":"https://api.deepseek.com","api_key":"sk-abcdefghij"}`,
-	})
-
-	t.Run("缺 upstreamId 报 400", func(t *testing.T) {
-		c, w := jsonCtx(t, http.MethodPost, "/api/quota/import", map[string]any{})
-		ImportQuotaSource(c)
-		if resp := decodeResp(t, w); resp.Code != http.StatusBadRequest {
-			t.Fatalf("缺 id 应业务码 400，实得 %d", resp.Code)
-		}
-	})
-
-	t.Run("供应商不存在 404", func(t *testing.T) {
-		c, w := jsonCtx(t, http.MethodPost, "/api/quota/import", map[string]any{"upstreamId": 999})
-		ImportQuotaSource(c)
-		if resp := decodeResp(t, w); resp.Code != http.StatusNotFound {
-			t.Fatalf("应业务码 404，实得 %d（%s）", resp.Code, w.Body.String())
-		}
-	})
-
-	t.Run("正常导入且密钥不经过浏览器", func(t *testing.T) {
-		c, w := jsonCtx(t, http.MethodPost, "/api/quota/import", map[string]any{"upstreamId": 1})
-		ImportQuotaSource(c)
-		resp := decodeResp(t, w)
-		if resp.Code != http.StatusOK {
-			t.Fatalf("应成功: %#v", resp)
-		}
-		// 响应里是掩码；磁盘上是明文——密钥全程由服务端经手
-		if strings.Contains(w.Body.String(), "sk-abcdefghij") {
-			t.Fatalf("响应泄漏明文密钥: %s", w.Body.String())
-		}
-		cfg, _ := quotaStore.Load()
-		if len(cfg.Sources) != 1 || cfg.Sources[0].APIKey != "sk-abcdefghij" {
-			t.Fatalf("落盘应含明文密钥: %#v", cfg.Sources)
-		}
-	})
-
-	t.Run("重复导入报 400", func(t *testing.T) {
-		c, w := jsonCtx(t, http.MethodPost, "/api/quota/import", map[string]any{"upstreamId": 1})
-		ImportQuotaSource(c)
-		if resp := decodeResp(t, w); resp.Code != http.StatusBadRequest {
-			t.Fatalf("重复导入应业务码 400，实得 %d（%s）", resp.Code, w.Body.String())
-		}
-	})
-}
-
-func TestImportQuotaSourceBadBody(t *testing.T) {
-	withTempQuotaStore(t)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/quota/import", strings.NewReader("nope"))
-	ImportQuotaSource(c)
-	// 空请求体绑成零值 -> 缺 upstreamId -> 业务码 400
-	if resp := decodeResp(t, w); resp.Code != http.StatusBadRequest {
-		t.Fatalf("应是业务码 400，实得 %d（%s）", resp.Code, w.Body.String())
-	}
-}
-
 // ---------------------------------------------------------------------------
 // 工具函数
 // ---------------------------------------------------------------------------
@@ -538,9 +448,7 @@ func TestIsQuotaInputError(t *testing.T) {
 		"未知数据源类型：???",
 		"「国家超算」需要账号会话，请在 env 里配置 SCNET_USER",
 		"数据源 id 已存在：x",
-		"该供应商已导入为数据源 llmio-1",
 		"数据源 id 重复：x",
-		"无法从上游配置推导出接口地址，请手动配置后再导入",
 	} {
 		if !isQuotaInputError(errText(msg)) {
 			t.Fatalf("%q 应判为用户输入错误（-> 400）", msg)

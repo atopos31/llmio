@@ -10,9 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/quota"
-	"gorm.io/gorm"
 )
 
 // 本文件补 service/quota.go 的错误路径与边界分支。
@@ -49,19 +47,6 @@ func TestStoreLoadErrorsPropagate(t *testing.T) {
 
 	t.Run("RemoveSource", func(t *testing.T) {
 		if _, err := badConfigStore(t).RemoveSource("x"); err == nil {
-			t.Fatal("配置损坏应报错")
-		}
-	})
-
-	t.Run("Discover", func(t *testing.T) {
-		if _, err := badConfigStore(t).Discover(nil); err == nil {
-			t.Fatal("配置损坏应报错")
-		}
-	})
-
-	t.Run("ImportFromUpstream", func(t *testing.T) {
-		_, err := badConfigStore(t).ImportFromUpstream(models.Provider{Model: gorm.Model{ID: 1}, Name: "DeepSeek"})
-		if err == nil {
 			t.Fatal("配置损坏应报错")
 		}
 	})
@@ -151,12 +136,6 @@ func TestBuiltinHelpers(t *testing.T) {
 	}
 	if _, needs := builtinLoginEnvKeys("nope"); needs {
 		t.Fatal("不存在的适配器不应报需要登录")
-	}
-	if !builtinExists("deepseek") {
-		t.Fatal("deepseek 应存在")
-	}
-	if builtinExists("nope") {
-		t.Fatal("不存在的适配器应返回 false")
 	}
 }
 

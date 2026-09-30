@@ -82,32 +82,6 @@ func withUnwritableQuotaStore(t *testing.T) {
 // 数据库故障
 // ---------------------------------------------------------------------------
 
-func TestDiscoverQuotaSourcesDBError(t *testing.T) {
-	withTempQuotaStore(t)
-	withBrokenDB(t)
-
-	c, w := jsonCtx(t, http.MethodGet, "/api/quota/discover", nil)
-	DiscoverQuotaSources(c)
-
-	if resp := decodeResp(t, w); resp.Code != http.StatusInternalServerError {
-		t.Fatalf("数据库故障应业务码 500，实得 %d（%s）", resp.Code, w.Body.String())
-	}
-}
-
-func TestImportQuotaSourceDBError(t *testing.T) {
-	withTempQuotaStore(t)
-	withBrokenDB(t)
-
-	c, w := jsonCtx(t, http.MethodPost, "/api/quota/import", map[string]any{"upstreamId": 1})
-	ImportQuotaSource(c)
-
-	// 当前实现把"查不到"与"查不了"合并成 404。这里固化现状而非理想：
-	// 若要区分，得先给 service 层一个可判别的错误类型。
-	if resp := decodeResp(t, w); resp.Code != http.StatusNotFound {
-		t.Fatalf("数据库故障时当前映射为 404，实得 %d（%s）", resp.Code, w.Body.String())
-	}
-}
-
 // ---------------------------------------------------------------------------
 // 配置读不出来 / 写不回去
 // ---------------------------------------------------------------------------
@@ -134,19 +108,6 @@ func TestQuotaEndpoints500WhenConfigUnreadable(t *testing.T) {
 				t.Fatalf("应业务码 500，实得 %d（%s）", resp.Code, w.Body.String())
 			}
 		})
-	}
-}
-
-func TestDiscoverQuotaSources500WhenConfigUnreadable(t *testing.T) {
-	// 与上一条不同：这里数据库是好的，失败发生在"配置读不出来"那一步
-	withCorruptQuotaStore(t)
-	withTestDB(t)
-
-	c, w := jsonCtx(t, http.MethodGet, "/api/quota/discover", nil)
-	DiscoverQuotaSources(c)
-
-	if resp := decodeResp(t, w); resp.Code != http.StatusInternalServerError {
-		t.Fatalf("应业务码 500，实得 %d（%s）", resp.Code, w.Body.String())
 	}
 }
 
@@ -180,19 +141,6 @@ func TestQuotaWrites500WhenConfigUnwritable(t *testing.T) {
 		DeleteQuotaSource(c)
 		// 关键：命中并删除了，但落盘失败 —— 必须报错，
 		// 否则前端会把源从列表里划掉，而磁盘上它还在
-		if resp := decodeResp(t, w); resp.Code != http.StatusInternalServerError {
-			t.Fatalf("写盘失败应业务码 500，实得 %d（%s）", resp.Code, w.Body.String())
-		}
-	})
-
-	t.Run("导入", func(t *testing.T) {
-		withUnwritableQuotaStore(t)
-		withTestDB(t, models.Provider{
-			Name: "DeepSeek", Type: "openai",
-			Config: `{"base_url":"https://api.deepseek.com","api_key":"sk-abcdefghij"}`,
-		})
-		c, w := jsonCtx(t, http.MethodPost, "/api/quota/import", map[string]any{"upstreamId": 1})
-		ImportQuotaSource(c)
 		if resp := decodeResp(t, w); resp.Code != http.StatusInternalServerError {
 			t.Fatalf("写盘失败应业务码 500，实得 %d（%s）", resp.Code, w.Body.String())
 		}

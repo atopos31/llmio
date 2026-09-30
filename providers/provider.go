@@ -28,7 +28,7 @@ type Provider interface {
 
 func New(Type, providerConfig, proxy string) (Provider, error) {
 	switch Type {
-	case consts.StyleOpenAI:
+	case consts.StyleOpenAI, consts.StyleOpenCode, consts.StyleCommandCode:
 		var openai OpenAI
 		if err := json.Unmarshal([]byte(providerConfig), &openai); err != nil {
 			return nil, errors.New("invalid openai config")

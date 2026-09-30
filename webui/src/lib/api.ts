@@ -474,6 +474,26 @@ export async function getProviderModels(providerId: number): Promise<ProviderMod
   return apiRequest<ProviderModel[]>(`/providers/models/${providerId}`);
 }
 
+// Provider Usage API functions
+// 归一化后的单个用量窗口，percent 为 0-100
+export interface UsageWindow {
+  percent: number;
+  status?: string;
+  resets_at?: string;
+}
+
+export interface ProviderUsage {
+  supported: boolean;
+  error?: string;
+  rolling?: UsageWindow;
+  weekly?: UsageWindow;
+  monthly?: UsageWindow;
+}
+
+export async function getProviderUsage(providerId: number): Promise<ProviderUsage> {
+  return apiRequest<ProviderUsage>(`/providers/usage/${providerId}`);
+}
+
 // Config API functions
 export interface AnthropicCountTokens {
   base_url: string;

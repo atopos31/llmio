@@ -10,7 +10,8 @@
     "type_placeholder": "Select type"
   },
   "actions": {
-    "add": "Add Provider"
+    "add": "Add Provider",
+    "refresh": "Refresh Usage"
   },
   "table": {
     "id": "ID",
@@ -18,6 +19,9 @@
     "type": "Type",
     "config": "Config",
     "console": "Console",
+    "rolling": "Rolling Usage",
+    "weekly": "Weekly Usage",
+    "monthly": "Monthly Usage",
     "actions": "Actions"
   },
   "delete_dialog": {
@@ -51,6 +55,10 @@
     "no_data": "No models available",
     "no_match": "No matching models found",
     "loading": "Loading model list"
+  },
+  "usage": {
+    "resets_at": "Resets at",
+    "unsupported": "Usage is not supported for this provider type"
   },
   "toast": {
     "fetch_failed": "Failed to fetch providers: {{message}}",

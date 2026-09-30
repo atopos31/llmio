@@ -109,7 +109,7 @@ func ProviderTestHandler(c *gin.Context) {
 	client := providers.GetClient(time.Second*360, chatModel.Proxy)
 	var testBody []byte
 	switch chatModel.Type {
-	case consts.StyleOpenAI:
+	case consts.StyleOpenAI, consts.StyleOpenCode, consts.StyleCommandCode:
 		testBody = []byte(testOpenAI)
 	case consts.StyleAnthropic:
 		testBody = []byte(testAnthropic)
@@ -176,8 +176,10 @@ func TestReactHandler(c *gin.Context) {
 		return
 	}
 
-	if chatModel.Type != consts.StyleOpenAI {
-		c.SSEvent("error", "该测试仅支持 OpenAI 类型")
+	if chatModel.Type != consts.StyleOpenAI &&
+		chatModel.Type != consts.StyleOpenCode &&
+		chatModel.Type != consts.StyleCommandCode {
+		c.SSEvent("error", "该测试仅支持 OpenAI 兼容类型")
 		return
 	}
 

@@ -10,7 +10,8 @@
     "type_placeholder": "选择类型"
   },
   "actions": {
-    "add": "添加提供商"
+    "add": "添加提供商",
+    "refresh": "刷新用量"
   },
   "table": {
     "id": "ID",
@@ -18,6 +19,9 @@
     "type": "类型",
     "config": "配置",
     "console": "控制台",
+    "rolling": "滚动用量",
+    "weekly": "每周用量",
+    "monthly": "每月用量",
     "actions": "操作"
   },
   "delete_dialog": {
@@ -51,6 +55,10 @@
     "no_data": "暂无模型数据",
     "no_match": "未找到匹配的模型",
     "loading": "加载模型列表"
+  },
+  "usage": {
+    "resets_at": "重置时间",
+    "unsupported": "该提供商类型不支持用量查询"
   },
   "toast": {
     "fetch_failed": "获取提供商列表失败: {{message}}",

@@ -125,6 +125,30 @@ func GetProviderModels(c *gin.Context) {
 	common.Success(c, models)
 }
 
+// GetProviderUsage 拉取供应商用量（当前仅 opencode / commandcode 支持）。
+// 不支持的类型返回 supported=false；支持但拉取失败返回 supported=true + error，
+// 让前端能区分「不支持」与「查询失败」，而不是一律显示 '-'。
+func GetProviderUsage(c *gin.Context) {
+	id := c.Param("id")
+	provider, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).First(c.Request.Context())
+	if err != nil {
+		common.NotFound(c, "Provider not found")
+		return
+	}
+
+	usage, err := providers.FetchUsage(c.Request.Context(), provider.Type, provider.Config, provider.Proxy)
+	if err != nil {
+		slog.Warn("fetch provider usage failed", "provider", provider.Name, "type", provider.Type, "err", err)
+		common.Success(c, map[string]any{
+			"supported": true,
+			"error":     err.Error(),
+		})
+		return
+	}
+
+	common.Success(c, usage)
+}
+
 // CreateProvider 创建提供商
 func CreateProvider(c *gin.Context) {
 	var req ProviderRequest
@@ -506,6 +530,20 @@ var template = []ProviderTemplate{
 			"base_url": "https://api.anthropic.com/v1",
 			"api_key": "YOUR_API_KEY",
 			"version": "2023-06-01"
+		}`,
+	},
+	{
+		Type: "opencode",
+		Template: `{
+			"base_url": "https://opencode.ai/zen/go/v1",
+			"api_key": "YOUR_API_KEY"
+		}`,
+	},
+	{
+		Type: "commandcode",
+		Template: `{
+			"base_url": "https://api.commandcode.ai/provider/v1",
+			"api_key": "YOUR_API_KEY"
 		}`,
 	},
 }

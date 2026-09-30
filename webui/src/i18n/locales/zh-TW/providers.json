@@ -10,7 +10,8 @@
     "type_placeholder": "選擇類型"
   },
   "actions": {
-    "add": "新增供應商"
+    "add": "新增供應商",
+    "refresh": "重新整理用量"
   },
   "table": {
     "id": "ID",
@@ -18,6 +19,9 @@
     "type": "類型",
     "config": "設定",
     "console": "控制台",
+    "rolling": "滾動用量",
+    "weekly": "每週用量",
+    "monthly": "每月用量",
     "actions": "操作"
   },
   "delete_dialog": {
@@ -51,6 +55,10 @@
     "no_data": "暫無模型資料",
     "no_match": "找不到符合的模型",
     "loading": "載入模型列表"
+  },
+  "usage": {
+    "resets_at": "重置時間",
+    "unsupported": "此供應商類型不支援用量查詢"
   },
   "toast": {
     "fetch_failed": "取得供應商列表失敗: {{message}}",

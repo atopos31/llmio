@@ -304,6 +304,22 @@
     -webkit-text-size-adjust: 100%;
   }
 
+  /* 文档本身永不滚动：视口内的一切滚动都由应用外壳（Layout）与各页面自己负责。
+     两条理由，都踩过：
+     1. 各页已经有一个自己的滚动区（`flex-1 overflow-y-auto`）。若文档也能滚，
+        右边缘就会出现两条并排的滚动条——外层那条滚的是整个外壳，
+        连侧边栏一起滚走，看着像"侧边栏在滚"。
+     2. Tailwind 的 sr-only 是 `position: absolute`。它若没有定位祖先，
+        包含块就是初始包含块，于是既不被滚动容器裁剪、又会把文档撑高。
+        实测总览页因此多出 672px 可滚动区域与 10px 的滚动条宽度占位。
+        锁死文档后这个逃逸不再产生任何可见后果。 */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
     /* 亮字压暗底会显得更轻，需要多一点行距 */

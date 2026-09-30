@@ -14,7 +14,9 @@
     "quota": "Quota"
   },
   "sidebar": {
-    "collapse": "Collapse Menu"
+    "collapse": "Collapse Menu",
+    "open": "Open navigation",
+    "close": "Close navigation"
   },
   "header": {
     "current_version": "Current Version",

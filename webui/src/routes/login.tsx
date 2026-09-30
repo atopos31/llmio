@@ -21,8 +21,11 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background">
-      <Card className="w-full max-w-sm sm:m-0 m-5">
+    // 登录页在外壳之外，因此它得自己管滚动：文档被锁死了（见 index.css）。
+    // 竖直居中用卡片上的 my-auto 而不是容器的 items-center——内容比视口高时，
+    // items-center 会把顶部切掉且滚不到，auto 外边距则会退化成 0。
+    <div className="flex h-dvh justify-center overflow-y-auto bg-background p-5">
+      <Card className="my-auto w-full max-w-sm">
         <CardHeader>
           <CardTitle className="text-2xl">{t('title')}</CardTitle>
           <CardDescription>

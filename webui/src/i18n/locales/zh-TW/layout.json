@@ -14,7 +14,9 @@
     "quota": "套餐餘量"
   },
   "sidebar": {
-    "collapse": "收起選單"
+    "collapse": "收起選單",
+    "open": "開啟導覽",
+    "close": "關閉導覽"
   },
   "header": {
     "current_version": "目前版本",

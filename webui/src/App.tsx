@@ -18,9 +18,10 @@ const LoginPage = lazy(() => import('./routes/login'));
 const ConfigPage = lazy(() => import('./routes/config'));
 const AuthKeysPage = lazy(() => import('./routes/auth-keys'));
 
-// 简单的加载组件
+// 简单的加载组件。高度与外壳一致用 dvh 而不是 vh：
+// 移动端 100vh 是"地址栏收起时"的高度，比可见区域高，会撑出滚动条。
 const PageLoader = () => (
-  <div className="flex items-center justify-center min-h-screen">
+  <div className="flex h-dvh items-center justify-center">
     <Loading message="加载中..." />
   </div>
 );

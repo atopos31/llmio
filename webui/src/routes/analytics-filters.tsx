@@ -1,10 +1,9 @@
 import { useTranslation } from "react-i18next"
-import { ChevronDown, RefreshCw, X } from "lucide-react"
+import { RefreshCw, X } from "lucide-react"
 
+import { MultiSelectFilter, type FilterOption } from "@/components/multi-select-filter"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -22,11 +21,8 @@ import {
 } from "@/lib/analytics"
 import { cn } from "@/lib/utils"
 
-/** 一个筛选维度的可选项。 */
-export interface FilterOption {
-  value: string
-  label: string
-}
+// 组件本身是共享的（日志页也用同一个），这里只是按分析页的命名空间转发一次。
+export type { FilterOption }
 
 /** 各筛选维度的可选项集合。键名与 `AnalyticsFilter` 的字段一一对应。 */
 export interface FilterOptions {
@@ -41,15 +37,12 @@ export interface FilterOptions {
 export type RangeKey = RangePreset
 
 /**
- * 多选筛选器。
+ * 一个筛选维度：把共享组件的三处文案接到分析页的命名空间上。
  *
- * 用 Popover + 复选框而不是 `<select multiple>`：原生多选在触屏上几乎不可用
- * （需要长按/ctrl 才能多选），而这一页在手机上也要能用。
- *
- * 已选项计数放在触发器上而不是用颜色表示"已启用"：颜色不能是唯一的信息载体，
- * 而且计数本身（"筛了 2 个供应商"）就是用户需要知道的事。
+ * 取值与切换都由调用方给（`FilterRow` 从 `filter` / `onToggle` 里取），
+ * 这里只负责"用哪套词"。
  */
-export function MultiSelectFilter({
+function Dimension({
   label,
   options,
   selected,
@@ -61,53 +54,19 @@ export function MultiSelectFilter({
   onToggle: (value: string) => void
 }) {
   const { t } = useTranslation("analytics")
-  const active = selected.length > 0
-
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          aria-label={active ? t("filter.active", { label, count: selected.length }) : label}
-          className={cn(
-            "h-8 gap-1 px-2 text-xs font-normal",
-            active && "border-primary text-foreground"
-          )}
-        >
-          {label}
-          {active && (
-            <span className="reading rounded-sm bg-primary px-1 text-[10px] text-primary-foreground">
-              {selected.length}
-            </span>
-          )}
-          <ChevronDown className="size-3 opacity-60" aria-hidden="true" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-60 p-1">
-        {options.length === 0 ? (
-          <p className="px-2 py-3 text-xs text-muted-foreground">{t("filter.empty")}</p>
-        ) : (
-          // 选项可能上百条（UA、请求名），因此列表自己滚动并限高
-          <ul className="max-h-64 overflow-y-auto">
-            {options.map((o) => (
-              <li key={o.value}>
-                <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-accent">
-                  <Checkbox
-                    checked={selected.includes(o.value)}
-                    onCheckedChange={() => onToggle(o.value)}
-                  />
-                  <span className="min-w-0 flex-1 truncate" title={o.label}>
-                    {o.label}
-                  </span>
-                </label>
-              </li>
-            ))}
-          </ul>
-        )}
-      </PopoverContent>
-    </Popover>
+    <MultiSelectFilter
+      label={label}
+      options={options}
+      selected={selected}
+      onToggle={onToggle}
+      emptyText={t("filter.empty")}
+      ariaLabel={
+        selected.length > 0
+          ? t("filter.active", { label, count: selected.length })
+          : label
+      }
+    />
   )
 }
 
@@ -240,37 +199,37 @@ export function FilterRow({
         </Select>
       )}
 
-      <MultiSelectFilter
+      <Dimension
         label={t("analytics:filter.provider")}
         options={options.provider}
         selected={filter.provider}
         onToggle={(v) => onToggle("provider", v)}
       />
-      <MultiSelectFilter
+      <Dimension
         label={t("analytics:filter.model")}
         options={options.model}
         selected={filter.model}
         onToggle={(v) => onToggle("model", v)}
       />
-      <MultiSelectFilter
+      <Dimension
         label={t("analytics:filter.key")}
         options={options.key}
         selected={filter.key}
         onToggle={(v) => onToggle("key", v)}
       />
-      <MultiSelectFilter
+      <Dimension
         label={t("analytics:filter.name")}
         options={options.name}
         selected={filter.name}
         onToggle={(v) => onToggle("name", v)}
       />
-      <MultiSelectFilter
+      <Dimension
         label={t("analytics:filter.ua")}
         options={options.ua}
         selected={filter.ua}
         onToggle={(v) => onToggle("ua", v)}
       />
-      <MultiSelectFilter
+      <Dimension
         label={t("analytics:filter.status")}
         options={options.status}
         selected={filter.status}

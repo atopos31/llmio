@@ -1,4 +1,5 @@
 import type { AuthKeyItem, ErrorGroup, GroupStat, StatsQuery, StatsResult } from "@/lib/api"
+import { toggleValue } from "@/lib/utils"
 
 /**
  * 分析页（`/analytics`）的纯逻辑层：时间范围口径、筛选到查询串的映射、
@@ -170,10 +171,8 @@ export function activeFilterCount(f: AnalyticsFilter): number {
   )
 }
 
-/** 在多选里切换一个值。 */
-export function toggleValue(list: string[], value: string): string[] {
-  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
-}
+/** 在多选里切换一个值。实现在 `lib/utils`（日志页的多选也要用它）。 */
+export { toggleValue }
 
 /**
  * 筛选状态 + 时间范围 → 查询参数。

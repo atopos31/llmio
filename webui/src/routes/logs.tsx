@@ -4,13 +4,13 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { AlertTriangle, ChevronLeft, ChevronRight, Eye, GitCompareArrows, MessageSquare, RefreshCw, Search, Trash2, X } from "lucide-react"
 
+import { MultiSelectFilter, type FilterOption } from "@/components/multi-select-filter"
 import { StatusMark } from "@/components/status-mark"
 import { ErrorState } from "@/components/state-views"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -27,6 +27,14 @@ import {
   type Provider,
 } from "@/lib/api"
 import { compactNumber, formatBytes, formatCost, formatDurationNs, formatFull, formatNumber } from "@/lib/format"
+import {
+  activeMultiCount,
+  joinMulti,
+  parseMulti,
+  readMultiFilter,
+  toggleMulti,
+  type LogsMultiKey,
+} from "@/lib/logs"
 import { cn } from "@/lib/utils"
 
 /** 对比上限。与后端一次返回的详情体积、以及人眼能同时比较的条数都有关。 */
@@ -65,11 +73,13 @@ export default function LogsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const page = Math.max(1, Number(searchParams.get("page")) || 1)
   const pageSize = Math.max(1, Number(searchParams.get("pageSize")) || 20)
-  const providerNameFilter = searchParams.get("providerName") ?? "all"
-  const modelFilter = searchParams.get("model") ?? "all"
-  const statusFilter = searchParams.get("status") ?? "all"
-  const styleFilter = searchParams.get("style") ?? "all"
-  const authKeyFilter = searchParams.get("authKey") ?? "all"
+  /**
+   * 五个多选维度。URL 里的取值是逗号拼接的一串（与后端 splitCSV + IN 同口径），
+   * 页面只认这一份**解析后**的结果：控件的取值、发给后端的参数、有没有在筛选，
+   * 全部由它派生。若某处直接读原始串，就会出现"界面上没筛、请求里却带着 all"
+   * 这种两处口径不一——而它不会报错，只会筛出意料之外的东西。
+   */
+  const multiFilter = useMemo(() => readMultiFilter((k) => searchParams.get(k)), [searchParams])
   const traceIdFilter = searchParams.get("traceId") ?? ""
   const sessionIdFilter = searchParams.get("sessionId") ?? ""
   const idFilter = searchParams.get("id") ?? ""
@@ -81,11 +91,10 @@ export default function LogsPage() {
           const next = new URLSearchParams(prev)
           for (const [k, v] of Object.entries(patch)) {
             const s = String(v)
+            // 空串对每个参数都等于"没筛"：多选全取消后拼出来的正是空串，
+            // 于是这个参数从 URL 上消失（旧版是写回 "all" 哨兵值）
             const isDefault =
-              s === "" ||
-              (["providerName", "model", "status", "style", "authKey"].includes(k) && s === "all") ||
-              (k === "page" && s === "1") ||
-              (k === "pageSize" && s === "20")
+              s === "" || (k === "page" && s === "1") || (k === "pageSize" && s === "20")
             if (isDefault) next.delete(k)
             else next.set(k, s)
           }
@@ -103,12 +112,32 @@ export default function LogsPage() {
     [patchParams]
   )
 
+  /**
+   * 多选维度上的一次勾选。
+   *
+   * 读写都发生在 `setSearchParams` 的函数式更新里，而不是"先读当前数组、
+   * 算好新串、再写回去"：连点两下复选框时，后者两次都基于同一份旧 URL 计算，
+   * 第二次会把第一次的结果覆盖掉——表现是"点了两下只选上了一个"。
+   */
+  const toggleMultiFilter = useCallback(
+    (key: LogsMultiKey, value: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          const csv = joinMulti(toggleMulti(parseMulti(next.get(key)), value))
+          if (csv) next.set(key, csv)
+          else next.delete(key)
+          next.delete("page")
+          return next
+        },
+        { replace: true }
+      )
+    },
+    [setSearchParams]
+  )
+
   const hasActiveFilter =
-    providerNameFilter !== "all" ||
-    modelFilter !== "all" ||
-    statusFilter !== "all" ||
-    styleFilter !== "all" ||
-    authKeyFilter !== "all" ||
+    activeMultiCount(multiFilter) > 0 ||
     traceIdFilter !== "" ||
     sessionIdFilter !== "" ||
     idFilter !== ""
@@ -155,11 +184,12 @@ export default function LogsPage() {
       if (!silent) setLoading(true)
       try {
         const result = await getLogs(page, pageSize, {
-          providerName: providerNameFilter === "all" ? undefined : providerNameFilter,
-          name: modelFilter === "all" ? undefined : modelFilter,
-          status: statusFilter === "all" ? undefined : statusFilter,
-          style: styleFilter === "all" ? undefined : styleFilter,
-          authKeyId: authKeyFilter === "all" ? undefined : authKeyFilter,
+          // 空列表即"没筛"：拼出来是空串，于是这个参数根本不发
+          providerName: joinMulti(multiFilter.providerName) || undefined,
+          name: joinMulti(multiFilter.model) || undefined,
+          status: joinMulti(multiFilter.status) || undefined,
+          style: joinMulti(multiFilter.style) || undefined,
+          authKeyId: joinMulti(multiFilter.authKey) || undefined,
           traceId: traceIdFilter.trim() || undefined,
           sessionId: sessionIdFilter.trim() || undefined,
           id: idFilter.trim() || undefined,
@@ -178,7 +208,7 @@ export default function LogsPage() {
         if (!silent) setLoading(false)
       }
     },
-    [page, pageSize, providerNameFilter, modelFilter, statusFilter, styleFilter, authKeyFilter, traceIdFilter, sessionIdFilter, idFilter]
+    [page, pageSize, multiFilter, traceIdFilter, sessionIdFilter, idFilter]
   )
 
   useEffect(() => {
@@ -286,40 +316,42 @@ export default function LogsPage() {
         </div>
       </div>
 
-      {/* 筛选行在内容之上一整行，作用于其下的表格与分页 */}
-      <div className="flex flex-wrap items-end gap-2">
-        <FilterSelect
+      {/* 筛选行在内容之上一整行，作用于其下的表格与分页。
+          五个维度都是**多选**：看日志时的诉求多数是"这几个供应商/模型放在一起看"，
+          单选时代只能一个一个来回切，切一次还得重看一遍上下文。 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <DimensionFilter
           label={t("filters.model")}
-          value={modelFilter}
-          onChange={(v) => setFilter("model", v)}
+          selected={multiFilter.model}
+          onToggle={(v) => toggleMultiFilter("model", v)}
           options={models.map((m) => ({ value: m.Name, label: m.Name }))}
         />
-        <FilterSelect
+        <DimensionFilter
           label={t("filters.project")}
-          value={authKeyFilter}
-          onChange={(v) => setFilter("authKey", v)}
+          selected={multiFilter.authKey}
+          onToggle={(v) => toggleMultiFilter("authKey", v)}
           options={authKeys.map((k) => ({ value: String(k.id), label: k.name }))}
         />
-        <FilterSelect
+        <DimensionFilter
           label={t("filters.status")}
-          value={statusFilter}
-          onChange={(v) => setFilter("status", v)}
+          selected={multiFilter.status}
+          onToggle={(v) => toggleMultiFilter("status", v)}
           options={[
             { value: "success", label: t("common:status.success") },
             { value: "running", label: t("common:status.running") },
             { value: "error", label: t("common:status.error") },
           ]}
         />
-        <FilterSelect
+        <DimensionFilter
           label={t("filters.type")}
-          value={styleFilter}
-          onChange={(v) => setFilter("style", v)}
+          selected={multiFilter.style}
+          onToggle={(v) => toggleMultiFilter("style", v)}
           options={availableStyles.map((s) => ({ value: s, label: s }))}
         />
-        <FilterSelect
+        <DimensionFilter
           label={t("filters.provider")}
-          value={providerNameFilter}
-          onChange={(v) => setFilter("providerName", v)}
+          selected={multiFilter.providerName}
+          onToggle={(v) => toggleMultiFilter("providerName", v)}
           options={providers.map((p) => ({ value: p.Name, label: p.Name }))}
         />
 
@@ -684,35 +716,38 @@ export default function LogsPage() {
   )
 }
 
-function FilterSelect({
+/**
+ * 一个多选筛选维度。
+ *
+ * 共享组件只认字符串，翻译留在这一层（本页的文案在 `logs` 命名空间里）。
+ * 触发器上的无障碍名字带上已选计数：`getByRole("button", {name})` 因此能
+ * 区分"供应商"和"供应商（已选 2 个）"，读屏用户也听得到筛了几项。
+ */
+function DimensionFilter({
   label,
-  value,
-  onChange,
+  selected,
+  onToggle,
   options,
 }: {
   label: string
-  value: string
-  onChange: (v: string) => void
-  options: { value: string; label: string }[]
+  selected: string[]
+  onToggle: (value: string) => void
+  options: FilterOption[]
 }) {
-  const { t } = useTranslation("common")
+  const { t } = useTranslation("logs")
   return (
-    <div className="flex flex-col gap-1">
-      <Label className="text-[11px] tracking-wide text-muted-foreground uppercase">{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-8 w-[132px] px-2 text-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">{t("status.all")}</SelectItem>
-          {options.map((o) => (
-            <SelectItem key={o.value} value={o.value}>
-              {o.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
+    <MultiSelectFilter
+      label={label}
+      options={options}
+      selected={selected}
+      onToggle={onToggle}
+      emptyText={t("filters.empty")}
+      ariaLabel={
+        selected.length > 0
+          ? t("filters.active", { label, count: selected.length })
+          : label
+      }
+    />
   )
 }
 

@@ -788,24 +788,38 @@ func GetRequestLogs(c *gin.Context) {
 	// 构建查询条件
 	query := models.DB.Model(&models.ChatLog{})
 
-	if providerName != "" {
-		query = query.Where("provider_name = ?", providerName)
+	// 前五个维度是**多值**的：逗号分隔表示"任一命中"，与 /api/metrics/stats
+	// 的口径一致（那里也是 splitCSV + IN）。维度本身就是一组取值
+	// （模型、供应商、状态、协议、密钥），看日志时最常见的诉求是"这几个一起看"。
+	//
+	// trace_id / session_id / id 保持精确匹配：它们是"某一次具体请求"的标识，
+	// 多选没有语义；它们各自的取值也长，拼成查询串不便于人写。
+	if values := splitCSV(providerName); len(values) > 0 {
+		query = query.Where("provider_name IN ?", values)
 	}
 
-	if name != "" {
-		query = query.Where("name = ?", name)
+	if values := splitCSV(name); len(values) > 0 {
+		query = query.Where("name IN ?", values)
 	}
 
-	if status != "" {
-		query = query.Where("status = ?", status)
+	if values := splitCSV(status); len(values) > 0 {
+		query = query.Where("status IN ?", values)
 	}
 
-	if style != "" {
-		query = query.Where("style = ?", style)
+	if values := splitCSV(style); len(values) > 0 {
+		query = query.Where("style IN ?", values)
 	}
 
-	if authKeyID != "" {
-		query = query.Where("auth_key_id = ?", authKeyID)
+	// 密钥 id 走数字解析而不是当成字符串塞进 IN：列是整型，让 SQLite 逐个
+	// 做隐式转换虽然也判得对，但 "abc" 这种输入会静默变成"查不到"，
+	// 用户看到的是空列表而不是"你的筛选值不合法"。
+	keyIDs, err := parseUintCSV(authKeyID)
+	if err != nil {
+		common.BadRequest(c, "Invalid auth_key_id: "+err.Error())
+		return
+	}
+	if len(keyIDs) > 0 {
+		query = query.Where("auth_key_id IN ?", keyIDs)
 	}
 
 	if traceID != "" {

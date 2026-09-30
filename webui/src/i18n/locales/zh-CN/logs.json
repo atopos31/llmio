@@ -36,6 +36,8 @@
     "status_success": "成功",
     "status_running": "运行中",
     "status_error": "错误",
+    "empty": "没有可选值",
+    "active": "{{label}}，已选 {{count}} 项",
     "clear": "清空筛选"
   },
   "table": {

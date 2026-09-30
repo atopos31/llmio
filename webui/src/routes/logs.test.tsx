@@ -12,6 +12,7 @@ import {
   getProviders,
   type ChatLog,
   type LogsResponse,
+  type Model,
 } from "@/lib/api"
 
 vi.mock("@/lib/api", () => ({
@@ -178,5 +179,78 @@ describe("日志页 · 有数据", () => {
     expect(screen.getByText("scnet")).toBeInTheDocument()
     expect(screen.getByText("成功")).toBeInTheDocument()
     expect(screen.queryByText(NO_DATA)).not.toBeInTheDocument()
+  })
+})
+
+describe("日志页 · 多选筛选", () => {
+  /** 两个可选的模型名。刻意不与任何行里的模型同名：按名字取控件时不会撞车。 */
+  function modelOptions(): Model[] {
+    return [
+      { ID: 1, Name: "alpha-model", Remark: "", MaxRetry: 2, TimeOut: 30, Strategy: "lottery" },
+      { ID: 2, Name: "beta-model", Remark: "", MaxRetry: 2, TimeOut: 30, Strategy: "lottery" },
+    ]
+  }
+
+  it("同一维度上勾两个取值，请求里带上逗号拼接的那串", async () => {
+    mocked.getModelOptions.mockResolvedValue(modelOptions())
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText("deepseek-chat")
+
+    // 触发器在无障碍树上的名字就是维度名（未选时不含计数）
+    await user.click(screen.getByRole("button", { name: "模型名称" }))
+    await user.click(await screen.findByRole("checkbox", { name: "alpha-model" }))
+    await user.click(screen.getByRole("checkbox", { name: "beta-model" }))
+
+    // 两个取值一次带走，而不是"最后点的那一个"
+    await waitFor(() =>
+      expect(mocked.getLogs).toHaveBeenLastCalledWith(
+        1,
+        20,
+        expect.objectContaining({ name: "alpha-model,beta-model" })
+      )
+    )
+  })
+
+  it("全部取消后这个维度不再发送（回到不过滤，而不是筛一个空值）", async () => {
+    mocked.getModelOptions.mockResolvedValue(modelOptions())
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText("deepseek-chat")
+
+    await user.click(screen.getByRole("button", { name: "模型名称" }))
+    const alpha = await screen.findByRole("checkbox", { name: "alpha-model" })
+    await user.click(alpha)
+    await waitFor(() => expect(mocked.getLogs).toHaveBeenLastCalledWith(1, 20, expect.objectContaining({ name: "alpha-model" })))
+
+    await user.click(alpha)
+    await waitFor(() =>
+      expect(mocked.getLogs).toHaveBeenLastCalledWith(
+        1,
+        20,
+        expect.objectContaining({ name: undefined })
+      )
+    )
+    // 一个维度都没筛，就不该摆出"清空筛选"
+    expect(screen.queryByRole("button", { name: "清空筛选" })).not.toBeInTheDocument()
+  })
+
+  it("旧链接里的 all 当作没筛，而不是筛一个叫 all 的值", async () => {
+    // 单值时代的链接是 `?status=all`。若按字面理解，读者会得到一个空表，
+    // 而筛选器上什么也看不出来——这是最难自查的一类错。
+    render(
+      <MemoryRouter initialEntries={["/?status=all&model=all"]}>
+        <LogsPage />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText("deepseek-chat")).toBeInTheDocument()
+    expect(mocked.getLogs).toHaveBeenCalledWith(
+      1,
+      20,
+      expect.objectContaining({ status: undefined })
+    )
+    expect(mocked.getLogs).toHaveBeenCalledWith(1, 20, expect.objectContaining({ name: undefined }))
+    expect(screen.queryByRole("button", { name: "清空筛选" })).not.toBeInTheDocument()
   })
 })

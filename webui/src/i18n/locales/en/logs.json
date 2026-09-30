@@ -36,6 +36,8 @@
     "status_success": "Success",
     "status_running": "Running",
     "status_error": "Error",
+    "empty": "No values available",
+    "active": "{{label}}, {{count}} selected",
     "clear": "Clear filters"
   },
   "table": {

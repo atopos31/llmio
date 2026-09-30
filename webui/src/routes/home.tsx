@@ -7,7 +7,8 @@ import { toast } from "sonner"
 import { FirstChunkHistogram, RequestTrendChart, TokenTrendChart } from "@/components/charts/trend-charts"
 import { StatusMark } from "@/components/status-mark"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Panel } from "@/components/panel"
+import { Card, CardContent } from "@/components/ui/card"
 import { getStats, type StatsResult } from "@/lib/api"
 import {
   compactNumber,
@@ -153,26 +154,26 @@ export default function Home() {
             {/* 趋势拆成两张单轴图。原实现把请求数与 Token 放一张图用双轴，
                 那会凭空造出数据里没有的相关性（规范里的头号禁项）。 */}
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-              <ChartCard title={t("home:trend.requests")}>
+              <Panel title={t("home:trend.requests")}>
                 <RequestTrendChart data={stats!.trend} />
-              </ChartCard>
-              <ChartCard title={t("home:trend.tokens")}>
+              </Panel>
+              <Panel title={t("home:trend.tokens")}>
                 <TokenTrendChart data={stats!.trend} />
-              </ChartCard>
+              </Panel>
             </div>
 
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-              <ChartCard
+              <Panel
                 title={t("home:latency.title")}
                 note={t("home:latency.percentile_note")}
               >
                 <FirstChunkHistogram samples={stats!.latency.firstChunk.list} />
                 <PercentileRow stats={stats!} />
-              </ChartCard>
+              </Panel>
 
-              <ChartCard title={t("home:errors.title")}>
+              <Panel title={t("home:errors.title")}>
                 <ErrorList stats={stats!} unavailable={t("home:errors.empty")} />
-              </ChartCard>
+              </Panel>
             </div>
 
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
@@ -303,26 +304,6 @@ function KpiRow({ stats }: { stats: StatsResult }) {
   )
 }
 
-function ChartCard({
-  title,
-  note,
-  children,
-}: {
-  title: string
-  note?: string
-  children: React.ReactNode
-}) {
-  return (
-    <Card className="min-w-0">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        {note && <p className="text-[11px] text-muted-foreground">{note}</p>}
-      </CardHeader>
-      <CardContent className="min-w-0">{children}</CardContent>
-    </Card>
-  )
-}
-
 function PercentileRow({ stats }: { stats: StatsResult }) {
   const { t } = useTranslation("home")
   const l = stats.latency.firstChunk
@@ -411,46 +392,41 @@ function LeaderboardCard({
   tone?: "critical"
 }) {
   return (
-    <Card className="min-w-0">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">{empty}</p>
-        ) : (
-          <ul className="space-y-1.5">
-            {rows.map((r) => (
-              <li key={r.id}>
-                <Link
-                  to={`/logs/${r.id}/chat-io`}
-                  className="flex items-baseline justify-between gap-2 rounded-sm px-1 py-0.5 text-xs hover:bg-accent"
+    <Panel title={title}>
+      {rows.length === 0 ? (
+        <p className="py-4 text-center text-xs text-muted-foreground">{empty}</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {rows.map((r) => (
+            <li key={r.id}>
+              <Link
+                to={`/logs/${r.id}/chat-io`}
+                className="flex items-baseline justify-between gap-2 rounded-sm px-1 py-0.5 text-xs hover:bg-accent"
+              >
+                {/* 左列吃掉剩余宽度并截断，右列按内容宽度但不许`shrink-0`。
+                    右列装的是错误原文（等宽字体，可达 300px 以上），
+                    `shrink-0` 会让它永不收缩，把整行撑宽后一路顶到内容区——
+                    窄卡片上表现为页面内容区出现一条横向滚动条。 */}
+                <span className="min-w-0 flex-1 truncate" title={`${r.model} · ${r.provider}`}>
+                  {r.model}
+                  <span className="text-muted-foreground"> · {r.provider}</span>
+                </span>
+                <span
+                  className={
+                    tone === "critical"
+                      ? "reading min-w-0 shrink truncate text-status-critical-ink"
+                      : "reading min-w-0 shrink truncate"
+                  }
+                  title={metric(r)}
                 >
-                  {/* 左列吃掉剩余宽度并截断，右列按内容宽度但不许`shrink-0`。
-                      右列装的是错误原文（等宽字体，可达 300px 以上），
-                      `shrink-0` 会让它永不收缩，把整行撑宽后一路顶到内容区——
-                      窄卡片上表现为页面内容区出现一条横向滚动条。 */}
-                  <span className="min-w-0 flex-1 truncate" title={`${r.model} · ${r.provider}`}>
-                    {r.model}
-                    <span className="text-muted-foreground"> · {r.provider}</span>
-                  </span>
-                  <span
-                    className={
-                      tone === "critical"
-                        ? "reading min-w-0 shrink truncate text-status-critical-ink"
-                        : "reading min-w-0 shrink truncate"
-                    }
-                    title={metric(r)}
-                  >
-                    {metric(r)}
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
+                  {metric(r)}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
   )
 }
 

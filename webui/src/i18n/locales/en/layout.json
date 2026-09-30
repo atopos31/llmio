@@ -1,6 +1,7 @@
 {
   "nav": {
     "home": "Dashboard",
+    "analytics": "Analytics",
     "quickstart": "Developer Quickstart",
     "providers": "Providers",
     "models": "Models",

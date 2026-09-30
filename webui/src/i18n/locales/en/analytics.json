@@ -1,0 +1,112 @@
+{
+  "title": "Analytics",
+  "loading": "Loading…",
+  "refresh": "Refresh",
+  "load_failed": "Failed to load: {{message}}",
+  "retry": "Retry",
+  "truncated_warning": "The window is wide enough to hit the scan limit — the numbers below may be incomplete. Narrow the range or add filters for exact values.",
+  "empty": {
+    "title": "No requests in the selected range",
+    "hint": "Try another time range, or clear the filters",
+    "error_title": "Failed to load data"
+  },
+  "range": {
+    "label": "Time range",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "last_24h": "Last 24h",
+    "last_7d": "Last 7d",
+    "last_30d": "Last 30d"
+  },
+  "granularity": {
+    "label": "Bucket size",
+    "auto": "Auto"
+  },
+  "filter": {
+    "provider": "Provider",
+    "model": "Model",
+    "key": "API key",
+    "name": "Request name",
+    "ua": "User-Agent",
+    "status": "Status",
+    "empty": "No values in this window",
+    "active": "{{label}}, {{count}} selected",
+    "clear": "Clear filters ({{count}})"
+  },
+  "views": {
+    "label": "View",
+    "trend": "Trend",
+    "breakdown": "Breakdown",
+    "latency": "Latency",
+    "errors": "Errors"
+  },
+  "trend": {
+    "requests": "Request trend",
+    "requests_note": "{{total}} total · {{success}} succeeded · {{error}} failed · {{running}} in flight",
+    "tokens": "Token trend",
+    "tokens_note": "{{prompt}} input · {{completion}} output, {{cached}} of the input served from cache"
+  },
+  "breakdown": {
+    "dimension_label": "Breakdown dimension",
+    "dimensions": {
+      "model": "Model",
+      "provider": "Provider",
+      "key": "API key",
+      "name": "Request name",
+      "ua": "User-Agent"
+    },
+    "row_hint": "Click a name to filter by it",
+    "filter_on": "Filter by \"{{value}}\"",
+    "filter_off": "Remove the filter on \"{{value}}\"",
+    "empty": "This dimension has no data in the selected range",
+    "columns": {
+      "name": "Name",
+      "total": "Requests",
+      "success_rate": "Success",
+      "avg_tps": "Avg TPS",
+      "max_tps": "Max TPS",
+      "avg_first_chunk": "Avg first chunk",
+      "p95_first_chunk": "P95 first chunk",
+      "cache_hit": "Cache hit",
+      "retries": "Retries",
+      "avg_proxy": "Avg proxy"
+    }
+  },
+  "latency": {
+    "distribution": "First-chunk latency distribution",
+    "histogram_note": "Bins are fixed intervals, so charts from different ranges stay comparable.",
+    "percentile_note": "Percentiles use the nearest-rank definition (floor((n−1)×p)), not interpolation — a difference from interpolated values is not a defect.",
+    "samples": "{{count}} samples",
+    "p50": "P50",
+    "p90": "P90",
+    "p95": "P95",
+    "p99": "P99",
+    "avg": "Avg",
+    "max": "Max",
+    "tps_title": "TPS readings",
+    "tps_unit": "tok/s",
+    "proxy_title": "Proxy time",
+    "tps_board": "Top TPS",
+    "slowest_board": "Slowest first chunk",
+    "board_empty": "No samples"
+  },
+  "errors": {
+    "title": "Failure categories",
+    "trend_title": "Failure trend",
+    "empty": "No failed requests in the selected range",
+    "count": "{{count}}×",
+    "share_hint": "{{percent}} of all failures",
+    "affected_providers": "Providers",
+    "affected_models": "Models",
+    "table_note": "More than {{limit}} categories — bars stop being a reliable comparison, so this is a table.",
+    "view_log": "View request content",
+    "columns": {
+      "type": "Category",
+      "count": "Count",
+      "share": "Share",
+      "providers": "Providers",
+      "models": "Models",
+      "sample": "Sample"
+    }
+  }
+}

@@ -15,6 +15,7 @@ import {
   FaRocket,
   FaCloud,
   FaRobot,
+  FaChartBar,
   FaFileAlt,
   FaSignOutAlt,
   FaChevronLeft,
@@ -43,6 +44,7 @@ import {
 // 若这里写成 string 会丢掉字面量信息而无法通过类型检查。
 type NavLabelKey =
   | "nav.home"
+  | "nav.analytics"
   | "nav.logs"
   | "nav.compare"
   | "nav.quota"
@@ -101,6 +103,8 @@ const NAV_GROUPS: { labelKey: NavGroupLabelKey; items: NavItem[] }[] = [
     labelKey: "nav.group_observe",
     items: [
       { to: "/", labelKey: "nav.home", icon: <FaHome /> },
+      // 分析紧跟总览：总览只给结论，追问"为什么"的第一步就是这一页。
+      { to: "/analytics", labelKey: "nav.analytics", icon: <FaChartBar /> },
       { to: "/logs", labelKey: "nav.logs", icon: <FaFileAlt /> },
       { to: "/compare", labelKey: "nav.compare", icon: <FaColumns /> },
       // 余量归"观察"组而不是"配置"：它回答"现在还剩多少"，

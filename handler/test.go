@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
+	"github.com/samber/lo"
 	"github.com/tidwall/gjson"
 	"gorm.io/gorm"
 )
@@ -187,10 +188,30 @@ func TestReactHandler(c *gin.Context) {
 		return
 	}
 
-	client := openai.NewClient(
+	// 与连通性测试、真实转发走同一份头构造。此前这条路径只给 SDK 配了 base_url 与
+	// api_key，自定义头与代理都没带——于是"能力测试"在强制自定义头的上游（如 opencode）
+	// 上必然失败，而在配了代理的提供商上会绕过代理，测试结论与真实流量无关。
+	header := service.BuildHeaders(c.Request.Header, lo.FromPtrOr(chatModel.WithHeader, false), chatModel.CustomerHeaders, true, service.HeaderVars{
+		// 固定会话值：与连通性测试同一理由，便于按该值检索测试流量
+		Session:       "llmio-react-test",
+		Model:         chatModel.Model,
+		ProviderModel: chatModel.Model,
+	})
+
+	opts := []option.RequestOption{
 		option.WithBaseURL(config.BaseURL),
-		option.WithAPIKey(config.APIKey),
-	)
+		// 代理与响应头超时沿用真实转发的客户端（无整体超时，流式才不会被截断）
+		option.WithHTTPClient(providers.GetClient(time.Second*360, chatModel.Proxy)),
+	}
+	for key, values := range header {
+		for _, value := range values {
+			opts = append(opts, option.WithHeader(key, value))
+		}
+	}
+	// api_key 排在自定义头之后：与 provider.BuildReq 的次序一致——配置里的 key
+	// 覆盖同名自定义头，而不是反过来
+	opts = append(opts, option.WithAPIKey(config.APIKey))
+	client := openai.NewClient(opts...)
 
 	agent := react.New(client, 20)
 	question := "分两次获取一下南京和北京的天气 每次调用后回复我对应城市的总结信息"

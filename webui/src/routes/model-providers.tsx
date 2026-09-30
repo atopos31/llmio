@@ -31,6 +31,9 @@ import { ModelDeleteDialog, ModelFormDialog } from "@/routes/model-providers/mod
 
 type StrategyFilter = "all" | "lottery" | "rotor";
 
+/** 失败信息一律取原文：只有原文可能指向原因 */
+const messageOf = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
 /**
  * 模型路由页（模型 → 提供商关联）。
  *
@@ -66,6 +69,10 @@ export default function ModelProvidersPage() {
   const [modelSearchInput, setModelSearchInput] = useState("");
   const [modelSearchTerm, setModelSearchTerm] = useState("");
   const [modelStrategyFilter, setModelStrategyFilter] = useState<StrategyFilter>("all");
+  /** 取模型/提供商失败的原文；有值即整页显示失败态而不是空态 */
+  const [overviewError, setOverviewError] = useState<string | null>(null);
+  /** 取该模型关联失败的原文，同上 */
+  const [associationsError, setAssociationsError] = useState<string | null>(null);
 
   // 总览上的筛选：既决定列表里剩哪些模型，也决定能不能拖拽排序
   // （带着筛选拖，拖出来的局部顺序会被当成全量顺序保存）。
@@ -150,27 +157,29 @@ export default function ModelProvidersPage() {
     executeTest,
   } = useModelProviderTesting();
 
-  const fetchModels = async () => {
-    try {
-      const data = await getModelOptions();
-      setModels(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(t('toast.fetch_models_failed', { message }));
-      console.error(err);
-    }
-  };
+  /**
+   * 模型与提供商一起取：这一页没有它们就没有内容可看，因此失败也只有一个出口——
+   * 面板上的失败态（给原文 + 重试），而不是一条会自己消失的提示加上一页
+   * 假装"暂无可关联模型"的空态。
+   */
+  const loadOverview = useCallback(async () => {
+    setLoading(true);
+    setOverviewError(null);
+    const [modelsResult, providersResult] = await Promise.allSettled([getModelOptions(), getProviders()]);
+    if (modelsResult.status === "fulfilled") setModels(modelsResult.value);
+    if (providersResult.status === "fulfilled") setProviders(providersResult.value);
 
-  const fetchProviders = async () => {
-    try {
-      const data = await getProviders();
-      setProviders(data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(t('toast.fetch_providers_failed', { message }));
-      console.error(err);
+    // 两处一起取，只留一条原文：先说模型那条——没有模型，这一页连列表都没有
+    const failure = modelsResult.status === "rejected"
+      ? modelsResult.reason
+      : providersResult.status === "rejected" ? providersResult.reason : null;
+    if (failure !== null) {
+      console.error(failure);
+      setOverviewError(messageOf(failure));
     }
-  };
+    setLoading(false);
+  }, []);
+
 
   const loadProviderStatus = useCallback(async (providers: ModelWithProvider[], modelId: number) => {
     const selectedModel = models.find(m => m.ID === modelId);
@@ -202,6 +211,7 @@ export default function ModelProvidersPage() {
   const fetchModelProviders = useCallback(async (modelId: number) => {
     try {
       setLoading(true);
+      setAssociationsError(null);
       const data = await getModelProviders(modelId);
       setModelProviders(data.map(item => ({
         ...item,
@@ -211,9 +221,10 @@ export default function ModelProvidersPage() {
       // 异步加载状态数据
       loadProviderStatus(data, modelId);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(`获取关联管理列表失败: ${message}`);
+      // 失败要留在面板上：只弹一条提示的话，紧随其后的就是"该模型还没有关联的提供商"，
+      // 等于把取数失败说成了这个模型确实没有关联
       console.error(err);
+      setAssociationsError(messageOf(err));
     } finally {
       setLoading(false);
     }
@@ -259,10 +270,8 @@ export default function ModelProvidersPage() {
   });
 
   useEffect(() => {
-    Promise.all([fetchModels(), fetchProviders()]).finally(() => {
-      setLoading(false);
-    });
-  }, []);
+    void loadOverview();
+  }, [loadOverview]);
 
   useEffect(() => {
     if (models.length === 0) {
@@ -644,6 +653,8 @@ export default function ModelProvidersPage() {
         <ModelList
           models={filteredOverviewModels}
           loading={loading}
+          error={overviewError}
+          onRetry={loadOverview}
           emptyText={hasModelOverviewFilter ? t('no_models_filtered') : t('no_models')}
           associationCountText={getAssociationCountNumberText}
           order={order}
@@ -668,6 +679,8 @@ export default function ModelProvidersPage() {
             statusUpdating={statusUpdating}
             deleteId={deleteId}
             loading={loading}
+            error={associationsError}
+            onRetry={() => fetchModelProviders(selectedModelId)}
             emptyText={hasAssociationFilter ? t('no_associations_filtered') : t('no_associations')}
             onRefreshStatus={() => loadProviderStatus(modelProviders, selectedModelId)}
             onEdit={openEditDialog}

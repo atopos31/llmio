@@ -2,6 +2,7 @@ import { Link, ListCollapse, Pencil, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import Loading from "@/components/loading"
+import { ErrorState } from "@/components/state-views"
 import { Button } from "@/components/ui/button"
 import {
   Table,
@@ -35,6 +36,9 @@ type Props = {
   /** 已筛选、已排序的模型；筛选在页面里做完，这里只管画 */
   models: Model[]
   loading: boolean
+  /** 取数失败的原文：有值就先说失败，绝不说"没有模型" */
+  error: string | null
+  onRetry: () => void
   /** 空态文案由页面给：筛空与本来就没有是两种说法 */
   emptyText: string
   associationCountText: (modelId: number) => string
@@ -55,6 +59,8 @@ type Props = {
 export function ModelList({
   models,
   loading,
+  error,
+  onRetry,
   emptyText,
   associationCountText,
   order,
@@ -69,7 +75,16 @@ export function ModelList({
     <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
       {/* 排序结果的播报：读屏软件念这一句，视觉上不占位置 */}
       <div aria-live="polite" aria-atomic="true" className="sr-only">{order.announcement}</div>
-      {loading ? (
+      {error ? (
+        <div className="p-3">
+          <ErrorState
+            title={t("load_failed_models")}
+            message={error}
+            retryLabel={t("retry")}
+            onRetry={onRetry}
+          />
+        </div>
+      ) : loading ? (
         <div className="flex h-full items-center justify-center">
           <Loading message={t("loading_models")} />
         </div>

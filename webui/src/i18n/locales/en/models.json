@@ -6,6 +6,9 @@
   "no_models_filtered": "No models match the current filters",
   "no_associations": "This model has no associated providers",
   "no_associations_filtered": "No associations match the current filters",
+  "load_failed_models": "Failed to load models and providers",
+  "load_failed_associations": "Failed to load associations",
+  "retry": "Retry",
   "filters": {
     "search": "Search",
     "search_placeholder": "Search by name",
@@ -168,8 +171,6 @@
     "description": "This action cannot be undone. The association will be permanently deleted."
   },
   "toast": {
-    "fetch_models_failed": "Failed to fetch models: {{message}}",
-    "fetch_providers_failed": "Failed to fetch providers: {{message}}",
     "model_save_failed": "Save failed: {{message}}",
     "model_created": "Model {{name}} created successfully",
     "model_updated": "Model {{name}} updated successfully",

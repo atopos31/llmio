@@ -161,6 +161,8 @@ describe("模型路由页 · 加载", () => {
 
     renderPage()
 
+    // 声明"正在加载"而不是只转个圈：转圈在无障碍树上等于空白
+    expect(screen.getByRole("status")).toHaveTextContent("加载模型和提供商")
     expect(screen.getByText(/加载模型和提供商/)).toBeInTheDocument()
     expect(screen.queryByText("暂无可关联模型")).not.toBeInTheDocument()
   })
@@ -261,6 +263,67 @@ describe("模型路由页 · 关联列表的空", () => {
 
     expect(await screen.findByText("当前筛选条件暂无关联")).toBeInTheDocument()
     expect(screen.queryByText("该模型还没有关联的提供商")).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * 模型路由页 · 错误。
+ *
+ * 这一组是 S6 修掉的那处缺陷的钉子：取数失败原先只弹一条会自己消失的提示，
+ * 正文照旧显示"暂无可关联模型"／"该模型还没有关联的提供商"——把失败说成了空，
+ * 于是"没有模型"和"没取到"在页面上长得一模一样。
+ */
+describe("模型路由页 · 错误", () => {
+  it("模型取数失败时给出原文与重试入口，而不是说没有模型", async () => {
+    mocked.getModelOptions.mockRejectedValueOnce(new Error("连接被拒绝"))
+    renderPage()
+
+    expect(await screen.findByText("模型与提供商加载失败")).toBeInTheDocument()
+    expect(screen.getByText("连接被拒绝")).toBeInTheDocument()
+    expect(screen.queryByText("暂无可关联模型")).not.toBeInTheDocument()
+  })
+
+  it("提供商取数失败同样算失败——两个来源缺一不可", async () => {
+    mocked.getProviders.mockRejectedValueOnce(new Error("网关超时"))
+    renderPage()
+
+    expect(await screen.findByText("模型与提供商加载失败")).toBeInTheDocument()
+    expect(screen.getByText("网关超时")).toBeInTheDocument()
+  })
+
+  it("重试把两个来源一起重取，成功后就地恢复成列表", async () => {
+    const user = userEvent.setup()
+    mocked.getModelOptions.mockRejectedValueOnce(new Error("连接被拒绝"))
+    renderPage()
+    await screen.findByText("模型与提供商加载失败")
+
+    mocked.getModelOptions.mockResolvedValue([model()])
+    await user.click(screen.getByRole("button", { name: /重试/ }))
+
+    expect(await within(await table()).findByText("gpt-test")).toBeInTheDocument()
+    expect(screen.queryByText("模型与提供商加载失败")).not.toBeInTheDocument()
+  })
+
+  it("关联取数失败时给出原文，而不是说这个模型没有关联", async () => {
+    mocked.getModelProviders.mockRejectedValue(new Error("500 internal error"))
+    renderPage("/model-providers?modelId=1")
+
+    expect(await screen.findByText("关联列表加载失败")).toBeInTheDocument()
+    expect(screen.getByText("500 internal error")).toBeInTheDocument()
+    expect(screen.queryByText("该模型还没有关联的提供商")).not.toBeInTheDocument()
+  })
+
+  it("关联取数失败后重试，恢复成关联表", async () => {
+    const user = userEvent.setup()
+    mocked.getModelProviders.mockRejectedValue(new Error("500 internal error"))
+    renderPage("/model-providers?modelId=1")
+    await screen.findByText("关联列表加载失败")
+
+    mocked.getModelProviders.mockImplementation(async (id: number) => associationsOf(id))
+    await user.click(screen.getByRole("button", { name: /重试/ }))
+
+    expect(await within(await table()).findByText("gpt-4o")).toBeInTheDocument()
+    expect(screen.queryByText("关联列表加载失败")).not.toBeInTheDocument()
   })
 })
 

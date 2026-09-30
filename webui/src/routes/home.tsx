@@ -8,6 +8,7 @@ import { FirstChunkHistogram, RequestTrendChart, TokenTrendChart } from "@/compo
 import { StatusMark } from "@/components/status-mark"
 import { Button } from "@/components/ui/button"
 import { Panel } from "@/components/panel"
+import { EmptyState } from "@/components/state-views"
 import { Card, CardContent } from "@/components/ui/card"
 import { getStats, type StatsResult } from "@/lib/api"
 import {
@@ -430,13 +431,3 @@ function LeaderboardCard({
   )
 }
 
-function EmptyState({ title, hint }: { title: string; hint: string }) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-1 py-16 text-center">
-        <p className="text-sm font-medium">{title}</p>
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      </CardContent>
-    </Card>
-  )
-}

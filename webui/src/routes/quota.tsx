@@ -16,8 +16,8 @@ import { QuotaImportDialog } from "@/routes/quota-import"
 import { QuotaItemDialog } from "@/routes/quota-item-dialog"
 import { QuotaSettingsDialog } from "@/routes/quota-settings"
 import { QuotaSourceViewDialog } from "@/routes/quota-source-view"
+import { EmptyState } from "@/components/state-views"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -433,11 +433,11 @@ export default function QuotaPage() {
             ))}
           </div>
         ) : loadError && sources.length === 0 ? (
-          <EmptyState title={t("error.load")} desc={loadError} />
+          <EmptyState title={t("error.load")} hint={loadError} />
         ) : sources.length === 0 ? (
           <EmptyState
             title={t("empty.title")}
-            desc={t("empty.desc")}
+            hint={t("empty.desc")}
             action={
               editable && (
                 <div className="flex gap-2">
@@ -553,25 +553,6 @@ export default function QuotaPage() {
   )
 }
 
-function EmptyState({
-  title,
-  desc,
-  action,
-}: {
-  title: string
-  desc: string
-  action?: React.ReactNode
-}) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-        <p className="text-sm font-medium">{title}</p>
-        <p className="max-w-md text-xs text-muted-foreground">{desc}</p>
-        {action}
-      </CardContent>
-    </Card>
-  )
-}
 
 function clock(ms: number): string {
   const d = new Date(ms)

@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle, RefreshCw } from "lucide-react"
+import { AlertTriangle } from "lucide-react"
 import { toast } from "sonner"
 
 import { RequestTrendChart, TokenTrendChart } from "@/components/charts/trend-charts"
 import { Panel } from "@/components/panel"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import { EmptyState, ErrorState } from "@/components/state-views"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { FilterRow, type FilterOption, type FilterOptions, type RangeKey } from "@/routes/analytics-filters"
@@ -340,40 +339,3 @@ function customSpan(from: string, to: string): { from: number; to: number } | nu
   return { from: a, to: b }
 }
 
-function EmptyState({ title, hint }: { title: string; hint: string }) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-1 py-16 text-center">
-        <p className="text-sm font-medium">{title}</p>
-        <p className="text-xs text-muted-foreground">{hint}</p>
-      </CardContent>
-    </Card>
-  )
-}
-
-/** 失败态。给出**原文**而不是"加载失败"四个字：原文才可能指向原因。 */
-function ErrorState({
-  title,
-  message,
-  retryLabel,
-  onRetry,
-}: {
-  title: string
-  message: string
-  retryLabel: string
-  onRetry: () => void
-}) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
-        <AlertTriangle className="size-5 text-status-critical-ink" aria-hidden="true" />
-        <p className="text-sm font-medium">{title}</p>
-        <p className="reading max-w-full break-words text-xs text-muted-foreground">{message}</p>
-        <Button variant="outline" size="sm" className="mt-1 gap-1.5" onClick={onRetry}>
-          <RefreshCw className="size-3.5" aria-hidden="true" />
-          {retryLabel}
-        </Button>
-      </CardContent>
-    </Card>
-  )
-}

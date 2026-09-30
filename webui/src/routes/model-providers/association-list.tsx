@@ -2,6 +2,7 @@ import { Pencil, RefreshCw, Trash2, Zap } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import Loading from "@/components/loading"
+import { ErrorState } from "@/components/state-views"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,6 +42,9 @@ type Props = {
   /** 正在确认删除的那条关联 ID */
   deleteId: number | null
   loading: boolean
+  /** 取数失败的原文：有值就先说失败，绝不说"这个模型没有关联" */
+  error: string | null
+  onRetry: () => void
   emptyText: string
   onRefreshStatus: () => void
   onEdit: (association: ModelWithProvider) => void
@@ -65,6 +69,8 @@ export function AssociationList({
   statusUpdating,
   deleteId,
   loading,
+  error,
+  onRetry,
   emptyText,
   onRefreshStatus,
   onEdit,
@@ -78,7 +84,16 @@ export function AssociationList({
 
   return (
     <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
-      {loading ? (
+      {error ? (
+        <div className="p-3">
+          <ErrorState
+            title={t("load_failed_associations")}
+            message={error}
+            retryLabel={t("retry")}
+            onRetry={onRetry}
+          />
+        </div>
+      ) : loading ? (
         <div className="flex h-full items-center justify-center">
           <Loading message={t("loading_associations")} />
         </div>

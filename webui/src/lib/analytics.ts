@@ -82,6 +82,48 @@ export function presetRange(
 }
 
 // ---------------------------------------------------------------------------
+// 自定义范围
+// ---------------------------------------------------------------------------
+
+/**
+ * unix 秒 → `<input type="datetime-local">` 的值。
+ *
+ * 手工按本地时间各部分拼字符串，**不用 `toISOString()`**：后者输出的是 UTC，
+ * 而 datetime-local 的值被浏览器解释为**本地时间**，两者相差一个时区偏移——
+ * 在东八区就是整整 8 小时的静默错位（用户选"14:00"却查了 06:00 的数据）。
+ */
+export function toLocalInput(seconds: number): string {
+  const d = new Date(seconds * 1000)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** `<input type="datetime-local">` 的值 → unix 秒。空值或非法值返回 null。 */
+export function fromLocalInput(value: string): number | null {
+  if (!value) return null
+  const ms = new Date(value).getTime()
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : null
+}
+
+/** 自定义范围的两种不可用状态。文案由视图层给（这里不产出展示文本）。 */
+export type CustomRangeError = "incomplete" | "order"
+
+/**
+ * 自定义范围校验。
+ *
+ * 未填全与前后颠倒分开报：前者是"还没填完"，后者是"填错了"，
+ * 用户要做的动作不同。过去的右端**不算错误**——查未来等于查到现在为止，
+ * 后端会如实返回空桶，不需要在客户端假装它是非法的。
+ */
+export function customRangeError(from: string, to: string): CustomRangeError | null {
+  const a = fromLocalInput(from)
+  const b = fromLocalInput(to)
+  if (a === null || b === null) return "incomplete"
+  if (a >= b) return "order"
+  return null
+}
+
+// ---------------------------------------------------------------------------
 // 筛选
 // ---------------------------------------------------------------------------
 

@@ -3,6 +3,7 @@ import { ChevronDown, RefreshCw, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Select,
@@ -16,6 +17,7 @@ import {
   activeFilterCount,
   RANGE_PRESETS,
   type AnalyticsFilter,
+  type CustomRangeError,
   type RangePreset,
 } from "@/lib/analytics"
 import { cn } from "@/lib/utils"
@@ -36,7 +38,7 @@ export interface FilterOptions {
   status: FilterOption[]
 }
 
-export type RangeKey = Exclude<RangePreset, "custom">
+export type RangeKey = RangePreset
 
 /**
  * 多选筛选器。
@@ -124,6 +126,11 @@ export function FilterRow({
   granularities,
   granularity,
   onGranularity,
+  customFrom,
+  customTo,
+  customError,
+  onCustomFrom,
+  onCustomTo,
   filter,
   options,
   onToggle,
@@ -137,6 +144,12 @@ export function FilterRow({
   granularities: string[]
   granularity: string
   onGranularity: (g: string) => void
+  /** 自定义范围的起止，`datetime-local` 的本地时间字符串 */
+  customFrom: string
+  customTo: string
+  customError: CustomRangeError | null
+  onCustomFrom: (v: string) => void
+  onCustomTo: (v: string) => void
   filter: AnalyticsFilter
   options: FilterOptions
   onToggle: (field: keyof AnalyticsFilter, value: string) => void
@@ -169,7 +182,45 @@ export function FilterRow({
             {t(`analytics:range.${p}` as never)}
           </ToggleGroupItem>
         ))}
+        <ToggleGroupItem value="custom" size="sm" className="px-2">
+          {t("analytics:range.custom")}
+        </ToggleGroupItem>
       </ToggleGroup>
+
+      {/* 自定义范围只在选中时占位：常驻会白占掉两个控件的位置，而它多数时候是空的 */}
+      {preset === "custom" && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* 用原生 datetime-local 而不是再装一个日期选择器：它自带键盘与触屏
+              交互、跟系统时区一致，且不必为两个输入框引入新的依赖与焦点管理。
+              宽度交给 `auto`（原生控件的固有宽度按语言/字号变），并 `shrink-0`
+              不参与压缩——写死宽度会切掉右端的日历图标，而压缩它同样会切掉 */}
+          <Input
+            type="datetime-local"
+            value={customFrom}
+            onChange={(e) => onCustomFrom(e.target.value)}
+            aria-label={t("analytics:range.custom_from")}
+            aria-invalid={customError !== null}
+            className="h-8 w-auto shrink-0 px-2 text-xs"
+          />
+          <span className="text-xs text-muted-foreground" aria-hidden="true">
+            –
+          </span>
+          <Input
+            type="datetime-local"
+            value={customTo}
+            onChange={(e) => onCustomTo(e.target.value)}
+            aria-label={t("analytics:range.custom_to")}
+            aria-invalid={customError !== null}
+            className="h-8 w-auto shrink-0 px-2 text-xs"
+          />
+          {/* 非法时说明**不动数据**：正在编辑的半截输入不该把已有视图清空 */}
+          {customError && (
+            <span className="text-[11px] text-status-warning-ink">
+              {t(`analytics:range.custom_${customError}` as never)}
+            </span>
+          )}
+        </div>
+      )}
 
       {granularities.length > 0 && (
         <Select value={granularity} onValueChange={onGranularity}>

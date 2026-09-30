@@ -16,7 +16,12 @@
     "yesterday": "昨天",
     "last_24h": "近 24 小時",
     "last_7d": "近 7 天",
-    "last_30d": "近 30 天"
+    "last_30d": "近 30 天",
+    "custom": "自訂",
+    "custom_from": "起始時間",
+    "custom_to": "結束時間",
+    "custom_incomplete": "起訖時間都要填",
+    "custom_order": "起始必須早於結束"
   },
   "granularity": {
     "label": "分桶粒度",

@@ -14,11 +14,14 @@ import { BreakdownView, ErrorsView, LatencyView } from "@/routes/analytics-views
 import {
   activeFilterCount,
   buildStatsQuery,
+  customRangeError,
   EMPTY_FILTER,
+  fromLocalInput,
   keyFilterOptions,
   observedOptions,
   presetRange,
   STATUS_VALUES,
+  toLocalInput,
   toggleDimensionValue,
   toggleValue,
   VIEWS,
@@ -49,6 +52,13 @@ export default function AnalyticsPage() {
   const { t } = useTranslation(["analytics", "common"])
 
   const [preset, setPreset] = useState<RangeKey>("last_24h")
+  /**
+   * 自定义范围的起止，`datetime-local` 的本地时间字符串。
+   *
+   * 与 `preset` 分开存：切回预设再切回自定义时，用户刚填的两端不该丢。
+   */
+  const [customFrom, setCustomFrom] = useState("")
+  const [customTo, setCustomTo] = useState("")
   const [granularity, setGranularity] = useState("auto")
   const [granularities, setGranularities] = useState<string[]>([])
   const [filter, setFilter] = useState<AnalyticsFilter>(EMPTY_FILTER)
@@ -69,14 +79,24 @@ export default function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null)
 
   const hasFilter = activeFilterCount(filter) > 0
+  const customError = preset === "custom" ? customRangeError(customFrom, customTo) : null
 
   const load = useCallback(
     async (silent = false) => {
+      // 自定义范围还没填完或前后颠倒时**不发请求、也不清空**：正在编辑的半截
+      // 输入不该把已有视图打成空白。控件旁边已经写明为什么。
+      // 每次取数时才读 now：刷新不会沿用上一次的右端
+      const span =
+        preset === "custom" ? customSpan(customFrom, customTo) : presetRange(preset, new Date())
+      if (!span) {
+        setLoading(false)
+        return
+      }
+
       if (!silent) setLoading(true)
       try {
-        const { from, to } = presetRange(preset, new Date())
-        const rangeOnly = buildStatsQuery({ from, to, granularity, filter: EMPTY_FILTER })
-        const filtered = buildStatsQuery({ from, to, granularity, filter })
+        const rangeOnly = buildStatsQuery({ ...span, granularity, filter: EMPTY_FILTER })
+        const filtered = buildStatsQuery({ ...span, granularity, filter })
         const [data, base] = hasFilter
           ? await Promise.all([getStats(filtered), getStats(rangeOnly)])
           : [await getStats(filtered), null]
@@ -91,7 +111,7 @@ export default function AnalyticsPage() {
         setLoading(false)
       }
     },
-    [preset, granularity, filter, hasFilter, t]
+    [preset, customFrom, customTo, granularity, filter, hasFilter, t]
   )
 
   useEffect(() => {
@@ -156,16 +176,40 @@ export default function AnalyticsPage() {
     setFilter((f) => toggleDimensionValue(f, dim, value))
   }, [])
 
+  /**
+   * 切到自定义时用**当前预设的窗口**预填两端。
+   *
+   * 不预填（留两个空框）会让人先面对一个空状态再从头填；预填之后往往只需要
+   * 改一端。两头都空时给"近 24 小时"当起点。
+   */
+  const handlePreset = useCallback(
+    (p: RangeKey) => {
+      if (p === "custom" && preset !== "custom") {
+        // 这里的 preset 已被窄化掉 custom，因此直接当预填的起点
+        const r = presetRange(preset, new Date())
+        setCustomFrom(toLocalInput(r.from))
+        setCustomTo(toLocalInput(r.to))
+      }
+      setPreset(p)
+    },
+    [preset]
+  )
+
   const hasData = (stats?.kpi.total ?? 0) > 0
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-1">
       <FilterRow
         preset={preset}
-        onPreset={setPreset}
+        onPreset={handlePreset}
         granularities={granularities}
         granularity={granularity}
         onGranularity={setGranularity}
+        customFrom={customFrom}
+        customTo={customTo}
+        customError={customError}
+        onCustomFrom={setCustomFrom}
+        onCustomTo={setCustomTo}
         filter={filter}
         options={options}
         onToggle={handleToggle}
@@ -285,6 +329,15 @@ function TrendView({ stats }: { stats: StatsResult }) {
       </Panel>
     </>
   )
+}
+
+/** 自定义范围 → 查询用的 unix 秒。不可用时返回 null（合法性只由 `customRangeError` 判定）。 */
+function customSpan(from: string, to: string): { from: number; to: number } | null {
+  if (customRangeError(from, to)) return null
+  const a = fromLocalInput(from)
+  const b = fromLocalInput(to)
+  if (a === null || b === null) return null // 已由 customRangeError 排除，这里只为收窄类型
+  return { from: a, to: b }
 }
 
 function EmptyState({ title, hint }: { title: string; hint: string }) {

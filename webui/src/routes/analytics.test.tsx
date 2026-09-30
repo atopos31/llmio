@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { userEvent } from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -244,6 +244,42 @@ describe("分析页 · 有数据", () => {
     // 一次带筛选、一次不带；顺序不保证（并行发出），因此只看集合
     expect(queries().filter((q) => q.model === "gpt-test")).toHaveLength(1)
     expect(queries().filter((q) => q.model === undefined)).toHaveLength(2)
+  })
+
+  it("自定义范围：切过来时预填当前预设的窗口，改了就按新窗口取数", async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText("请求趋势")
+
+    await user.click(screen.getByRole("radio", { name: "自定义" }))
+    const from = screen.getByLabelText("起始时间") as HTMLInputElement
+    const to = screen.getByLabelText("结束时间") as HTMLInputElement
+    // 预填的是"近 24 小时"：两个端点都被截到分钟，差值仍是整 86400 秒
+    expect(new Date(to.value).getTime() - new Date(from.value).getTime()).toBe(24 * 3600 * 1000)
+
+    mocked.getStats.mockClear()
+    fireEvent.change(from, { target: { value: "2026-09-28T08:00" } })
+    fireEvent.change(to, { target: { value: "2026-09-29T08:00" } })
+
+    await waitFor(() => expect(mocked.getStats).toHaveBeenCalled())
+    const expected = String(Math.floor(new Date("2026-09-28T08:00").getTime() / 1000))
+    expect(queries().every((q) => q.from === expected)).toBe(true)
+  })
+
+  it("自定义范围非法时不发请求，也不把已有视图清空", async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText("请求趋势")
+
+    await user.click(screen.getByRole("radio", { name: "自定义" }))
+    mocked.getStats.mockClear()
+    // 把结束时间改到起始之前
+    fireEvent.change(screen.getByLabelText("结束时间"), { target: { value: "2000-01-01T00:00" } })
+
+    expect(await screen.findByText("起始必须早于结束")).toBeInTheDocument()
+    expect(mocked.getStats).not.toHaveBeenCalled()
+    // 正在编辑的半截输入不该把已有内容打成空白
+    expect(screen.getByText("请求趋势")).toBeInTheDocument()
   })
 
   it("密钥筛选传 id 而不传展示名", async () => {

@@ -4,6 +4,7 @@ import {
   activeFilterCount,
   ADMIN_KEY_ID,
   buildStatsQuery,
+  customRangeError,
   DIMENSIONS,
   dimensionFilterValues,
   dimensionGroups,
@@ -12,11 +13,13 @@ import {
   errorBarBase,
   errorBarWidth,
   errorViewMode,
+  fromLocalInput,
   keyFilterOptions,
   logDetailPath,
   observedOptions,
   presetRange,
   shortenLabel,
+  toLocalInput,
   toggleDimensionValue,
   toggleValue,
   UA_DISPLAY_MAX,
@@ -102,6 +105,60 @@ describe("presetRange", () => {
   it("近 7 天 / 近 30 天按整日数给窗口", () => {
     expect(presetRange("last_7d", now).to - presetRange("last_7d", now).from).toBe(7 * 24 * 3600)
     expect(presetRange("last_30d", now).to - presetRange("last_30d", now).from).toBe(30 * 24 * 3600)
+  })
+})
+
+describe("自定义范围的输入往返", () => {
+  const local = new Date(2026, 8, 30, 14, 30, 0).getTime() / 1000
+
+  it("按本地时间拼，不走 UTC", () => {
+    // 这条是本组的存在理由：用 toISOString() 会在东八区整整错 8 小时，
+    // 用户选"14:30"却查到 06:30 的数据
+    expect(toLocalInput(local)).toBe("2026-09-30T14:30")
+  })
+
+  it("个位数的月/日/时/分补零", () => {
+    expect(toLocalInput(new Date(2026, 0, 5, 9, 7, 0).getTime() / 1000)).toBe("2026-01-05T09:07")
+  })
+
+  it("秒被丢弃（输入框只到分钟）", () => {
+    expect(toLocalInput(new Date(2026, 8, 30, 14, 30, 59).getTime() / 1000)).toBe(
+      "2026-09-30T14:30"
+    )
+  })
+
+  it("往返不变", () => {
+    const s = fromLocalInput(toLocalInput(local))
+    expect(s).toBe(Math.floor(local))
+  })
+
+  it("空值与非法值返回 null", () => {
+    expect(fromLocalInput("")).toBeNull()
+    expect(fromLocalInput("不是时间")).toBeNull()
+  })
+})
+
+describe("customRangeError", () => {
+  it("未填全报 incomplete", () => {
+    expect(customRangeError("", "2026-09-30T14:30")).toBe("incomplete")
+    expect(customRangeError("2026-09-30T14:30", "")).toBe("incomplete")
+  })
+
+  it("前后颠倒报 order", () => {
+    expect(customRangeError("2026-09-30T14:30", "2026-09-30T10:00")).toBe("order")
+  })
+
+  it("起止相同也算颠倒（窗口宽度为零，查不出东西）", () => {
+    expect(customRangeError("2026-09-30T14:30", "2026-09-30T14:30")).toBe("order")
+  })
+
+  it("过去 → 未来是合法的", () => {
+    // 查未来等于查到现在为止，后端如实返回空桶；不在客户端假装它非法
+    expect(customRangeError("2026-09-29T00:00", "2030-01-01T00:00")).toBeNull()
+  })
+
+  it("合法窗口返回 null", () => {
+    expect(customRangeError("2026-09-29T00:00", "2026-09-30T00:00")).toBeNull()
   })
 })
 

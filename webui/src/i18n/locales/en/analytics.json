@@ -16,7 +16,12 @@
     "yesterday": "Yesterday",
     "last_24h": "Last 24h",
     "last_7d": "Last 7d",
-    "last_30d": "Last 30d"
+    "last_30d": "Last 30d",
+    "custom": "Custom",
+    "custom_from": "From",
+    "custom_to": "To",
+    "custom_incomplete": "Fill in both ends",
+    "custom_order": "Start must be before end"
   },
   "granularity": {
     "label": "Bucket size",

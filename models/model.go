@@ -81,7 +81,7 @@ type ChatLog struct {
 	UserAgent     string `gorm:"index"` // 用户代理
 	RemoteIP      string // 访问ip
 	AuthKeyID     uint   `gorm:"index;index:idx_chat_logs_key_created,priority:1"` // 使用的AuthKey ID
-	SessionID     string `gorm:"index"` // 请求体中的session_id
+	SessionID     string `gorm:"index"`                                            // 请求体中的session_id
 	ChatIO        bool   // 是否开启IO记录
 
 	Error          string        // if status is error, this field will be set

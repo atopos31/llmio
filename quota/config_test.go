@@ -2,9 +2,9 @@ package quota
 
 import (
 	"encoding/json"
-	"runtime"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -191,11 +191,11 @@ func TestMaskSource(t *testing.T) {
 	s := MaskSource(Source{
 		APIKey: "sk-abcdefghijklmn",
 		Env: map[string]string{
-			"SCNET_USER":   "alice",           // 不像密钥 -> 原样
-			"SCNET_PASS":   "hunter2hunter2",  // pass -> 打码
-			"OPENCODE_KEY": "xxxxxxxxxxxx",    // key -> 打码
+			"SCNET_USER":   "alice",            // 不像密钥 -> 原样
+			"SCNET_PASS":   "hunter2hunter2",   // pass -> 打码
+			"OPENCODE_KEY": "xxxxxxxxxxxx",     // key -> 打码
 			"COOKIE_JAR":   "session=abcdefgh", // cookie -> 打码
-			"SOME_TOKEN":   "t0k3n0k3n0k3n0k", // token -> 打码
+			"SOME_TOKEN":   "t0k3n0k3n0k3n0k",  // token -> 打码
 		},
 		ScriptSource: "output({used:1})",
 	})
@@ -276,7 +276,7 @@ func TestResolveSourceSecrets(t *testing.T) {
 
 	t.Run("env 掩码还原、留空保持留空", func(t *testing.T) {
 		out := ResolveSourceSecrets(Source{Env: map[string]string{
-			"SCNET_USER": "alice",       // 没变
+			"SCNET_USER": "alice",        // 没变
 			"SCNET_PASS": "real****pass", // 掩码 -> 还原
 		}}, saved)
 		if out.Env["SCNET_USER"] != "alice" {

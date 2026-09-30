@@ -2,16 +2,16 @@ package quota
 
 import (
 	"crypto/rand"
-	"errors"
-	"strconv"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"

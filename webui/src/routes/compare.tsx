@@ -34,7 +34,7 @@ type Item = {
 }
 
 export default function ComparePage() {
-  const { t } = useTranslation("compare")
+  const { t } = useTranslation(["compare", "common"])
   const [searchParams] = useSearchParams()
 
   const ids = useMemo(() => {
@@ -117,7 +117,11 @@ export default function ComparePage() {
           </CardContent>
         </Card>
       ) : loading ? (
-        <div className="space-y-3">
+        /* 骨架对读屏等于空白：不声明 role="status"，"正在读取"与"没有可对比的
+           请求"在无障碍树上就是同一件事。这一页的失败是逐条的（allSettled +
+           卡片内原文），因此这里只差一个可读的加载声明。 */
+        <div role="status" aria-busy="true" className="space-y-3">
+          <span className="sr-only">{t("common:loading")}</span>
           <div className="h-24 animate-pulse rounded-lg bg-muted" />
           <div className="h-64 animate-pulse rounded-lg bg-muted" />
         </div>

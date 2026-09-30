@@ -4,6 +4,10 @@
   "session_id_placeholder": "Session ID 搜索...",
   "id_placeholder": "ID 搜索...",
   "loading": "加载日志数据",
+  "error": {
+    "load": "读取日志失败",
+    "stale": "这次没取到，下面是上一次的结果"
+  },
   "no_data": "暂无请求日志",
   "clean": {
     "tooltip": "清理日志",
@@ -140,5 +144,6 @@
     "remove": "移除 #{{id}}",
     "clear": "清空选择",
     "open": "对比"
-  }
+  },
+  "retry": "重试"
 }

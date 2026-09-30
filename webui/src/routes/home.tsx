@@ -2,13 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, ArrowUpRight, RefreshCw } from "lucide-react"
 import { Link } from "react-router-dom"
-import { toast } from "sonner"
 
 import { FirstChunkHistogram, RequestTrendChart, TokenTrendChart } from "@/components/charts/trend-charts"
 import { StatusMark } from "@/components/status-mark"
 import { Button } from "@/components/ui/button"
 import { Panel } from "@/components/panel"
-import { EmptyState } from "@/components/state-views"
+import { EmptyState, ErrorState } from "@/components/state-views"
 import { Card, CardContent } from "@/components/ui/card"
 import { getStats, type StatsResult } from "@/lib/api"
 import {
@@ -46,22 +45,23 @@ export default function Home() {
   const [range, setRange] = useState<RangeKey>("last_24h")
   const [stats, setStats] = useState<StatsResult | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
-  const load = useCallback(
-    async (silent = false) => {
-      if (!silent) setLoading(true)
-      try {
-        const data = await getStats(rangeToQuery(range))
-        setStats(data)
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        toast.error(t("home:load_failed", { message }))
-      } finally {
-        setLoading(false)
-      }
-    },
-    [range, t]
-  )
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await getStats(rangeToQuery(range))
+      setStats(data)
+      setLoadError(null)
+    } catch (err) {
+      // 失败必须留在页面上。原先只弹一条会自己消失的 toast，而 stats 仍是 null，
+      // 于是 hasData 为假、页面显示"该时间范围内没有请求"——把"没取到"说成了
+      // "确实没有"，而这是打开控制台的第一屏。
+      setLoadError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
+  }, [range])
 
   useEffect(() => {
     void load()
@@ -130,12 +130,35 @@ export default function Home() {
         </div>
       )}
 
+      {/* 已经有数据时失败不清屏：下面画的仍是上一次的结果，因此要说清这件事，
+          而不是让用户以为看到的是刚切过去的那个时间范围。 */}
+      {loadError && stats && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-status-critical/40 bg-status-critical/5 px-3 py-2 text-sm">
+          <AlertTriangle className="size-4 shrink-0 text-status-critical-ink" aria-hidden="true" />
+          <span className="text-status-critical-ink">{t("home:error.stale")}</span>
+          <span className="reading min-w-0 flex-1 truncate text-xs text-muted-foreground" title={loadError}>
+            {loadError}
+          </span>
+          <Button variant="outline" size="sm" onClick={() => void load()}>
+            {t("home:retry")}
+          </Button>
+        </div>
+      )}
+
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loading && !stats ? (
-          <div className="space-y-3">
+          <div role="status" aria-busy="true" className="space-y-3">
+            <span className="sr-only">{t("home:loading")}</span>
             <div className="h-20 animate-pulse rounded-lg bg-muted" />
             <div className="h-56 animate-pulse rounded-lg bg-muted" />
           </div>
+        ) : loadError && !stats ? (
+          <ErrorState
+            title={t("home:error.load")}
+            message={loadError}
+            retryLabel={t("home:retry")}
+            onRetry={() => void load()}
+          />
         ) : !hasData ? (
           <EmptyState
             title={t("home:empty.no_data")}

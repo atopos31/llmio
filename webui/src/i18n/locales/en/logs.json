@@ -4,6 +4,10 @@
   "session_id_placeholder": "Search Session ID...",
   "id_placeholder": "Search ID...",
   "loading": "Loading logs",
+  "error": {
+    "load": "Failed to load logs",
+    "stale": "This refresh failed — showing the previous result"
+  },
   "no_data": "No request logs",
   "clean": {
     "tooltip": "Clean Logs",
@@ -140,5 +144,6 @@
     "remove": "Remove #{{id}}",
     "clear": "Clear selection",
     "open": "Compare"
-  }
+  },
+  "retry": "Retry"
 }

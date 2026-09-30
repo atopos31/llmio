@@ -88,6 +88,10 @@
     "no_data": "此時間範圍內沒有請求",
     "no_data_hint": "換一個時間範圍，或確認閘道是否已有流量"
   },
+  "error": {
+    "load": "讀取統計失敗",
+    "stale": "這次沒取到，下面是上一次的結果"
+  },
   "cards": {
     "today_requests": "今日請求",
     "today_requests_desc": "今日處理的請求總數",
@@ -104,5 +108,5 @@
     "model_counts": "取得模型呼叫統計失敗: {{message}}",
     "project_counts": "取得專案呼叫統計失敗: {{message}}"
   },
-  "load_failed": "載入統計失敗：{{message}}"
+  "retry": "重試"
 }

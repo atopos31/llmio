@@ -88,6 +88,10 @@
     "no_data": "No requests in this range",
     "no_data_hint": "Try another range, or check whether the gateway has traffic yet"
   },
+  "error": {
+    "load": "Failed to load stats",
+    "stale": "This refresh failed — showing the previous result"
+  },
   "cards": {
     "today_requests": "Today's requests",
     "today_requests_desc": "Requests handled today",
@@ -104,5 +108,5 @@
     "model_counts": "Failed to load model counts: {{message}}",
     "project_counts": "Failed to load project counts: {{message}}"
   },
-  "load_failed": "Failed to load stats: {{message}}"
+  "retry": "Retry"
 }

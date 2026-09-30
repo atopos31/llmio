@@ -4,6 +4,10 @@
   "session_id_placeholder": "Session ID 搜尋...",
   "id_placeholder": "ID 搜尋...",
   "loading": "載入日誌資料",
+  "error": {
+    "load": "讀取日誌失敗",
+    "stale": "這次沒取到，下面是上一次的結果"
+  },
   "no_data": "暫無請求日誌",
   "clean": {
     "tooltip": "清理日誌",
@@ -140,5 +144,6 @@
     "remove": "移除 #{{id}}",
     "clear": "清除選擇",
     "open": "對比"
-  }
+  },
+  "retry": "重試"
 }

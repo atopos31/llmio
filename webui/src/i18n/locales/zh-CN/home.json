@@ -88,6 +88,10 @@
     "no_data": "该时间范围内没有请求",
     "no_data_hint": "换一个时间范围，或确认网关是否已有流量"
   },
+  "error": {
+    "load": "读取统计失败",
+    "stale": "这次没取到，下面是上一次的结果"
+  },
   "cards": {
     "today_requests": "今日请求",
     "today_requests_desc": "今日处理的请求总数",
@@ -104,5 +108,5 @@
     "model_counts": "获取模型调用统计失败: {{message}}",
     "project_counts": "获取项目调用统计失败: {{message}}"
   },
-  "load_failed": "加载统计失败：{{message}}"
+  "retry": "重试"
 }

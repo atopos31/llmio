@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { ChevronLeft, ChevronRight, Eye, GitCompareArrows, MessageSquare, RefreshCw, Search, Trash2, X } from "lucide-react"
+import { AlertTriangle, ChevronLeft, ChevronRight, Eye, GitCompareArrows, MessageSquare, RefreshCw, Search, Trash2, X } from "lucide-react"
 
 import { StatusMark } from "@/components/status-mark"
+import { ErrorState } from "@/components/state-views"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -52,6 +53,7 @@ export default function LogsPage() {
 
   const [logs, setLogs] = useState<ChatLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
   const [pages, setPages] = useState(0)
   const [providers, setProviders] = useState<Provider[]>([])
@@ -133,7 +135,6 @@ export default function LogsPage() {
 
   // 自动刷新
   const [refreshSec, setRefreshSec] = useState(0)
-  const silentRef = useRef(false)
 
   const fetchOptions = useCallback(async () => {
     // 筛选下拉的选项来源与日志本身无关，失败只影响可选范围，不阻断列表
@@ -166,10 +167,12 @@ export default function LogsPage() {
         setLogs(result.data)
         setTotal(result.total)
         setPages(result.pages)
-        // 静默刷新失败不弹错：自动刷新期间的偶发失败不值得打断用户
+        setLoadError(null)
+        // 静默刷新（自动刷新）失败不落成页面上的错误：一次网络瞬断就把整页
+        // 换成失败态，比保留上一次的结果更打扰人。手动的取数失败则必须说出来。
       } catch (err) {
         if (!silent) {
-          toast.error(err instanceof Error ? err.message : String(err))
+          setLoadError(err instanceof Error ? err.message : String(err))
         }
       } finally {
         if (!silent) setLoading(false)
@@ -183,7 +186,6 @@ export default function LogsPage() {
   }, [fetchOptions])
 
   useEffect(() => {
-    silentRef.current = false
     void fetchLogs()
   }, [fetchLogs])
 
@@ -192,7 +194,6 @@ export default function LogsPage() {
     if (refreshSec <= 0) return
     const tick = () => {
       if (document.hidden) return
-      silentRef.current = true
       void fetchLogs(true)
     }
     const timer = window.setInterval(tick, refreshSec * 1000)
@@ -369,6 +370,21 @@ export default function LogsPage() {
         </div>
       </div>
 
+      {/* 已经有行时失败不清屏——保留上一次的结果，但要说清"这次没取到"，
+          否则翻页失败后页码变了、行还是上一页的，读者会以为那是新一页。 */}
+      {loadError && logs.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-status-critical/40 bg-status-critical/5 px-3 py-2 text-sm">
+          <AlertTriangle className="size-4 shrink-0 text-status-critical-ink" aria-hidden="true" />
+          <span className="text-status-critical-ink">{t("error.stale")}</span>
+          <span className="reading min-w-0 flex-1 truncate text-xs text-muted-foreground" title={loadError}>
+            {loadError}
+          </span>
+          <Button variant="outline" size="sm" className="h-7" onClick={() => void fetchLogs()}>
+            {t("retry")}
+          </Button>
+        </div>
+      )}
+
       {selected.size > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-accent/40 px-3 py-2">
           <span className="text-sm">
@@ -542,9 +558,21 @@ export default function LogsPage() {
           </Table>
 
           {loading && (
-            <div className="p-8 text-center text-sm text-muted-foreground">{t("loading")}</div>
+            <div role="status" aria-busy="true" className="p-8 text-center text-sm text-muted-foreground">
+              {t("loading")}
+            </div>
           )}
-          {!loading && logs.length === 0 && (
+          {!loading && loadError && logs.length === 0 && (
+            /* 失败用失败态而不是空态：空态那句"暂无请求日志"是关于服务端事实的
+               断言，不该由一次失败的请求替它说 */
+            <ErrorState
+              title={t("error.load")}
+              message={loadError}
+              retryLabel={t("retry")}
+              onRetry={() => void fetchLogs()}
+            />
+          )}
+          {!loading && !loadError && logs.length === 0 && (
             <div className="flex flex-col items-center gap-1 p-16 text-center">
               <p className="text-sm font-medium">{t("no_data")}</p>
               {hasActiveFilter && (

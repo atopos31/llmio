@@ -215,6 +215,13 @@ export interface QuotaBuiltinInfo {
   generic?: boolean
   /** 需要账号会话（登录型），导入时要留出待填的 env 键。 */
   needsLogin?: boolean
+  /**
+   * 该适配器从 env 白名单里读的键。登录型适配器的账号/口令/会话 Cookie
+   * 都从这里进（沙箱与内置适配器都**不继承进程环境**），因此编辑器必须
+   * 按它渲染对应的输入项——少了这个字段，超算与 opencode 就"选得出来、
+   * 存不下去"：`quota.ValidateSource` 要求登录型的 env 非空。
+   */
+  envKeys?: string[]
 }
 
 export interface QuotaConfigResponse {
@@ -236,6 +243,75 @@ export interface QuotaUpstreamCandidate {
   hasApiKey: boolean
   alreadyImported: boolean
   suggested: { type: QuotaSourceType; builtin?: string; note?: string }
+}
+
+// ---------------------------------------------------------------------------
+// 编辑器回填（完整配置 ↔ 表单）
+// ---------------------------------------------------------------------------
+
+/**
+ * 编辑器的表单初值。
+ *
+ * 必须拿**完整配置**（`/api/quota/config` 下发的那份，密钥已脱敏）来构造，
+ * 不能只用取数结果：`QuotaSourceResult` 是展示形状，只有 id / 名称 / 类型 /
+ * 状态，拿它当表单初值等于让用户把 path、headers、字段映射、env 全部重填
+ * 一遍——而保存走的是"整份替换"，没重填的那些就被静默清掉了。
+ *
+ * config 找不到时（两次读取之间配置被别处改过）退回展示形状已知的那几个
+ * 字段，且**不猜** builtin：这里以前按名称反推适配器 id，名字里没有
+ * "scnet" / "opencode" 字样就落到 deepseek——把超算源悄悄改成另一个适配器，
+ * 比让用户自己选一次糟得多。
+ */
+export function editableSource(
+  result: QuotaSourceResult,
+  config: QuotaSource | undefined
+): QuotaSource {
+  if (config) return { ...config }
+  return {
+    id: result.id,
+    name: result.name,
+    enabled: result.enabled,
+    type: result.type,
+    note: result.note,
+  }
+}
+
+/**
+ * 「键=值」表 → 每行一条的文本。env / constants / query 共用。
+ *
+ * 字段映射（map）也走这里：字面量的标记 `=` 就存在值里（后端 MapRow 约定
+ * 值以 `=` 开头即字面量），因此 `unit` = `=CREDITS` 写出来正是 `unit==CREDITS`，
+ * 与表单里那套写法自然一致，不需要额外的反向规则。
+ */
+export function kvToText(v: Record<string, unknown> | undefined): string {
+  if (!v) return ""
+  return Object.entries(v)
+    .map(([k, val]) => `${k}=${val === null || val === undefined ? "" : String(val)}`)
+    .join("\n")
+}
+
+/**
+ * JSON 形状（headers / body）→ 文本。null / undefined 给空串，
+ * 不写出一句 "null" 让用户以为自己配过什么。
+ *
+ * 这里的值来自服务端下发的配置（JSON 往返过的），因此不必替 JSON.stringify
+ * 兜底函数与 Symbol 那种"序列化不出来"的输入——那条分支够不着，写了就是
+ * 一条永远没人走、也永远测不到的防御。
+ */
+export function jsonToText(v: unknown): string {
+  if (v === null || v === undefined) return ""
+  return JSON.stringify(v)
+}
+
+/** query 对象 → `page=1&size=20`。非对象（后端可能存成字符串）一律给空串。 */
+export function queryToText(v: unknown): string {
+  if (typeof v !== "object" || v === null) return ""
+  const p = new URLSearchParams()
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (val === null || val === undefined) continue
+    p.append(k, String(val))
+  }
+  return p.toString()
 }
 
 // ---------------------------------------------------------------------------

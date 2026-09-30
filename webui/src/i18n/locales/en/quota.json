@@ -123,6 +123,7 @@
     "env": "Environment",
     "env_placeholder": "One per line: KEY=VALUE, e.g.\nSCNET_USER=your_user\nSCNET_PASS=your_pass",
     "env_hint": "Scripts read secrets from the environment — safer than embedding them (values are masked on the way out).",
+    "env_hint_builtin": "Login-based adapters take their account and session here too (see the placeholder for the key names); values are masked on the way out.",
     "allow_fetch": "Allow the script to make network requests",
     "allow_fetch_hint": "Off by default. When on, the script may fetch public addresses (private ranges are blocked).",
     "timeout": "Timeout (s)",

@@ -6,13 +6,17 @@ import {
   clearSourceOverrides,
   DEFAULT_QUOTA_VIEW,
   defaultFormat,
+  editableSource,
   FORMAT_TOKENS,
   formatNum,
   itemOverrideKey,
   itemsOf,
+  jsonToText,
+  kvToText,
   loadQuotaView,
   pruneOverrides,
   QUOTA_VIEW_STORAGE_KEY,
+  queryToText,
   quotaStatusTone,
   renderItemText,
   saveQuotaView,
@@ -25,6 +29,8 @@ import {
   windowLabel,
   worstLabel,
   type QuotaItem,
+  type QuotaSource,
+  type QuotaSourceResult,
   type QuotaViewPrefs,
 } from "@/lib/quota"
 
@@ -628,5 +634,111 @@ describe("sourceTypeKey", () => {
     expect(sourceTypeKey("builtin")).toBe("type.builtin")
     expect(sourceTypeKey("http")).toBe("type.http")
     expect(sourceTypeKey("script")).toBe("type.script")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 编辑器回填
+// ---------------------------------------------------------------------------
+
+function resultOf(over: Partial<QuotaSourceResult> = {}): QuotaSourceResult {
+  return {
+    id: "s1",
+    name: "超算",
+    type: "builtin",
+    enabled: true,
+    ok: true,
+    items: null,
+    status: "ok",
+    latencyMs: 1,
+    updatedAt: 0,
+    cached: false,
+    ...over,
+  }
+}
+
+describe("editableSource", () => {
+  it("用配置里那份完整源，而不是卡片上的展示形状", () => {
+    // 展示形状只有 id / 名称 / 类型，拿它当表单初值会让保存把 path、headers、
+    // 字段映射、env 一并清掉（保存是整份替换）。
+    const cfg: QuotaSource = {
+      id: "s1",
+      name: "超算",
+      enabled: true,
+      type: "builtin",
+      builtin: "scnet",
+      baseUrl: "https://www.scnet.cn",
+      path: "",
+      env: { SCNET_USER: "alice", SCNET_PASS: "****4321" },
+    }
+    expect(editableSource(resultOf(), cfg)).toEqual(cfg)
+  })
+
+  it("配置里找不到这一条时退回展示形状，且不猜内置适配器", () => {
+    // 猜错适配器会把超算源悄悄变成另一个数据源——宁可让用户自己选一次。
+    const got = editableSource(resultOf({ note: "国家超算" }), undefined)
+    expect(got).toEqual({
+      id: "s1",
+      name: "超算",
+      enabled: true,
+      type: "builtin",
+      note: "国家超算",
+    })
+    expect(got.builtin).toBeUndefined()
+  })
+})
+
+describe("kvToText", () => {
+  it("每行一条 KEY=VALUE", () => {
+    expect(kvToText({ SCNET_USER: "alice", SCNET_PASS: "pw" })).toBe(
+      "SCNET_USER=alice\nSCNET_PASS=pw"
+    )
+  })
+
+  it("没有值给空串，而不是 undefined 字样", () => {
+    expect(kvToText(undefined)).toBe("")
+    expect(kvToText({})).toBe("")
+    expect(kvToText({ A: undefined, B: null, C: 0 })).toBe("A=\nB=\nC=0")
+  })
+
+  it("字面量的 = 标记原样带出：map 的 unit==CREDITS 就是这么写出来的", () => {
+    // 后端约定「值以 = 开头即字面量」，标记存在值里，因此这里不需要额外规则
+    expect(kvToText({ unit: "=CREDITS", used: "usage.used" })).toBe(
+      "unit==CREDITS\nused=usage.used"
+    )
+  })
+})
+
+describe("jsonToText", () => {
+  it("对象序列化成一行 JSON", () => {
+    expect(jsonToText({ "x-foo": "bar" })).toBe('{"x-foo":"bar"}')
+  })
+
+  it("null / undefined 给空串", () => {
+    // 写 "null" 会让回填的文本框看起来有内容，保存时又被当成 JSON 原样写回
+    expect(jsonToText(null)).toBe("")
+    expect(jsonToText(undefined)).toBe("")
+  })
+
+  it("标量与数组照样序列化", () => {
+    expect(jsonToText(0)).toBe("0")
+    expect(jsonToText([1, 2])).toBe("[1,2]")
+  })
+})
+
+describe("queryToText", () => {
+  it("拼成 k=v&k2=v2", () => {
+    expect(queryToText({ page: "1", size: "20" })).toBe("page=1&size=20")
+  })
+
+  it("非对象一律给空串", () => {
+    expect(queryToText(undefined)).toBe("")
+    expect(queryToText(null)).toBe("")
+    expect(queryToText("page=1")).toBe("")
+    expect(queryToText(3)).toBe("")
+  })
+
+  it("跳过硬不出值的键，其余照拼", () => {
+    expect(queryToText({ a: null, b: undefined, c: 1 })).toBe("c=1")
   })
 })

@@ -32,6 +32,7 @@ import {
   CHART_STYLES,
   clearSourceOverrides,
   DEFAULT_QUOTA_VIEW,
+  editableSource,
   itemsOf,
   loadQuotaView,
   pruneOverrides,
@@ -265,6 +266,24 @@ export default function QuotaPage() {
     setEditorOpen(true)
   }, [])
 
+  /**
+   * 交给编辑器的初值。
+   *
+   * 卡片上那份是**取数结果**，只有展示字段；配置里那一份才是完整的（密钥已
+   * 脱敏）。编辑器必须拿完整的，否则保存时"整份替换"会把它没回填的字段
+   * 一并清掉。cfg 与 sources 每次加载成对更新，因此正常情况下都找得到。
+   */
+  const editingSource = useMemo(
+    () =>
+      editing
+        ? editableSource(
+            editing,
+            cfg?.config.sources.find((s) => s.id === editing.id)
+          )
+        : null,
+    [editing, cfg]
+  )
+
   const onSaved = useCallback(
     (saved: QuotaSource, deleted?: boolean) => {
       setEditorOpen(false)
@@ -495,7 +514,7 @@ export default function QuotaPage() {
         <QuotaEditorDialog
           open
           onOpenChange={(o) => !o && setEditorOpen(false)}
-          source={editing}
+          source={editingSource}
           builtins={cfg?.builtins ?? []}
           defaults={{
             refresh: cfg?.defaultRefresh ?? 20,

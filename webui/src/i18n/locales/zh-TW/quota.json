@@ -123,6 +123,7 @@
     "env": "環境變數",
     "env_placeholder": "每行一條，KEY=VALUE，例如\nSCNET_USER=your_user\nSCNET_PASS=your_pass",
     "env_hint": "腳本從環境變數讀金鑰，比寫在腳本裡安全（下發時自動打碼）。",
+    "env_hint_builtin": "登入型適配器的帳號與工作階段也在這裡填（鍵名見佔位符）；下發時自動打碼。",
     "allow_fetch": "允許腳本發起網路請求",
     "allow_fetch_hint": "預設關閉。開啟後腳本可以 fetch 公網位址（內網位址會被攔下）。",
     "timeout": "逾時（秒）",

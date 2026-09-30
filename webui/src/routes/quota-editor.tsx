@@ -32,11 +32,13 @@ import {
 } from "@/lib/api"
 import {
   itemsOf,
+  jsonToText,
+  kvToText,
+  queryToText,
   renderItemText,
   unitKindOf,
   type QuotaBuiltinInfo,
   type QuotaSource,
-  type QuotaSourceResult,
   type QuotaSourceType,
   type QuotaTestResult,
 } from "@/lib/quota"
@@ -76,6 +78,37 @@ function Field({
   )
 }
 
+/**
+ * 环境变量输入框。
+ *
+ * 脚本与登录型内置共用：两边都是"往 env 白名单里塞凭据"，只是键名的来路
+ * 不同——脚本由用户自定，登录型由适配器定死（因此那边把键名写进占位符）。
+ */
+function EnvField({
+  value,
+  onChange,
+  hint,
+  placeholder,
+}: {
+  value: string
+  onChange: (v: string) => void
+  hint: string
+  placeholder?: string
+}) {
+  const { t } = useTranslation(["quota", "common"])
+  return (
+    <Field label={t("editor.env")} hint={hint}>
+      <Textarea
+        rows={4}
+        className="reading text-xs"
+        value={value}
+        placeholder={placeholder ?? t("editor.env_placeholder")}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </Field>
+  )
+}
+
 /** 每行一条的文本 → 字符串数组。 */
 function lines(text: string): string[] {
   return text
@@ -87,8 +120,10 @@ function lines(text: string): string[] {
 /**
  * 「目标字段=路径」的映射文本 → 对象。
  *
- * 值以 `=` 开头表示字面量（`unit==CREDITS` 里的第二个 `=`），
- * 与后端的约定一致——否则用户没法给一个固定值起个恰好跟路径同名的样子。
+ * 值以 `=` 开头表示字面量（`unit==CREDITS` 里的第二个 `=`）。
+ * **标记要原样带回后端**：`quota.MapRow` 判的就是"值以 `=` 开头"，
+ * 只留值的话 `unit==CREDITS` 会变成一条字段路径 `CREDITS`——上游没有这个
+ * 字段，这一条就被静默丢掉，界面与配置里都看不出差别。
  */
 function parseMapText(text: string): Record<string, unknown> {
   const out: Record<string, unknown> = {}
@@ -98,7 +133,7 @@ function parseMapText(text: string): Record<string, unknown> {
     const key = line.slice(0, i).trim()
     let rest = line.slice(i + 1)
     if (rest.startsWith("=")) {
-      out[key] = rest.slice(1).trim()
+      out[key] = "=" + rest.slice(1).trim()
       continue
     }
     rest = rest.trim()
@@ -128,35 +163,27 @@ function parseJSON(text: string): unknown {
   }
 }
 
-/** 由结果构造初始表单。 */
-function initial(src: QuotaSourceResult | null): QuotaSource {
+/** 编辑器的表单初值。src 为 null 表示新增。 */
+function initial(src: QuotaSource | null): QuotaSource {
   if (!src) {
     return { id: "", name: "", enabled: true, type: "builtin", builtin: "deepseek" }
   }
-  // SourceResult 是取数结果，只带得动展示需要的字段；完整配置要重新拉。
-  // 因此这里把 Result 当作"已知的部分"，其余留给用户重填。
-  return {
-    id: src.id,
-    name: src.name,
-    enabled: src.enabled,
-    type: src.type,
-    note: src.note,
-    builtin: src.type === "builtin" ? guessBuiltin(src) : undefined,
-  }
+  return { ...src }
 }
 
 /**
- * 从结果反推内置适配器 id。
- *
- * SourceResult 里没有 builtin 字段（它服务的是展示而不是编辑），
- * 因此这里只能给出一个合理的初值，用户保存时会以表单里的值为准。
+ * 六个多行文本框的初值。它们与结构化字段一一对应，回填规则集中在
+ * `lib/quota.ts`（那一层有测试钉住，也有"值以 = 开头即字面量"这类约定）。
  */
-function guessBuiltin(src: QuotaSourceResult): string {
-  const hay = `${src.name} ${src.note ?? ""}`.toLowerCase()
-  for (const id of ["deepseek", "moonshot", "scnet", "opencode"]) {
-    if (hay.includes(id)) return id
+function textsOf(src: QuotaSource | null) {
+  return {
+    headers: jsonToText(src?.headers),
+    map: kvToText(src?.map),
+    query: queryToText(src?.query),
+    body: jsonToText(src?.body),
+    constants: kvToText(src?.constants),
+    env: kvToText(src?.env),
   }
-  return "deepseek"
 }
 
 /**
@@ -177,8 +204,11 @@ export function QuotaEditorDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** null 表示新增。 */
-  source: QuotaSourceResult | null
+  /**
+   * 表单初值：编辑时是配置里那份**完整且已脱敏**的源（密钥是掩码，保存时
+   * 由服务端还原成真值），null 表示新增。
+   */
+  source: QuotaSource | null
   builtins: QuotaBuiltinInfo[]
   defaults: { refresh: number; warning: number }
   onSaved: (saved: QuotaSource, deleted?: boolean) => void
@@ -187,12 +217,7 @@ export function QuotaEditorDialog({
   const isNew = source === null
 
   const [form, setForm] = useState<QuotaSource>(() => initial(source))
-  const [headersText, setHeadersText] = useState("")
-  const [mapText, setMapText] = useState("")
-  const [queryText, setQueryText] = useState("")
-  const [bodyText, setBodyText] = useState("")
-  const [constantsText, setConstantsText] = useState("")
-  const [envText, setEnvText] = useState("")
+  const [texts, setTexts] = useState(() => textsOf(source))
   const [advanced, setAdvanced] = useState(false)
 
   const [testing, setTesting] = useState(false)
@@ -203,31 +228,38 @@ export function QuotaEditorDialog({
   useEffect(() => {
     if (!open) return
     setForm(initial(source))
-    setHeadersText("")
-    setMapText("")
-    setQueryText("")
-    setBodyText("")
-    setConstantsText("")
-    setEnvText("")
+    setTexts(textsOf(source))
     setTest(null)
     setAdvanced(false)
   }, [open, source])
 
+  const setText = (key: keyof ReturnType<typeof textsOf>, value: string) =>
+    setTexts((t) => ({ ...t, [key]: value }))
+
   const curBuiltin = builtins.find((b) => b.id === form.builtin)
+
+  /**
+   * 登录型内置适配器（超算 / opencode）的账号、口令、会话 Cookie 都从 env 读，
+   * 与脚本类型共用同一套字段。这里以前只在脚本分支渲染，于是这两个适配器
+   * 「选得出来、存不下去」——服务端的 ValidateSource 要求登录型的 env 非空。
+   */
+  const envKeys = curBuiltin?.envKeys ?? []
 
   const patch = (p: Partial<QuotaSource>) => setForm((f) => ({ ...f, ...p }))
 
   /** 界面上是"每行一条"的文本框，这里拼回结构化配置。 */
   const build = (): QuotaSource => {
     const out: QuotaSource = { ...form }
-    const headers = parseJSON(headersText)
+    const headers = parseJSON(texts.headers)
     if (headers && typeof headers === "object") out.headers = headers as Record<string, unknown>
-    const query = queryText.trim() ? Object.fromEntries(new URLSearchParams(queryText)) : undefined
+    const query = texts.query.trim()
+      ? Object.fromEntries(new URLSearchParams(texts.query))
+      : undefined
     if (query) out.query = query
-    if (bodyText.trim()) out.body = parseJSON(bodyText)
-    if (constantsText.trim()) out.constants = parseKV(constantsText)
-    if (mapText.trim()) out.map = parseMapText(mapText)
-    if (envText.trim()) out.env = parseKV(envText)
+    if (texts.body.trim()) out.body = parseJSON(texts.body)
+    if (texts.constants.trim()) out.constants = parseKV(texts.constants)
+    if (texts.map.trim()) out.map = parseMapText(texts.map)
+    if (texts.env.trim()) out.env = parseKV(texts.env)
     // 只保留当前类型用得到的字段，避免把上一次的类型残留写进配置
     if (out.type === "builtin") {
       delete out.url
@@ -391,6 +423,15 @@ export function QuotaEditorDialog({
                   onChange={(e) => patch({ apiKey: e.target.value })}
                 />
               </Field>
+              {envKeys.length > 0 && (
+                <EnvField
+                  value={texts.env}
+                  onChange={(v) => setText("env", v)}
+                  hint={t("editor.env_hint_builtin")}
+                  // 提示该填哪些键：这些名字是适配器读死的，用户无从猜起
+                  placeholder={envKeys.map((k) => `${k}=`).join("\n")}
+                />
+              )}
             </>
           )}
 
@@ -443,9 +484,9 @@ export function QuotaEditorDialog({
               <Field label={t("editor.body")}>
                 <Textarea
                   rows={3}
-                  value={bodyText}
+                  value={texts.body}
                   placeholder={t("editor.body_placeholder")}
-                  onChange={(e) => setBodyText(e.target.value)}
+                  onChange={(e) => setText("body", e.target.value)}
                 />
               </Field>
             </>
@@ -472,15 +513,11 @@ export function QuotaEditorDialog({
                   </Button>
                 </div>
               </Field>
-              <Field label={t("editor.env")} hint={t("editor.env_hint")}>
-                <Textarea
-                  rows={4}
-                  className="reading text-xs"
-                  value={envText}
-                  placeholder={t("editor.env_placeholder")}
-                  onChange={(e) => setEnvText(e.target.value)}
-                />
-              </Field>
+              <EnvField
+                value={texts.env}
+                onChange={(v) => setText("env", v)}
+                hint={t("editor.env_hint")}
+              />
               <label className="flex items-start gap-2 text-sm">
                 <Switch
                   checked={!!form.allowFetch}
@@ -518,18 +555,18 @@ export function QuotaEditorDialog({
                 </Field>
                 <Field label={t("editor.query")}>
                   <Input
-                    value={queryText}
+                    value={texts.query}
                     placeholder={t("editor.query_placeholder")}
-                    onChange={(e) => setQueryText(e.target.value)}
+                    onChange={(e) => setText("query", e.target.value)}
                   />
                 </Field>
                 <Field label={t("editor.headers")}>
                   <Textarea
                     rows={2}
                     className="reading text-xs"
-                    value={headersText}
+                    value={texts.headers}
                     placeholder={t("editor.headers_placeholder")}
-                    onChange={(e) => setHeadersText(e.target.value)}
+                    onChange={(e) => setText("headers", e.target.value)}
                   />
                 </Field>
                 <Field label={t("editor.items_path")}>
@@ -543,9 +580,9 @@ export function QuotaEditorDialog({
                   <Textarea
                     rows={5}
                     className="reading text-xs"
-                    value={mapText}
+                    value={texts.map}
                     placeholder={t("editor.map_placeholder")}
-                    onChange={(e) => setMapText(e.target.value)}
+                    onChange={(e) => setText("map", e.target.value)}
                   />
                 </Field>
                 {form.type === "http" && (
@@ -553,9 +590,9 @@ export function QuotaEditorDialog({
                     <Textarea
                       rows={2}
                       className="reading text-xs"
-                      value={constantsText}
+                      value={texts.constants}
                       placeholder={t("editor.constants_placeholder")}
-                      onChange={(e) => setConstantsText(e.target.value)}
+                      onChange={(e) => setText("constants", e.target.value)}
                     />
                   </Field>
                 )}

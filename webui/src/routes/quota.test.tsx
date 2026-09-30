@@ -193,3 +193,39 @@ describe("额度页 · 有数据", () => {
     expect(screen.getByText("12ms")).toBeInTheDocument()
   })
 })
+
+describe("额度页 · 编辑入口", () => {
+  it("交给编辑器的是配置里那份完整源，而不是卡片上的取数结果", async () => {
+    // 这一条钉的是**接线**：卡片手里只有取数结果（id / 名称 / 类型），
+    // 配置那一份才有 url、超时、请求头。保存是整份替换，接错了线就等于
+    // 让用户每次编辑都把这些字段重填一遍，不填就没了——而且没有任何提示。
+    // 类型系统拦不住这种错：QuotaSourceResult 在结构上满足 QuotaSource。
+    mocked.getQuotaConfig.mockResolvedValue(
+      config({
+        config: {
+          refreshInterval: 60,
+          warningAt: 80,
+          sources: [
+            {
+              id: "s1",
+              name: "测试源",
+              enabled: true,
+              type: "http",
+              url: "https://api.example.com/usage",
+              timeout: 45,
+            },
+          ],
+        },
+      })
+    )
+    const user = userEvent.setup()
+    render(<QuotaPage />)
+
+    await user.click(
+      await screen.findByRole("button", { name: "数据源配置（接口 / 脚本 / 密钥）" })
+    )
+
+    expect(screen.getByDisplayValue("https://api.example.com/usage")).toBeInTheDocument()
+    expect(screen.getByDisplayValue("45")).toBeInTheDocument()
+  })
+})

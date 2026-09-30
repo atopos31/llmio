@@ -1,0 +1,265 @@
+import { render, screen, waitFor, within } from "@testing-library/react"
+import { userEvent } from "@testing-library/user-event"
+import { MemoryRouter } from "react-router-dom"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+import ModelProvidersPage from "@/routes/model-providers"
+// 只导入要在断言里引用的那几个；其余端点由下面的 mock 工厂供给页面，
+// 不导入是刻意的——导入了却不用会让 tsc 报未使用
+import {
+  createModel,
+  deleteModel,
+  getModelOptions,
+  getModelProviderStatus,
+  getModelProviders,
+  getProviderModels,
+  getProviders,
+  type Model,
+  type ModelWithProvider,
+  type Provider,
+  updateModelOrder,
+} from "@/lib/api"
+
+// 这一页的数据全部经过 api.ts，切断它就断开了本页的全部 IO。
+// 子组件（表单对话框、连通性测试、两个自定义 hook）也从这里取函数，
+// 因此清单必须完整——漏一个会让它在运行时是 undefined 而不是"没被调用"。
+vi.mock("@/lib/api", () => ({
+  createModel: vi.fn(),
+  createModelProvider: vi.fn(),
+  deleteModel: vi.fn(),
+  deleteModelProvider: vi.fn(),
+  getModelOptions: vi.fn(),
+  getModelProviderStatus: vi.fn(),
+  getModelProviders: vi.fn(),
+  getProviderModels: vi.fn(),
+  getProviders: vi.fn(),
+  testModelProvider: vi.fn(),
+  updateModel: vi.fn(),
+  updateModelOrder: vi.fn(),
+  updateModelProvider: vi.fn(),
+  updateModelProviderStatus: vi.fn(),
+}))
+
+const mocked = {
+  getModelOptions: vi.mocked(getModelOptions),
+  getProviders: vi.mocked(getProviders),
+  getModelProviders: vi.mocked(getModelProviders),
+  getModelProviderStatus: vi.mocked(getModelProviderStatus),
+  updateModelOrder: vi.mocked(updateModelOrder),
+  deleteModel: vi.mocked(deleteModel),
+  createModel: vi.mocked(createModel),
+  getProviderModels: vi.mocked(getProviderModels),
+}
+
+/**
+ * 模型路由页的行为基线（方案 §5.2 的 C 层四态）。
+ *
+ * 这组断言先于重构写下，用途有两个：一是钉住这一页对外承诺的语义
+ * （什么条件下说什么话、点一行之后发生什么），让随后的文件拆分有网可依；
+ * 二是把"失败"这一态显式留空——页面目前对取数失败只弹 toast，正文照旧
+ * 显示"暂无可关联模型"，也就是把失败说成了空。那条修正随后单独提交。
+ *
+ * 贯穿本文件的一条限制：**这一页目前有两套并行实现**——桌面用表格、手机用
+ * 卡片列表，同一个模型名/提供商名在 DOM 里出现两次。断言因此一律限定在
+ * `table()` 之内，否则 `getByText` 必然报"找到多个"。这不是测试的将就，
+ * 而是这一页的真实状态：两套实现要各自维护一遍字段与操作。
+ */
+
+function model(over: Partial<Model> = {}): Model {
+  return {
+    ID: 1,
+    Name: "gpt-test",
+    Remark: "测试模型",
+    MaxRetry: 10,
+    TimeOut: 60,
+    Strategy: "lottery",
+    Breaker: false,
+    DisplayOrder: 1,
+    ...over,
+  }
+}
+
+function provider(over: Partial<Provider> = {}): Provider {
+  return {
+    ID: 11,
+    Name: "prov-a",
+    Type: "openai",
+    Config: "{}",
+    Console: "",
+    Proxy: "",
+    ErrorMatcher: "",
+    ...over,
+  }
+}
+
+function association(over: Partial<ModelWithProvider> = {}): ModelWithProvider {
+  return {
+    ID: 101,
+    ModelID: 1,
+    ProviderModel: "gpt-4o",
+    ProviderID: 11,
+    ToolCall: true,
+    StructuredOutput: false,
+    Image: false,
+    WithHeader: false,
+    CustomerHeaders: {},
+    ExtraBody: null,
+    Status: true,
+    Weight: 5,
+    InputPrice: 0,
+    CacheReadPrice: 0,
+    OutputPrice: 0,
+    Currency: "CNY",
+    ...over,
+  }
+}
+
+/** 按模型 ID 给关联：模型 1 有两条、模型 2 没有——"每个模型各自的关联数"才可断言 */
+function associationsOf(id: number): ModelWithProvider[] {
+  if (id === 1) {
+    return [
+      association(),
+      association({ ID: 102, ProviderModel: "gpt-4o-mini", ProviderID: 12, Weight: 8 }),
+    ]
+  }
+  return []
+}
+
+function renderPage(path = "/model-providers") {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <ModelProvidersPage />
+    </MemoryRouter>
+  )
+}
+
+/** 表格行的第 4 列是"已关联模型"——列序即这一页的语义契约，索引读的是它 */
+function cellText(row: HTMLElement, index: number): string {
+  return within(row).getAllByRole("cell")[index].textContent ?? ""
+}
+
+/** 唯一的那张表（桌面表格；手机卡片不是 table）——避开同名元素出现两次的干扰 */
+function table(): Promise<HTMLElement> {
+  return screen.findByRole("table")
+}
+
+beforeEach(async () => {
+  vi.clearAllMocks()
+  mocked.getModelOptions.mockResolvedValue([model()])
+  mocked.getProviders.mockResolvedValue([provider()])
+  mocked.getModelProviders.mockImplementation(async (id: number) => associationsOf(id))
+  mocked.getModelProviderStatus.mockResolvedValue([true, false])
+  mocked.getProviderModels.mockResolvedValue([])
+  const i18n = (await import("@/i18n")).default
+  await i18n.changeLanguage("zh-CN")
+})
+
+describe("模型路由页 · 加载", () => {
+  it("两个来源都没落地时说正在加载，不说没有模型", () => {
+    mocked.getModelOptions.mockReturnValue(new Promise(() => {}))
+    mocked.getProviders.mockReturnValue(new Promise(() => {}))
+
+    renderPage()
+
+    expect(screen.getByText(/加载模型和提供商/)).toBeInTheDocument()
+    expect(screen.queryByText("暂无可关联模型")).not.toBeInTheDocument()
+  })
+})
+
+describe("模型路由页 · 空", () => {
+  it("没有任何模型时给出新建入口，而不是一条死路", async () => {
+    mocked.getModelOptions.mockResolvedValue([])
+
+    renderPage()
+
+    expect(await screen.findByText("暂无可关联模型")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "添加模型" })).toBeInTheDocument()
+  })
+
+  it("筛选筛空与本来就没有，说法不同", async () => {
+    const user = userEvent.setup()
+    mocked.getModelOptions.mockResolvedValue([model()])
+
+    renderPage()
+    await within(await table()).findByText("gpt-test")
+
+    await user.type(screen.getByPlaceholderText("按名称搜索"), "不存在的名字")
+
+    // 防抖 300ms 后才生效，断言最终态即可
+    expect(await screen.findByText("没有符合筛选条件的模型")).toBeInTheDocument()
+    expect(screen.queryByText("暂无可关联模型")).not.toBeInTheDocument()
+  })
+})
+
+describe("模型路由页 · 有数据", () => {
+  it("每个模型各自显示自己的关联数，不是一个总数", async () => {
+    mocked.getModelOptions.mockResolvedValue([
+      model({ ID: 1, Name: "gpt-test" }),
+      model({ ID: 2, Name: "claude-test" }),
+    ])
+
+    renderPage()
+
+    const first = await screen.findByRole("row", { name: /gpt-test/ })
+    const second = screen.getByRole("row", { name: /claude-test/ })
+    expect(cellText(first, 3)).toBe("2")
+    expect(cellText(second, 3)).toBe("0")
+  })
+
+  it("点一行进入该模型的关联列表，并把模型 ID 带进地址栏", async () => {
+    const user = userEvent.setup()
+    renderPage()
+    const list = await table()
+
+    await user.click(within(list).getByText("gpt-test"))
+
+    // 进入关联视图：出现返回入口，且按该模型取关联
+    expect(await screen.findByRole("button", { name: /返回模型列表/ })).toBeInTheDocument()
+    await waitFor(() => expect(mocked.getModelProviders).toHaveBeenCalledWith(1))
+  })
+
+  it("带 modelId 直接打开时直接进关联视图", async () => {
+    renderPage("/model-providers?modelId=1")
+    // 先等关联视图的返回入口，再取表：模型列表那张表会先出现再被替换掉
+    await screen.findByRole("button", { name: /返回模型列表/ })
+    const associations = await table()
+
+    expect(await within(associations).findByText("gpt-4o")).toBeInTheDocument()
+    expect(within(associations).getByText("prov-a")).toBeInTheDocument()
+  })
+
+  it("返回列表时不再显示关联表", async () => {
+    const user = userEvent.setup()
+    renderPage("/model-providers?modelId=1")
+    await screen.findByRole("button", { name: /返回模型列表/ })
+    await within(await table()).findByText("gpt-4o")
+
+    await user.click(screen.getByRole("button", { name: /返回模型列表/ }))
+
+    // 回到模型列表：模型表回来了，关联视图整个卸载
+    expect(await within(await table()).findByText("gpt-test")).toBeInTheDocument()
+    expect(screen.queryByText("gpt-4o")).not.toBeInTheDocument()
+  })
+})
+
+describe("模型路由页 · 关联列表的空", () => {
+  it("该模型确实没有关联时说明这一点", async () => {
+    mocked.getModelOptions.mockResolvedValue([model({ ID: 2, Name: "claude-test" })])
+
+    renderPage("/model-providers?modelId=2")
+
+    expect(await screen.findByText("该模型还没有关联的提供商")).toBeInTheDocument()
+  })
+
+  it("筛选筛空与确实没有，说法不同", async () => {
+    const user = userEvent.setup()
+    renderPage("/model-providers?modelId=1")
+    await screen.findByRole("button", { name: /返回模型列表/ })
+    await within(await table()).findByText("gpt-4o")
+
+    await user.type(screen.getByPlaceholderText("按提供商/模型搜索"), "不存在的提供商")
+
+    expect(await screen.findByText("当前筛选条件暂无关联")).toBeInTheDocument()
+    expect(screen.queryByText("该模型还没有关联的提供商")).not.toBeInTheDocument()
+  })
+})

@@ -32,6 +32,8 @@
   },
   "timeline": {
     "title": "Token Usage Trend",
+    "model_label": "Model",
+    "model_all": "All Models",
     "range_label": "Time Range",
     "range_today": "Today",
     "range_24h": "Last 24 Hours",
@@ -47,6 +49,7 @@
     "total_metrics": "Failed to fetch total metrics: {{message}}",
     "model_counts": "Failed to fetch model usage stats: {{message}}",
     "project_counts": "Failed to fetch project usage stats: {{message}}",
-    "timeline": "Failed to fetch token usage trend: {{message}}"
+    "timeline": "Failed to fetch token usage trend: {{message}}",
+    "timeline_models": "Failed to fetch model list: {{message}}"
   }
 }

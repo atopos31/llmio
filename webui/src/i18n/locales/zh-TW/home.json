@@ -32,6 +32,8 @@
   },
   "timeline": {
     "title": "Tokens 用量趨勢",
+    "model_label": "模型",
+    "model_all": "全部模型",
     "range_label": "時間維度",
     "range_today": "今天",
     "range_24h": "24小時內",
@@ -47,6 +49,7 @@
     "total_metrics": "取得總計指標失敗: {{message}}",
     "model_counts": "取得模型呼叫統計失敗: {{message}}",
     "project_counts": "取得專案呼叫統計失敗: {{message}}",
-    "timeline": "取得 Tokens 用量趨勢失敗: {{message}}"
+    "timeline": "取得 Tokens 用量趨勢失敗: {{message}}",
+    "timeline_models": "取得模型列表失敗: {{message}}"
   }
 }

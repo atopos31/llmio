@@ -32,6 +32,9 @@ const RANGE_LABEL_KEYS = {
 
 const TIMELINE_RANGES = Object.keys(RANGE_LABEL_KEYS) as TimelineRange[]
 
+// Radix Select 的 value 不接受空字符串，用哨兵值承载「全部模型」这一档
+const ALL_MODELS = "__all__"
+
 // 两条折线：dataKey 与下方 chartConfig 的 key 一致
 const SERIES = [
   { key: "tokens", color: "var(--color-tokens)" },
@@ -50,9 +53,12 @@ interface TokenTrendChartProps {
   data: TimelinePoint[]
   range: TimelineRange
   onRangeChange: (range: TimelineRange) => void
+  models: string[]
+  model: string // 空串表示全部模型
+  onModelChange: (model: string) => void
 }
 
-export function TokenTrendChart({ data, range, onRangeChange }: TokenTrendChartProps) {
+export function TokenTrendChart({ data, range, onRangeChange, models, model, onModelChange }: TokenTrendChartProps) {
   const { t } = useTranslation('home')
   const showDots = data.length <= DOT_LIMIT
 
@@ -68,20 +74,41 @@ export function TokenTrendChart({ data, range, onRangeChange }: TokenTrendChartP
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <CardTitle>{t('timeline.title')}</CardTitle>
-          <div className="flex items-center gap-2">
-            <Label htmlFor="timeline-range" className="text-xs text-muted-foreground">
-              {t('timeline.range_label')}
-            </Label>
-            <Select value={range} onValueChange={(next) => onRangeChange(next as TimelineRange)}>
-              <SelectTrigger id="timeline-range" size="sm" className="w-[132px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TIMELINE_RANGES.map((item) => (
-                  <SelectItem key={item} value={item}>{t(RANGE_LABEL_KEYS[item])}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="timeline-model" className="text-xs text-muted-foreground">
+                {t('timeline.model_label')}
+              </Label>
+              <Select
+                value={model || ALL_MODELS}
+                onValueChange={(next) => onModelChange(next === ALL_MODELS ? "" : next)}
+              >
+                <SelectTrigger id="timeline-model" size="sm" className="w-[168px]">
+                  <SelectValue placeholder={t('timeline.model_all')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_MODELS}>{t('timeline.model_all')}</SelectItem>
+                  {models.map((name) => (
+                    <SelectItem key={name} value={name}>{name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="timeline-range" className="text-xs text-muted-foreground">
+                {t('timeline.range_label')}
+              </Label>
+              <Select value={range} onValueChange={(next) => onRangeChange(next as TimelineRange)}>
+                <SelectTrigger id="timeline-range" size="sm" className="w-[132px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TIMELINE_RANGES.map((item) => (
+                    <SelectItem key={item} value={item}>{t(RANGE_LABEL_KEYS[item])}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
       </CardHeader>

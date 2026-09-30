@@ -106,6 +106,20 @@ func parseMetricBy(c *gin.Context) (string, bool) {
 	}
 }
 
+// rangeWindow 把 range 查询参数解析成统计窗口 [start, end)，与折线图 Timeline 共用同一套分桶边界。
+// 返回 limited=false 表示不带时间限制（range 缺省，保留全量口径）；valid=false 表示 range 取值非法。
+func rangeWindow(c *gin.Context, now time.Time) (start, end time.Time, limited, valid bool) {
+	rangeKey := c.Query("range")
+	if rangeKey == "" {
+		return time.Time{}, time.Time{}, false, true
+	}
+	buckets, _, _, bucketEnd, ok := timelineBuckets(rangeKey, now)
+	if !ok || len(buckets) == 0 {
+		return time.Time{}, time.Time{}, false, false
+	}
+	return buckets[0], bucketEnd, true, true
+}
+
 // metricValueExpr 返回统计口径对应的聚合表达式，别名固定为 value
 func metricValueExpr(by string) string {
 	if by == metricByTokens {
@@ -165,13 +179,23 @@ func Counts(c *gin.Context) {
 		return
 	}
 
-	results := make([]Count, 0)
-	if err := models.DB.
+	start, end, limited, rangeValid := rangeWindow(c, time.Now())
+	if !rangeValid {
+		common.BadRequest(c, "Invalid range parameter: must be one of today, 24h, 7d, 30d, 90d")
+		return
+	}
+
+	chain := models.DB.
 		Model(&models.ChatLog{}).
 		Select("name as model, " + metricValueExpr(by)).
 		Group("name").
-		Order("value DESC").
-		Scan(&results).Error; err != nil {
+		Order("value DESC")
+	if limited {
+		chain = chain.Where("created_at >= ? AND created_at < ?", start, end)
+	}
+
+	results := make([]Count, 0)
+	if err := chain.Scan(&results).Error; err != nil {
 		common.InternalServerError(c, err.Error())
 		return
 	}
@@ -197,7 +221,8 @@ type TimelinePoint struct {
 	CachedTokens int64  `json:"cached_tokens"` // 缓存 tokens
 }
 
-// Timeline Tokens 用量趋势：按时间维度分桶聚合 total_tokens 与 cached_tokens，空桶补零
+// Timeline Tokens 用量趋势：按时间维度分桶聚合 total_tokens 与 cached_tokens，空桶补零。
+// model 查询参数缺省或为空时统计全部模型。
 func Timeline(c *gin.Context) {
 	buckets, layout, bucketExpr, end, ok := timelineBuckets(c.Query("range"), time.Now())
 	if !ok {
@@ -211,11 +236,16 @@ func Timeline(c *gin.Context) {
 		CachedTokens int64  `gorm:"column:cached_tokens"`
 	}
 
-	rows := make([]timelineRow, 0, len(buckets))
-	if err := models.DB.
+	chain := models.DB.
 		Model(&models.ChatLog{}).
 		Select(bucketExpr+" as bucket, COALESCE(SUM(total_tokens), 0) as tokens, "+cachedTokensSumExpr).
-		Where("created_at >= ? AND created_at < ?", buckets[0], end).
+		Where("created_at >= ? AND created_at < ?", buckets[0], end)
+	if name := strings.TrimSpace(c.Query("model")); name != "" {
+		chain = chain.Where("name = ?", name)
+	}
+
+	rows := make([]timelineRow, 0, len(buckets))
+	if err := chain.
 		Group("bucket").
 		Order("bucket ASC").
 		Scan(&rows).Error; err != nil {
@@ -243,6 +273,35 @@ func Timeline(c *gin.Context) {
 	common.Success(c, points)
 }
 
+// TimelineModels 返回日志中出现过的模型名（按调用次数降序），供趋势图的模型筛选下拉使用。
+// 刻意不带时间维度过滤：让候选集合保持稳定，不随 range 切换而跳动。
+func TimelineModels(c *gin.Context) {
+	type modelRow struct {
+		Name  string `gorm:"column:name"`
+		Total int64  `gorm:"column:total"`
+	}
+
+	rows := make([]modelRow, 0)
+	if err := models.DB.
+		Model(&models.ChatLog{}).
+		Select("name, COUNT(*) as total").
+		Group("name").
+		Order("total DESC").
+		Scan(&rows).Error; err != nil {
+		common.InternalServerError(c, "Failed to list timeline models: "+err.Error())
+		return
+	}
+
+	names := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if name := strings.TrimSpace(row.Name); name != "" {
+			names = append(names, name)
+		}
+	}
+
+	common.Success(c, names)
+}
+
 type ProjectCount struct {
 	Project string `json:"project"`
 	Value   int64  `json:"value"`
@@ -255,18 +314,28 @@ func ProjectCounts(c *gin.Context) {
 		return
 	}
 
+	start, end, limited, rangeValid := rangeWindow(c, time.Now())
+	if !rangeValid {
+		common.BadRequest(c, "Invalid range parameter: must be one of today, 24h, 7d, 30d, 90d")
+		return
+	}
+
 	type authKeyMetric struct {
 		AuthKeyID uint  `gorm:"column:auth_key_id"`
 		Value     int64 `gorm:"column:value"`
 	}
 
-	rows := make([]authKeyMetric, 0)
-	if err := models.DB.
+	chain := models.DB.
 		Model(&models.ChatLog{}).
 		Select("auth_key_id, " + metricValueExpr(by)).
 		Group("auth_key_id").
-		Order("value DESC").
-		Scan(&rows).Error; err != nil {
+		Order("value DESC")
+	if limited {
+		chain = chain.Where("created_at >= ? AND created_at < ?", start, end)
+	}
+
+	rows := make([]authKeyMetric, 0)
+	if err := chain.Scan(&rows).Error; err != nil {
 		common.InternalServerError(c, err.Error())
 		return
 	}

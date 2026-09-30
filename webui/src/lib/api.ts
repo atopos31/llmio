@@ -392,6 +392,9 @@ export async function getProviderMetrics(): Promise<ProviderMetric[]> {
 // 统计口径：按调用数量 或 按 Tokens
 export type StatMetric = "count" | "tokens";
 
+// Tokens 用量趋势的时间维度，同时用于模型/项目统计的联动过滤
+export type TimelineRange = "today" | "24h" | "7d" | "30d" | "90d";
+
 export interface MetricsData {
   reqs: number;
   tokens: number;
@@ -413,16 +416,18 @@ export async function getMetrics(days: number): Promise<MetricsData> {
   return apiRequest<MetricsData>(`/metrics/use/${days}`);
 }
 
-export async function getModelCounts(metric: StatMetric = "count"): Promise<ModelCount[]> {
-  return apiRequest<ModelCount[]>(`/metrics/counts?by=${metric}`);
+// range 缺省时不限时间（全量口径）；传入时按对应时间窗口过滤
+export async function getModelCounts(metric: StatMetric = "count", range?: TimelineRange): Promise<ModelCount[]> {
+  const params = new URLSearchParams({ by: metric });
+  if (range) params.set("range", range);
+  return apiRequest<ModelCount[]>(`/metrics/counts?${params.toString()}`);
 }
 
-export async function getProjectCounts(metric: StatMetric = "count"): Promise<ProjectCount[]> {
-  return apiRequest<ProjectCount[]>(`/metrics/projects?by=${metric}`);
+export async function getProjectCounts(metric: StatMetric = "count", range?: TimelineRange): Promise<ProjectCount[]> {
+  const params = new URLSearchParams({ by: metric });
+  if (range) params.set("range", range);
+  return apiRequest<ProjectCount[]>(`/metrics/projects?${params.toString()}`);
 }
-
-// Tokens 用量趋势的时间维度
-export type TimelineRange = "today" | "24h" | "7d" | "30d" | "90d";
 
 export interface TimelinePoint {
   bucket: string;        // 本地时间桶标签：按小时为 "2026-09-29 06:00"，按天为 "2026-09-29"
@@ -430,8 +435,16 @@ export interface TimelinePoint {
   cached_tokens: number; // 缓存 tokens
 }
 
-export async function getTimeline(range: TimelineRange): Promise<TimelinePoint[]> {
-  return apiRequest<TimelinePoint[]>(`/metrics/timeline?range=${range}`);
+// model 缺省或为空串时统计全部模型
+export async function getTimeline(range: TimelineRange, model?: string): Promise<TimelinePoint[]> {
+  const params = new URLSearchParams({ range });
+  if (model) params.set("model", model);
+  return apiRequest<TimelinePoint[]>(`/metrics/timeline?${params.toString()}`);
+}
+
+// 趋势图模型筛选下拉的候选：日志中出现过的模型名（按调用次数降序）
+export async function getTimelineModels(): Promise<string[]> {
+  return apiRequest<string[]>('/metrics/models');
 }
 
 // Test API functions

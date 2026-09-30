@@ -11,7 +11,8 @@ import {
   getMetrics,
   getModelCounts,
   getProjectCounts,
-  getTimeline
+  getTimeline,
+  getTimelineModels
 } from "@/lib/api";
 import type { MetricsData, ModelCount, ProjectCount, StatMetric, TimelinePoint, TimelineRange } from "@/lib/api";
 import { toast } from "sonner";
@@ -28,6 +29,7 @@ const emptyMetrics = (): MetricsData => ({ reqs: 0, tokens: 0, prompt_tokens: 0,
 
 const DEFAULT_METRIC: StatMetric = "count";
 const DEFAULT_RANGE: TimelineRange = "today";
+const DEFAULT_MODEL = ""; // 空串 = 全部模型
 
 // 缓存率 = 缓存 tokens / 输入 tokens
 const formatCacheRate = (cached: number, promptTokens: number) =>
@@ -132,6 +134,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [metric, setMetric] = useState<StatMetric>(DEFAULT_METRIC);
   const [range, setRange] = useState<TimelineRange>(DEFAULT_RANGE);
+  const [model, setModel] = useState<string>(DEFAULT_MODEL);
 
   // Real data from APIs
   const [todayMetrics, setTodayMetrics] = useState<MetricsData>(emptyMetrics);
@@ -139,6 +142,7 @@ export default function Home() {
   const [modelCounts, setModelCounts] = useState<ModelCount[]>([]);
   const [projectCounts, setProjectCounts] = useState<ProjectCount[]>([]);
   const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
+  const [timelineModels, setTimelineModels] = useState<string[]>([]);
 
   const { t } = useTranslation('home');
 
@@ -164,9 +168,9 @@ export default function Home() {
     }
   }, [t]);
 
-  const fetchModelCounts = useCallback(async (metricBy: StatMetric) => {
+  const fetchModelCounts = useCallback(async (metricBy: StatMetric, timelineRange: TimelineRange) => {
     try {
-      const data = await getModelCounts(metricBy);
+      const data = await getModelCounts(metricBy, timelineRange);
       setModelCounts(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -175,9 +179,9 @@ export default function Home() {
     }
   }, [t]);
 
-  const fetchProjectCounts = useCallback(async (metricBy: StatMetric) => {
+  const fetchProjectCounts = useCallback(async (metricBy: StatMetric, timelineRange: TimelineRange) => {
     try {
-      const data = await getProjectCounts(metricBy);
+      const data = await getProjectCounts(metricBy, timelineRange);
       setProjectCounts(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -186,13 +190,24 @@ export default function Home() {
     }
   }, [t]);
 
-  const fetchTimeline = useCallback(async (timelineRange: TimelineRange) => {
+  const fetchTimeline = useCallback(async (timelineRange: TimelineRange, modelName: string) => {
     try {
-      const data = await getTimeline(timelineRange);
+      const data = await getTimeline(timelineRange, modelName || undefined);
       setTimeline(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       toast.error(t('errors.timeline', { message }));
+      console.error(err);
+    }
+  }, [t]);
+
+  const fetchTimelineModels = useCallback(async () => {
+    try {
+      const data = await getTimelineModels();
+      setTimelineModels(data);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast.error(t('errors.timeline_models', { message }));
       console.error(err);
     }
   }, [t]);
@@ -203,22 +218,28 @@ export default function Home() {
     [fetchTodayMetrics, fetchTotalMetrics]
   );
 
-  // 图表统计随统计口径变化
+  // 图表统计随统计口径与时间维度变化（时间维度与趋势折线图共用）
   const loadStats = useCallback(
-    (metricBy: StatMetric) => Promise.all([fetchModelCounts(metricBy), fetchProjectCounts(metricBy)]),
+    (metricBy: StatMetric, timelineRange: TimelineRange) =>
+      Promise.all([fetchModelCounts(metricBy, timelineRange), fetchProjectCounts(metricBy, timelineRange)]),
     [fetchModelCounts, fetchProjectCounts]
   );
 
-  // 趋势图只随时间维度变化
+  // 趋势图随时间维度与模型筛选变化
   const loadTimeline = useCallback(
-    (timelineRange: TimelineRange) => fetchTimeline(timelineRange),
+    (timelineRange: TimelineRange, modelName: string) => fetchTimeline(timelineRange, modelName),
     [fetchTimeline]
   );
 
-  // 首次加载，后续由刷新按钮、统计口径与时间维度切换触发
+  // 首次加载，后续由刷新按钮、统计口径、时间维度与模型筛选切换触发
   useEffect(() => {
     void (async () => {
-      await Promise.all([loadSummary(), loadStats(DEFAULT_METRIC), loadTimeline(DEFAULT_RANGE)]);
+      await Promise.all([
+        loadSummary(),
+        loadStats(DEFAULT_METRIC, DEFAULT_RANGE),
+        loadTimeline(DEFAULT_RANGE, DEFAULT_MODEL),
+        fetchTimelineModels(),
+      ]);
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -226,21 +247,34 @@ export default function Home() {
 
   const handleRefresh = useCallback(async () => {
     setLoading(true);
-    await Promise.all([loadSummary(), loadStats(metric), loadTimeline(range)]);
+    await Promise.all([
+      loadSummary(),
+      loadStats(metric, range),
+      loadTimeline(range, model),
+      fetchTimelineModels(),
+    ]);
     setLoading(false);
-  }, [loadSummary, loadStats, loadTimeline, metric, range]);
+  }, [loadSummary, loadStats, loadTimeline, fetchTimelineModels, metric, range, model]);
 
   const handleMetricChange = useCallback((next: StatMetric) => {
     if (next === metric) return;
     setMetric(next);
-    void loadStats(next);
-  }, [metric, loadStats]);
+    void loadStats(next, range);
+  }, [metric, range, loadStats]);
 
+  // 时间维度联动：趋势折线图与模型/项目图表同步刷新同一 range
   const handleRangeChange = useCallback((next: TimelineRange) => {
     if (next === range) return;
     setRange(next);
-    void loadTimeline(next);
-  }, [range, loadTimeline]);
+    void Promise.all([loadTimeline(next, model), loadStats(metric, next)]);
+  }, [range, model, metric, loadStats, loadTimeline]);
+
+  // 模型筛选只影响趋势折线图，不改变占比/排行图表的统计口径
+  const handleModelChange = useCallback((next: string) => {
+    if (next === model) return;
+    setModel(next);
+    void loadTimeline(range, next);
+  }, [model, range, loadTimeline]);
 
   return (
     <div className="h-full min-h-0 flex flex-col gap-2 p-1">
@@ -300,7 +334,14 @@ export default function Home() {
             <Suspense fallback={<div className="h-64 flex items-center justify-center">
               <Loading message={t('loading_chart')} />
             </div>}>
-              <TokenTrendChart data={timeline} range={range} onRangeChange={handleRangeChange} />
+              <TokenTrendChart
+                data={timeline}
+                range={range}
+                onRangeChange={handleRangeChange}
+                models={timelineModels}
+                model={model}
+                onModelChange={handleModelChange}
+              />
             </Suspense>
 
             <MetricToggle value={metric} onChange={handleMetricChange} />

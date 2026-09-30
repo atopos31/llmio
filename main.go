@@ -93,6 +93,7 @@ func main() {
 	{
 		api.GET("/metrics/use/:days", handler.Metrics)
 		api.GET("/metrics/timeline", handler.Timeline)
+		api.GET("/metrics/models", handler.TimelineModels)
 		api.GET("/metrics/counts", handler.Counts)
 		api.GET("/metrics/projects", handler.ProjectCounts)
 		// Provider management

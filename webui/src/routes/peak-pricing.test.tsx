@@ -459,6 +459,44 @@ describe("峰谷计费编辑器 · 节假日同步", () => {
     expect(screen.getByText(/同步自 bundled:holidays\/2026\.json/)).toBeInTheDocument()
   })
 
+  it("同步回传服务端那一份时，不能把还没保存的编辑抹掉", async () => {
+    // 同步成功会把服务端那份配置回传给父组件（卡片要立刻显示"最近同步于…"），
+    // 而那一份是**旧的服务端版本**：它里面 enabled 还是 false，时段也还是默认两段。
+    // 早先这里把 config 接进了回填 effect 的依赖，于是"开开关 → 同步 → 保存"
+    // 会静默存回 enabled=false——用户只会以为"我明明开了"。
+    mocked.get.mockResolvedValue(默认配置)
+    renderCard()
+    const { user, dialog } = await openEditor()
+
+    await user.click(within(dialog).getByRole("switch", { name: "启用峰谷计费" }))
+    expect(within(dialog).getByRole("switch", { name: "启用峰谷计费" })).toBeChecked()
+
+    mocked.sync.mockResolvedValue({
+      year: 2026,
+      count: 2,
+      source: "bundled:holidays/2026.json",
+      syncedAt: 1759271400,
+      // 服务端那份：未开启、覆盖表已写进去
+      config: {
+        ...默认配置,
+        dateOverrides: { "2026-10-01": "rest", "2026-10-08": "work" },
+        holidaySyncedAt: 1759271400,
+        holidaySource: "bundled:holidays/2026.json",
+      },
+    })
+    mocked.update.mockResolvedValue(启用配置)
+    await user.click(within(dialog).getByRole("button", { name: "从上游同步" }))
+    await within(dialog).findByRole("list", { name: "按日期覆盖" })
+
+    // 开关是用户改的，同步不该动它；同步新带回来的覆盖表则要进表单
+    expect(within(dialog).getByRole("switch", { name: "启用峰谷计费" })).toBeChecked()
+    expect(within(within(dialog).getByRole("list", { name: "按日期覆盖" })).getAllByRole("listitem")).toHaveLength(2)
+
+    await user.click(within(dialog).getByRole("button", { name: "保存" }))
+    await waitFor(() => expect(mocked.update).toHaveBeenCalledTimes(1))
+    expect(mocked.update.mock.calls[0][0].enabled).toBe(true)
+  })
+
   it("手动加一条日期覆盖，随保存提交（日期用原生 date 控件的 YYYY-MM-DD）", async () => {
     mocked.get.mockResolvedValue(默认配置)
     mocked.update.mockResolvedValue(默认配置)

@@ -197,8 +197,15 @@ export function PeakPricingDialog({
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
 
-  // 每次打开（或父组件的配置换了）都从服务端那份重新回填：对话框不是"草稿箱"，
-  // 上一次没保存的编辑不该悄悄留在下一次打开里
+  // 每次**打开**都从服务端那份重新回填：对话框不是"草稿箱"，上一次没保存的
+  // 编辑不该悄悄留在下一次打开里。
+  //
+  // 依赖里刻意只有 `open`，不带 `config`。`config` 会在两处被换掉：保存成功、
+  // 以及同步节假日后把服务端那一份回传给父组件（卡片要立刻显示"最近同步于…"）。
+  // 后一种情况带着的是**旧的服务端版本**，里面没有用户手上还没保存的改动——
+  // 把它接进依赖，等于"点一下同步就把你刚改的开关和时段全部抹回服务端版本"，
+  // 而且界面一声不响。同步结果里真正需要进表单的三项（覆盖表、同步时间、来源）
+  // 由 doSync 自己合并，不走这条通路。
   useEffect(() => {
     if (!open) return
     setForm(pricingToForm(config))
@@ -207,7 +214,8 @@ export function PeakPricingDialog({
     setPreview(null)
     setPreviewError(null)
     setSyncError(null)
-  }, [open, config])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 见上：config 换一份不等于"重新开草稿"
+  }, [open])
 
   const payload = formToPayload(form)
   const conflicts = findPeriodConflicts(payload.periods)

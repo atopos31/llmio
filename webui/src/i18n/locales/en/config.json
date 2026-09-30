@@ -1,5 +1,8 @@
 {
   "title": "System Config",
+  "load_failed": "Failed to load the current configuration",
+  "load_failed_hint": "What is shown below may not be the saved values. Retry before saving.",
+  "retry": "Retry",
   "anthropic": {
     "title": "Anthropic Token Counting Config",
     "desc": "Configure the Anthropic API connection for token counting",
@@ -38,7 +41,8 @@
     "history_deleted": "Deleted",
     "history_duration": "Duration",
     "source_scheduled": "Scheduled",
-    "source_manual": "Manual"
+    "source_manual": "Manual",
+    "history_load_failed": "Failed to load cleanup history"
   },
   "toast": {
     "test_success": "Config test passed",

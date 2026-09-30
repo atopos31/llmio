@@ -1,5 +1,8 @@
 {
   "title": "系统配置",
+  "load_failed": "读取现有配置失败",
+  "load_failed_hint": "下面显示的可能不是已保存的值，保存前请先重试读取。",
+  "retry": "重试",
   "anthropic": {
     "title": "Anthropic 令牌计数配置",
     "desc": "配置 Anthropic API 用于令牌计数功能的连接信息",
@@ -38,7 +41,8 @@
     "history_deleted": "删除数量",
     "history_duration": "耗时",
     "source_scheduled": "定时清理",
-    "source_manual": "手动清理"
+    "source_manual": "手动清理",
+    "history_load_failed": "清理历史加载失败"
   },
   "toast": {
     "test_success": "配置检测成功",

@@ -1,5 +1,8 @@
 {
   "title": "系統設定",
+  "load_failed": "讀取現有設定失敗",
+  "load_failed_hint": "下方顯示的可能不是已儲存的值，儲存前請先重試讀取。",
+  "retry": "重試",
   "anthropic": {
     "title": "Anthropic 權杖計數設定",
     "desc": "設定 Anthropic API 用於權杖計數功能的連線資訊",
@@ -38,7 +41,8 @@
     "history_deleted": "刪除數量",
     "history_duration": "耗時",
     "source_scheduled": "定時清理",
-    "source_manual": "手動清理"
+    "source_manual": "手動清理",
+    "history_load_failed": "清理歷史載入失敗"
   },
   "toast": {
     "test_success": "設定檢測成功",

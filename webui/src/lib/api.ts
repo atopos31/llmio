@@ -7,6 +7,7 @@ import type {
   QuotaSource,
   QuotaTestResult,
 } from "@/lib/quota"
+import type { PeakHolidaySyncResult, PeakPricing, SchedulePoint } from "@/lib/peak"
 
 const API_BASE = '/api';
 
@@ -81,6 +82,7 @@ export interface SystemConfig {
   decay_threshold_hours: number;
   min_weight: number;
 }
+
 
 // Generic API request function
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -867,4 +869,91 @@ export async function testQuotaSource(source: QuotaSource): Promise<QuotaTestRes
     method: "POST",
     body: JSON.stringify(source),
   });
+}
+
+// ---------------------------------------------------------------------------
+// 峰谷计费（分时段 / 工作日定价）
+// ---------------------------------------------------------------------------
+//
+// 四个端点，形状定义在 @/lib/peak（校验、表单映射、预览呈现都在那一层）。
+// 端点本身不做任何加工，只做端点包装——除同步那一个，理由见下。
+
+/** 读配置。未配置过时后端直接返回默认配置（关闭状态），不会给 null。 */
+export async function getPeakPricing(): Promise<PeakPricing> {
+  return apiRequest<PeakPricing>("/peak-pricing");
+}
+
+/**
+ * 整份覆盖配置。
+ *
+ * 校验失败时后端回的是 HTTP 200 + code 400，message 里点名了是第几段、
+ * 哪一处不合法（"period 2 (夜间): start ..."）；apiRequest 会把它原样抛出，
+ * 界面**必须**直接显示这句话，不要用"保存失败"盖掉——它是唯一能定位问题的信息。
+ */
+export async function updatePeakPricing(cfg: PeakPricing): Promise<PeakPricing> {
+  return apiRequest<PeakPricing>("/peak-pricing", {
+    method: "PUT",
+    body: JSON.stringify(cfg),
+  });
+}
+
+/**
+ * 回放未来 days 天，返回合并后的时间轴区间。
+ *
+ * 传的是**尚未保存**的表单配置：想先看清效果再决定存不存。days 由后端
+ * 限制在 1..31，超界会回 code 400。
+ */
+export async function previewPeakPricing(cfg: PeakPricing, days = 7): Promise<SchedulePoint[]> {
+  return apiRequest<SchedulePoint[]>(`/peak-pricing/preview?days=${days}`, {
+    method: "POST",
+    body: JSON.stringify(cfg),
+  });
+}
+
+/**
+ * 同步指定年份的节假日与调休，服务端落盘后返回新配置。
+ *
+ * 这一个**没有走 apiRequest**：同步要出外网，失败时后端用 HTTP 502 回，
+ * 而失败原因（镜像不可达、该年连内置数据都没有……）只写在 body 的 message 里。
+ * apiRequest 的 `!response.ok` 分支会在读 body 之前就抛出
+ * "API request failed: 502 Bad Gateway"，把唯一有用的那句话丢掉。
+ * 因此这里先读 body、再看 code——与本项目"成功失败都是 HTTP 200、
+ * 真实状态在 code 里"的约定并不冲突，只是把 502 这个例外也按 message 优先处理。
+ */
+export async function syncPeakHolidays(year: number): Promise<PeakHolidaySyncResult> {
+  const token = localStorage.getItem("authToken");
+  const response = await fetch(`${API_BASE}/peak-pricing/holidays/sync?year=${year}`, {
+    method: "POST",
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    },
+  });
+
+  if (response.status === 401) {
+    window.location.href = '/login';
+    throw new Error('Unauthorized');
+  }
+
+  let body: { code?: number; message?: string; data?: PeakHolidaySyncResult } | null = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null; // 网关之类返回的非 JSON 响应，落到下面的兜底文案
+  }
+
+  const fallback = `API request failed: ${response.status} ${response.statusText}`;
+  if (!body) {
+    throw new Error(fallback);
+  }
+  if (body.code !== 200) {
+    // 这条 message 里写着失败原因（镜像不可达、该年没有数据……），是唯一能据以行动的信息
+    throw new Error(body.message || fallback);
+  }
+  if (!body.data) {
+    // code 200 却没带 data 是服务端的 bug。此时 message 通常是 "ok"/"success"，
+    // 拿它当错误文案只会把人带偏，宁可回退到状态码
+    throw new Error(fallback);
+  }
+  return body.data;
 }

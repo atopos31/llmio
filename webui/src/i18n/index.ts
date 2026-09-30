@@ -16,6 +16,7 @@ import zhCNConfig from './locales/zh-CN/config.json';
 import zhCNCompare from './locales/zh-CN/compare.json';
 import zhCNQuota from './locales/zh-CN/quota.json';
 import zhCNAnalytics from './locales/zh-CN/analytics.json';
+import zhCNPeak from './locales/zh-CN/peak.json';
 
 // zh-TW
 import zhTWCommon from './locales/zh-TW/common.json';
@@ -31,6 +32,7 @@ import zhTWConfig from './locales/zh-TW/config.json';
 import zhTWCompare from './locales/zh-TW/compare.json';
 import zhTWQuota from './locales/zh-TW/quota.json';
 import zhTWAnalytics from './locales/zh-TW/analytics.json';
+import zhTWPeak from './locales/zh-TW/peak.json';
 
 // en
 import enCommon from './locales/en/common.json';
@@ -46,6 +48,7 @@ import enConfig from './locales/en/config.json';
 import enCompare from './locales/en/compare.json';
 import enQuota from './locales/en/quota.json';
 import enAnalytics from './locales/en/analytics.json';
+import enPeak from './locales/en/peak.json';
 
 export const SUPPORTED_LANGUAGES = [
   { code: 'zh-CN', label: '简体中文' },
@@ -74,6 +77,7 @@ void i18n
         compare: zhCNCompare,
         quota: zhCNQuota,
         analytics: zhCNAnalytics,
+        peak: zhCNPeak,
       },
       'zh-TW': {
         common: zhTWCommon,
@@ -89,6 +93,7 @@ void i18n
         compare: zhTWCompare,
         quota: zhTWQuota,
         analytics: zhTWAnalytics,
+        peak: zhTWPeak,
       },
       'en-US': {
         common: enCommon,
@@ -104,11 +109,12 @@ void i18n
         compare: enCompare,
         quota: enQuota,
         analytics: enAnalytics,
+        peak: enPeak,
       },
     },
     fallbackLng: 'zh-CN',
     defaultNS: 'common',
-    ns: ['common', 'layout', 'home', 'quickstart', 'login', 'providers', 'models', 'logs', 'auth-keys', 'config', 'compare', 'quota', 'analytics'],
+    ns: ['common', 'layout', 'home', 'quickstart', 'login', 'providers', 'models', 'logs', 'auth-keys', 'config', 'compare', 'quota', 'analytics', 'peak'],
     detection: {
       order: ['localStorage', 'navigator'],
       lookupLocalStorage: 'llmio-language',
@@ -141,6 +147,7 @@ declare module 'i18next' {
       compare: typeof zhCNCompare;
       quota: typeof zhCNQuota;
       analytics: typeof zhCNAnalytics;
+      peak: typeof zhCNPeak;
     };
   }
 }

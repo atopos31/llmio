@@ -28,6 +28,7 @@ import { AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { configAPI, type AnthropicCountTokens, type LogCleanupPolicy, type LogCleanupRecord, getCleanupHistory, testCountTokens } from '@/lib/api';
+import { PeakPricingCard } from '@/routes/peak-pricing';
 import {
   Table,
   TableBody,
@@ -317,6 +318,16 @@ export default function ConfigPage() {
             </Button>
           </CardFooter>
         </Card>
+
+        {/*
+          峰谷计费（分时段/工作日定价）自带一个端点与四种状态，因此它是一张
+          自带取数的卡片，而不是并进上面 loadConfig 的那一次 Promise.all——
+          并进去的话，它读失败会把整页说成"读取现有配置失败"，而另外两张卡
+          其实好着。
+        */}
+        <div className="mt-4">
+          <PeakPricingCard />
+        </div>
       </div>
 
       <Dialog open={anthropicOpen} onOpenChange={setAnthropicOpen}>

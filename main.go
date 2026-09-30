@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 	_ "time/tzdata"
@@ -15,6 +16,7 @@ import (
 	"github.com/atopos31/llmio/middleware"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/pkg/env"
+	"github.com/atopos31/llmio/quota"
 	"github.com/atopos31/llmio/service"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
@@ -22,6 +24,17 @@ import (
 )
 
 func init() {
+	// 沙箱子进程模式：主程序被 re-exec 成脚本沙箱时走这里。
+	//
+	// **必须放在 init() 的最前面**：init 会在 main() 之前跑，
+	// 而沙箱子进程不该初始化数据库、不该挂日志清理调度、更不该监听端口。
+	// 判据是隐藏子命令参数（quota.SandboxCommand），由 quota.RunScript 拼上。
+	for _, a := range os.Args[1:] {
+		if a == quota.SandboxCommand {
+			os.Exit(quota.SandboxMain())
+		}
+	}
+
 	ctx := context.Background()
 	models.Init(ctx, "./db/llmio.db")
 	slog.Info("TZ", "time.Local", time.Local.String())
@@ -149,6 +162,20 @@ func main() {
 		api.PUT("/peak-pricing", handler.UpdatePeakPricing)
 		api.POST("/peak-pricing/preview", handler.PreviewPeakPricing)
 		api.POST("/peak-pricing/holidays/sync", handler.SyncPeakHolidays)
+
+		// 配额与余量。
+		// 读端点与外层一致（TOKEN 之后）；写端点另受 LLMIO_QUOTA_ALLOW_WRITE 控制，
+		// 关掉即只读（计划 §3.3）。
+		api.GET("/quota/config", handler.GetQuotaConfig)
+		api.POST("/quota/sources", handler.UpsertQuotaSource)
+		api.PUT("/quota/sources", handler.UpsertQuotaSource)
+		api.DELETE("/quota/sources/:id", handler.DeleteQuotaSource)
+		api.POST("/quota/run", handler.RunQuotaSources)
+		api.POST("/quota/sources/:id/refresh", handler.RefreshQuotaSource)
+		// 试跑不改变任何状态，因此只读模式下也开放
+		api.POST("/quota/test", handler.TestQuotaSource)
+		api.GET("/quota/discover", handler.DiscoverQuotaSources)
+		api.POST("/quota/import", handler.ImportQuotaSource)
 
 		// Provider connectivity test
 		api.GET("/test/:id", handler.ProviderTestHandler)

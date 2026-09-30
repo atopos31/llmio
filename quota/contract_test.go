@@ -1024,3 +1024,94 @@ func TestStatusExhaustedFromPercentWithoutRemaining(t *testing.T) {
 		t.Fatalf("已用超过 100%% 应为 exhausted，实得 %q", got)
 	}
 }
+
+func TestExtractRowsAcceptsMapSlice(t *testing.T) {
+	t.Parallel()
+
+	// Go 侧适配器（HTTP / 内置）直接构造 []map[string]any，
+	// 契约必须同样吃得下——否则"上游 JSON 能归一、适配器产出反而不能"。
+	t.Run("顶层 map 切片", func(t *testing.T) {
+		raw := []map[string]any{{"used": 5, "total": 10}}
+		rows, err := extractRows(raw)
+		if err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if len(rows) != 1 || rows[0]["used"] != 5 {
+			t.Fatalf("行不符: %#v", rows)
+		}
+	})
+
+	t.Run("容器内 map 切片", func(t *testing.T) {
+		raw := map[string]any{"items": []map[string]any{{"used": 5}}}
+		rows, err := extractRows(raw)
+		if err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if len(rows) != 1 || rows[0]["used"] != 5 {
+			t.Fatalf("行不符: %#v", rows)
+		}
+	})
+
+	t.Run("容器内空 map 切片落到后续分支", func(t *testing.T) {
+		// 空切片既非"有内容可返回"，也不是 map —— 应继续找下一个容器键
+		raw := map[string]any{
+			"items": []map[string]any{},
+			"data":  map[string]any{"k": map[string]any{"used": 2}},
+		}
+		rows, err := extractRows(raw)
+		if err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if len(rows) != 1 || rows[0]["used"] != 2 {
+			t.Fatalf("应回落到 data 容器: %#v", rows)
+		}
+	})
+}
+
+func TestExtractRowsContainerFallback(t *testing.T) {
+	t.Parallel()
+
+	// 容器键存在但内容不是可识别形状时，continue 到下一个键
+	raw := map[string]any{
+		"items": []any{"不是对象"},
+		"data":  []any{map[string]any{"used": 9}},
+	}
+	rows, err := extractRows(raw)
+	if err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+	if len(rows) != 1 || rows[0]["used"] != 9 {
+		t.Fatalf("应回落到 data: %#v", rows)
+	}
+
+	// 所有容器键都不可用时，整个对象当成单条
+	rows2, err := extractRows(map[string]any{"items": []any{"不是对象"}, "total": 3})
+	if err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+	if len(rows2) != 1 || rows2[0]["total"] != 3 {
+		t.Fatalf("应当成单条: %#v", rows2)
+	}
+}
+
+func TestStatusRank(t *testing.T) {
+	t.Parallel()
+
+	// 顺序是行为承诺：ok < unknown < warning < exhausted
+	if !(StatusRank(StatusOK) < StatusRank(StatusUnknown) &&
+		StatusRank(StatusUnknown) < StatusRank(StatusWarning) &&
+		StatusRank(StatusWarning) < StatusRank(StatusExhausted)) {
+		t.Fatalf("状态序不符: ok=%d unknown=%d warning=%d exhausted=%d",
+			StatusRank(StatusOK), StatusRank(StatusUnknown),
+			StatusRank(StatusWarning), StatusRank(StatusExhausted))
+	}
+
+	// 未知状态按 unknown 处理，而不是排到最后——
+	// 排最后会让它盖过真实的 exhausted，"最差"就报错了
+	if StatusRank(Status("乱七八糟")) != StatusRank(StatusUnknown) {
+		t.Fatalf("未识别状态应按 unknown 计，实得 %d", StatusRank(Status("乱七八糟")))
+	}
+	if StatusRank(Status("")) != StatusRank(StatusUnknown) {
+		t.Fatal("空状态应按 unknown 计")
+	}
+}

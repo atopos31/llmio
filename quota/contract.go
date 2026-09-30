@@ -291,12 +291,18 @@ func Normalize(raw any, opts NormalizeOptions) ([]Item, error) {
 }
 
 // extractRows 把各种外层容器摊平成一列条目对象。
+//
+// 同时接受 []any 与 []map[string]any：JSON 反序列化得到前者，
+// 而 Go 侧适配器（HTTP / 内置）构造出的行天然是后者。
+// 只认 []any 会让「上游 JSON 能归一、适配器产出反而不能」这种怪事发生。
 func extractRows(raw any) ([]map[string]any, error) {
 	switch v := raw.(type) {
 	case nil:
 		return nil, fmt.Errorf("数据源没有返回任何内容")
 	case []any:
 		return filterRecords(v), nil
+	case []map[string]any:
+		return v, nil
 	case map[string]any:
 		// 先看有无 items / data 容器
 		for _, key := range []string{"items", "data", "list", "result", "results"} {
@@ -309,6 +315,9 @@ func extractRows(raw any) ([]map[string]any, error) {
 					return rows, nil
 				}
 				continue
+			}
+			if rows, ok := inner.([]map[string]any); ok && len(rows) > 0 {
+				return rows, nil
 			}
 			// {"items": {"k": v}} 形式：每个键一条，键作为 id
 			if m, ok := inner.(map[string]any); ok {
@@ -431,6 +440,10 @@ func toStr(v any) string {
 		return strconv.FormatFloat(s, 'f', -1, 64)
 	case int64:
 		return strconv.FormatInt(s, 10)
+	case int:
+		// 与 toFloat 对称：JSON 只会给出 float64，但 Go 侧适配器
+		// 构造行时可能用 int。缺这一支会让数值静默变成空串。
+		return strconv.Itoa(s)
 	case bool:
 		if s {
 			return "true"
@@ -623,6 +636,19 @@ func NormalizeStatus(raw string) Status {
 	default:
 		return StatusUnknown
 	}
+}
+
+// StatusRank 返回状态的可比序：ok < unknown < warning < exhausted。
+//
+// 导出它是因为"取最差"这个判断在编排层也要用（跨数据源比较）。
+// 在那里再维护一份顺序表必然与这里漂移——顺序本就是契约的一部分。
+func StatusRank(s Status) int {
+	if r, ok := statusRank[s]; ok {
+		return r
+	}
+	// 未知状态按 unknown 处理，而不是排到最后：
+	// 排最后会让它盖过真实的 exhausted，"最差"就报错了。
+	return statusRank[StatusUnknown]
 }
 
 // WorstStatus 取一组条目里最差的状态。整源状态由此得出。

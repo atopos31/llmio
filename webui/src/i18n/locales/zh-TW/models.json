@@ -31,6 +31,7 @@
     "back_to_list": "返回模型列表",
     "add_association": "新增關聯",
     "add_model": "新增模型",
+    "delete_model": "刪除模型",
     "refresh_status": "重新整理狀態"
   },
   "order": {
@@ -60,6 +61,8 @@
     "structured_output": "結構化輸出",
     "vision": "視覺",
     "with_header": "請求標頭透傳",
+    "supported": "支援",
+    "unsupported": "不支援",
     "weight": "權重",
     "enabled": "啟用",
     "status": "狀態",
@@ -67,9 +70,13 @@
     "no_data": "無資料",
     "success": "成功",
     "failed": "失敗",
+    "recent_summary": "成功 {{success}}/{{total}}",
     "active": "已啟用",
     "inactive": "已停用",
+    "toggle_status": "切換啟用狀態",
     "unknown_provider": "未知供應商",
+    "delete_title": "確定要刪除這個關聯嗎？",
+    "delete_desc": "此操作無法撤銷。這將永久刪除該關聯管理。",
     "mobile": {
       "provider_type": "供應商類型",
       "provider_id": "供應商 ID",

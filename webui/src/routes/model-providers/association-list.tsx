@@ -28,8 +28,21 @@ import { Spinner } from "@/components/ui/spinner"
 import type { ModelWithProvider, Provider } from "@/lib/api"
 import { MobileInfoItem } from "@/components/mobile-info-item"
 
-const Mark = ({ ok }: { ok: boolean }) => (
-  <span className={ok ? "text-green-600" : "text-red-600"}>{ok ? "✓" : "✗"}</span>
+/**
+ * 能力列的对勾/叉号。
+ *
+ * 两个符号本身没有可读的名字（读屏会念成"勾""叉"甚至跳过），因此带一个
+ * 已翻译的 aria-label；颜色只在语义色里取，不再用 green-600/red-600 这套
+ * 固定色——深色模式下那两个色号与背景的对比度不够。
+ */
+const Mark = ({ ok, label }: { ok: boolean; label: string }) => (
+  <span
+    role="img"
+    aria-label={label}
+    className={ok ? "text-status-good-ink" : "text-status-critical-ink"}
+  >
+    {ok ? "✓" : "✗"}
+  </span>
 )
 
 type Props = {
@@ -81,6 +94,41 @@ export function AssociationList({
   onStatusToggle,
 }: Props) {
   const { t } = useTranslation(["models", "common"])
+
+  /** 四个能力列的取值方式一致：支持/不支持 */
+  const capability = (ok: boolean) => (
+    <Mark ok={ok} label={t(ok ? "association_table.supported" : "association_table.unsupported")} />
+  )
+
+  /**
+   * 近期成败条的读数。
+   *
+   * 一排绿/红小格是纯颜色信息：色盲用户读不出，读屏用户更是什么都读不到
+   * （条本身只挂了 hover 才出现的 title）。因此小格只作装饰，含义由旁边这行
+   * 计数文字承担。
+   */
+  const recentSummary = (statusBars: boolean[]) =>
+    t("association_table.recent_summary", {
+      success: statusBars.filter(Boolean).length,
+      total: statusBars.length,
+    })
+
+  /**
+   * 删除确认的内容。桌面表格与手机卡片各挂一次（一个靠 Trigger 打开、
+   * 一个靠外层 open 控制），文案只此一份——原先两边各写一遍，改一处漏一处。
+   */
+  const deleteConfirm = (
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>{t("association_table.delete_title")}</AlertDialogTitle>
+        <AlertDialogDescription>{t("association_table.delete_desc")}</AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel onClick={onCloseDelete}>{t("common:actions.cancel")}</AlertDialogCancel>
+        <AlertDialogAction onClick={onConfirmDelete}>{t("common:actions.confirm_delete")}</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  )
 
   return (
     <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
@@ -148,18 +196,10 @@ export function AssociationList({
                         </TableCell>
                         <TableCell>{provider?.Type ?? t("common:unknown")}</TableCell>
                         <TableCell>{provider?.Name ?? t("common:unknown")}</TableCell>
-                        <TableCell>
-                          <Mark ok={association.ToolCall} />
-                        </TableCell>
-                        <TableCell>
-                          <Mark ok={association.StructuredOutput} />
-                        </TableCell>
-                        <TableCell>
-                          <Mark ok={association.Image} />
-                        </TableCell>
-                        <TableCell>
-                          <Mark ok={association.WithHeader} />
-                        </TableCell>
+                        <TableCell>{capability(association.ToolCall)}</TableCell>
+                        <TableCell>{capability(association.StructuredOutput)}</TableCell>
+                        <TableCell>{capability(association.Image)}</TableCell>
+                        <TableCell>{capability(association.WithHeader)}</TableCell>
                         <TableCell>{association.Weight}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
@@ -175,20 +215,25 @@ export function AssociationList({
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center space-x-4 w-20">
+                          <div className="flex flex-col gap-1 w-max">
                             {statusBars ? (
                               statusBars.length > 0 ? (
-                                <div className="flex space-x-1 items-end h-6">
-                                  {statusBars.map((isSuccess, index) => (
-                                    <div
-                                      key={index}
-                                      className={`w-1 h-6 ${isSuccess ? "bg-green-500" : "bg-red-500"}`}
-                                      title={isSuccess ? t("association_table.success") : t("association_table.failed")}
-                                    />
-                                  ))}
-                                </div>
+                                <>
+                                  <div className="flex space-x-1 items-end h-4" aria-hidden="true">
+                                    {statusBars.map((isSuccess, index) => (
+                                      <div
+                                        key={index}
+                                        className={`w-1 h-4 rounded-sm ${isSuccess ? "bg-status-good" : "bg-status-critical"}`}
+                                        title={isSuccess ? t("association_table.success") : t("association_table.failed")}
+                                      />
+                                    ))}
+                                  </div>
+                                  <span className="text-[10px] text-muted-foreground tabular-nums">
+                                    {recentSummary(statusBars)}
+                                  </span>
+                                </>
                               ) : (
-                                <div className="text-xs text-gray-400">{t("association_table.no_data")}</div>
+                                <div className="text-xs text-muted-foreground">{t("association_table.no_data")}</div>
                               )
                             ) : (
                               <Spinner />
@@ -197,30 +242,34 @@ export function AssociationList({
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-2">
-                            <Button variant="outline" size="icon" onClick={() => onEdit(association)}>
-                              <Pencil className="h-4 w-4" />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              aria-label={t("common:actions.edit")}
+                              onClick={() => onEdit(association)}
+                            >
+                              <Pencil className="h-4 w-4" aria-hidden="true" />
                             </Button>
-                            <Button variant="outline" size="icon" onClick={() => onTest(association.ID)}>
-                              <Zap className="h-4 w-4" />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              aria-label={t("common:actions.test")}
+                              onClick={() => onTest(association.ID)}
+                            >
+                              <Zap className="h-4 w-4" aria-hidden="true" />
                             </Button>
                             <AlertDialog open={deleteId === association.ID} onOpenChange={(open) => !open && onCloseDelete()}>
                               <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="icon" onClick={() => onOpenDelete(association.ID)}>
-                                  <Trash2 className="h-4 w-4" />
+                                <Button
+                                  variant="destructive"
+                                  size="icon"
+                                  aria-label={t("common:actions.delete")}
+                                  onClick={() => onOpenDelete(association.ID)}
+                                >
+                                  <Trash2 className="h-4 w-4" aria-hidden="true" />
                                 </Button>
                               </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    此操作无法撤销。这将永久删除该关联管理。
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel onClick={onCloseDelete}>取消</AlertDialogCancel>
-                                  <AlertDialogAction onClick={onConfirmDelete}>确认删除</AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
+                              {deleteConfirm}
                             </AlertDialog>
                           </div>
                         </TableCell>
@@ -244,7 +293,7 @@ export function AssociationList({
                       <p className="text-[11px] text-muted-foreground">{t("association_table.mobile.provider_type")}: {association.ProviderModel}</p>
                     </div>
                     <span
-                      className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${isAssociationEnabled ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}
+                      className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${isAssociationEnabled ? "bg-status-good/10 text-status-good-ink" : "bg-status-critical/10 text-status-critical-ink"}`}
                     >
                       {isAssociationEnabled ? t("association_table.active") : t("association_table.inactive")}
                     </span>
@@ -255,34 +304,41 @@ export function AssociationList({
                     <MobileInfoItem label={t("association_table.mobile.weight")} value={association.Weight} />
                     <MobileInfoItem
                       label={t("association_table.mobile.with_header")}
-                      value={<Mark ok={association.WithHeader} />}
+                      value={capability(association.WithHeader)}
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-xs">
                     <MobileInfoItem
                       label={t("association_table.mobile.tool_call")}
-                      value={<Mark ok={association.ToolCall} />}
+                      value={capability(association.ToolCall)}
                     />
                     <MobileInfoItem
                       label={t("association_table.mobile.structured_output")}
-                      value={<Mark ok={association.StructuredOutput} />}
+                      value={capability(association.StructuredOutput)}
                     />
                     <MobileInfoItem
                       label={t("association_table.mobile.vision")}
-                      value={<Mark ok={association.Image} />}
+                      value={capability(association.Image)}
                     />
                     <MobileInfoItem
                       label={t("association_table.mobile.recent_status")}
                       value={
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1.5">
                           {statusBars ? (
                             statusBars.length > 0 ? (
-                              statusBars.map((isSuccess, index) => (
-                                <div
-                                  key={index}
-                                  className={`w-1 h-4 rounded ${isSuccess ? "bg-green-500" : "bg-red-500"}`}
-                                />
-                              ))
+                              <>
+                                <div className="flex items-center gap-0.5" aria-hidden="true">
+                                  {statusBars.map((isSuccess, index) => (
+                                    <div
+                                      key={index}
+                                      className={`w-1 h-4 rounded ${isSuccess ? "bg-status-good" : "bg-status-critical"}`}
+                                    />
+                                  ))}
+                                </div>
+                                <span className="text-[11px] text-muted-foreground tabular-nums">
+                                  {recentSummary(statusBars)}
+                                </span>
+                              </>
                             ) : (
                               <span className="text-muted-foreground text-[11px]">{t("association_table.no_data")}</span>
                             )
@@ -301,7 +357,7 @@ export function AssociationList({
                         checked={isAssociationEnabled}
                         disabled={!!statusUpdating[association.ID]}
                         onCheckedChange={(value) => onStatusToggle(association, value)}
-                        aria-label="切换启用状态"
+                        aria-label={t("association_table.toggle_status")}
                       />
                     </div>
                   </div>
@@ -310,39 +366,31 @@ export function AssociationList({
                       variant="outline"
                       size="icon"
                       className="h-7 w-7"
+                      aria-label={t("common:actions.edit")}
                       onClick={() => onEdit(association)}
                     >
-                      <Pencil className="h-3.5 w-3.5" />
+                      <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                     </Button>
                     <Button
                       variant="outline"
                       size="icon"
                       className="h-7 w-7"
+                      aria-label={t("common:actions.test")}
                       onClick={() => onTest(association.ID)}
                     >
-                      <Zap className="h-3.5 w-3.5" />
+                      <Zap className="h-3.5 w-3.5" aria-hidden="true" />
                     </Button>
                     <AlertDialog open={deleteId === association.ID} onOpenChange={(open) => !open && onCloseDelete()}>
                       <Button
                         variant="destructive"
                         size="icon"
                         className="h-7 w-7"
+                        aria-label={t("common:actions.delete")}
                         onClick={() => onOpenDelete(association.ID)}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                       </Button>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>确定要删除这个关联吗？</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            此操作无法撤销。这将永久删除该关联管理。
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel onClick={onCloseDelete}>取消</AlertDialogCancel>
-                          <AlertDialogAction onClick={onConfirmDelete}>确认删除</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
+                      {deleteConfirm}
                     </AlertDialog>
                   </div>
                 </div>

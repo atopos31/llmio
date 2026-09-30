@@ -31,6 +31,7 @@
     "back_to_list": "Back to Model List",
     "add_association": "Add Association",
     "add_model": "Add Model",
+    "delete_model": "Delete model",
     "refresh_status": "Refresh Status"
   },
   "order": {
@@ -60,6 +61,8 @@
     "structured_output": "Structured Output",
     "vision": "Vision",
     "with_header": "Header Passthrough",
+    "supported": "Supported",
+    "unsupported": "Not supported",
     "weight": "Weight",
     "enabled": "Enabled",
     "status": "Status",
@@ -67,9 +70,13 @@
     "no_data": "No data",
     "success": "Success",
     "failed": "Failed",
+    "recent_summary": "{{success}}/{{total}} ok",
     "active": "Active",
     "inactive": "Inactive",
+    "toggle_status": "Toggle enabled state",
     "unknown_provider": "Unknown Provider",
+    "delete_title": "Delete this association?",
+    "delete_desc": "This cannot be undone. The association will be permanently deleted.",
     "mobile": {
       "provider_type": "Provider Type",
       "provider_id": "Provider ID",

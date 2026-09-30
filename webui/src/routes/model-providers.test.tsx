@@ -328,6 +328,43 @@ describe("模型路由页 · 错误", () => {
 })
 
 /**
+ * 模型路由页 · 近期成败与能力列的读法。
+ *
+ * 一排绿/红小格是纯颜色信息：色盲用户分不出来，读屏用户更是读不到
+ * （原先小格只挂了一个 hover 才出现的 title，键盘与读屏都够不着）。
+ * 因此小格标为装饰，含义交给旁边的计数文字；能力列的对勾/叉号同理，
+ * 两个符号本身没有可读的名字，得带上一句"支持/不支持"。
+ * 这一组钉的就是"含义必须有文字承载"，而不是只钉颜色对不对。
+ */
+describe("模型路由页 · 近期成败的读法", () => {
+  it("近期成败给出计数文字，小格本身对读屏隐藏", async () => {
+    renderPage("/model-providers?modelId=1")
+    const t = await table()
+    await within(t).findByText("gpt-4o")
+
+    // mock 给的是 [true, false]：两条关联各一排，都该读成"成功 1/2"
+    expect(within(t).getAllByText("成功 1/2")).toHaveLength(2)
+    // 两套实现（桌面表格 / 手机卡片）都要说这句话，不是只改一处
+    expect(screen.getAllByText("成功 1/2")).toHaveLength(4)
+
+    for (const bar of t.querySelectorAll(".bg-status-good, .bg-status-critical")) {
+      expect(bar.closest('[aria-hidden="true"]')).not.toBeNull()
+    }
+  })
+
+  it("能力列的对勾/叉号带得出名字，而不是两个孤零零的符号", async () => {
+    renderPage("/model-providers?modelId=1")
+    const t = await table()
+    await within(t).findByText("gpt-4o")
+
+    // 第 0 行是表头；第 4 列工具调用（true）、第 6 列视觉（false）
+    const cells = within(within(t).getAllByRole("row")[1]).getAllByRole("cell")
+    expect(within(cells[4]).getByRole("img", { name: "支持" })).toBeInTheDocument()
+    expect(within(cells[6]).getByRole("img", { name: "不支持" })).toBeInTheDocument()
+  })
+})
+
+/**
  * 键盘的排序路径（方案 D9：模型排序拖拽要能全程用键盘完成）。
  *
  * 拖拽只有鼠标能做，但"调顺序"这件事本身是键盘可做的：焦点落在某一行上时

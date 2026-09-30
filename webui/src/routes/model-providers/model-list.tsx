@@ -193,7 +193,7 @@ export function ModelList({
                               event.stopPropagation();
                               onDelete(model.ID);
                             }}
-                            aria-label="删除模型"
+                            aria-label={t("actions.delete_model")}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -268,7 +268,7 @@ export function ModelList({
                       size="icon"
                       className="h-7 w-7"
                       onClick={() => onDelete(model.ID)}
-                      aria-label="删除模型"
+                      aria-label={t("actions.delete_model")}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>

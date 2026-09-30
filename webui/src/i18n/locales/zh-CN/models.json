@@ -31,6 +31,7 @@
     "back_to_list": "返回模型列表",
     "add_association": "添加关联",
     "add_model": "添加模型",
+    "delete_model": "删除模型",
     "refresh_status": "刷新状态"
   },
   "order": {
@@ -60,6 +61,8 @@
     "structured_output": "结构化输出",
     "vision": "视觉",
     "with_header": "请求头透传",
+    "supported": "支持",
+    "unsupported": "不支持",
     "weight": "权重",
     "enabled": "启用",
     "status": "状态",
@@ -67,9 +70,13 @@
     "no_data": "无数据",
     "success": "成功",
     "failed": "失败",
+    "recent_summary": "成功 {{success}}/{{total}}",
     "active": "已启用",
     "inactive": "已停用",
+    "toggle_status": "切换启用状态",
     "unknown_provider": "未知提供商",
+    "delete_title": "确定要删除这个关联吗？",
+    "delete_desc": "此操作无法撤销。这将永久删除该关联管理。",
     "mobile": {
       "provider_type": "提供商类型",
       "provider_id": "提供商 ID",

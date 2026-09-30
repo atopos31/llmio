@@ -17,6 +17,7 @@ import {
   type Model,
   type ModelWithProvider,
   type Provider,
+  testModelProvider,
   updateModelOrder,
 } from "@/lib/api"
 
@@ -361,6 +362,32 @@ describe("模型路由页 · 近期成败的读法", () => {
     const cells = within(within(t).getAllByRole("row")[1]).getAllByRole("cell")
     expect(within(cells[4]).getByRole("img", { name: "支持" })).toBeInTheDocument()
     expect(within(cells[6]).getByRole("img", { name: "不支持" })).toBeInTheDocument()
+  })
+})
+
+/**
+ * 模型路由页 · 测试对话框。
+ *
+ * 对话框里的"测试中"原先是一个自己写的转圈 div（border-gray-900），既没说
+ * role="status" 也没跟主题走：深色下那个圈几乎看不见，读屏用户听到的还是
+ * "什么都没发生"。这里钉住"测试进行中"这句话在无障碍树上存在。
+ */
+describe("模型路由页 · 测试对话框", () => {
+  it("连通性测试进行中声明正在测试，而不是一片空白", async () => {
+    const user = userEvent.setup()
+    // 永不落地的 Promise：把界面钉在"进行中"这一刻
+    vi.mocked(testModelProvider).mockReturnValue(new Promise(() => {}))
+    renderPage("/model-providers?modelId=1")
+    const t = await table()
+    await within(t).findByText("gpt-4o")
+
+    // 行内的 ⚡（aria-label 测试）；两行各一个，取第一行
+    await user.click(within(t).getAllByRole("button", { name: "测试" })[0])
+
+    const dialog = await screen.findByRole("dialog")
+    await user.click(within(dialog).getByRole("button", { name: "执行测试" }))
+
+    expect(within(dialog).getByRole("status")).toHaveTextContent("测试中")
   })
 })
 

@@ -382,7 +382,7 @@ export function ModelProviderFormDialog({
                                 </Button>
                               </div>
                               {errorMsg && (
-                                <p className="text-sm text-red-500">
+                                <p className="text-sm text-destructive">
                                   {errorMsg}
                                 </p>
                               )}

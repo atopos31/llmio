@@ -30,6 +30,10 @@ export default defineConfig({
        */
       include: [
         "src/lib/palette.ts",
+        // 展示层格式化。原本不在门禁内，加进来是因为它现在持有**语义决定**
+        // 而不只是拼字符串：跨天的序列要不要在刻度上带日期，判断错了页面
+        // 照样渲染，只是轴上的时刻重复出现、读者分不清哪段是哪天。
+        "src/lib/format.ts",
         "src/lib/theme.ts",
         "src/lib/utils.ts",
         // 配额页的纯逻辑：格式引擎镜像、状态排序、展示偏好。

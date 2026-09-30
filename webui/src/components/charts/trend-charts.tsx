@@ -19,7 +19,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart"
-import { compactNumber, formatBucketLabel } from "@/lib/format"
+import { bucketLabelFormatter, compactNumber } from "@/lib/format"
 import { seriesVar } from "@/lib/palette"
 import type { TrendPoint } from "@/lib/api"
 
@@ -36,7 +36,8 @@ import type { TrendPoint } from "@/lib/api"
  */
 export function RequestTrendChart({ data }: { data: TrendPoint[] }) {
   const { t } = useTranslation("home")
-  const bucketMs = useMemo(() => inferBucket(data), [data])
+  // 标签格式取决于序列是否跨天，交给工厂判定（见 bucketLabelFormatter）
+  const label = useMemo(() => bucketLabelFormatter(data), [data])
 
   const config = {
     success: { label: t("trend.success"), color: seriesVar(5) },
@@ -54,7 +55,7 @@ export function RequestTrendChart({ data }: { data: TrendPoint[] }) {
           axisLine={false}
           tickMargin={8}
           minTickGap={24}
-          tickFormatter={(v: number) => formatBucketLabel(v, bucketMs)}
+          tickFormatter={(v: number) => label(v)}
         />
         <YAxis
           tickLine={false}
@@ -64,9 +65,7 @@ export function RequestTrendChart({ data }: { data: TrendPoint[] }) {
         />
         <ChartTooltip
           content={
-            <ChartTooltipContent
-              labelFormatter={(v) => formatBucketLabel(Number(v), bucketMs)}
-            />
+            <ChartTooltipContent labelFormatter={(v) => label(Number(v))} />
           }
         />
         <ChartLegend content={<ChartLegendContent />} />
@@ -94,7 +93,7 @@ export function RequestTrendChart({ data }: { data: TrendPoint[] }) {
  */
 export function TokenTrendChart({ data }: { data: TrendPoint[] }) {
   const { t } = useTranslation("home")
-  const bucketMs = useMemo(() => inferBucket(data), [data])
+  const label = useMemo(() => bucketLabelFormatter(data), [data])
 
   // prompt 含缓存读，因此画"非缓存输入 + 缓存读 + 输出"三者，
   // 避免缓存部分被重复计入而让总量虚高（三者之和恰为 totalTokens）
@@ -123,7 +122,7 @@ export function TokenTrendChart({ data }: { data: TrendPoint[] }) {
           axisLine={false}
           tickMargin={8}
           minTickGap={24}
-          tickFormatter={(v: number) => formatBucketLabel(v, bucketMs)}
+          tickFormatter={(v: number) => label(v)}
         />
         <YAxis
           tickLine={false}
@@ -133,9 +132,7 @@ export function TokenTrendChart({ data }: { data: TrendPoint[] }) {
         />
         <ChartTooltip
           content={
-            <ChartTooltipContent
-              labelFormatter={(v) => formatBucketLabel(Number(v), bucketMs)}
-            />
+            <ChartTooltipContent labelFormatter={(v) => label(Number(v))} />
           }
         />
         <ChartLegend content={<ChartLegendContent />} />
@@ -236,13 +233,4 @@ function seqFor(index: number, total: number): string {
   if (total <= 1) return "var(--seq-3)"
   const step = 1 + Math.round((index / (total - 1)) * 4)
   return `var(--seq-${Math.min(5, Math.max(1, step))})`
-}
-
-/**
- * 从趋势数据推断桶宽，供 X 轴标签选择格式（时刻 vs 日期）。
- * 取相邻两点的时间差；不足两点时回落到 1 小时。
- */
-function inferBucket(data: TrendPoint[]): number {
-  if (data.length < 2) return 60 * 60 * 1000
-  return data[1].ts - data[0].ts
 }

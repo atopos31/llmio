@@ -35,8 +35,8 @@ import {
   type DimensionKey,
 } from "@/lib/analytics"
 import {
+  bucketLabelFormatter,
   compactNumber,
-  formatBucketLabel,
   formatDurationMs,
   formatNumber,
   formatPercent,
@@ -456,7 +456,8 @@ export function ErrorsView({ stats }: { stats: StatsResult }) {
 /** 失败时间序列。单序列不需要图例——标题已经说明了它是什么。 */
 function ErrorTrendChart({ data }: { data: StatsResult["errorTrend"] }) {
   const { t } = useTranslation("analytics")
-  const bucketMs = data.length > 1 ? data[1].ts - data[0].ts : 60 * 60 * 1000
+  // 标签格式（要不要带日期）由序列本身判定，与请求趋势图同一套规则
+  const label = bucketLabelFormatter(data)
   const config = { error: { label: t("errors.columns.count") } } satisfies ChartConfig
 
   return (
@@ -469,7 +470,7 @@ function ErrorTrendChart({ data }: { data: StatsResult["errorTrend"] }) {
           axisLine={false}
           tickMargin={8}
           minTickGap={24}
-          tickFormatter={(v: number) => formatBucketLabel(v, bucketMs)}
+          tickFormatter={(v: number) => label(v)}
         />
         <YAxis
           tickLine={false}
@@ -480,9 +481,7 @@ function ErrorTrendChart({ data }: { data: StatsResult["errorTrend"] }) {
         />
         <ChartTooltip
           content={
-            <ChartTooltipContent
-              labelFormatter={(v) => formatBucketLabel(Number(v), bucketMs)}
-            />
+            <ChartTooltipContent labelFormatter={(v) => label(Number(v))} />
           }
         />
         <Bar dataKey="error" fill="var(--series-8)" maxBarSize={24} radius={[4, 4, 0, 0]} />

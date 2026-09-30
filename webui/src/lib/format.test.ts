@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  bucketLabelFormatter,
   compactNumber,
   formatBytes,
   currencySymbol,
-  formatBucketLabel,
   formatClock,
   formatCost,
   formatDateTime,
@@ -14,6 +14,7 @@ import {
   formatNumber,
   formatPercent,
   formatSeconds,
+  inferBucketMs,
 } from "@/lib/format"
 
 describe("compactNumber", () => {
@@ -173,21 +174,78 @@ describe("时间格式化", () => {
   })
 })
 
-describe("formatBucketLabel", () => {
-  it("日内桶用时刻", () => {
-    const ts = new Date(2026, 8, 29, 14, 30).getTime()
-    expect(formatBucketLabel(ts, 60 * 60 * 1000)).toBe("14:30")
+describe("inferBucketMs", () => {
+  it("取相邻两点之差", () => {
+    const base = new Date(2026, 8, 29, 10, 0).getTime()
+    expect(inferBucketMs([{ ts: base }, { ts: base + 30 * 60 * 1000 }])).toBe(30 * 60 * 1000)
   })
 
-  it("日级及以上用日期", () => {
-    // 1 天的桶显示 "24h" 没有意义，读者关心的是"哪一天"
-    const ts = new Date(2026, 8, 29, 0, 0).getTime()
-    expect(formatBucketLabel(ts, 24 * 60 * 60 * 1000)).toBe("9/29")
+  it("不足两点时回落到 1 小时", () => {
+    expect(inferBucketMs([])).toBe(60 * 60 * 1000)
+    expect(inferBucketMs([{ ts: 1 }])).toBe(60 * 60 * 1000)
+  })
+})
+
+describe("bucketLabelFormatter", () => {
+  const at = (y: number, m: number, d: number, h = 0, min = 0) =>
+    new Date(y, m, d, h, min).getTime()
+  /** 一段逐小时的序列，桶宽与跨度都由点数决定——真实的分桶数据就长这样 */
+  const hourly = (start: number, count: number) =>
+    Array.from({ length: count }, (_, i) => ({ ts: start + i * 60 * 60 * 1000 }))
+
+  it("日内的小时桶只显示时刻", () => {
+    const data = hourly(at(2026, 8, 29, 8), 6)
+    expect(bucketLabelFormatter(data)(at(2026, 8, 29, 14, 30))).toBe("14:30")
+  })
+
+  it("跨天的小时桶带上日期", () => {
+    // 这就是"超过一天的小时分析只有重复的小时段"那个缺陷：
+    // 三天的小时桶只显示 HH:MM，轴上会出现三遍同样的时刻，分不清哪段是哪天
+    const data = hourly(at(2026, 8, 29, 0), 73)
+    const label = bucketLabelFormatter(data)
+    expect(label(at(2026, 8, 29, 14, 30))).toBe("09-29 14:30")
+    expect(label(at(2026, 9, 1, 2, 0))).toBe("10-01 02:00")
+    // 相隔两天、同一时刻的两点不再同形，读者能分辨出它们不是同一个桶
+    expect(label(data[0].ts)).not.toBe(label(data[48].ts))
+  })
+
+  it("跨天的半小时桶也带上日期", () => {
+    // 判据是"序列是否跨天"，与桶宽无关：跨午夜的半小时桶同样会重复时刻
+    const data = [
+      { ts: at(2026, 8, 29, 23, 30) },
+      { ts: at(2026, 8, 30, 0, 0) },
+      { ts: at(2026, 8, 30, 0, 30) },
+    ]
+    expect(bucketLabelFormatter(data)(at(2026, 8, 30, 0, 30))).toBe("09-30 00:30")
+  })
+
+  it("跨年的序列也算跨天", () => {
+    const data = [{ ts: at(2026, 11, 31, 23) }, { ts: at(2027, 0, 1, 1) }]
+    expect(bucketLabelFormatter(data)(at(2027, 0, 1, 1))).toBe("01-01 01:00")
+  })
+
+  it("日级桶按天读，不显示时刻", () => {
+    const data = [
+      { ts: at(2026, 8, 29) },
+      { ts: at(2026, 8, 30) },
+      { ts: at(2026, 9, 5) },
+    ]
+    const label = bucketLabelFormatter(data)
+    expect(label(at(2026, 8, 29, 13))).toBe("9/29")
   })
 
   it("更宽的桶也用日期", () => {
-    const ts = new Date(2026, 11, 1, 0, 0).getTime()
-    expect(formatBucketLabel(ts, 7 * 24 * 60 * 60 * 1000)).toBe("12/1")
+    expect(bucketLabelFormatter([], 7 * 24 * 60 * 60 * 1000)(at(2026, 11, 1))).toBe("12/1")
+  })
+
+  it("单点序列不判跨天，用时刻", () => {
+    const ts = at(2026, 8, 29, 9, 5)
+    expect(bucketLabelFormatter([{ ts }])(ts)).toBe("09:05")
+  })
+
+  it("空序列不炸", () => {
+    // crossesDay 会取 data[0]，长度不足时不能走到它
+    expect(bucketLabelFormatter([])(at(2026, 8, 29, 9, 5))).toBe("09:05")
   })
 })
 

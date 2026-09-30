@@ -1194,15 +1194,23 @@ func TestNormalizeTrendSeries(t *testing.T) {
 	t.Parallel()
 
 	t.Run("空切片原样返回", func(t *testing.T) {
-		if got := normalizeTrendSeries(nil, time.Hour); got != nil {
+		if got := normalizeTrendSeries(nil, time.Hour, 0, 0); got != nil {
 			t.Fatalf("want nil, got %v", got)
 		}
 	})
 
 	t.Run("bucket<=0 原样返回", func(t *testing.T) {
 		in := []TrendPoint{{Ts: 1}, {Ts: 2}}
-		got := normalizeTrendSeries(in, 0)
+		got := normalizeTrendSeries(in, 0, 0, 0)
 		if len(got) != 2 {
+			t.Fatalf("want 2, got %d", len(got))
+		}
+	})
+
+	t.Run("桶宽不足 1ms 原样返回", func(t *testing.T) {
+		// 步长会是 0，循环不会前进；档位阶梯产不出这种桶，但不能因此卡死
+		in := []TrendPoint{{Ts: 1}, {Ts: 2}}
+		if got := normalizeTrendSeries(in, 500*time.Microsecond, 0, 0); len(got) != 2 {
 			t.Fatalf("want 2, got %d", len(got))
 		}
 	})
@@ -1213,7 +1221,7 @@ func TestNormalizeTrendSeries(t *testing.T) {
 			{Ts: 0, Total: 1},
 			{Ts: 3 * step, Total: 2},
 		}
-		got := normalizeTrendSeries(in, time.Hour)
+		got := normalizeTrendSeries(in, time.Hour, 0, 0)
 		if len(got) != 4 {
 			t.Fatalf("want 4 个桶，got %d", len(got))
 		}
@@ -1230,9 +1238,137 @@ func TestNormalizeTrendSeries(t *testing.T) {
 	t.Run("首尾相邻时不补桶", func(t *testing.T) {
 		step := time.Hour.Milliseconds()
 		in := []TrendPoint{{Ts: 0}, {Ts: step}}
-		got := normalizeTrendSeries(in, time.Hour)
+		got := normalizeTrendSeries(in, time.Hour, 0, 0)
 		if len(got) != 2 {
 			t.Fatalf("want 2, got %d", len(got))
+		}
+	})
+
+	t.Run("窗口两端都补到边界", func(t *testing.T) {
+		step := time.Hour.Milliseconds()
+		in := []TrendPoint{{Ts: 10 * step, Total: 1}, {Ts: 12 * step, Total: 1}}
+		got := normalizeTrendSeries(in, time.Hour, 8*step, 14*step)
+		if len(got) != 7 {
+			t.Fatalf("want 7 个桶（8..14），got %d", len(got))
+		}
+		if got[0].Ts != 8*step || got[6].Ts != 14*step {
+			t.Fatalf("端点应为窗口边界：%+v", got)
+		}
+		if got[0].Total != 0 || got[6].Total != 0 {
+			t.Fatalf("补出来的桶应为空：%+v", got)
+		}
+	})
+
+	t.Run("窗口收窄到观测区间之内时不丢数据", func(t *testing.T) {
+		step := time.Hour.Milliseconds()
+		in := []TrendPoint{{Ts: 10 * step, Total: 1}, {Ts: 12 * step, Total: 2}}
+		// 窗口只覆盖 11..12，但 10 那个点必须留下——丢真实数据比多补几个桶严重
+		got := normalizeTrendSeries(in, time.Hour, 11*step, 12*step)
+		if len(got) != 3 || got[0].Ts != 10*step || got[0].Total != 1 {
+			t.Fatalf("观测到的点必须保留：%+v", got)
+		}
+	})
+
+	t.Run("错位的窗口端点被对齐到桶格", func(t *testing.T) {
+		step := time.Hour.Milliseconds()
+		in := []TrendPoint{{Ts: 10 * step, Total: 1}}
+		// 端点比桶格早 1ms：不对齐就会每一步都踩空，把唯一的数据点漏掉
+		got := normalizeTrendSeries(in, time.Hour, 9*step-1, 10*step)
+		if len(got) != 2 || got[0].Ts != 9*step || got[1].Total != 1 {
+			t.Fatalf("端点应先对齐再补齐：%+v", got)
+		}
+	})
+}
+
+func TestFillTrendWindow(t *testing.T) {
+	t.Parallel()
+
+	stepped := func(n int) int64 { return int64(n) * time.Hour.Milliseconds() }
+	window := StatsFilter{
+		From: time.Unix(0, 0).Add(8 * time.Hour),
+		To:   time.Unix(0, 0).Add(14 * time.Hour),
+	}
+	result := func(points ...TrendPoint) *StatsResult {
+		return &StatsResult{BucketMs: time.Hour.Milliseconds(), Trend: points}
+	}
+
+	t.Run("补到窗口两端", func(t *testing.T) {
+		res := result(TrendPoint{Ts: stepped(10), Total: 1})
+		fillTrendWindow(res, window)
+		// 窗口 8..14，但 14 那一桶里不可能有数据（查询是 created_at < to），
+		// 因此补到 13 为止，共 6 个桶
+		if len(res.Trend) != 6 {
+			t.Fatalf("want 6 个桶，got %d", len(res.Trend))
+		}
+		if res.Trend[0].Ts != stepped(8) || res.Trend[5].Ts != stepped(13) {
+			t.Fatalf("补出的端点应为窗口边界：%+v", res.Trend)
+		}
+	})
+
+	t.Run("触顶时不补", func(t *testing.T) {
+		res := result(TrendPoint{Ts: stepped(10), Total: 1})
+		res.Truncated = true
+		fillTrendWindow(res, window)
+		if len(res.Trend) != 1 {
+			t.Fatalf("扫描不完整时不该补零：%+v", res.Trend)
+		}
+	})
+
+	t.Run("没有数据时不补", func(t *testing.T) {
+		res := result()
+		fillTrendWindow(res, window)
+		if len(res.Trend) != 0 {
+			t.Fatalf("空序列不该被补成一整窗的 0：%+v", res.Trend)
+		}
+	})
+
+	t.Run("缺窗口端点时不补", func(t *testing.T) {
+		res := result(TrendPoint{Ts: stepped(10), Total: 1})
+		fillTrendWindow(res, StatsFilter{})
+		if len(res.Trend) != 1 {
+			t.Fatalf("没有窗口就无从补起：%+v", res.Trend)
+		}
+	})
+
+	t.Run("桶宽非法时不补", func(t *testing.T) {
+		res := &StatsResult{BucketMs: 0, Trend: []TrendPoint{{Ts: stepped(10), Total: 1}}}
+		fillTrendWindow(res, window)
+		if len(res.Trend) != 1 {
+			t.Fatalf("桶宽为 0 时不该补齐：%+v", res.Trend)
+		}
+	})
+
+	t.Run("窗口颠倒时不补", func(t *testing.T) {
+		res := result(TrendPoint{Ts: stepped(10), Total: 1})
+		fillTrendWindow(res, StatsFilter{
+			From: time.Unix(0, 0).Add(14 * time.Hour),
+			To:   time.Unix(0, 0).Add(8 * time.Hour),
+		})
+		if len(res.Trend) != 1 {
+			t.Fatalf("窗口颠倒时只保留观测区间：%+v", res.Trend)
+		}
+	})
+
+	t.Run("错误序列与请求序列补到同一窗口", func(t *testing.T) {
+		res := result(TrendPoint{Ts: stepped(10), Total: 1})
+		res.ErrorTrend = []TrendPoint{{Ts: stepped(11), Error: 1}}
+		fillTrendWindow(res, window)
+		if len(res.ErrorTrend) != len(res.Trend) {
+			t.Fatalf("want %d 个桶，got %d", len(res.Trend), len(res.ErrorTrend))
+		}
+		if res.ErrorTrend[0].Ts != res.Trend[0].Ts ||
+			res.ErrorTrend[len(res.ErrorTrend)-1].Ts != res.Trend[len(res.Trend)-1].Ts {
+			t.Fatalf("两条序列的横轴必须一致：%+v / %+v", res.Trend, res.ErrorTrend)
+		}
+	})
+
+	t.Run("超长窗口只补最近一段", func(t *testing.T) {
+		from := time.Unix(0, 0)
+		to := from.Add(time.Duration(maxTrendFill+50) * time.Hour)
+		res := result(TrendPoint{Ts: to.Add(-time.Hour).UnixMilli(), Total: 1})
+		fillTrendWindow(res, StatsFilter{From: from, To: to})
+		if len(res.Trend) != maxTrendFill {
+			t.Fatalf("want %d 个桶，got %d", maxTrendFill, len(res.Trend))
 		}
 	})
 }
@@ -1504,6 +1640,55 @@ func TestComputeStats(t *testing.T) {
 	}
 	if len(res.Errors) != 1 || res.Errors[0].Code != "429" {
 		t.Fatalf("错误归类不符：%+v", res.Errors)
+	}
+}
+
+func TestComputeStatsFillsTrendWindow(t *testing.T) {
+	setupStatsDB(t)
+
+	base := time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)
+	// 只在窗口开头留两条记录，窗口其余时段没有请求——正是需要补零的情形
+	for i, l := range []models.ChatLog{
+		logAt(1, base, consts.StatusSuccess),
+		logAt(2, base.Add(time.Minute), consts.StatusError),
+	} {
+		row := l
+		if err := models.DB.Create(&row).Error; err != nil {
+			t.Fatalf("seed %d: %v", i, err)
+		}
+	}
+	f := StatsFilter{From: base, To: base.Add(4 * time.Hour), Granularity: "1h"}
+
+	res, _, err := ComputeStats(context.Background(), f)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// 窗口 10:00..14:00 按 1h 分桶，14:00 那一桶里不可能有数据，因此补到 13:00
+	if len(res.Trend) != 4 {
+		t.Fatalf("want 4 个桶，got %d：%+v", len(res.Trend), res.Trend)
+	}
+	if res.Trend[0].Total != 2 || res.Trend[1].Total != 0 || res.Trend[3].Ts != base.Add(3*time.Hour).UnixMilli() {
+		t.Fatalf("补出的桶应为空且落在正确位置：%+v", res.Trend)
+	}
+	// 错误序列同样补到窗口两端，两个图共用一条横轴
+	if len(res.ErrorTrend) != 4 || res.ErrorTrend[1].Error != 0 {
+		t.Fatalf("错误序列应补到同一窗口：%+v", res.ErrorTrend)
+	}
+
+	// 扫描触顶时退回只补观测区间：窗内老年份没被读到，补零会把"没看"说成"没有请求"
+	prev := StatsScanLimit
+	StatsScanLimit = 1
+	t.Cleanup(func() { StatsScanLimit = prev })
+
+	res, truncated, err := ComputeStats(context.Background(), f)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !truncated {
+		t.Fatal("应标记截断")
+	}
+	if len(res.Trend) != 1 {
+		t.Fatalf("触顶时不该补零，want 1 个桶，got %d：%+v", len(res.Trend), res.Trend)
 	}
 }
 

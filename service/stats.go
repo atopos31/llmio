@@ -699,14 +699,16 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 		res.Trend = append(res.Trend, *p)
 	}
 	sort.Slice(res.Trend, func(i, j int) bool { return res.Trend[i].Ts < res.Trend[j].Ts })
-	res.Trend = normalizeTrendSeries(res.Trend, bucket)
+	// 只补观测区间：按**请求窗口**补齐需要知道这批日志是否覆盖了整个窗口，
+	// 而那是加载层（ComputeStats）才知道的事，见 fillTrendWindow。
+	res.Trend = normalizeTrendSeries(res.Trend, bucket, 0, 0)
 
 	// ---- 错误时间序列 ----
 	sort.Slice(errBucketOrder, func(i, j int) bool { return errBucketOrder[i] < errBucketOrder[j] })
 	for _, ts := range errBucketOrder {
 		res.ErrorTrend = append(res.ErrorTrend, TrendPoint{Ts: ts, Error: errBuckets[ts]})
 	}
-	res.ErrorTrend = normalizeTrendSeries(res.ErrorTrend, bucket)
+	res.ErrorTrend = normalizeTrendSeries(res.ErrorTrend, bucket, 0, 0)
 
 	// ---- 错误类别：按数量降序，同数量按 code 稳定排序 ----
 	res.Errors = make([]ErrorGroup, 0, len(errOrder))
@@ -788,20 +790,44 @@ func bucketStart(ts time.Time, bucket time.Duration) time.Time {
 	return ts.Truncate(bucket)
 }
 
-// normalizeTrendSeries 保证时间序列在两个端点之间连续补齐空桶。
+// normalizeTrendSeries 保证时间序列在 [start, end] 之间连续补齐空桶。
 //
 // 补齐是刻意的：折线图上跳过空桶会让人误读为"那段时间没有请求"与
 // "那段时间数据缺失"是同一件事；补齐为 0 后语义统一为"没有请求"。
-func normalizeTrendSeries(points []TrendPoint, bucket time.Duration) []TrendPoint {
+//
+// start/end 为 0 表示该端不设边界，此时以观测到的首尾为界。任一端都会扩到
+// 与观测区间的**并集**：窗口来自查询参数，不该在这里假设它一定盖得住数据。
+// 漏掉真实数据点比多补几个空桶严重得多。
+func normalizeTrendSeries(points []TrendPoint, bucket time.Duration, start, end int64) []TrendPoint {
 	if len(points) == 0 || bucket <= 0 {
 		return points
 	}
+	stepMs := bucket.Milliseconds()
+	if stepMs <= 0 {
+		// 桶宽不足 1ms 时步长为 0，循环不会前进。档位阶梯产不出这种桶，
+		// 这里拦的是将来有人直接构造 bucket 调进来。
+		return points
+	}
+
+	// 端点对齐到首个数据点所在的桶格：所有时间戳都由 bucketStart 产生、
+	// 天然同格，但对齐不能省——随手传进来的错位端点会让每个真实数据点都
+	// 落在步长的缝里，被静默丢掉。
+	first, last := points[0].Ts, points[len(points)-1].Ts
+	if start == 0 || start > first {
+		start = first
+	} else {
+		start = first - (first-start)/stepMs*stepMs
+	}
+	if end == 0 || end < last {
+		end = last
+	} else {
+		end = last + (end-last)/stepMs*stepMs
+	}
+
 	byTs := make(map[int64]TrendPoint, len(points))
 	for _, p := range points {
 		byTs[p.Ts] = p
 	}
-	stepMs := bucket.Milliseconds()
-	start, end := points[0].Ts, points[len(points)-1].Ts
 
 	out := make([]TrendPoint, 0, (end-start)/stepMs+1)
 	for ts := start; ts <= end; ts += stepMs {
@@ -1049,8 +1075,51 @@ func ComputeStats(ctx context.Context, f StatsFilter) (*StatsResult, bool, error
 	}
 	res := Aggregate(logs, f)
 	res.Truncated = truncated
+	fillTrendWindow(&res, f)
 	resolveKeyGroups(ctx, &res)
 	return &res, truncated, nil
+}
+
+// maxTrendFill 一次补齐最多补出的桶数。
+//
+// 补齐的桶数 = 窗口长度 / 桶宽，两者都来自查询参数：`from=0`（1970）配
+// `granularity=5m` 能算出近 600 万个空桶，一次请求就足以把内存与响应撑爆。
+// 超出预算时只补最近的一段——补齐是给人看的，窗口长度不该成为内存分配的上限。
+const maxTrendFill = 10_000
+
+// fillTrendWindow 把时间序列补齐到**请求窗口**的两端。
+//
+// 为什么补到窗口两端而不是只补观测区间：X 轴是分类轴，相邻两点在图上等距，
+// 实际相隔多久在图里读不出来。只补观测区间时，"三天里其实只跑了两个小时"
+// 会被画得跟"三天一直在跑"一样满——读者无法从图上看出活动集中在哪一段。
+//
+// 触顶（truncated）时刻意不补：日志按 created_at 倒序截断，窗内的老年份根本
+// 没被读到，补零等于把"没看"伪造成"没有请求"——与上面恰好是同一个错误的反方向。
+// 此时维持只补观测区间，前端另有"扫描已达上限"的提示。
+//
+// 空序列不补：没有请求时补出一整窗的 0 只是白白撑大响应，而页面本来就会
+// 显示空状态而不是画这张图。
+func fillTrendWindow(res *StatsResult, f StatsFilter) {
+	bucket := time.Duration(res.BucketMs) * time.Millisecond
+	step := bucket.Milliseconds()
+	if step <= 0 || res.Truncated || f.From.IsZero() || f.To.IsZero() || len(res.Trend) == 0 {
+		return
+	}
+	// to-1ns 才是窗内最后一个可能落桶的时刻：to 恰好压在桶边界上时，
+	// to 所在的那一桶里不可能有数据（查询是 created_at < to），补出来会凭空多一列。
+	start := bucketStart(f.From, bucket).UnixMilli()
+	end := bucketStart(f.To.Add(-time.Nanosecond), bucket).UnixMilli()
+	if end < start {
+		return
+	}
+	// 预算（见 maxTrendFill）。两端都落在桶格上，直接按桶数截断不会破坏对齐。
+	if (end-start)/step > maxTrendFill-1 {
+		start = end - (maxTrendFill-1)*step
+	}
+	res.Trend = normalizeTrendSeries(res.Trend, bucket, start, end)
+	// 每条错误必然落在某个请求桶里，因此 ErrorTrend 的观测区间不会超出 Trend，
+	// 两条序列补完后的左右端必然一致（同一页上两个图的横轴不会错位）
+	res.ErrorTrend = normalizeTrendSeries(res.ErrorTrend, bucket, start, end)
 }
 
 // resolveKeyGroups 把 ByKey 分组的裸 ID 换成 AuthKey 名称，并**按名称合并**。

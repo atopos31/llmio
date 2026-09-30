@@ -81,18 +81,51 @@ export function formatFull(ts: number): string {
 }
 
 /**
- * 分桶宽度 → 人读的档位名。
+ * 趋势数据的桶宽（毫秒）：取相邻两点之差；不足两点时回落到 1 小时。
  *
- * 不直接把桶宽当刻度标签用：1 天的桶应该显示日期而不是 "24h"，
- * 因为读者关心的是"这是哪一天"，不是"桶有多宽"。
+ * 桶宽由服务端按档位阶梯决定，前端不重复维护一份阶梯——那是第二份真相来源。
  */
-export function formatBucketLabel(ts: number, bucketMs: number): string {
-  const dayMs = 24 * 60 * 60 * 1000
-  if (bucketMs >= dayMs) {
-    const d = new Date(ts)
-    return `${d.getMonth() + 1}/${d.getDate()}`
+export function inferBucketMs(data: readonly { ts: number }[]): number {
+  if (data.length < 2) return 60 * 60 * 1000
+  return data[1].ts - data[0].ts
+}
+
+/** 序列是否跨过自然日（本地时区）。 */
+function crossesDay(data: readonly { ts: number }[]): boolean {
+  const first = new Date(data[0].ts)
+  const last = new Date(data[data.length - 1].ts)
+  return (
+    first.getFullYear() !== last.getFullYear() ||
+    first.getMonth() !== last.getMonth() ||
+    first.getDate() !== last.getDate()
+  )
+}
+
+/**
+ * 生成趋势图 X 轴与提示条的标签格式化器。
+ *
+ * "要不要带日期"取决于**这条序列是否跨天**，而不是桶有多宽：1 小时的桶跨三天时，
+ * 只显示 HH:MM 会让轴上出现三遍同样的时刻，读者分不清哪一段是哪天。
+ * 判断收在工厂里，三个调用点就无法各自漏掉它——原来是各写一句
+ * `formatBucketLabel(v, bucketMs)`，桶宽的判断对，跨天的判断缺。
+ *
+ * 标签是桶起点在**本地时区**的读数：服务端返回的是绝对时刻（Unix 毫秒），
+ * 分桶也按绝对时间切，因此整小时偏移的时区下标签正好落在整点。
+ */
+export function bucketLabelFormatter(
+  data: readonly { ts: number }[],
+  bucketMs: number = inferBucketMs(data)
+): (ts: number) => string {
+  // 一天及以上的桶按"哪一天"读：读者关心的是这是几号，不是桶有多宽
+  if (bucketMs >= 24 * 60 * 60 * 1000) {
+    return (ts: number) => {
+      const d = new Date(ts)
+      return `${d.getMonth() + 1}/${d.getDate()}`
+    }
   }
-  return formatClock(ts)
+  // 单点序列没有"跨天"可言，且未必有可比的第二点
+  if (data.length < 2 || !crossesDay(data)) return formatClock
+  return formatDateTime
 }
 
 function pad(n: number): string {

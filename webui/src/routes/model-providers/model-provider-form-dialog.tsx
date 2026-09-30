@@ -102,7 +102,9 @@ export function ModelProviderFormDialog({
   const { t } = useTranslation(['models', 'common']);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] flex flex-col">
+      {/* 只有标题没有说明文字，显式声明"没有描述"：不写的话 Radix 会
+          在控制台告警，而告警多了就没人看了。 */}
+      <DialogContent className="max-h-[85vh] flex flex-col" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>
             {editingAssociation ? t('association_form.edit_title') : t('association_form.add_title')}

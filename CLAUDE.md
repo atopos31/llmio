@@ -65,7 +65,7 @@ docker-compose up -d
 
 The application follows a layered architecture:
 
-1. **Handlers** (`/handler`) — HTTP request processing and routing. Each API area gets its own file: `chat.go` (LLM completion endpoints), `api.go` (management APIs), `models.go` (model CRUD), `auth_keys.go` (API key management), `event_logging.go` (Claude Code event ingestion), `home.go` (static file serving), `count_tokens.go` (Anthropic token counting), `test.go` (provider connectivity tests), `version.go`.
+1. **Handlers** (`/handler`) — HTTP request processing and routing. Each API area gets its own file: `chat.go` (LLM completion endpoints), `api.go` (management APIs), `models.go` (model CRUD), `auth_keys.go` (API key management), `event_logging.go` (Claude Code event ingestion), `stats.go` (analytics aggregation), `count_tokens.go` (Anthropic token counting), `test.go` (provider connectivity and capability tests), `version.go`. Static file serving is not a handler: the React build is embedded in `main.go` via `//go:embed webui/dist`.
 
 2. **Services** (`/service`) — Business logic layer.
    - `chat.go` — Core chat processing: balancing, request dispatch, retry orchestration
@@ -92,7 +92,7 @@ The application follows a layered architecture:
 
 ### Frontend Structure
 
-React 19 + TypeScript + Vite with SWC. Key libraries: Tailwind CSS v4, Radix UI primitives, React Router v7, React Hook Form + Zod, Recharts, i18next, SWR for data fetching. Components in `webui/src/components/` (Radix UI-based primitives in `ui/`), pages in `webui/src/routes/`, API client in `webui/src/lib/api.ts`.
+React 19 + TypeScript + Vite with SWC. Key libraries: Tailwind CSS v4, Radix UI primitives, React Router v7, React Hook Form + Zod, Recharts, i18next (zh-CN / zh-TW / en). Data fetching is plain `fetch` through `webui/src/lib/api.ts` plus page-level `useState`/`useEffect` — there is no query/cache library; each page owns its own loading / empty / error / data states. Components in `webui/src/components/` (Radix UI-based primitives in `ui/`), pages in `webui/src/routes/`, API client in `webui/src/lib/api.ts`.
 
 ### Key Design Patterns
 

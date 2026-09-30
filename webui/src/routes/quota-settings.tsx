@@ -68,7 +68,9 @@ export function QuotaSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      {/* 只有标题没有说明文字，显式声明"没有描述"：不写的话 Radix 会
+          在控制台告警，而告警多了就没人看了。 */}
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{t("settings.title")}</DialogTitle>
         </DialogHeader>

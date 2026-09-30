@@ -602,7 +602,9 @@ export default function LogsPage() {
       <LogDetailSheet log={detailLog} onClose={() => setDetailLog(null)} />
 
       <Dialog open={isCleanDialogOpen} onOpenChange={setIsCleanDialogOpen}>
-        <DialogContent className="w-[92vw] sm:max-w-md">
+        {/* 只有标题没有说明文字，显式声明"没有描述"：不写的话 Radix 会
+            在控制台告警，而告警多了就没人看了。 */}
+        <DialogContent className="w-[92vw] sm:max-w-md" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>{t("clean.title")}</DialogTitle>
           </DialogHeader>

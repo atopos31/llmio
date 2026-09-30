@@ -1,5 +1,10 @@
 {
   "title": "API Key Management",
+  "list_title": "API Keys",
+  "count": "{{total}} total",
+  "no_match": "No API keys match the filters",
+  "load_failed": "Failed to load API keys",
+  "retry": "Retry",
   "loading": "Loading API Keys",
   "no_data": "No API Keys found",
   "filters": {
@@ -27,7 +32,8 @@
     "all_models": "All Models",
     "specified_models": "Specific Models",
     "never_expire": "Never Expires",
-    "not_used": "Never Used"
+    "not_used": "Never Used",
+    "expired": "Expired"
   },
   "mobile": {
     "key_section": "Key",
@@ -51,7 +57,8 @@
     "select_date": "Select date",
     "saving": "Saving...",
     "save": "Save",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "models_load_failed": "Failed to load models"
   },
   "delete_dialog": {
     "title": "Delete this API Key?",

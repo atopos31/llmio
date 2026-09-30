@@ -205,7 +205,10 @@ describe("模型路由页 · 有数据", () => {
 
     const first = await screen.findByRole("row", { name: /gpt-test/ })
     const second = screen.getByRole("row", { name: /claude-test/ })
-    expect(cellText(first, 3)).toBe("2")
+    // 关联数是另一批请求，行先渲染出来不等于数字已经到了——加载中那一列显示
+    // "-"。这里原本同步断言，全量并行跑时偶尔读到 "-"（单跑必过，CI 上假红）。
+    // 等第一行落定即可：两个数字来自同一次响应、同一次渲染。
+    await waitFor(() => expect(cellText(first, 3)).toBe("2"))
     expect(cellText(second, 3)).toBe("0")
   })
 

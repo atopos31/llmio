@@ -3,6 +3,11 @@
   "loading": "加载提供商列表",
   "no_data": "暂无提供商数据",
   "no_match": "未找到匹配的提供商",
+  "list_title": "提供商列表",
+  "count": "共 {{total}} 个",
+  "count_filtered": "筛选后 {{total}} 个",
+  "load_failed": "提供商列表加载失败",
+  "retry": "重试",
   "filters": {
     "name": "提供商名称",
     "name_placeholder": "输入名称",
@@ -53,7 +58,6 @@
     "loading": "加载模型列表"
   },
   "toast": {
-    "fetch_failed": "获取提供商列表失败: {{message}}",
     "delete_success": "提供商 {{name}} 删除成功",
     "delete_failed": "删除提供商失败: {{message}}",
     "copy_model": "已复制模型名称: {{name}}",

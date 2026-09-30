@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 
 /**
  * 空态与失败态。
@@ -31,6 +32,24 @@ export function EmptyState({
         {action ? <div className="mt-2">{action}</div> : null}
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * 列表加载中的骨架。
+ *
+ * 骨架对读屏用户等于空白，因此这里显式声明"正在加载"——否则加载态与
+ * "没有数据"在无障碍树上无法区分。行数只求看出"这里将出现一张列表"，
+ * 不必对应真实条数。
+ */
+export function ListSkeleton({ label, rows = 6 }: { label: string; rows?: number }) {
+  return (
+    <div role="status" aria-busy="true" className="space-y-2 p-3">
+      <span className="sr-only">{label}</span>
+      {Array.from({ length: rows }, (_, index) => (
+        <Skeleton key={index} className="h-8 w-full" />
+      ))}
+    </div>
   )
 }
 

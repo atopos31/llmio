@@ -3,6 +3,11 @@
   "loading": "Loading providers",
   "no_data": "No providers found",
   "no_match": "No matching providers found",
+  "list_title": "Providers",
+  "count": "{{total}} total",
+  "count_filtered": "{{total}} matched",
+  "load_failed": "Failed to load providers",
+  "retry": "Retry",
   "filters": {
     "name": "Provider Name",
     "name_placeholder": "Enter name",
@@ -53,7 +58,6 @@
     "loading": "Loading model list"
   },
   "toast": {
-    "fetch_failed": "Failed to fetch providers: {{message}}",
     "delete_success": "Provider {{name}} deleted successfully",
     "delete_failed": "Failed to delete provider: {{message}}",
     "copy_model": "Copied model name: {{name}}",

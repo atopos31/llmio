@@ -22,7 +22,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import Loading from "@/components/loading";
+import { Panel } from "@/components/panel";
+import { ErrorState, ListSkeleton } from "@/components/state-views";
 import { Label } from "@/components/ui/label";
 import {
   getProviders,
@@ -44,14 +45,16 @@ export default function ProvidersPage() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [providerTemplates, setProviderTemplates] = useState<ProviderTemplate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [modelsOpen, setModelsOpen] = useState(false);
   const [modelsOpenId, setModelsOpenId] = useState<number | null>(null);
   const [providerModels, setProviderModels] = useState<ProviderModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
 
-  // 筛选条件
+  // 筛选条件。名称有 300ms 防抖：不防抖就是每敲一个字符发一次请求
   const [nameFilter, setNameFilter] = useState<string>("");
+  const [nameTerm, setNameTerm] = useState<string>("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [availableTypes, setAvailableTypes] = useState<string[]>([]);
 
@@ -72,28 +75,37 @@ export default function ProvidersPage() {
   });
 
   useEffect(() => {
-    fetchProviders();
     fetchProviderTemplates();
   }, []);
 
-  // 监听筛选条件变化
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setNameTerm(nameFilter.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [nameFilter]);
+
+  // 取数只挂在筛选条件上：初次挂载也走这里，不再另有一条会重复请求的初始化 effect
   useEffect(() => {
     fetchProviders();
-  }, [nameFilter, typeFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nameTerm, typeFilter]);
 
   const fetchProviders = async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       // 处理筛选条件，"all"表示不过滤，空字符串表示不过滤
-      const name = nameFilter.trim() || undefined;
+      const name = nameTerm || undefined;
       const type = typeFilter === "all" ? undefined : typeFilter;
 
       const data = await getProviders({ name, type });
       setProviders(data);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(t('toast.fetch_failed', { message }));
+      // 失败留在面板上：只弹一条会自己消失的提示，正文照旧显示"暂无提供商数据"，
+      // 等于把取数失败说成了确实没有
       console.error(err);
+      setLoadError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -163,12 +175,8 @@ export default function ProvidersPage() {
   return (
     <div className="h-full min-h-0 flex flex-col gap-2 p-1">
       <div className="flex flex-col gap-2 flex-shrink-0">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h2 className="text-2xl font-bold tracking-tight">{t('title')}</h2>
-          </div>
-          <div className="flex w-full sm:w-auto items-center justify-end gap-2">
-          </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="mr-auto text-xl font-semibold tracking-tight">{t('title')}</h2>
         </div>
       </div>
       <div className="flex flex-col gap-2 flex-shrink-0">
@@ -209,17 +217,28 @@ export default function ProvidersPage() {
           </div>
         </div>
       </div>
-      <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
-        {loading ? (
-          <div className="flex h-full items-center justify-center">
-            <Loading message={t('loading')} />
-          </div>
-        ) : providers.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-muted-foreground text-sm text-center px-6">
-            {hasFilter ? t('no_match') : t('no_data')}
-          </div>
-        ) : (
-          <div className="h-full flex flex-col">
+      {loadError ? (
+        <ErrorState
+          title={t('load_failed')}
+          message={loadError}
+          retryLabel={t('retry')}
+          onRetry={() => void fetchProviders()}
+        />
+      ) : (
+        <Panel
+          title={t('list_title')}
+          note={hasFilter ? t("count_filtered", { total: providers.length }) : t("count", { total: providers.length })}
+          className="flex min-h-0 flex-1 flex-col"
+          bodyClassName="flex min-h-0 flex-1 flex-col p-0"
+        >
+          {loading ? (
+            <ListSkeleton label={t('loading')} />
+          ) : providers.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-muted-foreground text-sm text-center px-6">
+              {hasFilter ? t('no_match') : t('no_data')}
+            </div>
+          ) : (
+            <div className="h-full flex flex-col">
             <div className="hidden sm:block flex-1 overflow-y-auto">
               <div className="w-full">
                 <Table className="min-w-[1200px]">
@@ -250,11 +269,11 @@ export default function ProvidersPage() {
                               size="icon"
                               onClick={() => window.open(provider.Console, '_blank')}
                             >
-                              <ExternalLink className="h-2 w-2" />
+                              <ExternalLink className="size-4" />
                             </Button>
                           ) : (
                             <Button variant="ghost" size="icon" disabled>
-                              <ExternalLink className="h-2 w-2 opacity-50" />
+                              <ExternalLink className="size-4 opacity-50" />
                             </Button>
                           )}
                         </TableCell>
@@ -307,11 +326,11 @@ export default function ProvidersPage() {
                             className="h-5 w-5"
                             onClick={() => window.open(provider.Console, '_blank')}
                           >
-                            <ExternalLink className="h-2.5 w-2.5" />
+                            <ExternalLink className="size-3.5" />
                           </Button>
                         ) : (
                           <Button variant="ghost" size="icon" disabled className="h-5 w-5">
-                            <ExternalLink className="h-2.5 w-2.5 opacity-50" />
+                            <ExternalLink className="size-3.5 opacity-50" />
                           </Button>
                         )}
                       </div>
@@ -353,7 +372,8 @@ export default function ProvidersPage() {
             </div>
           </div>
         )}
-      </div>
+        </Panel>
+      )}
 
       <ProviderFormDialog
         open={open}

@@ -12,11 +12,14 @@ export function Panel({
   title,
   note,
   className,
+  bodyClassName,
   children,
 }: {
   title: string
   note?: string
   className?: string
+  /** 正文区的补充类：整块列表要撑满高度时用（`flex-1 min-h-0 p-0`） */
+  bodyClassName?: string
   children: React.ReactNode
 }) {
   return (
@@ -25,7 +28,7 @@ export function Panel({
         <CardTitle className="text-sm font-medium">{title}</CardTitle>
         {note && <p className="text-[11px] text-muted-foreground">{note}</p>}
       </CardHeader>
-      <CardContent className="min-w-0">{children}</CardContent>
+      <CardContent className={cn("min-w-0", bodyClassName)}>{children}</CardContent>
     </Card>
   )
 }

@@ -739,7 +739,8 @@ export default function AuthKeysPage() {
       </div>
 
       <Dialog open={previewKey !== null} onOpenChange={(open) => !open && setPreviewKey(null)}>
-        <DialogContent className="max-w-xl">
+        {/* 只有标题没有说明文字，显式声明"没有描述"，否则 Radix 会在控制台告警 */}
+        <DialogContent className="max-w-xl" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>{previewKey?.Name}</DialogTitle>
           </DialogHeader>

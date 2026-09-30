@@ -134,10 +134,20 @@ function ChartTooltipContent({
     const [item] = payload
     const key = `${labelKey || item?.dataKey || item?.name || "value"}`
     const itemConfig = getPayloadConfigFromPayload(config, item, key)
+    /**
+     * 交给 labelFormatter 的应该是 **label 本身**。
+     *
+     * shadcn 这段原本只在 label 是字符串时才用它，其余一律回落到"系列名"
+     * （itemConfig.label）。趋势图的 label 是 XAxis 上的时间戳（数字），于是
+     * labelFormatter 收到的是"成功"这样的系列名，`Number("成功")` 得 NaN，
+     * 提示条顶部就印出 NaN:NaN。系列名只该在没有 label 时顶替。
+     */
     const value =
-      !labelKey && typeof label === "string"
-        ? config[label as keyof typeof config]?.label || label
-        : itemConfig?.label
+      labelKey || label === undefined || label === null
+        ? itemConfig?.label
+        : typeof label === "string"
+          ? config[label as keyof typeof config]?.label || label
+          : label
 
     if (labelFormatter) {
       return (

@@ -13,6 +13,7 @@ const ModelProvidersPage = lazy(() => import('./routes/model-providers'));
 const LogsPage = lazy(() => import('./routes/logs'));
 const LogChatPage = lazy(() => import('./routes/log-chat'));
 const ComparePage = lazy(() => import('./routes/compare'));
+const QuotaPage = lazy(() => import('./routes/quota'));
 const LoginPage = lazy(() => import('./routes/login'));
 const ConfigPage = lazy(() => import('./routes/config'));
 const AuthKeysPage = lazy(() => import('./routes/auth-keys'));
@@ -47,6 +48,7 @@ function App() {
               <Route path="logs" element={<LogsPage />} />
               <Route path="logs/:logId/chat-io" element={<LogChatPage />} />
               <Route path="compare" element={<ComparePage />} />
+              <Route path="quota" element={<QuotaPage />} />
               <Route path="config" element={<ConfigPage />} />
               <Route path="auth-keys" element={<AuthKeysPage />} />
             </Route>

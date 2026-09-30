@@ -666,36 +666,74 @@ func WorstStatus(items []Item) Status {
 // 展示文本
 // ---------------------------------------------------------------------------
 
-// DefaultFormat 按单位类型给出默认格式模板。
-func DefaultFormat(u Unit) string {
-	switch UnitKindOf(u) {
-	case KindPercent:
-		// 这是余量面板，% 单位展示"还剩多少"而不是"用掉多少"
+// DefaultFormat 按条目实际拿到的值给出默认格式模板。
+//
+// **不能只看单位**：额度类的默认模板 `{remaining} / {total} {unit}` 在缺 total
+// 时会渲染出 `42 /  tokens` 这样带悬空分隔符与双空格的文本——deepseek 的
+// 余额接口只返回 total_balance，正是最常见的"只有剩余"场景，等于是默认路径
+// 上的瑕疵。缺分量时退回只报能报的那一部分。
+func DefaultFormat(it Item) string {
+	kind := UnitKindOf(it.Unit)
+
+	// 百分比自带单位符号，也不能拼 unit（否则会出 "8% %"）；
+	// 它在归一阶段就固定由 remaining 推出，因此含义恒为"还剩多少"。
+	if kind == KindPercent {
 		return "{remaining}%"
-	case KindMoney:
-		return "{remaining} {unit}"
-	case KindAmount:
-		return "{remaining} / {total} {unit}"
+	}
+
+	// unit 为空时不拼 {unit}，避免模板里留下一个渲染成空串的尾随占位符
+	withUnit := func(base string) string {
+		if it.Unit == "" {
+			return base
+		}
+		return base + " {unit}"
+	}
+
+	switch {
+	case it.Used != nil && it.Total != nil:
+		// 与百分比默认同一口径：这是余量面板，主体报"还剩多少"。
+		// 剩余量由 used/total 推出（"任二补一"），因此这里必然有值。
+		return withUnit("{remaining} / {total}")
+	case it.Remaining != nil:
+		// 只有剩余：金额类要报出币种（"12.50" 不如 "12.50 CNY" 有用），
+		// 其余单位本身就无歧义
+		if kind == KindMoney {
+			return withUnit("{remaining}")
+		}
+		return "{remaining}"
+	case it.Used != nil:
+		if kind == KindMoney {
+			return withUnit("{used}")
+		}
+		return "{used}"
+	case it.Total != nil:
+		return withUnit("{total}")
 	default:
+		// 三个分量都没有：交给渲染器产出空串，由调用方隐藏该条目
 		return "{remaining}"
 	}
 }
 
-// RenderItem 按条目自己的 Format（没有则按单位默认）渲染展示文本。
+// RenderItem 按条目自己的 Format（没有则按实际值选默认）渲染展示文本。
 //
 // 模板语法：{used} {total} {remaining} {percent} {unit} {label} {window}
-// 精度用 {used:2} 表示保留两位小数；{window} 渲染成中文窗口名。
+// 精度用 `{used:2}` 表示保留两位小数；`{window}` 渲染成中文窗口名。
 func RenderItem(it Item) string {
 	format := it.Format
 	if format == "" {
-		format = DefaultFormat(it.Unit)
+		format = DefaultFormat(it)
 	}
-	text := RenderTemplate(format, it)
-	// 若模板引用了没值的字段，渲染结果会含空白占位，此时回落到默认
-	if strings.TrimSpace(text) == "" {
-		return ""
-	}
-	return text
+	return RenderTemplate(format, it)
+}
+
+// TryRenderItem 渲染并回报是否有可展示的内容。
+//
+// 保留 RenderItem 只返回字符串（`text` 字段的形状不变），把"有没有内容"
+// 单独回给调用方：条目三个分量全缺时应被界面隐藏，而不是显示一个像样的
+// 假值或一个空白的进度条行。
+func TryRenderItem(it Item) (string, bool) {
+	text := RenderItem(it)
+	return text, text != ""
 }
 
 // RenderTemplate 按模板渲染。未知占位符原样保留——

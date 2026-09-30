@@ -2,8 +2,10 @@ package handler
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/atopos31/llmio/models"
@@ -193,6 +195,80 @@ func TestQuotaWrites500WhenConfigUnwritable(t *testing.T) {
 		ImportQuotaSource(c)
 		if resp := decodeResp(t, w); resp.Code != http.StatusInternalServerError {
 			t.Fatalf("写盘失败应业务码 500，实得 %d（%s）", resp.Code, w.Body.String())
+		}
+	})
+}
+
+func TestUpdateQuotaConfig(t *testing.T) {
+	t.Run("正常更新并落盘", func(t *testing.T) {
+		withTempQuotaStore(t)
+		c, w := jsonCtx(t, http.MethodPut, "/api/quota/config", map[string]any{
+			"refreshInterval": 300, "warningAt": 70,
+		})
+		UpdateQuotaConfig(c)
+		if resp := decodeResp(t, w); resp.Code != http.StatusOK {
+			t.Fatalf("应成功: %s", w.Body.String())
+		}
+		cfg, err := quotaStore.Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.RefreshInterval != 300 || cfg.WarningAt != 70 {
+			t.Fatalf("应落盘新值: %#v", cfg)
+		}
+	})
+
+	t.Run("负数是用户输入问题 400", func(t *testing.T) {
+		withTempQuotaStore(t)
+		c, w := jsonCtx(t, http.MethodPut, "/api/quota/config", map[string]any{
+			"refreshInterval": -1, "warningAt": 70,
+		})
+		UpdateQuotaConfig(c)
+		if resp := decodeResp(t, w); resp.Code != http.StatusBadRequest {
+			t.Fatalf("应业务码 400，实得 %d（%s）", resp.Code, w.Body.String())
+		}
+	})
+
+	t.Run("阈值越界 400", func(t *testing.T) {
+		withTempQuotaStore(t)
+		c, w := jsonCtx(t, http.MethodPut, "/api/quota/config", map[string]any{
+			"refreshInterval": 60, "warningAt": 101,
+		})
+		UpdateQuotaConfig(c)
+		if resp := decodeResp(t, w); resp.Code != http.StatusBadRequest {
+			t.Fatalf("应业务码 400，实得 %d（%s）", resp.Code, w.Body.String())
+		}
+	})
+
+	t.Run("脏请求体 400", func(t *testing.T) {
+		withTempQuotaStore(t)
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPut, "/api/quota/config", strings.NewReader("nope"))
+		UpdateQuotaConfig(c)
+		if resp := decodeResp(t, w); resp.Code != http.StatusBadRequest {
+			t.Fatalf("应业务码 400，实得 %d（%s）", resp.Code, w.Body.String())
+		}
+	})
+
+	t.Run("只读模式 403", func(t *testing.T) {
+		t.Setenv("LLMIO_QUOTA_ALLOW_WRITE", "false")
+		withTempQuotaStore(t)
+		c, w := jsonCtx(t, http.MethodPut, "/api/quota/config", map[string]any{"refreshInterval": 60})
+		UpdateQuotaConfig(c)
+		if resp := decodeResp(t, w); resp.Code != http.StatusForbidden {
+			t.Fatalf("应业务码 403，实得 %d", resp.Code)
+		}
+	})
+
+	t.Run("写盘失败 500", func(t *testing.T) {
+		withUnwritableQuotaStore(t)
+		c, w := jsonCtx(t, http.MethodPut, "/api/quota/config", map[string]any{
+			"refreshInterval": 300, "warningAt": 70,
+		})
+		UpdateQuotaConfig(c)
+		if resp := decodeResp(t, w); resp.Code != http.StatusInternalServerError {
+			t.Fatalf("应业务码 500，实得 %d（%s）", resp.Code, w.Body.String())
 		}
 	})
 }

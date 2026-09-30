@@ -32,6 +32,11 @@ export default defineConfig({
         "src/lib/palette.ts",
         "src/lib/theme.ts",
         "src/lib/utils.ts",
+        // 配额页的纯逻辑：格式引擎镜像、状态排序、展示偏好。
+        // 归入 A 层的理由与 palette 相同——它每一个分支都对应一个语义决定
+        // （未知占位符原样保留、未知状态不排到最后、清除覆盖而非置假值），
+        // 漏测就是漏语义，而不是漏了一行展示代码。
+        "src/lib/quota.ts",
         "src/utils/**/*.ts",
         "src/hooks/**/*.ts",
         "src/stores/**/*.ts",

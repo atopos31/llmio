@@ -23,6 +23,7 @@ import {
   FaKey,
   FaExternalLinkAlt,
   FaColumns,
+  FaBatteryThreeQuarters,
 } from "react-icons/fa"
 import { toast } from "sonner"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -41,6 +42,7 @@ type NavLabelKey =
   | "nav.home"
   | "nav.logs"
   | "nav.compare"
+  | "nav.quota"
   | "nav.providers"
   | "nav.models"
   | "nav.auth_keys"
@@ -65,6 +67,9 @@ const NAV_GROUPS: { labelKey: NavGroupLabelKey; items: NavItem[] }[] = [
       { to: "/", labelKey: "nav.home", icon: <FaHome /> },
       { to: "/logs", labelKey: "nav.logs", icon: <FaFileAlt /> },
       { to: "/compare", labelKey: "nav.compare", icon: <FaColumns /> },
+      // 余量归"观察"组而不是"配置"：它回答"现在还剩多少"，
+      // 是看的东西。加/改数据源虽然也在这一页，但那是次要动作。
+      { to: "/quota", labelKey: "nav.quota", icon: <FaBatteryThreeQuarters /> },
     ],
   },
   {

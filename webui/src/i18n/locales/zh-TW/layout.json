@@ -10,7 +10,8 @@
     "group_observe": "觀察",
     "group_config": "設定",
     "primary_label": "主導覽",
-    "compare": "請求對比"
+    "compare": "請求對比",
+    "quota": "套餐餘量"
   },
   "sidebar": {
     "collapse": "收起選單"

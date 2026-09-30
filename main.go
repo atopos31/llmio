@@ -167,6 +167,7 @@ func main() {
 		// 读端点与外层一致（TOKEN 之后）；写端点另受 LLMIO_QUOTA_ALLOW_WRITE 控制，
 		// 关掉即只读（计划 §3.3）。
 		api.GET("/quota/config", handler.GetQuotaConfig)
+		api.PUT("/quota/config", handler.UpdateQuotaConfig)
 		api.POST("/quota/sources", handler.UpsertQuotaSource)
 		api.PUT("/quota/sources", handler.UpsertQuotaSource)
 		api.DELETE("/quota/sources/:id", handler.DeleteQuotaSource)

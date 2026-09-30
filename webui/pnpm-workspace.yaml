@@ -1,4 +1,31 @@
-ignoredBuiltDependencies:
-  - '@swc/core'
-  - '@tailwindcss/oxide'
-  - esbuild
+# 这三个包都不需要跑构建脚本：它们各自在 npm 上分发对应的预编译产物
+# （@swc/core 与 @tailwindcss/oxide 的 win32-x64 二进制、esbuild 的 @esbuild/win32-x64）。
+# 显式写 false 是因为 `set this to true or false` 是**未决**占位，而未决按
+# pnpm 的默认拒绝策略处理——那会让每次 install 都以 ERR_PNPM_IGNORED_BUILDS 中断。
+allowBuilds:
+  '@swc/core': false
+  '@tailwindcss/oxide': false
+  esbuild: false
+
+# 把 Radix 的两处**带模块级状态**的依赖钉成单一版本。
+#
+# 起因是一个实打实的 bug：点开"数据源"下拉菜单、再点其中的"从 llmio 导入"，
+# 关掉对话框后整页点不动。根因是 dismissable-layer 被装了两份——
+# react-dialog 1.1.14 把它精确锁在 1.1.10，react-menu 用 1.1.19。
+#
+# 那个包里 `originalBodyPointerEvents` 是**模块级变量**，而"已禁用外部指针的层"
+# 这个集合挂在各自包的 Context 上。于是两份拷贝既不共享集合、又共享变量：
+#   菜单先开 → 记下 "" 并把 body 设为 pointer-events:none
+#   对话框再开 → 在 body 已是 none 时**记下 none**
+#   菜单关掉 → 还原成 ""
+#   对话框关掉 → 按自己那份快照还原，写回 none  ← 整页从此点不动
+#
+# react-remove-scroll 是同一类问题：模块级 `idCounter` 与 `lockStack` 被两份
+# 各自维护时，上方的那份会误判自己是最后一个滚动锁而去拦背景滚动，
+# 两份还会算出同一个 class 名（block-interactivity-0）互相覆盖。
+#
+# 只留一份即可根治。这两个版本都是向后兼容的追加（dismissable-layer 1.1.19
+# 相对 1.1.10 只在类型上多了可选 prop 与一个导出），因此强制全部提升是安全的。
+overrides:
+  "@radix-ui/react-dismissable-layer": ^1.1.19
+  react-remove-scroll: ^2.7.2

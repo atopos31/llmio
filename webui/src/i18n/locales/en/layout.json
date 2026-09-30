@@ -10,7 +10,8 @@
     "group_observe": "Observe",
     "group_config": "Configure",
     "primary_label": "Primary navigation",
-    "compare": "Compare"
+    "compare": "Compare",
+    "quota": "Quota"
   },
   "sidebar": {
     "collapse": "Collapse Menu"

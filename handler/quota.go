@@ -50,6 +50,34 @@ func GetQuotaConfig(c *gin.Context) {
 	})
 }
 
+// UpdateQuotaConfig 改配置级字段（缓存时长、告警阈值）。
+//
+// 与 UpsertQuotaSource 分开的理由：那两个字段不属于任何数据源，
+// 混在源的保存里会让"我只想改个阈值"变成一次数据源写操作。
+func UpdateQuotaConfig(c *gin.Context) {
+	if !requireQuotaWrite(c) {
+		return
+	}
+	var body struct {
+		RefreshInterval int     `json:"refreshInterval"`
+		WarningAt       float64 `json:"warningAt"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		common.BadRequest(c, "请求体应形如 {\"refreshInterval\": 120, \"warningAt\": 80}")
+		return
+	}
+	cfg, err := quotaStore.UpdateConfig(body.RefreshInterval, body.WarningAt)
+	if err != nil {
+		if isQuotaInputError(err) {
+			common.BadRequest(c, err.Error())
+			return
+		}
+		common.InternalServerError(c, err.Error())
+		return
+	}
+	common.Success(c, cfg)
+}
+
 // UpsertQuotaSource 新增或更新一个数据源。
 //
 // 路由上区分新增与更新：新增用 POST（不带 id 或 id 冲突时报错），
@@ -234,7 +262,7 @@ func isQuotaInputError(err error) bool {
 	msg := err.Error()
 	for _, kw := range []string{
 		"需要填写", "未知内置适配器", "未知数据源类型", "需要账号会话",
-		"已存在", "已导入", "不能为负", "重复", "无法从上游配置推导",
+		"已存在", "已导入", "不能为负", "应在", "重复", "无法从上游配置推导",
 	} {
 		if strings.Contains(msg, kw) {
 			return true

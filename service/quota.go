@@ -413,6 +413,35 @@ func (s *QuotaStore) Save(cfg *quota.Config) error {
 	return nil
 }
 
+// UpdateConfig 改配置级字段（缓存时长、告警阈值），不动数据源。
+//
+// 这两个字段决定"上游被打多勤"与"什么叫告警"，是**配置级**的运维参数，
+// 与任何单个数据源无关。给它们一个独立入口，而不是逼用户去改第一个源
+// 来顺带触发整份落盘——那种做法既隐晦又会在"一个源都没有"时失效。
+//
+// 传 0 表示用默认值（归一层会填上），因此这里只拒绝负数与越界。
+func (s *QuotaStore) UpdateConfig(refreshInterval int, warningAt float64) (*quota.Config, error) {
+	if refreshInterval < 0 {
+		return nil, fmt.Errorf("刷新间隔不能为负")
+	}
+	if warningAt < 0 || warningAt > 100 {
+		return nil, fmt.Errorf("告警阈值应在 0 到 100 之间")
+	}
+	cfg, err := s.Load()
+	if err != nil {
+		return nil, err
+	}
+	cfg.RefreshInterval = refreshInterval
+	cfg.WarningAt = warningAt
+	if err := quota.SaveConfig(s.path, cfg); err != nil {
+		return nil, err
+	}
+	// 缓存时长变了，已有条目的寿命也随之改变：整体清掉，
+	// 避免继续按旧 TTL 命中（用户会觉得"改了没生效"）
+	s.Invalidate("")
+	return quota.MaskConfig(cfg), nil
+}
+
 // Invalidate 清缓存。id 为空时清空全部。
 func (s *QuotaStore) Invalidate(id string) {
 	s.mu.Lock()

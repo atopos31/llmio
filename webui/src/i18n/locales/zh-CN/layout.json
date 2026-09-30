@@ -10,7 +10,8 @@
     "group_observe": "观察",
     "group_config": "配置",
     "primary_label": "主导航",
-    "compare": "请求对比"
+    "compare": "请求对比",
+    "quota": "套餐余量"
   },
   "sidebar": {
     "collapse": "收起菜单"

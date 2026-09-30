@@ -1,5 +1,14 @@
 // API client for interacting with the backend
 
+import type {
+  QuotaConfig,
+  QuotaConfigResponse,
+  QuotaRunResult,
+  QuotaSource,
+  QuotaTestResult,
+  QuotaUpstreamCandidate,
+} from "@/lib/quota"
+
 const API_BASE = '/api';
 
 export interface Provider {
@@ -816,4 +825,105 @@ export async function checkLatestRelease(owner: string, repo: string): Promise<G
     console.error('Error checking for updates:', error);
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// 配额（余量）
+// ---------------------------------------------------------------------------
+//
+// 类型定义在 @/lib/quota，与配额页共用一个真相来源；这里只做端点包装。
+// 八个端点里只有两个在**未落盘**的数据上工作（run / test），它们不会改变
+// 任何状态——因此只读模式下 test 依然开放（否则用户没法调脚本）。
+
+/** 读配置（含内置适配器清单、配置文件路径、写权限开关）。 */
+export async function getQuotaConfig(): Promise<QuotaConfigResponse> {
+  return apiRequest<QuotaConfigResponse>("/quota/config");
+}
+
+/**
+ * 改配置级字段（缓存时长、告警阈值）。
+ *
+ * 与数据源的保存分开：这两个字段不属于任何源，混在一起会让
+ * "我只想改个阈值"变��一次数据源写操作。
+ */
+export async function updateQuotaConfig(cfg: {
+  refreshInterval: number
+  warningAt: number
+}): Promise<QuotaConfig> {
+  return apiRequest<QuotaConfig>("/quota/config", {
+    method: "PUT",
+    body: JSON.stringify(cfg),
+  })
+}
+
+/** 新增数据源。不带 id 时由服务端生成。 */
+export async function createQuotaSource(source: QuotaSource): Promise<QuotaSource> {
+  return apiRequest<QuotaSource>("/quota/sources", {
+    method: "POST",
+    body: JSON.stringify(source),
+  });
+}
+
+/** 更新数据源。按 id 命中已有项。 */
+export async function updateQuotaSource(source: QuotaSource): Promise<QuotaSource> {
+  return apiRequest<QuotaSource>("/quota/sources", {
+    method: "PUT",
+    body: JSON.stringify(source),
+  });
+}
+
+export async function deleteQuotaSource(id: string): Promise<void> {
+  return apiRequest<void>(`/quota/sources/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/**
+ * 跑全部启用源（或指定 id）。
+ *
+ * force=true 忽略缓存重新取数。ids 为空时不加该参数——
+ * 服务端把空列表解释为"全部"，显式发一个空的 ids= 反而会被当成
+ * "一个源都不跑"（splitIDs 会返回 nil，语义上没有区别，但不发更清楚）。
+ */
+export async function runQuotaSources(
+  opts: { force?: boolean; ids?: string[] } = {}
+): Promise<QuotaRunResult> {
+  const params = new URLSearchParams();
+  if (opts.force) params.append("force", "true");
+  if (opts.ids?.length) params.append("ids", opts.ids.join(","));
+  const qs = params.toString();
+  return apiRequest<QuotaRunResult>(`/quota/run${qs ? `?${qs}` : ""}`, { method: "POST" });
+}
+
+/** 只刷一个数据源，其余走缓存。 */
+export async function refreshQuotaSource(id: string): Promise<QuotaRunResult> {
+  return apiRequest<QuotaRunResult>(`/quota/sources/${encodeURIComponent(id)}/refresh`, {
+    method: "POST",
+  });
+}
+
+/**
+ * 试跑一个**未保存**的数据源。不落盘、不写缓存，只读模式下也开放。
+ */
+export async function testQuotaSource(source: QuotaSource): Promise<QuotaTestResult> {
+  return apiRequest<QuotaTestResult>("/quota/test", {
+    method: "POST",
+    body: JSON.stringify(source),
+  });
+}
+
+/** 列出上游 llmio 供应商并给出导入建议（密钥已掩码）。 */
+export async function discoverQuotaSources(): Promise<QuotaUpstreamCandidate[]> {
+  return apiRequest<QuotaUpstreamCandidate[]>("/quota/discover");
+}
+
+/**
+ * 从上游供应商导入一个数据源。
+ *
+ * **只提交 upstreamId**：密钥由服务端直接从上游配置取，不经过浏览器。
+ * 传别的字段不会生效，也不要在这里加密钥——那正是这条设计要避免的。
+ */
+export async function importQuotaSource(upstreamId: number): Promise<QuotaSource> {
+  return apiRequest<QuotaSource>("/quota/import", {
+    method: "POST",
+    body: JSON.stringify({ upstreamId }),
+  });
 }

@@ -668,22 +668,76 @@ func TestWorstStatus(t *testing.T) {
 func TestDefaultFormat(t *testing.T) {
 	t.Parallel()
 
+	// 默认模板取决于**实际拿到了哪些分量**，不只是单位。
+	// 只按单位给模板会在缺 total 时渲染出 "42 /  tokens"（悬空分隔符 + 双空格），
+	// 而 deepseek 的余额接口只返回 total_balance，正是最常见的"只有剩余"场景。
+	am := func(v float64) *float64 { return &v }
 	tests := []struct {
-		unit Unit
+		name string
+		item Item
 		want string
 	}{
-		{UnitPercent, "{remaining}%"},
-		{UnitCNY, "{remaining} {unit}"},
-		{UnitUSD, "{remaining} {unit}"},
-		{UnitTokens, "{remaining} / {total} {unit}"},
-		{UnitCredits, "{remaining} / {total} {unit}"},
-		{UnitCount, "{remaining} / {total} {unit}"},
-		{UnitUnknown, "{remaining}"},
+		{"百分比恒为剩余（自带单位符号，不拼 unit）",
+			Item{Unit: UnitPercent, Remaining: am(8), Used: am(92), Total: am(100)}, "{remaining}%"},
+		{"金额有总量 —— 主体仍是剩余", Item{Unit: UnitCNY, Used: am(3), Total: am(10)}, "{remaining} / {total} {unit}"},
+		{"额度有总量", Item{Unit: UnitTokens, Used: am(3), Total: am(10)}, "{remaining} / {total} {unit}"},
+		{"金额只有剩余 —— 要报出币种", Item{Unit: UnitUSD, Remaining: am(7)}, "{remaining} {unit}"},
+		{"额度只有剩余 —— 单位本身无歧义", Item{Unit: UnitTokens, Remaining: am(7)}, "{remaining}"},
+		{"金额只有已用", Item{Unit: UnitCNY, Used: am(3)}, "{used} {unit}"},
+		{"额度只有已用", Item{Unit: UnitTokens, Used: am(3)}, "{used}"},
+		{"单位未知且有总量 —— 不拼空单位", Item{Used: am(3), Total: am(10)}, "{remaining} / {total}"},
+		{"单位未知且只有剩余", Item{Remaining: am(7)}, "{remaining}"},
+		{"只有总量", Item{Unit: UnitTokens, Total: am(10)}, "{total} {unit}"},
+		{"三个分量全无 —— 交给渲染器产出空串", Item{}, "{remaining}"},
 	}
 	for _, tc := range tests {
-		if got := DefaultFormat(tc.unit); got != tc.want {
-			t.Fatalf("DefaultFormat(%q): 期望 %q，实得 %q", tc.unit, tc.want, got)
+		t.Run(tc.name, func(t *testing.T) {
+			if got := DefaultFormat(tc.item); got != tc.want {
+				t.Fatalf("默认模板: 期望 %q，实得 %q", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestRenderItemNoDanglingSeparator(t *testing.T) {
+	t.Parallel()
+
+	// 这条用例钉的是一个被修掉的真实瑕疵：额度类默认模板在缺 total 时
+	// 会渲染成 "42 /  tokens"。它不是显示偏好问题，而是默认路径上的脏输出。
+	cases := []struct {
+		body string
+		want string
+	}{
+		{`{"remaining":42,"unit":"tokens"}`, "42"},
+		{`{"remaining":42,"currency":"CNY"}`, "42.00 CNY"},
+		{`{"used":3,"total":10,"unit":"tokens"}`, "7 / 10 tokens"},
+	}
+	for _, tc := range cases {
+		items, err := Normalize(parseJSON(t, tc.body), NormalizeOptions{})
+		if err != nil {
+			t.Fatalf("意外错误: %v", err)
 		}
+		if items[0].Text != tc.want {
+			t.Fatalf("渲染 %s: 期望 %q，实得 %q", tc.body, tc.want, items[0].Text)
+		}
+	}
+}
+
+func TestTryRenderItem(t *testing.T) {
+	t.Parallel()
+
+	// 有内容 -> 可展示
+	items, err := Normalize(parseJSON(t, `{"remaining":7,"unit":"tokens"}`), NormalizeOptions{})
+	if err != nil {
+		t.Fatalf("意外错误: %v", err)
+	}
+	if text, ok := TryRenderItem(items[0]); !ok || text != "7" {
+		t.Fatalf("应可展示，实得 %q %v", text, ok)
+	}
+
+	// 什么都没有 -> 空串，且明确回报"不可展示"，界面据此隐藏该条目
+	if text, ok := TryRenderItem(Item{}); ok || text != "" {
+		t.Fatalf("无分量时应隐藏，实得 %q %v", text, ok)
 	}
 }
 

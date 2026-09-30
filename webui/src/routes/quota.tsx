@@ -10,13 +10,13 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
-import { QuotaCard } from "@/routes/quota-card"
+import { QuotaCard, QuotaStatusBadge } from "@/routes/quota-card"
 import { QuotaEditorDialog } from "@/routes/quota-editor"
 import { QuotaImportDialog } from "@/routes/quota-import"
 import { QuotaItemDialog } from "@/routes/quota-item-dialog"
 import { QuotaSettingsDialog } from "@/routes/quota-settings"
 import { QuotaSourceViewDialog } from "@/routes/quota-source-view"
-import { EmptyState } from "@/components/state-views"
+import { EmptyState, ErrorState } from "@/components/state-views"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -375,18 +375,9 @@ export default function QuotaPage() {
             <>
               <span className="text-muted-foreground">{t("summary.worst")}</span>
               <span className="flex items-center gap-1.5 font-medium">
-                <span
-                  className={cn(
-                    "size-2 rounded-full",
-                    summary.worst.it.status === "exhausted"
-                      ? "bg-status-critical"
-                      : summary.worst.it.status === "warning"
-                        ? "bg-status-warning"
-                        : summary.worst.it.status === "ok"
-                          ? "bg-status-good"
-                          : "bg-muted-foreground"
-                  )}
-                />
+                {/* 状态用卡片那枚"字形 + 文字"的徽标，而不是只换颜色的小圆点：
+                    红绿对立对色盲用户不可用，圆点也不带任何可读的文字 */}
+                <QuotaStatusBadge status={summary.worst.it.status} compact />
                 {summary.worst.source.name} · {summary.worst.it.label}
                 {summary.worst.it.percent !== null && (
                   <span className="reading">
@@ -427,13 +418,23 @@ export default function QuotaPage() {
       {/* ---- 内容 ---- */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loading ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          /* 骨架对读屏等于空白：不声明 role="status"，"正在读取余量"与
+             "还没有配置数据源"在无障碍树上就是同一件事 */
+          <div role="status" aria-busy="true" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <span className="sr-only">{t("loading")}</span>
             {[0, 1, 2].map((i) => (
               <Skeleton key={i} className="h-32" />
             ))}
           </div>
         ) : loadError && sources.length === 0 ? (
-          <EmptyState title={t("error.load")} hint={loadError} />
+          /* 失败用失败态而不是空态：空态没有原文、也没有重试。原先这两态
+             长得一样，"没取到"就被读成了"没有配置数据源" */
+          <ErrorState
+            title={t("error.load")}
+            message={loadError}
+            retryLabel={t("refresh")}
+            onRetry={() => void load({ force: true })}
+          />
         ) : sources.length === 0 ? (
           <EmptyState
             title={t("empty.title")}

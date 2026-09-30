@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
@@ -174,35 +174,7 @@ export default function AuthKeysPage() {
 
   const allowAll = form.watch("allow_all");
 
-  useEffect(() => {
-    fetchModels();
-  }, []);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setSearchTerm(searchInput.trim());
-      setPage(1);
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [searchInput]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [statusFilter, allowAllFilter]);
-
-  useEffect(() => {
-    fetchAuthKeys();
-  }, [page, pageSize, statusFilter, allowAllFilter, searchTerm]);
-
-
-  const filteredModels = useMemo(() => {
-    if (!modelSearch) return models;
-    return models.filter((model) =>
-      model.Name.toLowerCase().includes(modelSearch.toLowerCase())
-    );
-  }, [models, modelSearch]);
-
-  const fetchModels = async () => {
+  const fetchModels = useCallback(async () => {
     try {
       setModelsError(null);
       const list = await getModelOptions();
@@ -213,9 +185,11 @@ export default function AuthKeysPage() {
       console.error(error);
       setModelsError(error instanceof Error ? error.message : String(error));
     }
-  };
+  }, []);
 
-  const fetchAuthKeys = async () => {
+  // 列表取数：依赖项就是查询条件本身。用 useCallback 收口，下面的副作用
+  // 才能如实声明"条件变了就重取"，而不是把整套条件藏进空依赖里。
+  const fetchAuthKeys = useCallback(async () => {
     setLoading(true);
     try {
       setLoadError(null);
@@ -242,7 +216,35 @@ export default function AuthKeysPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, pageSize, statusFilter, allowAllFilter, searchTerm]);
+
+  useEffect(() => {
+    fetchModels();
+  }, [fetchModels]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchTerm(searchInput.trim());
+      setPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, allowAllFilter]);
+
+  useEffect(() => {
+    fetchAuthKeys();
+  }, [fetchAuthKeys]);
+
+
+  const filteredModels = useMemo(() => {
+    if (!modelSearch) return models;
+    return models.filter((model) =>
+      model.Name.toLowerCase().includes(modelSearch.toLowerCase())
+    );
+  }, [models, modelSearch]);
 
   const handleDialogOpenChange = (open: boolean) => {
     setDialogOpen(open);

@@ -569,6 +569,10 @@ export default function ModelProvidersPage() {
                 </Button>
               </div>
             </div>
+            {/* 排序怎么操作；筛着的时候同一行位置改说为什么不能排序 */}
+            <p className="text-[11px] text-muted-foreground">
+              {hasModelOverviewFilter ? t('order.blocked_by_filter') : t('order.hint')}
+            </p>
           </div>
         )}
 

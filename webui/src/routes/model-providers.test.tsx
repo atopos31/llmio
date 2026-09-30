@@ -263,3 +263,111 @@ describe("模型路由页 · 关联列表的空", () => {
     expect(screen.queryByText("该模型还没有关联的提供商")).not.toBeInTheDocument()
   })
 })
+
+/**
+ * 键盘的排序路径（方案 D9：模型排序拖拽要能全程用键盘完成）。
+ *
+ * 拖拽只有鼠标能做，但"调顺序"这件事本身是键盘可做的：焦点落在某一行上时
+ * Alt+↑/↓ 上下移一位，走的是与拖拽完全相同的那条保存路径。
+ * 断言三件事：移了没有（保存的参数）、移到头了说什么、筛选时为什么不动。
+ */
+describe("模型路由页 · 键盘排序", () => {
+  /** 两个模型：gpt-test 在前（DisplayOrder 大者在前） */
+  function twoModels() {
+    mocked.getModelOptions.mockResolvedValue([
+      model({ ID: 1, Name: "gpt-test", DisplayOrder: 2 }),
+      model({ ID: 2, Name: "claude-test", DisplayOrder: 1 }),
+    ])
+  }
+
+  /** 表格里的模型行，按显示顺序（第 0 行是表头） */
+  async function modelRows(): Promise<HTMLElement[]> {
+    return within(await table()).getAllByRole("row").slice(1)
+  }
+
+  async function rowOf(name: string): Promise<HTMLElement> {
+    return screen.findByRole("row", { name: new RegExp(name) })
+  }
+
+  /**
+   * 排序结果的实时播报区。
+   *
+   * 不按文字找元素：这些句子在页面上别处也出现（比如工具栏会说明为什么
+   * 筛选中不能排序），按文字找会撞上，而撞上之后断言就不再是它以为的那件事。
+   */
+  function liveRegion(): HTMLElement {
+    const region = document.querySelector('[aria-live="polite"]')
+    if (!region) throw new Error("页面上没有实时播报区")
+    return region as HTMLElement
+  }
+
+  it("Alt+↓ 把焦点所在的那一行下移一位，并就地保存新顺序", async () => {
+    const user = userEvent.setup()
+    twoModels()
+    renderPage()
+    const first = await rowOf("gpt-test")
+    expect((await modelRows()).map((row) => cellText(row, 1))).toEqual(["gpt-test", "claude-test"])
+
+    first.focus()
+    await user.keyboard("{Alt>}{ArrowDown}{/Alt}")
+
+    // 保存的是移过之后的完整顺序，不只是动了的那一条
+    await waitFor(() => expect(mocked.updateModelOrder).toHaveBeenCalledWith([2, 1]))
+    expect((await modelRows()).map((row) => cellText(row, 1))).toEqual(["claude-test", "gpt-test"])
+    // 移动要说给读屏软件听：移的是谁、现在在第几位
+    await waitFor(() => expect(liveRegion()).toHaveTextContent("「gpt-test」已移到第 2 位"))
+  })
+
+  it("移到列表尽头时只说明到了尽头，不做多余的保存", async () => {
+    const user = userEvent.setup()
+    mocked.getModelOptions.mockResolvedValue([model({ ID: 1, Name: "gpt-test" })])
+    renderPage()
+
+    const row = await rowOf("gpt-test")
+    row.focus()
+    await user.keyboard("{Alt>}{ArrowUp}{/Alt}")
+
+    await waitFor(() => expect(liveRegion()).toHaveTextContent("已经在列表的开头或结尾"))
+    expect(mocked.updateModelOrder).not.toHaveBeenCalled()
+  })
+
+  it("筛选中拒绝排序，并说明是筛选挡着而不是没反应", async () => {
+    const user = userEvent.setup()
+    twoModels()
+    renderPage()
+    await screen.findByRole("row", { name: /gpt-test/ })
+
+    // 筛选有 300ms 防抖，没等它生效就按键，测的会是"没筛"的那条路径
+    await user.type(screen.getByPlaceholderText("按名称搜索"), "gpt")
+    await waitFor(() =>
+      expect(screen.getByText("筛选状态下不能调整顺序，请先清空筛选")).toBeInTheDocument()
+    )
+
+    const row = await rowOf("gpt-test")
+    row.focus()
+    await user.keyboard("{Alt>}{ArrowDown}{/Alt}")
+
+    await waitFor(() => expect(liveRegion()).toHaveTextContent("筛选状态下不能调整顺序"))
+    expect(mocked.updateModelOrder).not.toHaveBeenCalled()
+  })
+
+  it("移完之后焦点仍在同一行，可以接着往下移", async () => {
+    const user = userEvent.setup()
+    twoModels()
+    mocked.getModelOptions.mockResolvedValue([
+      model({ ID: 1, Name: "gpt-test", DisplayOrder: 3 }),
+      model({ ID: 2, Name: "claude-test", DisplayOrder: 2 }),
+      model({ ID: 3, Name: "gemini-test", DisplayOrder: 1 }),
+    ])
+    renderPage()
+    const first = await rowOf("gpt-test")
+
+    first.focus()
+    await user.keyboard("{Alt>}{ArrowDown}{/Alt}")
+    // 行在 DOM 里被挪了位置，焦点跟着回来才谈得上"连着按"
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("data-model-id", "1"))
+
+    await user.keyboard("{Alt>}{ArrowDown}{/Alt}")
+    await waitFor(() => expect(mocked.updateModelOrder).toHaveBeenLastCalledWith([2, 3, 1]))
+  })
+})

@@ -30,6 +30,12 @@
     "add_model": "Add Model",
     "refresh_status": "Refresh Status"
   },
+  "order": {
+    "hint": "Drag, or press Alt+↑ / Alt+↓ to reorder models",
+    "moved": "\"{{name}}\" moved to position {{position}}",
+    "at_edge": "Already at the start or end of the list",
+    "blocked_by_filter": "Cannot reorder while filters are active — clear them first"
+  },
   "model_table": {
     "id": "ID",
     "name": "Name",

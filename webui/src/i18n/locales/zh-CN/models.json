@@ -30,6 +30,12 @@
     "add_model": "添加模型",
     "refresh_status": "刷新状态"
   },
+  "order": {
+    "hint": "拖拽或用 Alt+↑ / Alt+↓ 调整模型顺序",
+    "moved": "「{{name}}」已移到第 {{position}} 位",
+    "at_edge": "已经在列表的开头或结尾",
+    "blocked_by_filter": "筛选状态下不能调整顺序，请先清空筛选"
+  },
   "model_table": {
     "id": "ID",
     "name": "名称",

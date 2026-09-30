@@ -17,6 +17,20 @@ import type { ModelOrder } from "@/routes/model-providers/use-model-order"
 
 const renderStrategy = (strategy?: string) => (strategy === "rotor" ? "Rotor" : "Lottery")
 
+/**
+ * 顺序一变，React 就按 key 把这些行在 DOM 里挪位置，而挪动节点在部分浏览器里
+ * 会把焦点丢掉。按模型 ID 把焦点找回来——键盘操作得能连着按，
+ * 不能每移一位就要重新 Tab 进来一次。
+ */
+function restoreFocus(row: HTMLElement, modelId: number) {
+  requestAnimationFrame(() => {
+    row
+      .closest("[data-model-rows]")
+      ?.querySelector<HTMLElement>(`[data-model-id="${modelId}"]`)
+      ?.focus()
+  })
+}
+
 type Props = {
   /** 已筛选、已排序的模型；筛选在页面里做完，这里只管画 */
   models: Model[]
@@ -53,6 +67,8 @@ export function ModelList({
 
   return (
     <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
+      {/* 排序结果的播报：读屏软件念这一句，视觉上不占位置 */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">{order.announcement}</div>
       {loading ? (
         <div className="flex h-full items-center justify-center">
           <Loading message={t("loading_models")} />
@@ -63,7 +79,7 @@ export function ModelList({
         </div>
       ) : (
         <div className="h-full flex flex-col">
-          <div className="hidden sm:block flex-1 overflow-y-auto">
+          <div className="hidden sm:block flex-1 overflow-y-auto" data-model-rows>
             <div className="w-full">
               <Table className="min-w-[1100px]">
                 <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
@@ -82,11 +98,18 @@ export function ModelList({
                   {models.map((model) => (
                     <TableRow
                       key={model.ID}
+                      data-model-id={model.ID}
+                      tabIndex={0}
+                      aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                       draggable={order.dragEnabled}
                       onDragStart={(event) => order.onDragStart(event, model.ID)}
                       onDragOver={(event) => order.onDragOver(event, model.ID)}
                       onDrop={order.onDrop}
                       onDragEnd={order.onDragEnd}
+                      onKeyDown={(event) => {
+                        const row = event.currentTarget
+                        if (order.onKeyDown(event, model.ID)) restoreFocus(row, model.ID)
+                      }}
                       className={`cursor-pointer transition-colors ${
                         order.draggingModelId === model.ID ? "opacity-60 ring-1 ring-primary/60" : ""
                       } ${
@@ -167,15 +190,22 @@ export function ModelList({
               </Table>
             </div>
           </div>
-          <div className="sm:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 divide-y divide-border">
+          <div className="sm:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 divide-y divide-border" data-model-rows>
             {models.map((model) => (
               <div
                 key={model.ID}
+                data-model-id={model.ID}
+                tabIndex={0}
+                aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                 draggable={order.dragEnabled}
                 onDragStart={(event) => order.onDragStart(event, model.ID)}
                 onDragOver={(event) => order.onDragOver(event, model.ID)}
                 onDrop={order.onDrop}
                 onDragEnd={order.onDragEnd}
+                onKeyDown={(event) => {
+                  const row = event.currentTarget
+                  if (order.onKeyDown(event, model.ID)) restoreFocus(row, model.ID)
+                }}
                 className={`py-3 space-y-3 transition-colors ${
                   order.draggingModelId === model.ID ? "opacity-60" : ""
                 } ${

@@ -397,26 +397,6 @@ export async function getProviderMetrics(): Promise<ProviderMetric[]> {
   return apiRequest<ProviderMetric[]>('/metrics/providers');
 }
 
-// Metrics API functions
-export interface MetricsData {
-  reqs: number;
-  tokens: number;
-}
-
-export interface ModelCount {
-  model: string;
-  calls: number;
-}
-
-export interface ProjectCount {
-  project: string;
-  calls: number;
-}
-
-export async function getMetrics(days: number): Promise<MetricsData> {
-  return apiRequest<MetricsData>(`/metrics/use/${days}`);
-}
-
 // ---------------------------------------------------------------------------
 // 分析聚合（GET /api/metrics/stats）
 //
@@ -574,17 +554,24 @@ export async function getStatsGranularities(): Promise<string[]> {
   return apiRequest<string[]>("/metrics/granularities");
 }
 
-export async function getModelCounts(): Promise<ModelCount[]> {
-  return apiRequest<ModelCount[]>('/metrics/counts');
-}
-
-export async function getProjectCounts(): Promise<ProjectCount[]> {
-  return apiRequest<ProjectCount[]>('/metrics/projects');
-}
-
 // Test API functions
-export async function testModelProvider(id: number): Promise<unknown> {
-  return apiRequest<unknown>(`/test/${id}`);
+/**
+ * 连通性测试的返回体。
+ *
+ * 后端把上游的响应原样透传：`message` 里是上游的原始文本（可能是一句 ok/error，
+ * 也可能是一整段 JSON），形状随渠道而变，这里只声明界面真正读到的字段。
+ * 它此前是 `any`，于是"读了一个不存在的字段"这件事没人管得住。
+ */
+export interface ConnectivityTestResult {
+  /** 上游原文，后端 `common.Response.Message` 固定是 string */
+  message?: string;
+  /** 仅测试请求本身失败时由前端填入，可能包着任意异常对象 */
+  error?: unknown;
+  [key: string]: unknown;
+}
+
+export async function testModelProvider(id: number): Promise<ConnectivityTestResult> {
+  return apiRequest<ConnectivityTestResult>(`/test/${id}`);
 }
 
 // Provider Templates API functions

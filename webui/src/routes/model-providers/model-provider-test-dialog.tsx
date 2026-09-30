@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import type { ConnectivityTestResult } from "@/lib/api";
 
 type TestType = "connectivity" | "react";
 
@@ -21,7 +22,7 @@ type ModelProviderTestDialogProps = {
   testType: TestType;
   setTestType: (type: TestType) => void;
   selectedTestId: number | null;
-  testResults: Record<number, { loading: boolean; result: any }>;
+  testResults: Record<number, { loading: boolean; result: ConnectivityTestResult | null }>;
   reactTestResult: {
     loading: boolean;
     messages: string;

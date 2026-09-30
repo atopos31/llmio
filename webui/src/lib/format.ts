@@ -38,6 +38,19 @@ export function formatDurationMs(ms: number): string {
   return `${trim(ms / 1000)}s`
 }
 
+/**
+ * TPS 读数：固定一位小数。
+ *
+ * 单列成函数是为了让"TPS 一位小数"成为一处契约：下钻表、延迟读数、模型性能表
+ * 若各自写 `toFixed(1)`，改口径时总有一处会被漏掉。0 照常显示 `0.0`——
+ * "0 表示没有可用样本"只在**排序**时区分（见 lib/analytics 的 sortModelGroups），
+ * 展示层不搞第二套口径，否则同一页的两个表会用两种写法说同一件事。
+ */
+export function formatTps(value: number): string {
+  if (!Number.isFinite(value)) return "0.0"
+  return value.toFixed(1)
+}
+
 /** 百分比，一位小数。入参已是 0-100 的口径（后端就是这么返回的）。 */
 export function formatPercent(value: number, digits = 1): string {
   if (!Number.isFinite(value)) return "0%"

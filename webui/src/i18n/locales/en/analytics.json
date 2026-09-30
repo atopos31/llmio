@@ -43,7 +43,8 @@
     "trend": "Trend",
     "breakdown": "Breakdown",
     "latency": "Latency",
-    "errors": "Errors"
+    "errors": "Errors",
+    "models": "Model performance"
   },
   "trend": {
     "requests": "Request trend",
@@ -112,6 +113,28 @@
       "providers": "Providers",
       "models": "Models",
       "sample": "Sample"
+    }
+  },
+  "models": {
+    "title": "Model performance",
+    "note": "Click a column header to sort; click again to flip the direction. Models with no successful sample (TPS or first chunk of 0) always sort last — they are never treated as the fastest.",
+    "empty": "No model data in the selected range",
+    "sort": {
+      "none": "Sort by {{column}}",
+      "asc": "Sorted by {{column}}, ascending — click for descending",
+      "desc": "Sorted by {{column}}, descending — click for ascending"
+    },
+    "columns": {
+      "name": "Model",
+      "total": "Requests",
+      "successRate": "Success",
+      "avgTps": "Avg TPS",
+      "maxTps": "Max TPS",
+      "avgFirstChunkMs": "Avg first chunk",
+      "p95FirstChunkMs": "P95 first chunk",
+      "retries": "Retries",
+      "cost": "Cost",
+      "totalTokens": "Tokens"
     }
   }
 }

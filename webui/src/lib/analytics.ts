@@ -203,9 +203,15 @@ export function buildStatsQuery(input: {
 // 视图与下钻维度
 // ---------------------------------------------------------------------------
 
-export type AnalyticsView = "trend" | "breakdown" | "latency" | "errors"
+export type AnalyticsView = "trend" | "breakdown" | "latency" | "errors" | "models"
 
-export const VIEWS = ["trend", "breakdown", "latency", "errors"] as const satisfies readonly AnalyticsView[]
+export const VIEWS = [
+  "trend",
+  "breakdown",
+  "latency",
+  "errors",
+  "models",
+] as const satisfies readonly AnalyticsView[]
 
 export type DimensionKey = "model" | "provider" | "key" | "name" | "ua"
 
@@ -345,6 +351,114 @@ export function errorBarBase(groups: ErrorGroup[]): number {
 export function errorBarWidth(count: number, base: number): number {
   if (base <= 0) return 0
   return Math.min(100, (count / base) * 100)
+}
+
+// ---------------------------------------------------------------------------
+// 模型性能表的排序
+// ---------------------------------------------------------------------------
+
+/**
+ * 可排序的列，取的是 `GroupStat` 的字段名。
+ *
+ * 直接用字段名而不是另起一套列 id，是为了让"取值"退化成 `g[key]`——
+ * 中间少一张映射表，就少一处字段改名后两边对不上的机会（与 DIMENSION_STAT 同理）。
+ * 顺序即表头顺序。
+ */
+export const MODEL_SORT_KEYS = [
+  "total",
+  "successRate",
+  "avgTps",
+  "maxTps",
+  "avgFirstChunkMs",
+  "p95FirstChunkMs",
+  "retries",
+  "cost",
+  "totalTokens",
+] as const
+
+export type ModelSortKey = (typeof MODEL_SORT_KEYS)[number]
+
+export type SortDir = "asc" | "desc"
+
+/** 排序状态。`key` 必须是 `MODEL_SORT_KEYS` 之一，方向二选一。 */
+export interface ModelSort {
+  key: ModelSortKey
+  dir: SortDir
+}
+
+/**
+ * 默认排序：请求数降序。
+ *
+ * 与服务端 `groupAcc.result()` 的顺序一致——打开视图时表格不能先自己动一下，
+ * 否则用户会以为自己误点了什么。
+ */
+export const DEFAULT_MODEL_SORT: ModelSort = { key: "total", dir: "desc" }
+
+/**
+ * 这几个列的 0 是"没有可用样本"，不是一个读数。
+ *
+ * `avgTps` / `avgFirstChunkMs` / `p95FirstChunkMs` 只在**成功请求**上累加
+ * （`service/stats.go` 的 `groupItem`），`maxTps` 也只有在日志记过 Tps 时才抬起来。
+ * 于是全失败的模型、或非流式（没有吞吐可言）的模型，这些字段统统停在 0。
+ *
+ * 对比之下 `successRate` 的 0% 是真实的（全部失败）、`retries` / `cost` /
+ * `totalTokens` 的 0 也是真实的。所以只有上面四个进入这张表。
+ */
+const ZERO_MEANS_NO_SAMPLE: ReadonlySet<ModelSortKey> = new Set([
+  "avgTps",
+  "maxTps",
+  "avgFirstChunkMs",
+  "p95FirstChunkMs",
+])
+
+/** 某列上的某值是否代表"没有样本"。 */
+export function isMissingModelMetric(key: ModelSortKey, value: number): boolean {
+  if (ZERO_MEANS_NO_SAMPLE.has(key)) return value === 0
+  return false
+}
+
+/**
+ * 点表头之后的新排序状态。
+ *
+ * 同一列再点一次翻转方向；换一列则**从降序起步**。降序起步是因为这一页要回答的
+ * 都是"哪个最差/最大"——最慢、最贵、重试最多；即使用户问的是"哪个最快"，
+ * 降序也直接把答案放在第一行，不必再点一下。
+ */
+export function nextModelSort(current: ModelSort, key: ModelSortKey): ModelSort {
+  if (current.key === key) return { key, dir: current.dir === "asc" ? "desc" : "asc" }
+  return { key, dir: "desc" }
+}
+
+/**
+ * 按列排序模型分组。返回新数组，不改入参——入参往往是 props 里的 `stats.byModel`。
+ *
+ * 两条不能省的规则：
+ *
+ * 1. **缺值恒排最后，与方向无关。** `avgTps` 为 0 表示没有成功样本；若按升序
+ *    （小在前）把它排到首位，读出来就是"这个模型最快"，与事实正好相反。
+ *    "没有数据"不在刻度上，所以两个方向都往末尾放。这是本表与普通数字表
+ *    最关键的区别，也是 `isMissingModelMetric` 存在的全部理由。
+ * 2. **同值按名称定序。** 服务端只保证"按请求数降序"，同值行的相对次序来自
+ *    map 迭代，本就不稳定；不额外钉一个次序的话，相同数据下表格的顺序会跳。
+ *    用码点比较而非 `localeCompare`：后者随环境 locale 变，测试会飘。
+ */
+export function sortModelGroups(groups: GroupStat[], sort: ModelSort): GroupStat[] {
+  const { key, dir } = sort
+  return [...groups].sort((a, b) => {
+    const av = a[key]
+    const bv = b[key]
+    const aMissing = isMissingModelMetric(key, av)
+    const bMissing = isMissingModelMetric(key, bv)
+    if (aMissing !== bMissing) return aMissing ? 1 : -1
+    if (!aMissing && av !== bv) return dir === "asc" ? av - bv : bv - av
+    return compareName(a.name, b.name)
+  })
+}
+
+/** 名称定序：相等返回 0，否则按码点。无 locale 依赖，任何机器结果一致。 */
+function compareName(a: string, b: string): number {
+  if (a === b) return 0
+  return a < b ? -1 : 1
 }
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ import {
   formatNumber,
   formatPercent,
   formatSeconds,
+  formatTps,
   inferBucketMs,
 } from "@/lib/format"
 
@@ -322,5 +323,22 @@ describe("formatBytes", () => {
 
   it("非法值回落到 0 B", () => {
     expect(formatBytes(Number.NaN)).toBe("0 B")
+  })
+})
+
+describe("formatTps", () => {
+  it("固定一位小数", () => {
+    expect(formatTps(40)).toBe("40.0")
+    expect(formatTps(40.26)).toBe("40.3")
+    expect(formatTps(0.04)).toBe("0.0")
+  })
+
+  it("0 照常显示 0.0（缺值语义只在排序里区分，展示层不搞第二套口径）", () => {
+    expect(formatTps(0)).toBe("0.0")
+  })
+
+  it("非法值回落到 0.0", () => {
+    expect(formatTps(Number.NaN)).toBe("0.0")
+    expect(formatTps(Number.POSITIVE_INFINITY)).toBe("0.0")
   })
 })

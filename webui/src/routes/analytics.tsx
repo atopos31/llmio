@@ -9,14 +9,16 @@ import { EmptyState, ErrorState } from "@/components/state-views"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { FilterRow, type FilterOption, type FilterOptions, type RangeKey } from "@/routes/analytics-filters"
-import { BreakdownView, ErrorsView, LatencyView } from "@/routes/analytics-views"
+import { BreakdownView, ErrorsView, LatencyView, ModelsView } from "@/routes/analytics-views"
 import {
   activeFilterCount,
   buildStatsQuery,
   customRangeError,
+  DEFAULT_MODEL_SORT,
   EMPTY_FILTER,
   fromLocalInput,
   keyFilterOptions,
+  nextModelSort,
   observedOptions,
   presetRange,
   STATUS_VALUES,
@@ -27,6 +29,8 @@ import {
   type AnalyticsFilter,
   type AnalyticsView,
   type DimensionKey,
+  type ModelSort,
+  type ModelSortKey,
 } from "@/lib/analytics"
 import {
   getAuthKeysList,
@@ -63,6 +67,12 @@ export default function AnalyticsPage() {
   const [filter, setFilter] = useState<AnalyticsFilter>(EMPTY_FILTER)
   const [view, setView] = useState<AnalyticsView>("trend")
   const [dimension, setDimension] = useState<DimensionKey>("model")
+  /**
+   * 模型性能表的排序。与 `view` / `dimension` 一样只存在组件内，不进 URL：
+   * 这一页的既有做法就是如此（筛选、时间范围也都不进 URL），排序状态再单独
+   * 走一套 URL 同步会造出第二种状态机制。代价是刷新后回到默认排序，可接受。
+   */
+  const [modelSort, setModelSort] = useState<ModelSort>(DEFAULT_MODEL_SORT)
 
   const [stats, setStats] = useState<StatsResult | null>(null)
   /**
@@ -175,6 +185,11 @@ export default function AnalyticsPage() {
     setFilter((f) => toggleDimensionValue(f, dim, value))
   }, [])
 
+  /** 点表头：同列翻转方向，换列从降序起步（判定在 lib 里，可单测）。 */
+  const handleModelSort = useCallback((key: ModelSortKey) => {
+    setModelSort((s) => nextModelSort(s, key))
+  }, [])
+
   /**
    * 切到自定义时用**当前预设的窗口**预填两端。
    *
@@ -281,6 +296,9 @@ export default function AnalyticsPage() {
             )}
             {view === "latency" && <LatencyView stats={stats!} />}
             {view === "errors" && <ErrorsView stats={stats!} />}
+            {view === "models" && (
+              <ModelsView stats={stats!} sort={modelSort} onSort={handleModelSort} />
+            )}
           </div>
         )}
       </div>

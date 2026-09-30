@@ -5,6 +5,7 @@ import {
   ADMIN_KEY_ID,
   buildStatsQuery,
   customRangeError,
+  DEFAULT_MODEL_SORT,
   DIMENSIONS,
   dimensionFilterValues,
   dimensionGroups,
@@ -14,16 +15,21 @@ import {
   errorBarWidth,
   errorViewMode,
   fromLocalInput,
+  isMissingModelMetric,
   keyFilterOptions,
   logDetailPath,
+  MODEL_SORT_KEYS,
+  nextModelSort,
   observedOptions,
   presetRange,
   shortenLabel,
+  sortModelGroups,
   toLocalInput,
   toggleDimensionValue,
   toggleValue,
   UA_DISPLAY_MAX,
   type AnalyticsFilter,
+  type ModelSort,
 } from "@/lib/analytics"
 import type { AuthKeyItem, ErrorGroup, GroupStat, StatsResult } from "@/lib/api"
 
@@ -419,5 +425,105 @@ describe("logDetailPath", () => {
   it("指向请求内容页而不是弹窗", () => {
     // 分析页需要"从聚合数字跳到那一条请求"的通路；内容页是排查终点。
     expect(logDetailPath(42)).toBe("/logs/42/chat-io")
+  })
+})
+
+describe("模型性能排序", () => {
+  /** 只取名称次序，断言读起来才像"谁在前谁在后"。 */
+  function names(gs: GroupStat[], sort: ModelSort): string[] {
+    return sortModelGroups(gs, sort).map((g) => g.name)
+  }
+
+  it("列顺序即表头顺序，且只含数值列", () => {
+    expect(MODEL_SORT_KEYS).toEqual([
+      "total",
+      "successRate",
+      "avgTps",
+      "maxTps",
+      "avgFirstChunkMs",
+      "p95FirstChunkMs",
+      "retries",
+      "cost",
+      "totalTokens",
+    ])
+  })
+
+  it("缺值判定只对「0 表示没有样本」的列成立", () => {
+    // 这几个只在成功请求上累加，0 就是没有样本
+    expect(isMissingModelMetric("avgTps", 0)).toBe(true)
+    expect(isMissingModelMetric("avgTps", 40)).toBe(false)
+    // 而 0 次重试、0 成本是真实读数，不是缺值
+    expect(isMissingModelMetric("total", 0)).toBe(false)
+    expect(isMissingModelMetric("retries", 0)).toBe(false)
+    expect(isMissingModelMetric("cost", 0)).toBe(false)
+  })
+
+  it("点同一列翻转方向，换一列从降序起步", () => {
+    expect(DEFAULT_MODEL_SORT).toEqual({ key: "total", dir: "desc" })
+    // 同列：desc → asc
+    expect(nextModelSort(DEFAULT_MODEL_SORT, "total")).toEqual({ key: "total", dir: "asc" })
+    // 同列：asc → desc
+    expect(nextModelSort({ key: "total", dir: "asc" }, "total")).toEqual({
+      key: "total",
+      dir: "desc",
+    })
+    // 换列：一律从降序起步
+    expect(nextModelSort({ key: "total", dir: "asc" }, "cost")).toEqual({ key: "cost", dir: "desc" })
+  })
+
+  it("降序把最大读数排在前", () => {
+    const gs = [
+      group({ name: "slow", avgTps: 10 }),
+      group({ name: "fast", avgTps: 50 }),
+      group({ name: "mid", avgTps: 30 }),
+    ]
+    expect(names(gs, { key: "avgTps", dir: "desc" })).toEqual(["fast", "mid", "slow"])
+  })
+
+  it("【关键】没有样本（0）的模型在升序与降序下都必须排在最后，不能被当成最快", () => {
+    // 这是本表与普通数字表最要紧的区别：若按升序把小值放前面，
+    // avgTps=0 会跑到第一行，读出来就是"这个模型最快"，与事实相反。
+    const gs = [
+      group({ name: "slow", avgTps: 10 }),
+      group({ name: "fast", avgTps: 50 }),
+      group({ name: "nosample", avgTps: 0 }),
+    ]
+    expect(names(gs, { key: "avgTps", dir: "desc" })).toEqual(["fast", "slow", "nosample"])
+    expect(names(gs, { key: "avgTps", dir: "asc" })).toEqual(["slow", "fast", "nosample"])
+  })
+
+  it("缺值行之间的先后也稳定（按名称），不会随输入顺序跳", () => {
+    const a = group({ name: "z", avgTps: 0 })
+    const b = group({ name: "a", avgTps: 0 })
+    expect(names([a, b], { key: "avgTps", dir: "asc" })).toEqual(["a", "z"])
+    expect(names([b, a], { key: "avgTps", dir: "asc" })).toEqual(["a", "z"])
+  })
+
+  it("缺值与非缺值成对出现时两个方向都被判定（两种入参顺序）", () => {
+    const none = group({ name: "none", avgTps: 0 })
+    const some = group({ name: "some", avgTps: 5 })
+    expect(names([none, some], { key: "avgTps", dir: "desc" })).toEqual(["some", "none"])
+    expect(names([some, none], { key: "avgTps", dir: "desc" })).toEqual(["some", "none"])
+  })
+
+  it("同值时按名称定序，且不改动入参数组", () => {
+    const input = [group({ name: "b", total: 5 }), group({ name: "a", total: 5 })]
+    expect(names(input, { key: "total", dir: "desc" })).toEqual(["a", "b"])
+    // 入参来自 props 里的 stats，就地排序会污染页面的数据
+    expect(input.map((g) => g.name)).toEqual(["b", "a"])
+  })
+
+  it("同名时按 0 处理，不抛错", () => {
+    const gs = [group({ name: "same", total: 1 }), group({ name: "same", total: 1 })]
+    expect(names(gs, { key: "total", dir: "desc" })).toEqual(["same", "same"])
+  })
+
+  it("任何列都能排（以成本与重试为例）", () => {
+    const gs = [
+      group({ name: "cheap", cost: 0.1, retries: 5 }),
+      group({ name: "pricey", cost: 9, retries: 1 }),
+    ]
+    expect(names(gs, { key: "cost", dir: "desc" })).toEqual(["pricey", "cheap"])
+    expect(names(gs, { key: "retries", dir: "asc" })).toEqual(["pricey", "cheap"])
   })
 })

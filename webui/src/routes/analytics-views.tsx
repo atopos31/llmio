@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next"
 import { Link } from "react-router-dom"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
-import { ArrowUpRight } from "lucide-react"
+import { ArrowDown, ArrowUp, ArrowUpRight, ChevronsUpDown } from "lucide-react"
 
 import { FirstChunkHistogram } from "@/components/charts/trend-charts"
 import { Panel } from "@/components/panel"
@@ -30,17 +30,23 @@ import {
   errorBarWidth,
   errorViewMode,
   logDetailPath,
+  MODEL_SORT_KEYS,
   shortenLabel,
+  sortModelGroups,
   type AnalyticsFilter,
   type DimensionKey,
+  type ModelSort,
+  type ModelSortKey,
 } from "@/lib/analytics"
 import {
   bucketLabelFormatter,
   compactNumber,
+  formatCost,
   formatDurationMs,
   formatNumber,
   formatPercent,
   formatSeconds,
+  formatTps,
 } from "@/lib/format"
 import type { ErrorGroup, StatsResult, StatsLogRow } from "@/lib/api"
 
@@ -536,4 +542,140 @@ function countList(items: { name: string; count: number }[]): string {
 function sharePercent(count: number, total: number): string {
   if (total <= 0) return formatPercent(0)
   return formatPercent((count / total) * 100)
+}
+
+// ---------------------------------------------------------------------------
+// 模型性能
+// ---------------------------------------------------------------------------
+
+/**
+ * 模型性能视图。
+ *
+ * 与"下钻"里的模型维度不重复：那张表是把模型当作一个分组数**计数**，
+ * 这张表回答的是"哪个慢、哪个贵、哪个在重试"——列按性能口径挑，
+ * 且可按任意一列排序。数字全部取自服务端算好的 `GroupStat`
+ * （均值只统计成功请求、p95 为最近秩），前端只排序与呈现，不重新聚合。
+ *
+ * 成本列必须带上 `kpi.currency`：`formatCost` 没有默认币种，漏传会把金额
+ * 显示成没有符号的裸数字，读者分不清是美元还是人民币。
+ */
+export function ModelsView({
+  stats,
+  sort,
+  onSort,
+}: {
+  stats: StatsResult
+  sort: ModelSort
+  onSort: (key: ModelSortKey) => void
+}) {
+  const { t } = useTranslation("analytics")
+  const groups = stats.byModel
+  const currency = stats.kpi.currency
+
+  // 空态与整页的"没有请求"分开：整页空态说的是"窗口内没有请求"，
+  // 而这里是"窗口内有请求、但模型维度没有数据"，两句话不能被读成同一件事，
+  // 更不该被读成"加载失败"。
+  if (groups.length === 0) {
+    return (
+      <Panel title={t("models.title")}>
+        <p className="py-8 text-center text-sm text-muted-foreground">{t("models.empty")}</p>
+      </Panel>
+    )
+  }
+
+  const rows = sortModelGroups(groups, sort)
+
+  return (
+    <Panel title={t("models.title")} note={t("models.note")}>
+      {/* 十列在窄屏放不下：横向滚动而不是砍列，砍掉的往往是用户要找的那列 */}
+      <div className="overflow-x-auto">
+        <Table className="min-w-[920px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("models.columns.name")}</TableHead>
+              {MODEL_SORT_KEYS.map((key) => (
+                <SortableHead key={key} column={key} sort={sort} onSort={onSort} />
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((g) => (
+              <TableRow key={g.name}>
+                <TableCell className="max-w-[220px]">
+                  <span className="block truncate" title={g.name}>
+                    {g.name}
+                  </span>
+                </TableCell>
+                <TableCell className="reading text-right">{formatNumber(g.total)}</TableCell>
+                <TableCell className="reading text-right">
+                  {formatPercent(g.successRate)}
+                </TableCell>
+                <TableCell className="reading text-right">{formatTps(g.avgTps)}</TableCell>
+                <TableCell className="reading text-right">{formatTps(g.maxTps)}</TableCell>
+                <TableCell className="reading text-right">
+                  {formatDurationMs(g.avgFirstChunkMs)}
+                </TableCell>
+                <TableCell className="reading text-right">
+                  {formatDurationMs(g.p95FirstChunkMs)}
+                </TableCell>
+                <TableCell className="reading text-right">{formatNumber(g.retries)}</TableCell>
+                <TableCell className="reading text-right">{formatCost(g.cost, currency)}</TableCell>
+                <TableCell className="reading text-right">
+                  {formatNumber(g.totalTokens)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </Panel>
+  )
+}
+
+/**
+ * 可排序的表头单元。
+ *
+ * 当前排序列用 `aria-sort` 标在 `th` 上，而不是只画一个箭头：箭头对读屏用户
+ * 等于不存在，而 `aria-sort` 是辅助技术读表时的标准信号——"正在按这列、这个方向排"。
+ * 按钮本身的可读名就是列名，方向由 `aria-sort` 承载，因此箭头可以 `aria-hidden`。
+ *
+ * 未选中的列也给出 `aria-sort="none"`：省略与显式 none 在读屏器上表现不一致，
+ * 显式写出来才能保证每列表头都有明确状态。
+ */
+function SortableHead({
+  column,
+  sort,
+  onSort,
+}: {
+  column: ModelSortKey
+  sort: ModelSort
+  onSort: (key: ModelSortKey) => void
+}) {
+  const { t } = useTranslation("analytics")
+  const active = sort.key === column
+  const ariaSort = active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"
+  const label = t(`models.columns.${column}` as never)
+  const hint = t(active ? `models.sort.${sort.dir}` : "models.sort.none", { column: label })
+
+  return (
+    <TableHead aria-sort={ariaSort} className="text-right">
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        title={hint}
+        className="ml-auto inline-flex items-center gap-1 rounded-sm px-1 hover:bg-accent"
+      >
+        {label}
+        {active ? (
+          sort.dir === "asc" ? (
+            <ArrowUp className="size-3" aria-hidden="true" />
+          ) : (
+            <ArrowDown className="size-3" aria-hidden="true" />
+          )
+        ) : (
+          <ChevronsUpDown className="size-3 opacity-40" aria-hidden="true" />
+        )}
+      </button>
+    </TableHead>
+  )
 }

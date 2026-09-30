@@ -43,7 +43,8 @@
     "trend": "趋势",
     "breakdown": "下钻",
     "latency": "延迟",
-    "errors": "错误"
+    "errors": "错误",
+    "models": "模型性能"
   },
   "trend": {
     "requests": "请求趋势",
@@ -112,6 +113,28 @@
       "providers": "提供商",
       "models": "模型",
       "sample": "样本"
+    }
+  },
+  "models": {
+    "title": "模型性能",
+    "note": "点列头排序，再点一次换方向。没有成功样本的模型（TPS 或首包为 0）始终排在最后，不会被当成最快。",
+    "empty": "所选范围内没有模型数据",
+    "sort": {
+      "none": "点击按「{{column}}」排序",
+      "asc": "已按「{{column}}」升序，点击改为降序",
+      "desc": "已按「{{column}}」降序，点击改为升序"
+    },
+    "columns": {
+      "name": "模型",
+      "total": "请求",
+      "successRate": "成功率",
+      "avgTps": "平均 TPS",
+      "maxTps": "最大 TPS",
+      "avgFirstChunkMs": "平均首包",
+      "p95FirstChunkMs": "P95 首包",
+      "retries": "重试",
+      "cost": "成本",
+      "totalTokens": "Token"
     }
   }
 }

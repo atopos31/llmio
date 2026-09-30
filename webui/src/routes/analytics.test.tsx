@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { userEvent } from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -292,5 +292,113 @@ describe("分析页 · 有数据", () => {
 
     await waitFor(() => expect(queries().some((q) => q.key_id === "3")).toBe(true))
     expect(queries().every((q) => (q as { key?: string }).key === undefined)).toBe(true)
+  })
+})
+
+describe("分析页 · 模型性能", () => {
+  /** 三个模型：有快有慢，还有一个没有成功样本（avgTps 为 0）。 */
+  function modelFixture(): StatsResult {
+    return fixture({
+      byModel: [
+        group("fast", {
+          total: 3,
+          successRate: 100,
+          avgTps: 50,
+          maxTps: 80,
+          avgFirstChunkMs: 800,
+          p95FirstChunkMs: 1500,
+          retries: 0,
+          cost: 0.5,
+          totalTokens: 2000,
+        }),
+        group("slow", {
+          total: 2,
+          successRate: 50,
+          avgTps: 10,
+          maxTps: 20,
+          avgFirstChunkMs: 4000,
+          p95FirstChunkMs: 6000,
+          retries: 3,
+          cost: 0.25,
+          totalTokens: 1000,
+        }),
+        group("nosample", {
+          total: 1,
+          successRate: 0,
+          avgTps: 0,
+          maxTps: 0,
+          avgFirstChunkMs: 0,
+          p95FirstChunkMs: 0,
+          retries: 0,
+          cost: 0,
+          totalTokens: 0,
+        }),
+      ],
+    })
+  }
+
+  /** 表体各行的文本，用来断言先后次序（首行是表头，故从头切掉）。 */
+  function bodyRows(): string[] {
+    const table = screen.getByRole("table")
+    return within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .map((r) => r.textContent ?? "")
+  }
+
+  async function openModels() {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText("请求趋势")
+    await user.click(screen.getByRole("radio", { name: "模型性能" }))
+    return user
+  }
+
+  it("默认按请求数降序，且数字沿用本页的格式化口径", async () => {
+    mocked.getStats.mockResolvedValue(modelFixture())
+    await openModels()
+
+    const rows = bodyRows()
+    expect(rows).toHaveLength(3)
+    expect(rows[0]).toContain("fast")
+    expect(rows[1]).toContain("slow")
+    expect(rows[2]).toContain("nosample")
+    // TPS 一位小数、成功率一位小数、成本带币种符号、Token 千分位
+    expect(rows[0]).toContain("50.0")
+    expect(rows[0]).toContain("100.0%")
+    expect(rows[0]).toContain("$0.5000")
+    expect(rows[0]).toContain("2,000")
+    // 当前排序列在无障碍树上给出方向，不是只画一个箭头
+    expect(screen.getByRole("columnheader", { name: /请求/ })).toHaveAttribute(
+      "aria-sort",
+      "descending"
+    )
+  })
+
+  it("点表头排序：同列换方向，没有样本的模型两个方向都不排到最前", async () => {
+    mocked.getStats.mockResolvedValue(modelFixture())
+    const user = await openModels()
+
+    const tpsHead = screen.getByRole("columnheader", { name: /平均 TPS/ })
+    expect(tpsHead).toHaveAttribute("aria-sort", "none")
+
+    await user.click(within(tpsHead).getByRole("button"))
+    expect(tpsHead).toHaveAttribute("aria-sort", "descending")
+    expect(bodyRows()[0]).toContain("fast")
+
+    // 再点一次 → 升序：慢的被排到前面，但 avgTps 为 0 的 nosample 仍在最后
+    await user.click(within(tpsHead).getByRole("button"))
+    expect(tpsHead).toHaveAttribute("aria-sort", "ascending")
+    const rows = bodyRows()
+    expect(rows[0]).toContain("slow")
+    expect(rows[2]).toContain("nosample")
+  })
+
+  it("byModel 为空时说的是窗口内没有模型数据，而不是加载失败", async () => {
+    mocked.getStats.mockResolvedValue(fixture({ byModel: [] }))
+    await openModels()
+
+    expect(await screen.findByText("所选范围内没有模型数据")).toBeInTheDocument()
+    expect(screen.queryByText("数据加载失败")).not.toBeInTheDocument()
   })
 })

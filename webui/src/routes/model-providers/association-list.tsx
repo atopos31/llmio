@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/table"
 import { Spinner } from "@/components/ui/spinner"
 import type { ModelWithProvider, Provider } from "@/lib/api"
-import { MobileInfoItem } from "@/routes/model-providers/mobile-info-item"
+import { MobileInfoItem } from "@/components/mobile-info-item"
 
 const Mark = ({ ok }: { ok: boolean }) => (
   <span className={ok ? "text-green-600" : "text-red-600"}>{ok ? "✓" : "✗"}</span>

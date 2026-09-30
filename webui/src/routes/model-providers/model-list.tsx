@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import type { Model } from "@/lib/api"
-import { MobileInfoItem } from "@/routes/model-providers/mobile-info-item"
+import { MobileInfoItem } from "@/components/mobile-info-item"
 import type { ModelOrder } from "@/routes/model-providers/use-model-order"
 
 const renderStrategy = (strategy?: string) => (strategy === "rotor" ? "Rotor" : "Lottery")

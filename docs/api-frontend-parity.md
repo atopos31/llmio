@@ -51,9 +51,9 @@
 | `/api/config/:key` | GET | `handler.GetConfigByKey`（handler/api.go:925） | webui/src/routes/config.tsx:108（`anthropic_count_tokens`）、109（`log_cleanup_policy`） | 已接通（仅后端已定义的两个 key） |
 | `/api/config/:key` | PUT | `handler.UpdateConfigByKey`（handler/api.go:949） | webui/src/routes/config.tsx:168,180 | 已接通 |
 | `/api/peak-pricing` | GET | `handler.GetPeakPricing`（handler/peak.go:21） | webui/src/routes/peak-pricing.tsx:76 | 已接通（本次迭代新增） |
-| `/api/peak-pricing` | PUT | `handler.UpdatePeakPricing`（handler/peak.go:27） | webui/src/routes/peak-pricing.tsx:274 | 已接通（本次迭代新增） |
-| `/api/peak-pricing/preview` | POST | `handler.PreviewPeakPricing`（handler/peak.go:48） | webui/src/routes/peak-pricing.tsx:291 | 已接通（本次迭代新增） |
-| `/api/peak-pricing/holidays/sync` | POST | `handler.SyncPeakHolidays`（handler/peak.go:78） | webui/src/routes/peak-pricing.tsx:304 | 已接通（本次迭代新增） |
+| `/api/peak-pricing` | PUT | `handler.UpdatePeakPricing`（handler/peak.go:27） | webui/src/routes/peak-pricing.tsx:282 | 已接通（本次迭代新增） |
+| `/api/peak-pricing/preview` | POST | `handler.PreviewPeakPricing`（handler/peak.go:48） | webui/src/routes/peak-pricing.tsx:299 | 已接通（本次迭代新增） |
+| `/api/peak-pricing/holidays/sync` | POST | `handler.SyncPeakHolidays`（handler/peak.go:78） | webui/src/routes/peak-pricing.tsx:312 | 已接通（本次迭代新增） |
 | `/api/quota/config` | GET | `handler.GetQuotaConfig`（handler/quota.go:37） | webui/src/routes/quota.tsx:113 | 已接通 |
 | `/api/quota/config` | PUT | `handler.UpdateQuotaConfig`（handler/quota.go:57） | webui/src/routes/quota-settings.tsx:54 | 已接通 |
 | `/api/quota/sources` | POST | `handler.UpsertQuotaSource`（handler/quota.go:85） | webui/src/routes/quota-editor.tsx:302 | 已接通 |
@@ -159,7 +159,7 @@
 | 配额配置文件路径 `LLMIO_QUOTA_CONFIG` | quota/config.go:124-130 | **仅环境变量** | 默认 `./db/quota.config.json`（quota/config.go:34）。前端能读写配置**内容**，改不了文件**位置**。 |
 | 脚本沙箱（goja 子进程） | `quota/sandbox.go`（`SandboxCommand` 常量 :50）；main.go:32-36 | **已接通（使用侧）** | 配额数据源可选 `script` 类型并编辑源码（quota-editor.tsx），试跑走 `/api/quota/test`。沙箱机制本身（超时、内存、是否允许 fetch）由配置项与硬编码决定，UI 暴露源码（quota-editor.tsx:522）、`env`（:430）与 `allowFetch`（:542）。沙箱超时、内存上限等参数仍由后端决定。 |
 | 日志清理调度器 | `service.StartLogCleanupScheduler`（service/log_cleanup.go:78）；检查间隔 1 小时硬编码 :16 | **部分接通** | 开关与保留天数在 config 页（`log_cleanup_policy`）；**调度周期不可改**，且手动清理另有日志页按钮（`/api/logs/cleanup`，logs.tsx:268）。 |
-| 内置节假日数据 → 外网同步 | `service/holidays/`、service/holidays.go；handler/peak.go:78 | **已接通** | 峰谷计费的"同步节假日"触发外网抓取，见 peak-pricing.tsx:304。 |
+| 内置节假日数据 → 外网同步 | `service/holidays/`、service/holidays.go；handler/peak.go:78 | **已接通** | 峰谷计费的"同步节假日"触发外网抓取，见 peak-pricing.tsx:312。 |
 | 上游版本检查 | `checkLatestRelease`（webui/src/lib/api.ts:786） | 纯前端 | 直接打 GitHub Releases API，不经过本服务；与本项目后端无关，列出仅为免生疑。 |
 
 ---

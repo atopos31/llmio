@@ -51,7 +51,7 @@ const DetailCard = ({ label, value, mono = false }: DetailCardProps) => (
   </div>
 );
 
-const formatDurationValue = (value?: number) => (typeof value === "number" ? formatTime(value) : "-");
+const formatDurationValue = (value?: number) => (typeof value === "number" && value > 0 ? formatTime(value) : "-");
 const formatTokenValue = (value?: number) => (typeof value === "number" ? value.toLocaleString() : "-");
 const formatTpsValue = (value?: number) => (typeof value === "number" ? value.toFixed(2) : "-");
 // 缓存率 = 缓存 token / 输入 token
@@ -391,7 +391,7 @@ export default function LogsPage() {
           <div className="h-full flex flex-col">
             <div className="flex-1 overflow-y-auto">
               <div className="hidden sm:block w-full">
-                <Table className="min-w-[1360px]">
+                <Table className="min-w-[1520px]">
                   <TableHeader className="z-10 sticky top-0 bg-secondary/90 backdrop-blur text-secondary-foreground">
                     <TableRow className="hover:bg-secondary/90">
                       <TableHead>{t('table.id')}</TableHead>
@@ -403,6 +403,8 @@ export default function LogsPage() {
                       <TableHead>{t('table.cache')}</TableHead>
                       <TableHead>{t('table.size')}</TableHead>
                       <TableHead>{t('table.duration')}</TableHead>
+                      <TableHead>{t('table.first_chunk_time')}</TableHead>
+                      <TableHead>{t('table.tps')}</TableHead>
                       <TableHead>{t('table.provider_model')}</TableHead>
                       <TableHead>{t('table.type')}</TableHead>
                       <TableHead>{t('table.provider')}</TableHead>
@@ -436,7 +438,9 @@ export default function LogsPage() {
                         <TableCell className="text-xs">
                           {log.Size ? formatBytes(log.Size) : '-'}
                         </TableCell>
-                        <TableCell>{formatTime(log.ChunkTime + log.FirstChunkTime + log.ProxyTime)}</TableCell>
+                        <TableCell>{formatTime(log.ChunkTime + log.FirstChunkTime)}</TableCell>
+                        <TableCell>{formatDurationValue(log.FirstChunkTime)}</TableCell>
+                        <TableCell>{formatTpsValue(log.Tps)}</TableCell>
                         <TableCell className="max-w-[120px] truncate text-xs" title={log.ProviderModel}>{log.ProviderModel}</TableCell>
                         <TableCell className="text-xs">{log.Style}</TableCell>
                         <TableCell className="text-xs">{log.ProviderName}</TableCell>
@@ -504,7 +508,15 @@ export default function LogsPage() {
                       </div>
                       <div className="space-y-1">
                         <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{t('mobile.duration')}</p>
-                        <p className="font-medium">{formatTime(log.ChunkTime + log.FirstChunkTime + log.ProxyTime)}</p>
+                        <p className="font-medium">{formatTime(log.ChunkTime + log.FirstChunkTime)}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{t('mobile.first_chunk_time')}</p>
+                        <p className="font-medium">{formatDurationValue(log.FirstChunkTime)}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{t('mobile.tps')}</p>
+                        <p className="font-medium">{formatTpsValue(log.Tps)}</p>
                       </div>
                       <div className="space-y-1">
                         <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{t('mobile.provider')}</p>

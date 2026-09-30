@@ -22,6 +22,25 @@ const (
 
 type Processer func(ctx context.Context, pr io.Reader, stream bool, start time.Time) (*models.ChatLog, *models.OutputUnion, error)
 
+// tpsRate 计算 tokens/s。base 为生成阶段耗时（流式）或端到端耗时（非流式）；
+// 非正耗时返回 0，避免除零得到 +Inf/NaN。
+func tpsRate(tokens int64, base time.Duration) float64 {
+	seconds := base.Seconds()
+	if seconds <= 0 {
+		return 0
+	}
+	return float64(tokens) / seconds
+}
+
+// tpsBase 返回 tokens/s 的分母：流式取生成阶段耗时（剔除代理耗时与首字延迟），
+// 非流式没有独立的生成阶段（chunkTime 只剩读取残差），退回端到端耗时。
+func tpsBase(stream bool, start time.Time, chunkTime time.Duration) time.Duration {
+	if !stream {
+		return time.Since(start)
+	}
+	return chunkTime
+}
+
 func ProcesserOpenAI(ctx context.Context, pr io.Reader, stream bool, start time.Time) (*models.ChatLog, *models.OutputUnion, error) {
 	// 首字时延
 	var firstChunkTime time.Duration
@@ -83,7 +102,7 @@ func ProcesserOpenAI(ctx context.Context, pr io.Reader, stream bool, start time.
 		FirstChunkTime: firstChunkTime,
 		ChunkTime:      chunkTime,
 		Usage:          openaiUsage,
-		Tps:            float64(openaiUsage.CompletionTokens) / time.Since(start).Seconds(),
+		Tps:            tpsRate(openaiUsage.CompletionTokens, tpsBase(stream, start, chunkTime)),
 		Size:           size,
 	}, &output, nil
 }
@@ -168,7 +187,7 @@ func ProcesserOpenAiRes(ctx context.Context, pr io.Reader, stream bool, start ti
 				CachedTokens: openAIResUsage.InputTokensDetails.CachedTokens,
 			},
 		},
-		Tps:  float64(openAIResUsage.OutputTokens) / time.Since(start).Seconds(),
+		Tps:  tpsRate(openAIResUsage.OutputTokens, tpsBase(stream, start, chunkTime)),
 		Size: size,
 	}, &output, nil
 }
@@ -237,7 +256,7 @@ func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start ti
 				CachedTokens: anthropicUsage.CacheReadInputTokens,
 			},
 		},
-		Tps:  float64(anthropicUsage.OutputTokens) / time.Since(start).Seconds(),
+		Tps:  tpsRate(anthropicUsage.OutputTokens, tpsBase(stream, start, chunkTime)),
 		Size: size,
 	}, &output, nil
 }
@@ -326,7 +345,7 @@ func ProcesserGemini(ctx context.Context, pr io.Reader, stream bool, start time.
 		FirstChunkTime: firstChunkTime,
 		ChunkTime:      chunkTime,
 		Usage:          usage,
-		Tps:            float64(usage.CompletionTokens) / time.Since(start).Seconds(),
+		Tps:            tpsRate(usage.CompletionTokens, tpsBase(stream, start, chunkTime)),
 		Size:           size,
 	}, &output, nil
 }

@@ -261,6 +261,54 @@ describe("额度页 · 用量环卡片", () => {
   })
 })
 
+describe("额度页 · 重置时间", () => {
+  it("报告还有多久重置——这是唯一会随时间变旧的读数", async () => {
+    // opencode 这类套餐按 5 小时/周/月三档放量，接口本来就回了 resetsAt，
+    // 但整条链路上没有一处渲染它，卡片上只有用量。用户看这一页最想知道的
+    // 恰恰是"还要等多久"。
+    mocked.runQuotaSources.mockResolvedValue(
+      runResult([
+        source({
+          items: [
+            item({
+              id: "fiveHour",
+              label: "5 小时限额",
+              window: "5h",
+              resetAt: new Date(Date.now() + 2 * 3600_000).toISOString(),
+            }),
+          ],
+        }),
+      ])
+    )
+    render(<QuotaPage />)
+
+    expect(await screen.findByText(/2 小时后重置/)).toBeInTheDocument()
+  })
+
+  it("重置时间已过时说「已到重置时间」，而不是负数或空白", async () => {
+    // 到点却没刷新是常态（缓存窗口内的读数就是旧的）。这时报"还有 -3 分钟"
+    // 或干脆不报，用户都无从判断手上这份数据是不是过期的。
+    mocked.runQuotaSources.mockResolvedValue(
+      runResult([
+        source({
+          items: [item({ resetAt: new Date(Date.now() - 60_000).toISOString() })],
+        }),
+      ])
+    )
+    render(<QuotaPage />)
+
+    expect(await screen.findByText(/已到重置时间/)).toBeInTheDocument()
+  })
+
+  it("没给重置时间的源不显示这一段，也不显示成 0", async () => {
+    mocked.runQuotaSources.mockResolvedValue(runResult([source()]))
+    render(<QuotaPage />)
+
+    await screen.findByText(/共 1 条余量/)
+    expect(screen.queryByText(/重置/)).not.toBeInTheDocument()
+  })
+})
+
 describe("额度页 · 图表样式的说明", () => {
   // 这一组钉的是**说明里那句点明回落目标的话**，不是整段措辞：原先两处
   // 都只写"跟随卡片 / 跟随全局"，没说跟的是三层偏好里的哪一层，用户读到

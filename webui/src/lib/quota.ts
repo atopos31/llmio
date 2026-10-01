@@ -72,6 +72,45 @@ export function windowLabel(w: Window): string {
   }
 }
 
+/**
+ * 重置时间的读数，供卡片拼成「还有多久」或「已到重置时间」。
+ *
+ * 返回结构而不是成句的字符串：这一层没有 i18n，成句要在组件里拼。
+ * 三种粒度（分 / 时 / 天）用同一组词条，超出的部分一律落到"天"。
+ */
+export type ResetHint =
+  | { kind: "due" }
+  | { kind: "in"; unit: "minute" | "hour" | "day"; value: number }
+
+const MINUTE_MS = 60_000
+const HOUR_MS = 60 * MINUTE_MS
+const DAY_MS = 24 * HOUR_MS
+
+/**
+ * 算出一条余量的重置读数。
+ *
+ * 一律**向上取整**：还剩 90 分钟时说"1 小时"是把时间说少了，而用户正是
+ * 拿这句话决定要不要等——宁可说多不可说少。取整之后再判档，避免出现
+ * "60 分钟后重置""24 小时后重置"这种该进位却没进位的读数。
+ *
+ * 时间串解析不出来就返回 null（不猜）：宁可这一条不显示重置时间，
+ * 也不要显示一个编出来的时间。
+ */
+export function resetHint(resetAt: string | undefined, now: number): ResetHint | null {
+  if (!resetAt) return null
+  const at = Date.parse(resetAt)
+  if (Number.isNaN(at)) return null
+
+  const delta = at - now
+  if (delta <= 0) return { kind: "due" }
+
+  const minutes = Math.ceil(delta / MINUTE_MS)
+  if (minutes < 60) return { kind: "in", unit: "minute", value: minutes }
+  const hours = Math.ceil(delta / HOUR_MS)
+  if (hours < 24) return { kind: "in", unit: "hour", value: hours }
+  return { kind: "in", unit: "day", value: Math.ceil(delta / DAY_MS) }
+}
+
 // ---------------------------------------------------------------------------
 // 契约形状（对应 service/quota.go 的对外 JSON）
 // ---------------------------------------------------------------------------

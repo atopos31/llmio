@@ -22,6 +22,7 @@ import {
   queryToText,
   quotaStatusTone,
   renderItemText,
+  resetHint,
   saveQuotaView,
   sourceTypeKey,
   statusForQuota,
@@ -103,6 +104,52 @@ describe("windowLabel", () => {
 
   it("没有窗口时给空串（模板里 {window} 应渲染成空而不是占位符残留）", () => {
     expect(windowLabel("")).toBe("")
+  })
+})
+
+describe("resetHint", () => {
+  // 固定一个"现在"，否则跨整点跑测试会飘
+  const now = Date.parse("2026-10-01T00:00:00Z")
+  const at = (ms: number) => new Date(now + ms).toISOString()
+
+  it("按距现在的远近分三档粒度", () => {
+    expect(resetHint(at(30 * 60_000), now)).toEqual({ kind: "in", unit: "minute", value: 30 })
+    expect(resetHint(at(5 * 3600_000), now)).toEqual({ kind: "in", unit: "hour", value: 5 })
+    expect(resetHint(at(27 * 24 * 3600_000), now)).toEqual({ kind: "in", unit: "day", value: 27 })
+  })
+
+  it("一律向上取整，不说少", () => {
+    // 用户是拿这句话决定要不要等的：还剩 90 分钟时说"1 小时"会让人
+    // 白等半小时，说"2 小时"最多是早看一眼。
+    expect(resetHint(at(90 * 60_000), now)).toEqual({ kind: "in", unit: "hour", value: 2 })
+    expect(resetHint(at(3600_000 + 1), now)).toEqual({ kind: "in", unit: "hour", value: 2 })
+    // 向上取整会把 59 分 59 秒推到 60 分，档位判定必须在那之后做，
+    // 否则读数会写成「60 分钟后重置」而不是「1 小时后重置」。
+    expect(resetHint(at(59 * 60_000 + 59_000), now)).toEqual({
+      kind: "in",
+      unit: "hour",
+      value: 1,
+    })
+    // 同理，差一秒满一天不能写成「24 小时后重置」
+    expect(resetHint(at(24 * 3600_000 - 1000), now)).toEqual({ kind: "in", unit: "day", value: 1 })
+  })
+
+  it("不足一分钟也说 1 分钟，不说 0", () => {
+    // 0 分钟读起来像"已经重置了"，而它其实还没到
+    expect(resetHint(at(1), now)).toEqual({ kind: "in", unit: "minute", value: 1 })
+    expect(resetHint(at(59_000), now)).toEqual({ kind: "in", unit: "minute", value: 1 })
+  })
+
+  it("到点或已过点都报 due", () => {
+    expect(resetHint(at(0), now)).toEqual({ kind: "due" })
+    expect(resetHint(at(-1), now)).toEqual({ kind: "due" })
+  })
+
+  it("没有时间或时间认不出来时返回 null，不猜", () => {
+    // 编一个时间出来比不显示更糟：用户会照着一个假时刻去等
+    expect(resetHint(undefined, now)).toBeNull()
+    expect(resetHint("", now)).toBeNull()
+    expect(resetHint("下周三", now)).toBeNull()
   })
 })
 

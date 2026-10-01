@@ -11,6 +11,7 @@ package quota
 import (
 	"fmt"
 	"math"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -449,9 +450,17 @@ func toStr(v any) string {
 			return "true"
 		}
 		return "false"
-	default:
-		return ""
 	}
+	// 命名 string 类型（Window / Unit 这些）不匹配上面的 `case string`，
+	// 原先落到 default 就静默变空串——与 `case int` 那条注释说的同一种病。
+	// opencode 与 scnet 的 window 就是这样丢的：适配器明明填了
+	// `"window": WindowWeek`，出口却是 `"window": ""`，卡片上既不显示
+	// 「每周」也不显示 {window}。按 kind 判而不是逐个列类型，
+	// 新加的命名类型才不会再踩一次。
+	if rv := reflect.ValueOf(v); rv.Kind() == reflect.String {
+		return strings.TrimSpace(rv.String())
+	}
+	return ""
 }
 
 // normItem 归一单条。

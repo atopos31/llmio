@@ -10,6 +10,7 @@ import {
   itemStyleOf,
   itemsOf,
   renderItemText,
+  resetHint,
   ringLayout,
   sourceTypeKey,
   styleOf,
@@ -224,6 +225,21 @@ function QuotaChart({
   const textOf = (it: QuotaItem) =>
     renderItemText(it, prefs.overrides[itemOverrideKey(sourceId, it.id)]?.format)
 
+  /**
+   * 什么时候重置。这是余量卡上唯一会随时间自己变旧的读数，也是用户看这
+   * 一页最想知道的答案——"还要等多久"。opencode 这类套餐按 5 小时/周/月
+   * 三档放量，接口本来就回了 resetsAt，只是此前没有一处渲染它。
+   *
+   * 按渲染时刻现算：卡片每次取数都会重渲染，读数跟着刷新的节奏走。
+   * 因此不额外挂定时器——秒级跳动的倒计时对一个"多久"的问题没有增益。
+   */
+  const resetOf = (it: QuotaItem) => {
+    const hint = resetHint(it.resetAt, Date.now())
+    if (!hint) return ""
+    if (hint.kind === "due") return t("card.reset_due")
+    return t(`card.reset_in_${hint.unit}s` as never, { n: hint.value })
+  }
+
   const withPercent = items.filter((it) => it.percent !== null)
   const withoutPercent = items.filter((it) => it.percent === null)
 
@@ -251,6 +267,7 @@ function QuotaChart({
       {showMeta && (
         <div className="flex flex-wrap gap-1 text-[11px] text-muted-foreground">
           {windowLabel(it.window) && <span>{windowLabel(it.window)}</span>}
+          {resetOf(it) && <span>· {resetOf(it)}</span>}
           {it.extra?.note != null && <span>· {String(it.extra.note)}</span>}
         </div>
       )}

@@ -864,6 +864,12 @@ func TestFormatNumMoneyAndPercent(t *testing.T) {
 // 字面值转换
 // ---------------------------------------------------------------------------
 
+// 两个只为 toStr 的用例而生的命名类型：一个命名 string（该被接受），
+// 一个命名 int（该被拒绝，免得按 kind 放行时把数字也吞进来）。
+type windowWithSpace string
+
+type statusCode int
+
 func TestToStr(t *testing.T) {
 	t.Parallel()
 
@@ -879,6 +885,14 @@ func TestToStr(t *testing.T) {
 		{false, "false"},
 		{nil, ""},
 		{[]any{1}, ""},
+		// 命名 string 类型必须与 string 同等对待。原先它们落进 default
+		// 变成空串，于是适配器填的 window 一路静默消失。
+		{WindowWeek, "week"},
+		{WindowNone, ""},
+		{UnitUSD, "USD"},
+		{windowWithSpace("  每月  "), "每月"},
+		// 非字符串的命名类型仍应被拒（这里给的是命名 int）
+		{statusCode(400), ""},
 	}
 	for _, tc := range tests {
 		if got := toStr(tc.in); got != tc.want {

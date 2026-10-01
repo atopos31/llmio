@@ -714,6 +714,57 @@ func TestOpencodeBuildItems(t *testing.T) {
 	})
 }
 
+// 真机抓下来的响应（2026-10-01，字段原样）。
+//
+// 它钉的是**出口**而不是取数：适配器把 window 与 resetsAt 都填进了行，
+// 但归一之后 window 全变成了空串——toStr 的 default 不认命名 string 类型。
+// 卡片上表现为三档都既没有「每周」这类周期，也没有重置时间，而取数本身
+// 一直是对的。所以这里断言的是 Normalize 之后的 Item，不是 map。
+func TestOpencodeRealPayloadSurvivesNormalize(t *testing.T) {
+	items, err := opencodeBuildItems(parseJSONAny(t, `{
+		"subscriberUserId":"acc_01KZ0P8AHTP7K2HW2JSXZV2ZS6","product":"go","renewalCurrency":"usd",
+		"access":{"startsAt":"2026-09-28T01:22:15.000Z","endsAt":"2026-10-28T01:22:15.000Z","meters":{
+			"fiveHour":{"startsAt":"2026-10-01T00:47:05.773Z","resetsAt":"2026-10-01T05:47:05.773Z","limitMicroCents":"1200000000","usedMicroCents":"10022267"},
+			"week":{"startsAt":"2026-09-28T00:00:00.000Z","resetsAt":"2026-10-05T00:00:00.000Z","limitMicroCents":"3000000000","usedMicroCents":"1241957938"},
+			"month":{"resetsAt":"2026-10-28T01:22:15.000Z","limitMicroCents":"6000000000","usedMicroCents":"1241957938"}}}}`).(map[string]any))
+	if err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+	norm, err := Normalize(items, NormalizeOptions{})
+	if err != nil {
+		t.Fatalf("归一应成功: %v", err)
+	}
+
+	want := []struct {
+		id     string
+		window Window
+		reset  string
+	}{
+		{"fiveHour", Window5h, "2026-10-01T05:47:05Z"},
+		{"week", WindowWeek, "2026-10-05T00:00:00Z"},
+		{"month", WindowMonth, "2026-10-28T01:22:15Z"},
+	}
+	if len(norm) != len(want) {
+		t.Fatalf("应得 %d 条，实得 %d", len(want), len(norm))
+	}
+	for i, w := range want {
+		if norm[i].ID != w.id {
+			t.Fatalf("第 %d 条 id 应为 %s，实得 %s", i, w.id, norm[i].ID)
+		}
+		if norm[i].Window != w.window {
+			t.Fatalf("%s 的 window 应为 %q，实得 %q", w.id, w.window, norm[i].Window)
+		}
+		// 重置时间是这张卡唯一会变的读数，丢了它用户只能靠刷新猜
+		if norm[i].ResetAt != w.reset {
+			t.Fatalf("%s 的 resetAt 应为 %q，实得 %q", w.id, w.reset, norm[i].ResetAt)
+		}
+	}
+	// {window} 占位符走的是同一个字段，一并钉住
+	if got := RenderTemplate("{window}", norm[1]); got != "每周" {
+		t.Fatalf("{window} 应渲染成「每周」，实得 %q", got)
+	}
+}
+
 func TestOpencodeMeta(t *testing.T) {
 	m := opencodeMeta(map[string]any{
 		"product": "go", "renewalCurrency": "usd",

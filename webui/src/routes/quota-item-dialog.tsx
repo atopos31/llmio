@@ -142,7 +142,7 @@ export function QuotaItemDialog({
           {/*
             条目样式。卡片是"环"时，这一栏决定这一条画不画环——卡上放不下
             很多个环，用户要的正是"指定哪几个画环，其他画进度条"。
-            选"跟随卡片"表示不参与（回落到卡片的默认挑选）。
+            选"跟随本数据源"表示不参与（回落到这个数据源那一档）。
           */}
           <Row label={t("item.chart_style")}>
             <Select
@@ -177,7 +177,9 @@ export function QuotaItemDialog({
             </div>
           </Row>
 
-          <p className="text-[11px] text-muted-foreground">{t("item.chart_style_hint")}</p>
+          <p data-slot="chart-style-hint" className="text-[11px] text-muted-foreground">
+            {t("item.chart_style_hint")}
+          </p>
         </div>
 
         <DialogFooter className="sm:justify-between">

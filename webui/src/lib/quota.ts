@@ -654,11 +654,15 @@ export function styleOf(prefs: QuotaViewPrefs, sourceId: string): QuotaChartStyl
 }
 
 /**
- * 这一条**自己**指定的样式；没指定过就是 undefined（跟随卡片）。
+ * 这一条**自己**指定的样式；没指定过就是 undefined（即"跟随本数据源"）。
  *
- * 与 styleOf 的区别是要紧的：卡片样式决定整张卡怎么摆，条目样式只决定
+ * 与 styleOf 的区别是要紧的：数据源样式决定整张卡怎么摆，条目样式只决定
  * 这一条在卡片里长什么样。卡片是 ring 时条目指定 progress，意思是
  * "别的画环，这条画进度条"。
+ *
+ * undefined 的含义比"跟着走"更窄：它只表示这一条没被点名，因此仍可能被
+ * `ringLayout` 的默认回落挑中（见那里），而明确指出 progress / bar / text
+ * 的条目不会。
  */
 export function itemStyleOf(
   prefs: QuotaViewPrefs,

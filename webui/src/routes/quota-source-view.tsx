@@ -115,6 +115,14 @@ export function QuotaSourceViewDialog({
             </Select>
           </Row>
 
+          {/*
+            说明必须与条目对话框里那一栏对称。两处都只说"跟随"而不说跟随谁，
+            用户就会以为卡片样式是定死的——而它其实只有三层里最外面的一层。
+          */}
+          <p data-slot="chart-style-hint" className="text-[11px] text-muted-foreground">
+            {t("source_view.chart_style_hint")}
+          </p>
+
           <Row label={t("source_view.note")}>
             <Input
               value={note}

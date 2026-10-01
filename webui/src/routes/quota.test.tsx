@@ -261,6 +261,35 @@ describe("额度页 · 用量环卡片", () => {
   })
 })
 
+describe("额度页 · 图表样式的说明", () => {
+  // 这一组钉的是**说明里那句点明回落目标的话**，不是整段措辞：原先两处
+  // 都只写"跟随卡片 / 跟随全局"，没说跟的是三层偏好里的哪一层，用户读到
+  // 的是"卡片样式是定死的"。断言因此落在说明元素上——把话改回去就红。
+  // 必须按 data-slot 取元素而不是按文字搜：占位符本身就写着"跟随本数据源"，
+  // 全文搜的话说明整段删掉也照样通过。
+  function hint() {
+    return document.querySelector('[data-slot="chart-style-hint"]')
+  }
+
+  it("条目对话框说明「跟随本数据源」是回落到这个数据源那一档", async () => {
+    const user = userEvent.setup()
+    render(<QuotaPage />)
+
+    await user.click(await screen.findByRole("button", { name: "自定义这一条" }))
+    expect(hint()).toHaveTextContent("跟随本数据源")
+  })
+
+  it("数据源展示设置说明条目自己设置过时以条目为准", async () => {
+    const user = userEvent.setup()
+    render(<QuotaPage />)
+
+    await user.click(
+      await screen.findByRole("button", { name: "展示设置（名称 / 样式 / 格式）" })
+    )
+    expect(hint()).toHaveTextContent("以条目为准")
+  })
+})
+
 describe("额度页 · 编辑入口", () => {
   it("交给编辑器的是配置里那份完整源，而不是卡片上的取数结果", async () => {
     // 这一条钉的是**接线**：卡片手里只有取数结果（id / 名称 / 类型），

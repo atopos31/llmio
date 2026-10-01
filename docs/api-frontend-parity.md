@@ -8,7 +8,7 @@
 - 想知道某个端点删了会不会出事，看"前端调用者"一栏是否为空。
 - 状态列只有五档：**已接通** / **部分接通**（并说明缺什么）/ **无入口** / **仅 SDK** / **已废弃**。
 
-整理时点：**截至本次整理时的工作区状态**（当前分支 `feat/console-iter2`）。所有 `file:line` 均为当时行号；`webui/src/lib/api.ts` 因本次整理删掉了两个死包装，该文件的行号已按删除后的状态更新，其余文件的引用随峰谷计费一并定稿。表格不会自动跟随代码变动，改动相关文件时请顺手更新受影响的行。
+整理时点：**截至本次整理时的工作区状态**（当前分支 `feat/console-iter3`）。所有 `file:line` 均为当时行号；`webui/src/lib/api.ts` 因本次整理删掉了两个死包装，该文件的行号已按删除后的状态更新，其余文件的引用随峰谷拆分的定稿一并更新（峰谷四个端点在第三轮改名为 `/api/peak-calendar/*`，条款那半并入「模型 × 上游」关联）。表格不会自动跟随代码变动，改动相关文件时请顺手更新受影响的行。
 
 ---
 
@@ -50,10 +50,10 @@
 | `/api/auth-keys/:id` | DELETE | `handler.DeleteAuthKey` | webui/src/routes/auth-keys.tsx:355 | 已接通 |
 | `/api/config/:key` | GET | `handler.GetConfigByKey`（handler/api.go:925） | webui/src/routes/config.tsx:108（`anthropic_count_tokens`）、109（`log_cleanup_policy`） | 已接通（仅后端已定义的两个 key） |
 | `/api/config/:key` | PUT | `handler.UpdateConfigByKey`（handler/api.go:949） | webui/src/routes/config.tsx:168,180 | 已接通 |
-| `/api/peak-pricing` | GET | `handler.GetPeakPricing`（handler/peak.go:21） | webui/src/routes/peak-pricing.tsx:76 | 已接通（本次迭代新增） |
-| `/api/peak-pricing` | PUT | `handler.UpdatePeakPricing`（handler/peak.go:27） | webui/src/routes/peak-pricing.tsx:282 | 已接通（本次迭代新增） |
-| `/api/peak-pricing/preview` | POST | `handler.PreviewPeakPricing`（handler/peak.go:48） | webui/src/routes/peak-pricing.tsx:299 | 已接通（本次迭代新增） |
-| `/api/peak-pricing/holidays/sync` | POST | `handler.SyncPeakHolidays`（handler/peak.go:78） | webui/src/routes/peak-pricing.tsx:312 | 已接通（本次迭代新增） |
+| `/api/peak-calendar` | GET | `handler.GetPeakCalendar`（handler/peak.go:21） | webui/src/routes/peak-calendar.tsx:73 | 已接通（第三轮由 `/api/peak-pricing` 改名而来） |
+| `/api/peak-calendar` | PUT | `handler.UpdatePeakCalendar`（handler/peak.go:27） | webui/src/routes/peak-calendar.tsx:251 | 已接通（整份覆盖：不带 `holidaySyncedAt` / `holidaySource` 就等于抹掉同步记录） |
+| `/api/peak-calendar/preview` | POST | `handler.PreviewPeakTerms`（handler/peak.go:51） | webui/src/routes/model-providers/peak-terms-editor.tsx:144 | 已接通（条款由请求体带过去，日历由服务端自己取；响应含判定所用 `timezone`） |
+| `/api/peak-calendar/holidays/sync` | POST | `handler.SyncPeakHolidays`（handler/peak.go:89） | webui/src/routes/peak-calendar.tsx:267 | 已接通（服务端已落盘，响应回传整份日历） |
 | `/api/quota/config` | GET | `handler.GetQuotaConfig`（handler/quota.go:37） | webui/src/routes/quota.tsx:113 | 已接通 |
 | `/api/quota/config` | PUT | `handler.UpdateQuotaConfig`（handler/quota.go:57） | webui/src/routes/quota-settings.tsx:54 | 已接通 |
 | `/api/quota/sources` | POST | `handler.UpsertQuotaSource`（handler/quota.go:85） | webui/src/routes/quota-editor.tsx:302 | 已接通 |
@@ -81,8 +81,9 @@
 | `/logs/:logId/chat-io` | webui/src/routes/log-chat.tsx | `/api/logs/:id/chat-io` |
 | `/compare` | webui/src/routes/compare.tsx | `/api/logs`、`/api/logs/:id/chat-io` |
 | `/quota` | webui/src/routes/quota.tsx（+ quota-editor.tsx / quota-settings.tsx / quota-card.tsx / quota-source-view.tsx / quota-item-dialog.tsx） | `/api/quota/*` 全部八个 |
-| `/config` | webui/src/routes/config.tsx | `/api/config/:key`（两个 key）、`/api/test/count_tokens`、`/api/logs/cleanup/history`；页内嵌入 `PeakPricingCard`（真正的峰谷配置界面） |
-| （无独立路由） | webui/src/routes/peak-pricing.tsx | `/api/peak-pricing` 四个端点；只作为卡片挂在 `/config` 页面内，不占路由 |
+| `/config` | webui/src/routes/config.tsx | `/api/config/:key`（两个 key）、`/api/test/count_tokens`、`/api/logs/cleanup/history`；页内嵌入 `PeakCalendarCard`（工作日日历） |
+| （无独立路由） | webui/src/routes/peak-calendar.tsx | `/api/peak-calendar` 四个端点里的读取/保存/同步三个；只作为卡片挂在 `/config` 页面内，不占路由 |
+| （无独立路由） | webui/src/routes/model-providers/peak-terms-editor.tsx | `/api/peak-calendar/preview`；峰谷**条款**不单独提交，随关联的 create/update 一起走（`peak: null` 表示移除配置） |
 
 ---
 
@@ -159,7 +160,7 @@
 | 配额配置文件路径 `LLMIO_QUOTA_CONFIG` | quota/config.go:124-130 | **仅环境变量** | 默认 `./db/quota.config.json`（quota/config.go:34）。前端能读写配置**内容**，改不了文件**位置**。 |
 | 脚本沙箱（goja 子进程） | `quota/sandbox.go`（`SandboxCommand` 常量 :50）；main.go:32-36 | **已接通（使用侧）** | 配额数据源可选 `script` 类型并编辑源码（quota-editor.tsx），试跑走 `/api/quota/test`。沙箱机制本身（超时、内存、是否允许 fetch）由配置项与硬编码决定，UI 暴露源码（quota-editor.tsx:522）、`env`（:430）与 `allowFetch`（:542）。沙箱超时、内存上限等参数仍由后端决定。 |
 | 日志清理调度器 | `service.StartLogCleanupScheduler`（service/log_cleanup.go:78）；检查间隔 1 小时硬编码 :16 | **部分接通** | 开关与保留天数在 config 页（`log_cleanup_policy`）；**调度周期不可改**，且手动清理另有日志页按钮（`/api/logs/cleanup`，logs.tsx:268）。 |
-| 内置节假日数据 → 外网同步 | `service/holidays/`、service/holidays.go；handler/peak.go:78 | **已接通** | 峰谷计费的"同步节假日"触发外网抓取，见 peak-pricing.tsx:312。 |
+| 内置节假日数据 → 外网同步 | `service/holidays/`、service/holidays.go；handler/peak.go:89 | **已接通** | 峰谷日历的"从上游同步"触发外网抓取，见 peak-calendar.tsx:267。抓不到时后端回 502，原文透出给用户重试。 |
 | 上游版本检查 | `checkLatestRelease`（webui/src/lib/api.ts:786） | 纯前端 | 直接打 GitHub Releases API，不经过本服务；与本项目后端无关，列出仅为免生疑。 |
 
 ---
@@ -178,4 +179,4 @@
 | `LLMIO_QUOTA_CONFIG` | 配额配置文件路径 | quota/config.go:126 | 不能，见 ⑤。 |
 | `LLMIO_QUOTA_ALLOW_WRITE` | 配额写操作开关 | quota/config.go:139 | 不能，见 ⑤；前端只能显示其后果。 |
 
-**结论**：所有"能改的东西"都走数据库 KV（`/api/config/:key`）或各自的专用端点（peak-pricing / quota / 模型与 provider 记录），环境变量层一律是启动期决定、UI 改不了。反过来说，UI 改完即生效的能力（模型、provider、密钥、峰谷配置、配额源、日志清理策略）都不需要重启进程。
+**结论**：所有"能改的东西"都走数据库 KV（`/api/config/:key`）或各自的专用端点（peak-calendar / quota / 模型与 provider 记录），环境变量层一律是启动期决定、UI 改不了。反过来说，UI 改完即生效的能力（模型、provider、密钥、峰谷条款与日历、配额源、日志清理策略）都不需要重启进程。峰谷的**条款**不占专用端点，随「模型 × 上游」关联的 create/update 一起提交。

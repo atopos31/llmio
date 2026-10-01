@@ -250,7 +250,7 @@ Anthropic → OpenAI 是逆过程：
 2. **第二步（已完成）**：非流式响应互转（含错误体）
 3. **第三步（已完成）**：流式状态机（两个方向）+ 接到转发路径上的 `BridgedBody`
 4. **第四步（已完成）**：接线（候选池与直连优先、`Note` 进 ChatLog、日志页展示）
-5. **第五步（待办）**：拿真实上游（Opencode）端到端跑一遍再合
+5. **第五步（已完成）**：拿真实上游（Opencode）端到端跑了一遍，见 §10
 
 第 1–3 步的验收方式：`go test -cover ./bridge/` 语句覆盖 100%；每条新钉再**逐条证伪**
 一遍（把源码改坏 → 对应的那条测试必须转红 → 还原）。证伪要区分"断言失败"与"编译不过"：
@@ -260,3 +260,45 @@ Anthropic → OpenAI 是逆过程：
 `TranslatorFor` / 记账盒 / 响应包装）由 `service/bridge_test.go` 逐条钉住并同样逐条证伪；
 日志页的呈现由 `webui/src/routes/logs.test.tsx` 的「协议转换」一组钉住（含"同协议直连不摆
 这一节"与"码表里没有的新码不把 i18n 键路径漏到界面上"两条反向用例）。
+
+## 10. 端到端验收（`e2e/`）
+
+单元测试只能验"我以为的输入会给出我以为的输出"，验不了"真上游发来的东西长什么样"。
+`e2e/` 下因此有一辆车，两轮共用同一套建档与核对逻辑：
+
+- `stub_upstream.py`：双向协议的**桩**上游。它挑剔（按真上游的规矩校验：Anthropic 的
+  `max_tokens` 必填、`content` 必须是块数组、`tool_result` 必须有 `tool_use_id`；
+  OpenAI 的 role 白名单、`tool` 消息必须有 `tool_call_id`）并留痕（收到的请求体原样写进
+  jsonl）。翻译层漏掉的东西会在这里变成一次**可见的失败**，而不是一个"看起来也对"的答案。
+- `run_matrix.py --upstream stub`：19 条，两个方向的非流式与流式、工具调用、并发工具结果
+  合并、图片、拒答、记账、重试换家、候选池三条拓扑。每发核三处：客户端拿到的形状、
+  上游收到的字节、ChatLog 里的 `Style`/`upstream_style`/`bridge_notes`/tokens。
+- `run_matrix.py --upstream opencode`：5 条，打真上游 `https://opencode.ai/zen/go/v1`
+  （`space-bunny-free`，文档里标着免费；总用量 4 发，`max_tokens` 封在 256）。
+
+这一趟抓出三个真缺陷，都不是单测能发现的：
+
+1. **上游的 `Content-Length` 被原样复制给客户端**（`service/bridge.go`）。翻译后的字节数
+   几乎不可能与上游那份相同，`net/http` 据此校验并**掐断连接**，客户端拿到半截响应。
+   修法：翻完响应就作废这个头，长度交给分块传输。
+2. **Anthropic 的 `content` 字符串简写被当成"翻不过去"**（`bridge/anthropic.go`）。
+   Anthropic 允许 user/assistant 把"就一段文本"写成裸字符串，Claude Code 的普通轮次发的
+   正是这个形状；只认块数组的话，这类请求会被判成"这个上游用不了"，成因却在翻译层。
+3. **非流式的推理内容既不带上也不记账**（`bridge/response.go`）。流式那条路径一直记
+   `dropped_reasoning`，非流式连 `reasoning_content`/`reasoning` 两个字段都没声明——同一个
+   请求走流式与非流式会给出两份不同的账。顺带查出同类的第四处：`content_filter` ↔
+   `refusal` 换档位时只有 o2a 方向记账。
+
+真上游那一轮的日志（`e2e/.run/work-opencode/db/llmio.db`）正好把三条原则都照了出来：
+
+| 用例 | `style` → `upstream_style` | `bridge_notes` | tokens |
+|---|---|---|---|
+| 直连·OpenAI 客户端→OpenAI 端点 | openai → openai | （空） | 161 / 3 |
+| 转换·Anthropic 客户端→OpenAI 端点 | anthropic → openai | （空） | 161 / 3 |
+| 流式·同上 | anthropic → openai | `dropped_reasoning` | 161 / 14 |
+| 转换·OpenAI 客户端→Anthropic 端点 | openai → anthropic | `defaulted_max_tokens` | 161 / 3 |
+| 拒绝·结构化输出 | openai → anthropic | （空） | 0 / 0 |
+
+两处细节值得记下来：**直连那一行没有任何记账**（原则 3 的"纯结构重排不记账"）；
+**被拒绝的那一发 token 是 0**，因为它一个字节都没发给上游——拒绝发生在翻译层，
+不花上游的钱。第三行是免费模型在流里吐 reasoning，翻译层丢掉了原样记了一笔。

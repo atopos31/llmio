@@ -116,6 +116,19 @@ OpenAI 宽松、Anthropic 严，真实历史经常是前者：
 补的 `tool_result` 用 `is_error:true` + 一句说明，而不是编一个成功结果：模型读到的是
 "这个工具没返回"，而不是一个假数据。
 
+### 3.4 反方向的一条：`messages` 里的 `system`
+
+Anthropic 的规范把 system 放在顶层、`messages` 里只准有 user/assistant，但真实客户端
+（历史从别的格式搬过来的那些）会往 `messages` 里塞 `role:"system"`。而 **OpenAI 的
+system 是一等角色，出现在哪个位置都收**——所以照搬、保持原位，不合并、不上提、不记账
+（纯结构搬运）。
+
+这里曾经是一张角色白名单（只认 user/assistant），这个形状整条请求被判成"翻不过去"，
+路由器换走一家本来服务得了的上游，客户端只看到一句
+`cannot bridge to the upstream protocol`。**判据是目标协议能不能表达，不是源协议规不
+规范**——与 §3.1 里 `top_k` 那行同一个道理，只是代价从"静默丢一个参数"上升到"整条请求
+被拒"。搬得过去的是**角色**，不是任意内容块：`system` 里的 `tool_use` 之类仍然拒绝。
+
 配平（`tool_use` ↔ `tool_result`）必须是**一趟从左到右扫完所有轮次**，不能只看
 "assistant 后面紧跟的那条消息"：连续的 tool 消息会被合并成同一条 user 轮，只看相邻一条
 时，合并进来的第二份结果就成了没人检查的孤儿，原样发给上游直接 400。
@@ -271,7 +284,7 @@ Anthropic → OpenAI 是逆过程：
   `max_tokens` 必填、`content` 必须是块数组、`tool_result` 必须有 `tool_use_id`；
   OpenAI 的 role 白名单、`tool` 消息必须有 `tool_call_id`）并留痕（收到的请求体原样写进
   jsonl）。翻译层漏掉的东西会在这里变成一次**可见的失败**，而不是一个"看起来也对"的答案。
-- `run_matrix.py --upstream stub`：19 条，两个方向的非流式与流式、工具调用、并发工具结果
+- `run_matrix.py --upstream stub`：21 条，两个方向的非流式与流式、工具调用、并发工具结果
   合并、图片、拒答、记账、重试换家、候选池三条拓扑。每发核三处：客户端拿到的形状、
   上游收到的字节、ChatLog 里的 `Style`/`upstream_style`/`bridge_notes`/tokens。
 - `run_matrix.py --upstream opencode`：5 条，打真上游 `https://opencode.ai/zen/go/v1`
@@ -303,3 +316,23 @@ Anthropic → OpenAI 是逆过程：
 两处细节值得记下来：**直连那一行没有任何记账**（原则 3 的"纯结构重排不记账"）；
 **被拒绝的那一发 token 是 0**，因为它一个字节都没发给上游——拒绝发生在翻译层，
 不花上游的钱。第三行是免费模型在流里吐 reasoning，翻译层丢掉了原样记了一笔。
+
+### 两个缺陷的来路不同，值得分开记
+
+上面那三个是**验收车自己撞出来的**：桩上游挑剔、留痕，翻译层漏项就变成一次可见的失败。
+第四个（`content_filter` 换档位只记一个方向）是顺着第三个查同类时翻出来的。
+
+第五个不是——它是**用户报上来的**：
+
+```
+bridge request: cannot bridge to the upstream protocol: messages[1].role: unknown role "system"
+```
+
+Anthropic 客户端把 system 塞进了 `messages`（不合规范），o2a 方向拿角色当白名单，整条
+请求被拒。单元测试当时**全绿**：既有的反例集合里，"未知角色"举的正是 `role:"system"`
+这个例子——测试与实现犯了同一个错，彼此印证，谁也没觉得不对。这正是 §10 开头那句话的
+反面教材：单测验的是"我以为的输入给出我以为的输出"。
+
+修法见 §3.4；随后补的一条桩用例（`18 搬运·messages 里的 system`）钉住了这个形状，
+并且**证伪过**——把源码改回拒绝，这条用例转红（唯一候选被删光，`balancer pop err`），
+其余 20 条不受影响。

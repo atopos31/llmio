@@ -461,6 +461,26 @@ def stub_cases(providers):
                         upstream=dict(path="/anthropic/messages"),
                         log=dict(style="openai", upstream_style="anthropic", status="success"),
                         also_error_log=True)),
+        # 15 回归：Anthropic 客户端把 system 塞进 messages 里。这个形状不合 Anthropic 的
+        # 规范，但 **OpenAI 收得了 system**——判据是目标协议能不能表达，不是源协议规不规范。
+        # 曾经这里整条请求被判成"翻不过去"，路由器换走一家，客户端只看到一句
+        # cannot bridge to the upstream protocol
+        dict(name="搬运·messages 里的 system（Anthropic 客户端→OpenAI 上游）", client="anthropic",
+             assoc=[{"provider": oc, "provider_model": "stub-text"}],
+             body={"max_tokens": 64, "messages": [
+                 {"role": "user", "content": "你好"},
+                 {"role": "system", "content": "现在开始只回一个字"},
+                 {"role": "assistant", "content": "好"},
+                 {"role": "user", "content": "再说一次"},
+             ]},
+             check=dict(content="stub-text",
+                        upstream=dict(path="/openai/chat/completions", model="stub-text",
+                                      # 位置不动：中途的 system 原样带过去，不上提也不合并
+                                      dump=['"messages":[{"role":"user","content":"你好"},'
+                                            '{"role":"system","content":"现在开始只回一个字"},'
+                                            '{"role":"assistant","content":"好"}']),
+                        log=dict(style="anthropic", upstream_style="openai", status="success",
+                                 notes_exact=[]))),
     ]
 
 

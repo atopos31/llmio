@@ -636,6 +636,44 @@ func anthropicMessagesToOpenAI(msgs []AnthropicMessage, notes *[]Note) ([]OpenAI
 	out := make([]OpenAIMessage, 0, len(msgs))
 	for i, m := range msgs {
 		switch m.Role {
+		case "system":
+			// Anthropic 把 system 放在顶层、messages 里只准有 user/assistant，所以这个形状
+			// 不合规；但它**翻得过去**——OpenAI 的 system 是一等角色，出现在哪个位置都收。
+			// 判据是目标协议能不能表达，不是源协议规不规范：能搬却拒绝，等于让路由器换掉一家
+			// 本来服务得了的上游，而客户端只看到一句"翻不过去"，成因还在翻译层。
+			var texts []string
+			var parts []OpenAIContentPart
+			for _, b := range m.Content {
+				switch b.Type {
+				case blockText:
+					if strings.TrimSpace(b.Text) == "" {
+						*notes = append(*notes, NoteDroppedEmptyText)
+						continue
+					}
+					texts = append(texts, b.Text)
+				case blockImage:
+					part, err := openAIImagePart(b.Source)
+					if err != nil {
+						return nil, err
+					}
+					parts = append(parts, part)
+				case blockThinking, blockRedacted:
+					*notes = append(*notes, NoteDroppedThinking)
+				default:
+					return nil, &Unsupported{
+						Field:  fmt.Sprintf("messages[%d].content[].type", i),
+						Reason: fmt.Sprintf("unsupported content block %q in a system message", b.Type),
+					}
+				}
+			}
+			content := openAIContentJSON(texts, parts, notes)
+			if content == nil {
+				*notes = append(*notes, NoteDroppedEmptyMessage)
+				continue
+			}
+			// 位置不动、也不与别的 system 合并：OpenAI 允许中途插一条 system，原样带过去
+			// 最忠实。这属于纯结构搬运，一个字不多一个字不少，因此不记账
+			out = append(out, OpenAIMessage{Role: "system", Content: content})
 		case "user":
 			var toolMessages []OpenAIMessage
 			var texts []string

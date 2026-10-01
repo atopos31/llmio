@@ -947,6 +947,96 @@ func TestAnthropicToOpenAISystemShapes(t *testing.T) {
 	})
 }
 
+func TestAnthropicToOpenAISystemMessage(t *testing.T) {
+	t.Run("messages 里的 system 原样搬过去", func(t *testing.T) {
+		// Anthropic 侧这个形状不合规，但 OpenAI 收得了 system——判据是目标协议能不能表达。
+		// 曾经这里直接返回 Unsupported，整条请求被换走一家上游
+		out, notes := toOpenAI(t, `{
+			"max_tokens": 10,
+			"messages": [
+				{"role": "user", "content": "你好"},
+				{"role": "system", "content": "现在开始只回一个字"},
+				{"role": "assistant", "content": "好"}
+			]
+		}`)
+
+		messages := out["messages"].([]any)
+		if len(messages) != 3 {
+			t.Fatalf("三条都该在: %v", messages)
+		}
+		mid := messages[1].(map[string]any)
+		// 位置不动、也不并进别处：OpenAI 允许中途插一条 system，原样带过去最忠实
+		if mid["role"] != "system" || mid["content"] != "现在开始只回一个字" {
+			t.Fatalf("中途的 system 没搬对: %v", mid)
+		}
+		if len(notes) != 0 {
+			t.Fatalf("无损搬运不该记账: %v", notes)
+		}
+	})
+
+	t.Run("system 里的思考块丢掉并记账", func(t *testing.T) {
+		out, notes := toOpenAI(t, `{
+			"max_tokens": 10,
+			"messages": [{"role": "system", "content": [
+				{"type": "thinking", "thinking": "心里盘算", "signature": "sig"},
+				{"type": "text", "text": "正文"}
+			]}]
+		}`)
+		if got := out["messages"].([]any)[0].(map[string]any)["content"]; got != "正文" {
+			t.Fatalf("正文没搬对: %v", got)
+		}
+		requireNote(t, notes, NoteDroppedThinking)
+	})
+
+	t.Run("空的 system 消息整条丢掉", func(t *testing.T) {
+		out, notes := toOpenAI(t, `{
+			"max_tokens": 10,
+			"messages": [{"role": "system", "content": "   "}, {"role": "user", "content": "hi"}]
+		}`)
+		if messages := out["messages"].([]any); len(messages) != 1 {
+			t.Fatalf("空 system 消息该被丢掉: %v", messages)
+		}
+		requireNote(t, notes, NoteDroppedEmptyMessage)
+	})
+
+	t.Run("system 里的图片照搬", func(t *testing.T) {
+		out, _ := toOpenAI(t, `{
+			"max_tokens": 10,
+			"messages": [{"role": "system", "content": [
+				{"type": "text", "text": "看这张图"},
+				{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "QUJD"}}
+			]}]
+		}`)
+		parts := out["messages"].([]any)[0].(map[string]any)["content"].([]any)
+		if len(parts) != 2 {
+			t.Fatalf("文本与图片各一份: %v", parts)
+		}
+		if parts[0].(map[string]any)["type"] != "text" {
+			t.Fatalf("文本块该在最前: %v", parts[0])
+		}
+		url := parts[1].(map[string]any)["image_url"].(map[string]any)["url"]
+		if url != "data:image/png;base64,QUJD" {
+			t.Fatalf("图片没还原成 data URL: %v", url)
+		}
+	})
+
+	t.Run("system 里的坏图片拒绝", func(t *testing.T) {
+		rejectedReverse(t, `{
+			"max_tokens": 10,
+			"messages": [{"role": "system", "content": [{"type": "image", "source": {"type": "base64"}}]}]
+		}`, "image.source")
+	})
+
+	t.Run("system 里的工具块仍拒绝", func(t *testing.T) {
+		// 搬得过去的是角色，不是任意内容块：tool_use 放进 system 里没有意义，
+		// 静默丢掉等于让模型少读一段它本该看到的东西
+		rejectedReverse(t, `{
+			"max_tokens": 10,
+			"messages": [{"role": "system", "content": [{"type": "tool_use", "id": "t", "name": "f", "input": {}}]}]
+		}`, "messages[0].content[].type")
+	})
+}
+
 func TestAnthropicToOpenAIMaxTokens(t *testing.T) {
 	t.Run("给了就带上", func(t *testing.T) {
 		out, _ := toOpenAI(t, `{"max_tokens": 0, "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]}`)
@@ -1353,7 +1443,8 @@ func TestAnthropicToOpenAIRejects(t *testing.T) {
 	})
 
 	t.Run("未知角色", func(t *testing.T) {
-		rejectedReverse(t, `{"max_tokens":10,"messages":[{"role":"system","content":[{"type":"text","text":"x"}]}]}`, "messages[0].role")
+		// tool 是 OpenAI 的角色，Anthropic 侧没有；system 不在此列——它搬得过去
+		rejectedReverse(t, `{"max_tokens":10,"messages":[{"role":"tool","content":[{"type":"text","text":"x"}]}]}`, "messages[0].role")
 	})
 
 	t.Run("未知内容块", func(t *testing.T) {

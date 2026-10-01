@@ -7,7 +7,7 @@ import ConfigPage from "@/routes/config"
 import {
   configAPI,
   getCleanupHistory,
-  getPeakPricing,
+  getPeakCalendar,
   type AnthropicCountTokens,
   type LogCleanupPolicy,
   type LogCleanupRecord,
@@ -24,14 +24,14 @@ vi.mock("@/lib/api", () => ({
   testCountTokens: vi.fn(),
   // 峰谷计费卡片自带取数，挂在这一页上。不给它默认值的话，它会渲染成
   // 错误态并多出一个"重试"按钮，把这一页原有的重试断言搅成"找到多个"
-  getPeakPricing: vi.fn(),
+  getPeakCalendar: vi.fn(),
 }))
 
 const mocked = {
   getConfig: vi.mocked(configAPI.getConfig),
   updateConfig: vi.mocked(configAPI.updateConfig),
   getCleanupHistory: vi.mocked(getCleanupHistory),
-  getPeakPricing: vi.mocked(getPeakPricing),
+  getPeakCalendar: vi.mocked(getPeakCalendar),
 }
 
 /**
@@ -87,13 +87,11 @@ beforeEach(async () => {
   vi.clearAllMocks()
   configReplies()
   mocked.getCleanupHistory.mockResolvedValue(historyPage([]))
-  // 峰谷计费卡片在本页每次渲染都会取一次数；这里给服务端的默认配置，
-  // 卡片显示"未开启"，这一页的其它断言不受它影响
-  mocked.getPeakPricing.mockResolvedValue({
-    enabled: false,
+  // 峰谷的工作日日历卡片在本页每次渲染都会取一次数；这里给服务端的默认日历，
+  // 卡片显示"默认时区 + 默认工作日"，这一页的其它断言不受它影响
+  mocked.getPeakCalendar.mockResolvedValue({
     timezone: "Asia/Shanghai",
     weekdays: [1, 2, 3, 4, 5],
-    periods: [],
     dateOverrides: {},
   })
   const i18n = (await import("@/i18n")).default

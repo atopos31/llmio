@@ -7,7 +7,7 @@ import type {
   QuotaSource,
   QuotaTestResult,
 } from "@/lib/quota"
-import type { PeakHolidaySyncResult, PeakPricing, SchedulePoint } from "@/lib/peak"
+import type { PeakCalendar, PeakHolidaySyncResult, PeakTerms, PreviewResult } from "@/lib/peak"
 
 const API_BASE = '/api';
 
@@ -49,6 +49,8 @@ export interface ModelWithProvider {
   CacheReadPrice: number;
   OutputPrice: number;
   Currency: string;
+  /** 这一条关联自己的峰谷条款；null = 没配（按基础价计费）。 */
+  Peak: PeakTerms | null;
 }
 
 export interface PaginatedResponse<T> {
@@ -329,6 +331,8 @@ export async function createModelProvider(association: {
   cache_read_price: number;
   output_price: number;
   currency: string;
+  /** null 表示这条关联没有峰谷条款；后端会把它落成 NULL。 */
+  peak: PeakTerms | null;
 }): Promise<ModelWithProvider> {
   return apiRequest<ModelWithProvider>('/model-providers', {
     method: 'POST',
@@ -351,6 +355,11 @@ export async function updateModelProvider(id: number, association: {
   cache_read_price?: number;
   output_price?: number;
   currency?: string;
+  /**
+   * 省略或传 null 都会把已有条款清掉（后端在结构体更新之外补了一次显式清空，
+   * 否则 GORM 会跳过这个 nil 指针、旧条款一直留在行上）。因此想保留就必须传。
+   */
+  peak?: PeakTerms | null;
 }): Promise<ModelWithProvider> {
   return apiRequest<ModelWithProvider>(`/model-providers/${id}`, {
     method: 'PUT',
@@ -887,41 +896,46 @@ export async function testQuotaSource(source: QuotaSource): Promise<QuotaTestRes
 //
 // 四个端点，形状定义在 @/lib/peak（校验、表单映射、预览呈现都在那一层）。
 // 端点本身不做任何加工，只做端点包装——除同步那一个，理由见下。
+//
+// 条款不在这一组里：它挂在「模型 × 上游」关联上，随 model-providers 的增改走
+// （见 createModelProvider / updateModelProvider 的 peak 字段）。这里只有全局的
+// 工作日日历，以及"拿一份还没保存的条款预览时间轴"。
 
-/** 读配置。未配置过时后端直接返回默认配置（关闭状态），不会给 null。 */
-export async function getPeakPricing(): Promise<PeakPricing> {
-  return apiRequest<PeakPricing>("/peak-pricing");
+/** 读全局日历。未配置过时后端直接返回默认日历，不会给 null。 */
+export async function getPeakCalendar(): Promise<PeakCalendar> {
+  return apiRequest<PeakCalendar>("/peak-calendar");
 }
 
 /**
- * 整份覆盖配置。
+ * 整份覆盖全局日历。
  *
- * 校验失败时后端回的是 HTTP 200 + code 400，message 里点名了是第几段、
- * 哪一处不合法（"period 2 (夜间): start ..."）；apiRequest 会把它原样抛出，
- * 界面**必须**直接显示这句话，不要用"保存失败"盖掉——它是唯一能定位问题的信息。
+ * 校验失败时后端回的是 HTTP 200 + code 400，message 里点名了是哪一处
+ * （"invalid timezone ..."）；apiRequest 会把它原样抛出，界面**必须**直接
+ * 显示这句话，不要用"保存失败"盖掉——它是唯一能定位问题的信息。
  */
-export async function updatePeakPricing(cfg: PeakPricing): Promise<PeakPricing> {
-  return apiRequest<PeakPricing>("/peak-pricing", {
+export async function updatePeakCalendar(cal: PeakCalendar): Promise<PeakCalendar> {
+  return apiRequest<PeakCalendar>("/peak-calendar", {
     method: "PUT",
-    body: JSON.stringify(cfg),
+    body: JSON.stringify(cal),
   });
 }
 
 /**
- * 回放未来 days 天，返回合并后的时间轴区间。
+ * 回放未来 days 天，返回合并后的时间轴区间与**判定所用的时区**。
  *
- * 传的是**尚未保存**的表单配置：想先看清效果再决定存不存。days 由后端
- * 限制在 1..31，超界会回 code 400。
+ * 传的是**尚未保存**的条款：想先看清效果再决定存不存。日历取的是已保存的
+ * 那一份（预览要在关联编辑器里做，那里没有日历的编辑权），因此响应回传时区，
+ * 调用方才能按正确的时区渲染时刻。days 由后端限制在 1..31，超界会回 code 400。
  */
-export async function previewPeakPricing(cfg: PeakPricing, days = 7): Promise<SchedulePoint[]> {
-  return apiRequest<SchedulePoint[]>(`/peak-pricing/preview?days=${days}`, {
+export async function previewPeakTerms(terms: PeakTerms, days = 7): Promise<PreviewResult> {
+  return apiRequest<PreviewResult>(`/peak-calendar/preview?days=${days}`, {
     method: "POST",
-    body: JSON.stringify(cfg),
+    body: JSON.stringify(terms),
   });
 }
 
 /**
- * 同步指定年份的节假日与调休，服务端落盘后返回新配置。
+ * 同步指定年份的节假日与调休，服务端落盘后返回新日历。
  *
  * 这一个**没有走 apiRequest**：同步要出外网，失败时后端用 HTTP 502 回，
  * 而失败原因（镜像不可达、该年连内置数据都没有……）只写在 body 的 message 里。
@@ -932,7 +946,7 @@ export async function previewPeakPricing(cfg: PeakPricing, days = 7): Promise<Sc
  */
 export async function syncPeakHolidays(year: number): Promise<PeakHolidaySyncResult> {
   const token = localStorage.getItem("authToken");
-  const response = await fetch(`${API_BASE}/peak-pricing/holidays/sync?year=${year}`, {
+  const response = await fetch(`${API_BASE}/peak-calendar/holidays/sync?year=${year}`, {
     method: "POST",
     headers: {
       'Content-Type': 'application/json',

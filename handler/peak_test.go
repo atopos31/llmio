@@ -373,38 +373,47 @@ func TestPreviewPeakTermsHandler(t *testing.T) {
 	PreviewPeakTerms(c)
 
 	var env struct {
-		Code int                     `json:"code"`
-		Data []service.SchedulePoint `json:"data"`
+		Code int `json:"code"`
+		Data struct {
+			Timezone string                  `json:"timezone"`
+			Points   []service.SchedulePoint `json:"points"`
+		} `json:"data"`
 	}
 	decodeEnvelope(t, w, &env)
 
 	if env.Code != 200 {
 		t.Fatalf("业务码应为 200，实得 %d：%s", env.Code, w.Body.String())
 	}
-	if len(env.Data) < 2 {
-		t.Fatalf("一天两个时段应至少切出 2 段：%+v", env.Data)
+	// 判定所用的时区必须回传：调用方手上没有全局日历，不回传就只能按浏览器
+	// 本地时区渲染，时间轴会与时段名自相矛盾
+	if env.Data.Timezone != models.DefaultPeakCalendar().Timezone {
+		t.Fatalf("应回传判定所用的时区，实得 %q", env.Data.Timezone)
+	}
+	points := env.Data.Points
+	if len(points) < 2 {
+		t.Fatalf("一天两个时段应至少切出 2 段：%+v", points)
 	}
 
 	// 预览从"当前时刻"起算而非零点，因此不能断言首段是哪个时段。
 	// 改为断言两个时段都出现且各自乘数正确。
 	byName := map[string]float64{}
-	for _, p := range env.Data {
+	for _, p := range points {
 		byName[p.Period] = p.Multiplier
 	}
 	if byName["夜间"] != 0.25 {
-		t.Fatalf("夜间时段乘数应为 0.25：%+v", env.Data)
+		t.Fatalf("夜间时段乘数应为 0.25：%+v", points)
 	}
 	if byName["白天"] != 1 {
-		t.Fatalf("白天时段乘数应为 1：%+v", env.Data)
+		t.Fatalf("白天时段乘数应为 1：%+v", points)
 	}
 
 	// 各段首尾相接且覆盖所请求的跨度
-	for i := 1; i < len(env.Data); i++ {
-		if env.Data[i].Start != env.Data[i-1].End {
-			t.Fatalf("相邻段应首尾相接：%+v", env.Data)
+	for i := 1; i < len(points); i++ {
+		if points[i].Start != points[i-1].End {
+			t.Fatalf("相邻段应首尾相接：%+v", points)
 		}
 	}
-	span := env.Data[len(env.Data)-1].End - env.Data[0].Start
+	span := points[len(points)-1].End - points[0].Start
 	if span < (23 * time.Hour).Milliseconds() {
 		t.Fatalf("预览 1 天应覆盖近 24 小时，实得 %d ms", span)
 	}
@@ -437,18 +446,22 @@ func TestPreviewPeakTermsHandlerUsesSavedCalendar(t *testing.T) {
 	PreviewPeakTerms(c)
 
 	var env struct {
-		Code int                     `json:"code"`
-		Data []service.SchedulePoint `json:"data"`
+		Code int `json:"code"`
+		Data struct {
+			Timezone string                  `json:"timezone"`
+			Points   []service.SchedulePoint `json:"points"`
+		} `json:"data"`
 	}
 	decodeEnvelope(t, w, &env)
 	if env.Code != 200 {
 		t.Fatalf("业务码应为 200，实得 %d：%s", env.Code, w.Body.String())
 	}
-	if len(env.Data) != 1 {
-		t.Fatalf("按已保存的日历（每天都是工作日）整周应合并成一段，实得 %d 段：%+v", len(env.Data), env.Data)
+	if len(env.Data.Points) != 1 {
+		t.Fatalf("按已保存的日历（每天都是工作日）整周应合并成一段，实得 %d 段：%+v",
+			len(env.Data.Points), env.Data.Points)
 	}
-	if env.Data[0].Multiplier != 1.5 || !env.Data[0].Workday {
-		t.Fatalf("整段都应命中全天时段且为工作日：%+v", env.Data[0])
+	if env.Data.Points[0].Multiplier != 1.5 || !env.Data.Points[0].Workday {
+		t.Fatalf("整段都应命中全天时段且为工作日：%+v", env.Data.Points[0])
 	}
 }
 

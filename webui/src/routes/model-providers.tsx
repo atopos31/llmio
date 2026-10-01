@@ -251,6 +251,9 @@ export default function ModelProvidersPage() {
     appendHeader,
     removeHeader,
     selectedProviderId,
+    peakTerms,
+    setPeakTerms,
+    peakSubmitAttempt,
     openEditDialog,
     openCreateDialog,
     submit,
@@ -727,6 +730,9 @@ export default function ModelProvidersPage() {
         providerModelsLoading={providerModelsLoading}
         sortProviderModels={sortProviderModels}
         loadProviderModels={loadProviderModels}
+        peakTerms={peakTerms}
+        setPeakTerms={setPeakTerms}
+        peakSubmitAttempt={peakSubmitAttempt}
       />
 
       <ModelProviderTestDialog

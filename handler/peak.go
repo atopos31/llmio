@@ -71,7 +71,14 @@ func PreviewPeakTerms(c *gin.Context) {
 
 	cal := service.GetPeakCalendar(c.Request.Context())
 	resolver := service.NewPeakResolver(req, cal)
-	common.Success(c, service.PreviewSchedule(resolver, time.Now(), days))
+	// 把判定所用的时区一并回传：时间轴上的毫秒是绝对时刻，而"这段是不是
+	// 夜间优惠"是按日历的时区判定的。调用方（关联编辑器）手上只有条款、
+	// 拿不到全局日历，不回传它就只能按浏览器本地时区渲染，会出现
+	// "08:30 命中了夜间优惠"这种自相矛盾的画面。
+	common.Success(c, gin.H{
+		"timezone": cal.Timezone,
+		"points":   service.PreviewSchedule(resolver, time.Now(), days),
+	})
 }
 
 // SyncPeakHolidays 从公共数据源同步指定年份的节假日与调休安排。

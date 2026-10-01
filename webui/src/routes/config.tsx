@@ -28,7 +28,7 @@ import { AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { configAPI, type AnthropicCountTokens, type LogCleanupPolicy, type LogCleanupRecord, getCleanupHistory, testCountTokens } from '@/lib/api';
-import { PeakPricingCard } from '@/routes/peak-pricing';
+import { PeakCalendarCard } from '@/routes/peak-calendar';
 import {
   Table,
   TableBody,
@@ -320,13 +320,13 @@ export default function ConfigPage() {
         </Card>
 
         {/*
-          峰谷计费（分时段/工作日定价）自带一个端点与四种状态，因此它是一张
-          自带取数的卡片，而不是并进上面 loadConfig 的那一次 Promise.all——
-          并进去的话，它读失败会把整页说成"读取现有配置失败"，而另外两张卡
-          其实好着。
+          峰谷的工作日日历自带一个端点与四种状态，因此它是一张自带取数的卡片，
+          而不是并进上面 loadConfig 的那一次 Promise.all——并进去的话，它读失败
+          会把整页说成"读取现有配置失败"，而另外两张卡其实好着。
+          时段与乘数不在这里：那是每条上游自己的商务条款，配在「模型 × 上游」。
         */}
         <div className="mt-4">
-          <PeakPricingCard />
+          <PeakCalendarCard />
         </div>
       </div>
 

@@ -1,31 +1,45 @@
 /**
  * 峰谷计费的纯逻辑层：时段窗口、本地校验、表单 ↔ 载荷映射、节假日覆盖的往返。
  *
+ * ## 两半，各有归属
+ *
+ * 后端把峰谷拆成了两处，这一层照搬那条线（见 models/peak.go 与 handler/peak.go）：
+ *
+ *   - **条款**（开关 + 时段）挂在「模型 × 上游」的关联上：峰谷窗口是上游的
+ *     商务条款，同一时间点上 A 家打折、B 家峰时是正常的。表单与校验是
+ *     terms* 那几个函数，界面上住在关联编辑器里。
+ *   - **日历**（时区 / 星期几 / 日期覆盖 / 节假日同步）是全局事实：哪天放假、
+ *     按哪个时区算"今天"，对所有上游是同一个答案。表单与校验是 calendar*
+ *     那几个函数，界面上是配置页的那张卡片。
+ *
+ * 判定要同时用到两者（"这一刻是不是夜间优惠"既看条款也看日历），但**存储与
+ * 编辑完全分开**，这一层不做任何把两半合起来的东西。
+ *
  * ## 真相来源与这一层的边界
  *
- * 权威在后端：`handler/peak.go` 的 validatePeakPricing 是最终裁决，
- * `service/peak.go` 的 ParseClock / InClockWindow / PreviewSchedule 是语义定义。
- * 这里做两件事，别的一概不做：
+ * 权威在后端：`handler/peak.go` 的 validatePeakTerms / validatePeakCalendar 是
+ * 最终裁决，`service/peak.go` 的 ParseClock / InClockWindow / PreviewSchedule
+ * 是语义定义。这里做两件事，别的一概不做：
  *
  *   1. 把用户能犯的错在**提交之前**指出是哪一段、哪一条（省一次往返，
  *      也避免把后端那句英文 message 直接甩到脸上）；
  *   2. 把表单状态翻译成后端要的形状（"24:00"、空列表、布尔指针的省略）。
  *
- * 校验规则逐条对齐 validatePeakPricing，下面每条都注明它对应后端哪一处。
+ * 校验规则逐条对齐后端的两个 validate，下面每条都注明它对应哪一处。
  * 两边口径不一致的代价是"界面上说没问题、保存时才被拒"——这正是要避免的；
  * 但前端这一份只在提交前拦一道，**后端仍然是唯一权威**，它的 message
  * 要原样透出，不能被一句"保存失败"替掉。
  *
  * ## 刻意不做的事（每一件都是踩过才有理由）
  *
- *   - **不重算价格**。预览里每一段的区间与乘数由 POST /peak-pricing/preview
+ *   - **不重算价格**。预览里每一段的区间与乘数由 POST /peak-calendar/preview
  *     下发（service.PreviewSchedule），这里只负责呈现。从 periods 再推一遍
  *     等于把"首个命中者胜出""跨零点""按日期覆盖工作日"整套判定抄第二遍，
  *     抄错的那一天没人看得出来。
  *   - **不给 periods 自动排序**。ResolvePeriod 的语义是**首个命中者胜出**，
  *     数组顺序就是优先级；按时间自动排一次序，会静默把"先特例后一般"的
  *     意图打乱，改的是每一笔请求的价格。顺序由用户在界面上用上移/下移控制。
- *   - **不把时段重叠当错误**。validatePeakPricing 里根本没有重叠检查——
+ *   - **不把时段重叠当错误**。后端的 validatePeakTerms 里根本没有重叠检查——
  *     重叠是允许的，由顺序裁决。因此这里只给提示（findPeriodConflicts），
  *     不拦保存；拦了就等于前端凭空加了一条后端没有的规则。
  */
@@ -48,14 +62,22 @@ export interface PeakPeriod {
   workday?: boolean
 }
 
-export interface PeakPricing {
+/**
+ * 某个上游的峰谷条款，落在 ModelWithProvider.Peak 上。
+ *
+ * 数组顺序即优先级（首个命中者胜出），因此**不要**在保存前按时间排序。
+ */
+export interface PeakTerms {
   enabled: boolean
+  periods: PeakPeriod[]
+}
+
+/** 全局工作日日历（configs 表的 peak_calendar 键）。 */
+export interface PeakCalendar {
   /** 判定时段所用的时区；空 = 服务器本地时区。 */
   timezone: string
   /** 工作日定义（0=周日 … 6=周六），空 = 周一至周五。 */
   weekdays?: number[]
-  /** 时段列表，顺序即优先级。 */
-  periods: PeakPeriod[]
   /** 按日期覆盖工作日判定，键 "YYYY-MM-DD"，值 "work" / "rest"。 */
   dateOverrides: Record<string, string>
   /** 最近一次节假日同步的 unix 秒，0/缺省 = 从未同步。 */
@@ -72,18 +94,30 @@ export interface SchedulePoint {
   /** 命中的时段名，空串表示按基础价。 */
   period: string
   multiplier: number
-  /** 该段起始日是否为工作日（已按配置时区与日期覆盖判定）。 */
+  /** 该段起始日是否为工作日（已按日历的时区与日期覆盖判定）。 */
   workday: boolean
 }
 
-/** POST /peak-pricing/holidays/sync 的数据体。 */
+/**
+ * POST /peak-calendar/preview 的数据体。
+ *
+ * timezone 由服务端回传：它才是判定"这段是不是夜间优惠"所用的那个时区。
+ * 编辑器手上只有条款、拿不到全局日历，不回传它就只能按浏览器本地时区渲染，
+ * 会出现"08:30 命中了夜间优惠"这种自相矛盾的画面。
+ */
+export interface PreviewResult {
+  timezone: string
+  points: SchedulePoint[]
+}
+
+/** POST /peak-calendar/holidays/sync 的数据体。 */
 export interface PeakHolidaySyncResult {
   year: number
   count: number
   source: string
   syncedAt: number
-  /** 同步后的完整配置：服务端已落盘，界面拿它直接替换本地状态即可。 */
-  config: PeakPricing
+  /** 同步后的完整日历：服务端已落盘，界面拿它直接替换本地状态即可。 */
+  calendar: PeakCalendar
 }
 
 export type DateOverrideKind = "work" | "rest"
@@ -167,7 +201,7 @@ export function isOvernight(start: string, end: string): boolean {
 /**
  * 时段覆盖的分钟数。跨零点补一天，start == end 视为覆盖全天。
  *
- * start == end 那一支其实走不到：validatePeakPricing 直接把它拒了
+ * start == end 那一支其实走不到：validateTermsForm 直接把它拒了
  * （"which would cover the whole day"）。这里保留与 InClockWindow 同样的
  * 语义，是为了不在两处对同一个输入给出不同答案。
  */
@@ -196,7 +230,7 @@ export function clockContains(minutes: number, start: string, end: string): bool
  *
  * 判法：两个非空圆弧相交 ⇔ 其中一个包含另一个的起点。窗口都是 [start,end)
  * 的半开区间，所以 08:00-20:00 与 20:00-22:00 不算重叠（20:00 属于后者）。
- * 任一时刻不合法时返回 false：那种时段由 validatePeakForm 专门报错，
+ * 任一时刻不合法时返回 false：那种时段由 validateTermsForm 专门报错，
  * 不该在这里再报一次"重叠"。
  */
 export function clocksOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
@@ -232,7 +266,7 @@ export function periodsConflict(a: PeakPeriod, b: PeakPeriod): boolean {
 /**
  * 排序键：时段的窗口起点（分钟）。
  *
- * 解析不出来的排到最后——它们由 validatePeakForm 单独报错，不该在这里
+ * 解析不出来的排到最后——它们由 validateTermsForm 单独报错，不该在这里
  * 替它们编一个靠前的名次。
  */
 export function periodStartMinutes(p: PeakPeriod): number {
@@ -258,7 +292,7 @@ export function findPeriodConflicts(periods: PeakPeriod[]): Array<[number, numbe
 }
 
 // ---------------------------------------------------------------------------
-// 值的校验（与 handler/peak.go 的 validatePeakPricing 逐条对齐）
+// 值的校验（与 handler/peak.go 的两个 validate 逐条对齐）
 // ---------------------------------------------------------------------------
 
 export type PeakIssueKey =
@@ -286,7 +320,7 @@ export interface PeakIssue {
 /**
  * IANA 时区名是否可用。
  *
- * 对齐后端 validatePeakPricing 的 time.LoadLocation 分支，两点差异要说清：
+ * 对齐后端 validatePeakCalendar 的 time.LoadLocation 分支，两点差异要说清：
  *   - 空串合法：空 = 用服务器本地时区，后端对空串直接跳过校验；
  *   - 这里靠 Intl 试解析（浏览器没有 tzdata 接口），个别 Go 认、ICU 不认的
  *     别名可能被判错。判错的后果只是提前拦下一次保存，后端仍是权威。
@@ -318,7 +352,7 @@ export function isCalendarDate(raw: string): boolean {
 /**
  * 乘数输入 → 数字；不是有限数则返回 null。
  *
- * **后端完全不校验乘数**（validatePeakPricing 里没有这一项），这条是前端补的，
+ * **后端完全不校验乘数**（validatePeakTerms 里没有这一项），这条是前端补的，
  * 理由是 JSON 载不动 NaN：JSON.stringify(NaN) 得到 null，Go 侧解出来是 0 ——
  * 一次"手滑清空了输入框"的保存会把那一档价格静默改成免费。
  * 负乘数则是语义上没人想要的东西（负价），一并拦掉。
@@ -339,7 +373,7 @@ export function formatMultiplier(m: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// 表单形状与映射
+// 条款：表单形状与映射
 // ---------------------------------------------------------------------------
 
 /** 时段的 workday 在表单里是三态：不限 / 只在工作日 / 只在休息日。 */
@@ -362,6 +396,78 @@ export interface PeakPeriodForm {
   workday: WorkdayFilter
 }
 
+export interface PeakTermsForm {
+  enabled: boolean
+  periods: PeakPeriodForm[]
+}
+
+/**
+ * 一份新的条款模板：**关闭**状态，两段示例时段。
+ *
+ * 与后端 models.DefaultPeakTerms 逐字对齐（关闭 + 08:30-00:30 标准价、
+ * 00:30-08:30 半价的示例）。默认关闭是刻意的——分时段计费会改变成本数字的
+ * 语义，在用户明确打开开关前不该静默生效；给两段示例则是因为打开开关的人
+ * 马上要填的就是时段，照抄示例改数字比从零写起快得多。
+ */
+export function defaultTermsForm(): PeakTermsForm {
+  return {
+    enabled: false,
+    periods: [
+      { name: "标准时段", start: "08:30", end: "00:30", multiplier: "1", days: [], workday: "any" },
+      { name: "夜间优惠", start: "00:30", end: "08:30", multiplier: "0.25", days: [], workday: "any" },
+    ],
+  }
+}
+
+/** 条款 → 表单。深拷贝，避免表单里的编辑改到父组件持有的那份配置。 */
+export function termsToForm(terms: PeakTerms): PeakTermsForm {
+  return {
+    enabled: terms.enabled,
+    periods: (terms.periods ?? []).map((p) => ({
+      name: p.name ?? "",
+      // 回填时归一：配置里手写的 "8:30" 在这里变成 "08:30"，否则输入框里
+      // 会同时出现两种写法，而"它们其实是同一段"要用户自己看出来
+      start: normalizeClock(p.start ?? "") ?? (p.start ?? ""),
+      end: normalizeClock(p.end ?? "") ?? (p.end ?? ""),
+      multiplier: String(p.multiplier ?? 1),
+      days: [...(p.days ?? [])],
+      workday: p.workday === undefined ? "any" : p.workday ? "work" : "rest",
+    })),
+  }
+}
+
+/**
+ * 条款表单 → 提交载荷。
+ *
+ * 几处刻意的取舍：
+ *   - 空 days **省略**：后端的"空"等价于不限，省掉后配置文件里也看得清
+ *     "这里就是不限制"；
+ *   - periods 为空照发 []（不是 null）：空列表是合法配置——启用后所有请求
+ *     按基础价，ResolvePeriod 返回 nil、乘数落到 1；
+ *   - 乘数解析不出来时回落 1（基础价）。调用方应当先跑 validateTermsForm；
+ *     真有漏网的，落成基础价也比落成 0（免费）安全。
+ */
+export function termsFormToPayload(form: PeakTermsForm): PeakTerms {
+  return {
+    enabled: form.enabled,
+    periods: form.periods.map((p) => {
+      const period: PeakPeriod = {
+        name: p.name.trim(),
+        start: normalizeClock(p.start) ?? p.start.trim(),
+        end: normalizeClock(p.end) ?? p.end.trim(),
+        multiplier: parseMultiplier(p.multiplier) ?? 1,
+      }
+      if (p.days.length) period.days = [...p.days].sort((a, b) => a - b)
+      if (p.workday !== "any") period.workday = p.workday === "work"
+      return period
+    }),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 日历：表单形状与映射
+// ---------------------------------------------------------------------------
+
 export interface HolidayRow {
   /** "YYYY-MM-DD" */
   date: string
@@ -374,75 +480,43 @@ export interface HolidayRow {
   kind: string
 }
 
-export interface PeakForm {
-  enabled: boolean
+export interface PeakCalendarForm {
   timezone: string
   weekdays: number[]
-  periods: PeakPeriodForm[]
   holidays: HolidayRow[]
   /**
    * 同步元数据必须跟着表单走。
    *
-   * PUT /peak-pricing 是**整份覆盖**，而这两项与时段、覆盖表存在同一份配置里。
-   * 表单不带它们回传，用户改一个乘数就会顺手抹掉"最近同步于何时、来自哪里"，
+   * PUT /peak-calendar 是**整份覆盖**，而这两项与覆盖表存在同一份配置里。
+   * 表单不带它们回传，用户改一个时区就会顺手抹掉"最近同步于何时、来自哪里"，
    * 界面随之后退成"从未同步"——而节假日覆盖其实还在。
    */
   holidaySyncedAt?: number
   holidaySource?: string
 }
 
-/** 配置 → 表单。深拷贝，避免表单里的编辑改到父组件持有的那份配置。 */
-export function pricingToForm(cfg: PeakPricing): PeakForm {
+/** 日历 → 表单。深拷贝，理由同 termsToForm。 */
+export function calendarToForm(cal: PeakCalendar): PeakCalendarForm {
   return {
-    enabled: cfg.enabled,
-    timezone: cfg.timezone ?? "",
-    weekdays: [...(cfg.weekdays ?? [])],
-    periods: (cfg.periods ?? []).map((p) => ({
-      name: p.name ?? "",
-      // 回填时归一：配置里手写的 "8:30" 在这里变成 "08:30"，否则输入框里
-      // 会同时出现两种写法，而"它们其实是同一段"要用户自己看出来
-      start: normalizeClock(p.start ?? "") ?? (p.start ?? ""),
-      end: normalizeClock(p.end ?? "") ?? (p.end ?? ""),
-      multiplier: String(p.multiplier ?? 1),
-      days: [...(p.days ?? [])],
-      workday: p.workday === undefined ? "any" : p.workday ? "work" : "rest",
-    })),
-    holidays: holidayRowsFromOverrides(cfg.dateOverrides ?? {}),
-    holidaySyncedAt: cfg.holidaySyncedAt,
-    holidaySource: cfg.holidaySource,
+    timezone: cal.timezone ?? "",
+    weekdays: [...(cal.weekdays ?? [])],
+    holidays: holidayRowsFromOverrides(cal.dateOverrides ?? {}),
+    holidaySyncedAt: cal.holidaySyncedAt,
+    holidaySource: cal.holidaySource,
   }
 }
 
 /**
- * 表单 → 提交载荷。
+ * 日历表单 → 提交载荷。
  *
- * 几处刻意的取舍：
- *   - 空数组一律**省略**（days / weekdays）：后端两者的"空"都等价于缺省
- *     （IsWorkday 把空 weekdays 当周一~周五），省掉后配置文件里也看得清
- *     "这里就是不限制"；
- *   - periods 为空照发 []（不是 null）：空列表是合法配置——启用后所有请求
- *     按基础价，ResolvePeriod 返回 nil、乘数落到 1；
- *   - dateOverrides 永远带对象，空也给 {}：对应 models.PeakPricing 上那句
- *     "刻意不加 omitempty"，否则配置文件里看不到这个字段，手工编辑时
- *     不知道有它可填；
- *   - 乘数解析不出来时回落 1（基础价）。调用方应当先跑 validatePeakForm；
- *     真有漏网的，落成基础价也比落成 0（免费）安全。
+ * 取舍与条款那份一致：空 weekdays 省略（后端把空当周一~周五）；
+ * dateOverrides 永远带对象，空也给 {}——对应 models.PeakCalendar 上那句
+ * "刻意不加 omitempty"，否则配置文件里看不到这个字段，手工编辑时
+ * 不知道有它可填。
  */
-export function formToPayload(form: PeakForm): PeakPricing {
-  const out: PeakPricing = {
-    enabled: form.enabled,
+export function calendarFormToPayload(form: PeakCalendarForm): PeakCalendar {
+  const out: PeakCalendar = {
     timezone: form.timezone.trim(),
-    periods: form.periods.map((p) => {
-      const period: PeakPeriod = {
-        name: p.name.trim(),
-        start: normalizeClock(p.start) ?? p.start.trim(),
-        end: normalizeClock(p.end) ?? p.end.trim(),
-        multiplier: parseMultiplier(p.multiplier) ?? 1,
-      }
-      if (p.days.length) period.days = [...p.days].sort((a, b) => a - b)
-      if (p.workday !== "any") period.workday = p.workday === "work"
-      return period
-    }),
     dateOverrides: overridesFromHolidayRows(form.holidays),
   }
   if (form.weekdays.length) out.weekdays = [...form.weekdays].sort((a, b) => a - b)
@@ -484,22 +558,18 @@ export function overridesFromHolidayRows(rows: HolidayRow[]): Record<string, str
 // ---------------------------------------------------------------------------
 
 /**
- * 校验整份表单，返回**全部**问题而不是第一个。
+ * 校验条款，返回**全部**问题而不是第一个。
  *
- * 逐条对应 handler/peak.go validatePeakPricing：
+ * 逐条对应 handler/peak.go validatePeakTerms：
  *   - start / end 解析          → err_start_invalid / err_end_invalid
  *   - start == end              → err_same_clock（后端："would cover the whole day"）
  *   - period.days ∈ 0..6        → err_days_range
- *   - weekdays ∈ 0..6           → err_weekday_range
- *   - timezone 可解析           → err_timezone
- *   - 覆盖键是 YYYY-MM-DD       → err_override_date
- *   - 覆盖值 ∈ {work, rest}     → err_override_value
  *   - 乘数是有限的非负数        → err_multiplier（**后端没有这条**，理由见 parseMultiplier）
  *
  * 不在列表里的两项都是刻意的：时段重叠（后端允许，见 findPeriodConflicts）
  * 与"启用但没有时段"（后端允许，等价于全部按基础价）。
  */
-export function validatePeakForm(form: PeakForm): PeakIssue[] {
+export function validateTermsForm(form: PeakTermsForm): PeakIssue[] {
   const issues: PeakIssue[] = []
 
   form.periods.forEach((p, i) => {
@@ -520,6 +590,21 @@ export function validatePeakForm(form: PeakForm): PeakIssue[] {
       issues.push({ key: "err_multiplier", index, name, value: p.multiplier })
     }
   })
+
+  return issues
+}
+
+/**
+ * 校验日历，返回**全部**问题而不是第一个。
+ *
+ * 逐条对应 handler/peak.go validatePeakCalendar：
+ *   - weekdays ∈ 0..6           → err_weekday_range
+ *   - timezone 可解析           → err_timezone
+ *   - 覆盖键是 YYYY-MM-DD       → err_override_date
+ *   - 覆盖值 ∈ {work, rest}     → err_override_value
+ */
+export function validateCalendarForm(form: PeakCalendarForm): PeakIssue[] {
+  const issues: PeakIssue[] = []
 
   if (form.weekdays.some((d) => d < 0 || d > 6 || !Number.isInteger(d))) {
     issues.push({ key: "err_weekday_range" })
@@ -554,9 +639,9 @@ export function validatePeakForm(form: PeakForm): PeakIssue[] {
  * 中文会给"10/01 08:30"，英文给"10/01, 08:30"，测试与界面都会跟着语言漂移。
  * 这里只要一个稳定的、能一眼比对的形状。
  *
- * 必须按**配置的时区**渲染：预览的毫秒是绝对时刻，而"这段是不是夜间优惠"
- * 是按配置时区判定的；用浏览器本地时区显示，用户会看到"08:30 命中了夜间优惠"
- * 这种自相矛盾的画面。
+ * 必须按**判定所用的时区**渲染：预览的毫秒是绝对时刻，而"这段是不是夜间优惠"
+ * 是按日历的时区判定的；用浏览器本地时区显示，用户会看到"08:30 命中了夜间优惠"
+ * 这种自相矛盾的画面。该时区由服务端在预览响应里回传。
  */
 export function formatSchedulePoint(point: SchedulePoint, timezone: string): string {
   return `${instantText(point.start, timezone)} → ${instantText(point.end, timezone)}`

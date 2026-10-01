@@ -3,14 +3,16 @@ import { describe, expect, it } from "vitest"
 import {
   PREVIEW_DAY_OPTIONS,
   WEEKDAY_DISPLAY_ORDER,
+  calendarFormToPayload,
+  calendarToForm,
   clockContains,
   clocksOverlap,
   compareClock,
+  defaultTermsForm,
   findPeriodConflicts,
   formatClock,
   formatMultiplier,
   formatSchedulePoint,
-  formToPayload,
   holidayRowsFromOverrides,
   isCalendarDate,
   isOvernight,
@@ -21,39 +23,61 @@ import {
   parseMultiplier,
   periodStartMinutes,
   periodsConflict,
-  pricingToForm,
-  validatePeakForm,
+  termsFormToPayload,
+  termsToForm,
+  validateCalendarForm,
+  validateTermsForm,
   weekdayKey,
   windowLength,
-  type PeakForm,
+  type PeakCalendar,
+  type PeakCalendarForm,
   type PeakPeriod,
-  type PeakPricing,
+  type PeakPeriodForm,
+  type PeakTerms,
+  type PeakTermsForm,
 } from "@/lib/peak"
 
 /**
  * 峰谷计费纯逻辑的 A 层测试。
  *
- * 每一条断言都对应后端的一处语义（handler/peak.go 的 validatePeakPricing、
- * service/peak.go 的 ParseClock / InClockWindow / PreviewSchedule）。
+ * 每一条断言都对应后端的一处语义（handler/peak.go 的 validatePeakTerms /
+ * validatePeakCalendar、service/peak.go 的 ParseClock / InClockWindow /
+ * PreviewSchedule）。
+ *
+ * 文件按**两半**组织，与 lib/peak.ts 的分法一致：条款（挂在「模型 × 上游」
+ * 关联上）与日历（全局一份）。这不是排版偏好——两者存储在不同地方、由不同
+ * 页面编辑，混在一起测会让人以为它们是一份配置的两个字段。
+ *
  * 为什么值得逐条钉：这些函数判错的后果不是"页面少一行"，而是**价格变了**——
  * 跨零点算反会让夜间优惠落到白天，start==end 放过去会让一段覆盖全天，
  * 校验比后端松会让用户在保存时才被拒、比后端紧会让合法配置存不进去。
  */
 
-const 合法: PeakForm = {
+// ---------------------------------------------------------------------------
+// 条款那一半
+// ---------------------------------------------------------------------------
+
+const 合法条款: PeakTermsForm = {
   enabled: true,
-  timezone: "Asia/Shanghai",
-  weekdays: [1, 2, 3, 4, 5],
   periods: [
     { name: "标准时段", start: "08:30", end: "00:30", multiplier: "1", days: [], workday: "any" },
     { name: "夜间优惠", start: "00:30", end: "08:30", multiplier: "0.25", days: [], workday: "any" },
   ],
-  holidays: [{ date: "2026-10-01", kind: "rest" }],
 }
 
-function form(over: Partial<PeakForm> = {}): PeakForm {
-  return { ...合法, ...over }
+function 条款(over: Partial<PeakTermsForm> = {}): PeakTermsForm {
+  return { ...合法条款, ...over }
 }
+
+const 一段 = (over: Partial<PeakPeriodForm> = {}): PeakPeriodForm => ({
+  name: "夜间",
+  start: "00:30",
+  end: "08:30",
+  multiplier: "0.25",
+  days: [],
+  workday: "any",
+  ...over,
+})
 
 describe("时刻解析（对齐 service.ParseClock）", () => {
   it("解析 HH:MM，并允许 24:00", () => {
@@ -107,7 +131,7 @@ describe("窗口判定（对齐 service.InClockWindow / windowLength）", () => 
   it("isOvernight 只在开始晚于结束时为真", () => {
     expect(isOvernight("22:00", "06:00")).toBe(true)
     expect(isOvernight("06:00", "22:00")).toBe(false)
-    // 起止相同不是跨零点（那是覆盖全天，由 validatePeakForm 单独拒掉）
+    // 起止相同不是跨零点（那是覆盖全天，由 validateTermsForm 单独拒掉）
     expect(isOvernight("08:00", "08:00")).toBe(false)
     expect(isOvernight("08:00", "坏")).toBe(false)
   })
@@ -208,16 +232,14 @@ describe("时段冲突是提示、不是错误", () => {
   })
 })
 
-describe("本地校验（逐条对齐 handler/peak.go 的 validatePeakPricing）", () => {
+describe("条款校验（逐条对齐 handler/peak.go 的 validatePeakTerms）", () => {
   it("一份正常配置没有问题", () => {
-    expect(validatePeakForm(合法)).toEqual([])
+    expect(validateTermsForm(合法条款)).toEqual([])
   })
 
   it("开始时间不合法时点名第几段、哪一段、原值是什么", () => {
-    const issues = validatePeakForm(
-      form({
-        periods: [{ name: "夜间优惠", start: "25:00", end: "08:30", multiplier: "0.25", days: [], workday: "any" }],
-      })
+    const issues = validateTermsForm(
+      条款({ periods: [一段({ name: "夜间优惠", start: "25:00" })] })
     )
     expect(issues).toEqual([
       { key: "err_start_invalid", index: 1, name: "夜间优惠", value: "25:00" },
@@ -225,106 +247,63 @@ describe("本地校验（逐条对齐 handler/peak.go 的 validatePeakPricing）
   })
 
   it("结束时间不合法单列一条，不与开始时间混为一谈", () => {
-    const issues = validatePeakForm(
-      form({
-        periods: [{ name: "夜间优惠", start: "00:30", end: "8点半", multiplier: "0.25", days: [], workday: "any" }],
-      })
-    )
+    const issues = validateTermsForm(条款({ periods: [一段({ name: "夜间优惠", end: "8点半" })] }))
     expect(issues).toEqual([{ key: "err_end_invalid", index: 1, name: "夜间优惠", value: "8点半" }])
   })
 
   it("开始与结束相同要报出来（后端会拒：那会覆盖全天）", () => {
-    const issues = validatePeakForm(
-      form({ periods: [{ name: "全天", start: "08:00", end: "08:00", multiplier: "1", days: [], workday: "any" }] })
+    const issues = validateTermsForm(
+      条款({ periods: [一段({ name: "全天", start: "08:00", end: "08:00" })] })
     )
     expect(issues).toEqual([{ key: "err_same_clock", index: 1, name: "全天" }])
   })
 
   it("生效星期越界、非整数都算越界", () => {
-    expect(
-      validatePeakForm(
-        form({ periods: [{ name: "越界", start: "08:00", end: "09:00", multiplier: "1", days: [7], workday: "any" }] })
-      )
-    ).toEqual([{ key: "err_days_range", index: 1, name: "越界" }])
-    expect(
-      validatePeakForm(
-        form({ periods: [{ name: "半格", start: "08:00", end: "09:00", multiplier: "1", days: [1.5], workday: "any" }] })
-      )
-    ).toEqual([{ key: "err_days_range", index: 1, name: "半格" }])
-  })
-
-  it("工作日定义越界", () => {
-    expect(validatePeakForm(form({ weekdays: [0, 7] }))).toEqual([{ key: "err_weekday_range" }])
-  })
-
-  it("时区认不出来要报；留空是合法的（跟随服务器）", () => {
-    expect(validatePeakForm(form({ timezone: "Not/AZone" }))).toEqual([
-      { key: "err_timezone", value: "Not/AZone" },
+    expect(validateTermsForm(条款({ periods: [一段({ days: [7] })] }))).toEqual([
+      { key: "err_days_range", index: 1, name: "夜间" },
     ])
-    expect(validatePeakForm(form({ timezone: "" }))).toEqual([])
-    expect(validatePeakForm(form({ timezone: "UTC" }))).toEqual([])
-  })
-
-  it("日期覆盖：格式不对、日子不存在都算不对", () => {
-    expect(validatePeakForm(form({ holidays: [{ date: "2026/10/01", kind: "rest" }] }))).toEqual([
-      { key: "err_override_date", value: "2026/10/01" },
-    ])
-    // 2 月 30 日格式完全正确，只有真去算一次才知道它不存在——比正则多这一步
-    expect(validatePeakForm(form({ holidays: [{ date: "2026-02-30", kind: "rest" }] }))).toEqual([
-      { key: "err_override_date", value: "2026-02-30" },
-    ])
-  })
-
-  it("日期覆盖：类型只能是 work / rest", () => {
-    expect(validatePeakForm(form({ holidays: [{ date: "2026-10-01", kind: "holiday" }] }))).toEqual([
-      { key: "err_override_value", value: "2026-10-01=holiday" },
+    expect(validateTermsForm(条款({ periods: [一段({ name: "半格", days: [1.5] })] }))).toEqual([
+      { key: "err_days_range", index: 1, name: "半格" },
     ])
   })
 
   it("乘数空着、写了字、写了负数都拦下（后端没有这条，理由见 parseMultiplier）", () => {
-    const 段 = (multiplier: string) => [
-      { name: "夜间", start: "00:30", end: "08:30", multiplier, days: [], workday: "any" as const },
-    ]
-    expect(validatePeakForm(form({ periods: 段("") }))).toEqual([
+    expect(validateTermsForm(条款({ periods: [一段({ multiplier: "" })] }))).toEqual([
       { key: "err_multiplier", index: 1, name: "夜间", value: "" },
     ])
-    expect(validatePeakForm(form({ periods: 段("半价") }))).toEqual([
+    expect(validateTermsForm(条款({ periods: [一段({ multiplier: "半价" })] }))).toEqual([
       { key: "err_multiplier", index: 1, name: "夜间", value: "半价" },
     ])
-    expect(validatePeakForm(form({ periods: 段("-1") }))).toEqual([
+    expect(validateTermsForm(条款({ periods: [一段({ multiplier: "-1" })] }))).toEqual([
       { key: "err_multiplier", index: 1, name: "夜间", value: "-1" },
     ])
     // 免费（0）是合法配置，不是错误
-    expect(validatePeakForm(form({ periods: 段("0") }))).toEqual([])
+    expect(validateTermsForm(条款({ periods: [一段({ multiplier: "0" })] }))).toEqual([])
   })
 
-  it("一次报出全部问题，而不是遇到第一个就停", () => {
-    const issues = validatePeakForm(
-      form({
-        timezone: "Not/AZone",
-        weekdays: [9],
+  it("一次报出全部问题，而不是遇到第一个就停，且第几段按 1 起算", () => {
+    const issues = validateTermsForm(
+      条款({
         periods: [
-          { name: "甲", start: "坏", end: "09:00", multiplier: "1", days: [], workday: "any" },
-          { name: "乙", start: "10:00", end: "10:00", multiplier: "1", days: [], workday: "any" },
+          一段({ name: "甲", start: "坏", end: "09:00" }),
+          一段({ name: "乙", start: "10:00", end: "10:00" }),
         ],
       })
     )
-    expect(issues.map((i) => i.key)).toEqual([
-      "err_start_invalid",
-      "err_same_clock",
-      "err_weekday_range",
-      "err_timezone",
+    expect(issues.map((i) => [i.key, i.index])).toEqual([
+      ["err_start_invalid", 1],
+      ["err_same_clock", 2],
     ])
   })
 
   it("重叠不算问题：这是后端允许的配置，前端不额外加规则", () => {
     // 两段完全重合，只有顺序能决定谁生效——保存时必须放行
     expect(
-      validatePeakForm(
-        form({
+      validateTermsForm(
+        条款({
           periods: [
-            { name: "特例", start: "08:00", end: "10:00", multiplier: "0.5", days: [], workday: "any" },
-            { name: "一般", start: "08:00", end: "10:00", multiplier: "1", days: [], workday: "any" },
+            一段({ name: "特例", start: "08:00", end: "10:00", multiplier: "0.5" }),
+            一段({ name: "一般", start: "08:00", end: "10:00", multiplier: "1" }),
           ],
         })
       )
@@ -332,39 +311,52 @@ describe("本地校验（逐条对齐 handler/peak.go 的 validatePeakPricing）
   })
 
   it("启用但没有时段也不拦（等价于全部按基础价）", () => {
-    expect(validatePeakForm(form({ enabled: true, periods: [] }))).toEqual([])
+    expect(validateTermsForm(条款({ enabled: true, periods: [] }))).toEqual([])
+  })
+
+  it("关闭状态下的坏条款同样拦下：后端不因开关而跳过校验", () => {
+    // 放过去的话，关着的这段时间里配置是坏的，打开开关那天才开始出问题
+    const p = 条款({ enabled: false, periods: [一段({ start: "08:00" })] })
+    p.periods[0].end = p.periods[0].start
+    expect(validateTermsForm(p)).toEqual([{ key: "err_same_clock", index: 1, name: "夜间" }])
   })
 })
 
-describe("表单 ↔ 载荷", () => {
-  const 配置: PeakPricing = {
+describe("条款：表单 ↔ 载荷", () => {
+  const 条款配置: PeakTerms = {
     enabled: true,
-    timezone: "Asia/Shanghai",
-    weekdays: [1, 2, 3, 4, 5],
     periods: [
       { name: "标准时段", start: "08:30", end: "00:30", multiplier: 1 },
       { name: "夜间优惠", start: "00:30", end: "08:30", multiplier: 0.25, days: [1, 2], workday: false },
     ],
-    dateOverrides: { "2026-10-01": "rest" },
-    holidaySyncedAt: 1759271400,
-    holidaySource: "remote:https://example.com/2026.json",
   }
 
+  it("新条款模板是关闭的，且时段形状能直接提交（与后端 DefaultPeakTerms 对齐）", () => {
+    const f = defaultTermsForm()
+    // 关闭是刻意的：分时段计费会改变成本数字的语义，不该在用户打开开关前生效
+    expect(f.enabled).toBe(false)
+    expect(validateTermsForm(f)).toEqual([])
+    expect(termsFormToPayload(f).periods).toEqual([
+      { name: "标准时段", start: "08:30", end: "00:30", multiplier: 1 },
+      { name: "夜间优惠", start: "00:30", end: "08:30", multiplier: 0.25 },
+    ])
+    // 每次调用都得是新对象：两个对话框各拿一份，改一个不能动到另一个
+    expect(defaultTermsForm()).not.toBe(f)
+  })
+
   it("回填成表单：时刻归一、乘数变字符串、workday 三态", () => {
-    const f = pricingToForm(配置)
+    const f = termsToForm(条款配置)
+    expect(f.enabled).toBe(true)
     expect(f.periods[0].start).toBe("08:30")
     expect(f.periods[0].multiplier).toBe("1")
     expect(f.periods[0].workday).toBe("any")
     expect(f.periods[1].workday).toBe("rest")
     expect(f.periods[1].days).toEqual([1, 2])
-    expect(f.holidays).toEqual([{ date: "2026-10-01", kind: "rest" }])
-    expect(f.holidaySyncedAt).toBe(1759271400)
-    expect(f.holidaySource).toBe("remote:https://example.com/2026.json")
   })
 
   it("回填把手写的 8:30 归一成 08:30（两种写法混着摆会看不出是不是同一段）", () => {
-    const f = pricingToForm({
-      ...配置,
+    const f = termsToForm({
+      ...条款配置,
       periods: [{ name: "夜间", start: "8:30", end: "0:00", multiplier: 0.25 }],
     })
     expect(f.periods[0].start).toBe("08:30")
@@ -372,28 +364,23 @@ describe("表单 ↔ 载荷", () => {
   })
 
   it("回填是深拷贝：在表单里改一段不会动到父组件持有的配置", () => {
-    const f = pricingToForm(配置)
+    const f = termsToForm(条款配置)
     f.periods[1].days.push(6)
     f.periods[0].name = "改了"
-    expect(配置.periods[1].days).toEqual([1, 2])
-    expect(配置.periods[0].name).toBe("标准时段")
+    expect(条款配置.periods[1].days).toEqual([1, 2])
+    expect(条款配置.periods[0].name).toBe("标准时段")
   })
 
   it("回填容忍缺字段（后端早期数据或手工编辑过的配置）", () => {
-    const 空壳 = { enabled: false } as unknown as PeakPricing
-    const f = pricingToForm(空壳)
-    expect(f.timezone).toBe("")
-    expect(f.weekdays).toEqual([])
+    const 空壳 = { enabled: false } as unknown as PeakTerms
+    const f = termsToForm(空壳)
+    expect(f.enabled).toBe(false)
     expect(f.periods).toEqual([])
-    expect(f.holidays).toEqual([])
-    expect(f.holidaySyncedAt).toBeUndefined()
-    expect(f.holidaySource).toBeUndefined()
   })
 
   it("回填容忍单条时段的缺字段与写坏的时刻", () => {
     const 残缺 = {
       enabled: false,
-      timezone: "",
       periods: [
         // 缺字段：全部走兜底
         { name: undefined, start: undefined, end: "12:00", multiplier: undefined, days: undefined, workday: true },
@@ -402,9 +389,9 @@ describe("表单 ↔ 载荷", () => {
         // 结束时间整个缺失
         { name: "缺尾", start: "08:00", end: undefined, multiplier: 1, days: [], workday: undefined },
       ],
-    } as unknown as PeakPricing
+    } as unknown as PeakTerms
 
-    const f = pricingToForm(残缺)
+    const f = termsToForm(残缺)
     expect(f.periods[0]).toEqual({
       name: "",
       start: "",
@@ -431,33 +418,22 @@ describe("表单 ↔ 载荷", () => {
     })
   })
 
-  it("提交载荷：空数组省略、24:00 保留、覆盖表永远带对象", () => {
-    const payload = formToPayload({
-      ...合法,
-      weekdays: [],
-      holidays: [],
-      periods: [
-        { name: " 全天 ", start: "0:00", end: "24:00", multiplier: "1", days: [], workday: "any" },
-      ],
+  it("提交载荷：空数组省略、24:00 保留、时段为空照发空列表", () => {
+    const payload = termsFormToPayload({
+      ...合法条款,
+      periods: [一段({ name: " 全天 ", start: "0:00", end: "24:00", multiplier: "1" })],
     })
     expect(payload.periods).toEqual([{ name: "全天", start: "00:00", end: "24:00", multiplier: 1 }])
-    expect(payload.weekdays).toBeUndefined()
-    // 不带 omitempty 的字段：空也要发 {}，否则配置文件里看不到这个字段
-    expect(payload.dateOverrides).toEqual({})
-    expect(payload.holidaySyncedAt).toBeUndefined()
-    expect(payload.holidaySource).toBeUndefined()
+
+    // 空列表是合法配置（启用后全部按基础价），要发 [] 而不是 null/省略
+    const 空 = termsFormToPayload({ enabled: true, periods: [] })
+    expect(空).toEqual({ enabled: true, periods: [] })
   })
 
-  it("提交载荷：超过一天的时段、星期与工作日条件按后端形状发", () => {
-    const payload = formToPayload({
-      ...合法,
-      weekdays: [3, 1],
-      holidays: [{ date: "2026-10-01", kind: "rest" }],
-      holidaySyncedAt: 1759271400,
-      holidaySource: "bundled:holidays/2026.json",
-      periods: [
-        { name: "夜间", start: "22:00", end: "06:00", multiplier: "0.25", days: [5, 0], workday: "work" },
-      ],
+  it("提交载荷：跨零点的时段、星期与工作日条件按后端形状发", () => {
+    const payload = termsFormToPayload({
+      ...合法条款,
+      periods: [一段({ name: "夜间", start: "22:00", end: "06:00", days: [5, 0], workday: "work" })],
     })
     expect(payload.periods[0]).toEqual({
       name: "夜间",
@@ -467,16 +443,19 @@ describe("表单 ↔ 载荷", () => {
       days: [0, 5], // 升序，避免同一组值出现两种写法
       workday: true,
     })
-    expect(payload.weekdays).toEqual([1, 3])
-    expect(payload.dateOverrides).toEqual({ "2026-10-01": "rest" })
-    expect(payload.holidaySyncedAt).toBe(1759271400)
-    expect(payload.holidaySource).toBe("bundled:holidays/2026.json")
+    // workday=rest 落到 false（Go 的 *bool），"不限"则整个字段不发
+    expect(termsFormToPayload(条款({ periods: [一段({ workday: "rest" })] })).periods[0].workday).toBe(
+      false
+    )
+    expect(
+      termsFormToPayload(条款({ periods: [一段({ workday: "any" })] })).periods[0].workday
+    ).toBeUndefined()
   })
 
   it("提交载荷：时刻写坏了照原样发、乘数坏了回落 1（校验会先拦，这是兜底）", () => {
-    const payload = formToPayload({
-      ...合法,
-      periods: [{ name: "坏的", start: " 25:00 ", end: "坏", multiplier: "免", days: [], workday: "rest" }],
+    const payload = termsFormToPayload({
+      ...合法条款,
+      periods: [一段({ name: "坏的", start: " 25:00 ", end: "坏", multiplier: "免", workday: "rest" })],
     })
     // 落到这里的配置后端会拒并给出原文；关键是不要静默把它变成"免费"
     expect(payload.periods[0]).toEqual({
@@ -486,6 +465,168 @@ describe("表单 ↔ 载荷", () => {
       multiplier: 1,
       workday: false,
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 日历那一半
+// ---------------------------------------------------------------------------
+
+const 合法日历: PeakCalendarForm = {
+  timezone: "Asia/Shanghai",
+  weekdays: [1, 2, 3, 4, 5],
+  holidays: [{ date: "2026-10-01", kind: "rest" }],
+}
+
+function 日历(over: Partial<PeakCalendarForm> = {}): PeakCalendarForm {
+  return { ...合法日历, ...over }
+}
+
+describe("日历校验（逐条对齐 handler/peak.go 的 validatePeakCalendar）", () => {
+  it("一份正常日历没有问题", () => {
+    expect(validateCalendarForm(合法日历)).toEqual([])
+  })
+
+  it("工作日定义越界、非整数都算越界", () => {
+    expect(validateCalendarForm(日历({ weekdays: [0, 7] }))).toEqual([{ key: "err_weekday_range" }])
+    // 半格是 1.5 这种被别的语言算成浮点的值：后端是 []int，落到 Go 那边
+    // 要么被 JSON 拒掉要么被截断，两种都不是用户想要的
+    expect(validateCalendarForm(日历({ weekdays: [1.5] }))).toEqual([{ key: "err_weekday_range" }])
+  })
+
+  it("时区认不出来要报；留空是合法的（跟随服务器）", () => {
+    expect(validateCalendarForm(日历({ timezone: "Not/AZone" }))).toEqual([
+      { key: "err_timezone", value: "Not/AZone" },
+    ])
+    expect(validateCalendarForm(日历({ timezone: "" }))).toEqual([])
+    expect(validateCalendarForm(日历({ timezone: "UTC" }))).toEqual([])
+  })
+
+  it("日期覆盖：格式不对、日子不存在都算不对", () => {
+    expect(validateCalendarForm(日历({ holidays: [{ date: "2026/10/01", kind: "rest" }] }))).toEqual(
+      [{ key: "err_override_date", value: "2026/10/01" }]
+    )
+    // 2 月 30 日格式完全正确，只有真去算一次才知道它不存在——比正则多这一步
+    expect(validateCalendarForm(日历({ holidays: [{ date: "2026-02-30", kind: "rest" }] }))).toEqual(
+      [{ key: "err_override_date", value: "2026-02-30" }]
+    )
+  })
+
+  it("日期不对时不跟着报值的对错：一处填错只该得到一条提示", () => {
+    expect(validateCalendarForm(日历({ holidays: [{ date: "坏", kind: "坏" }] }))).toEqual([
+      { key: "err_override_date", value: "坏" },
+    ])
+  })
+
+  it("日期覆盖：类型只能是 work / rest", () => {
+    expect(
+      validateCalendarForm(日历({ holidays: [{ date: "2026-10-01", kind: "holiday" }] }))
+    ).toEqual([{ key: "err_override_value", value: "2026-10-01=holiday" }])
+  })
+
+  it("一次报出全部问题，而不是遇到第一个就停", () => {
+    const issues = validateCalendarForm(
+      日历({
+        timezone: "Not/AZone",
+        weekdays: [9],
+        holidays: [
+          // 顺序按行来：先报第一行的值不对，再报第二行的日期不对
+          { date: "2026-10-01", kind: "holiday" },
+          { date: "坏", kind: "rest" },
+        ],
+      })
+    )
+    expect(issues.map((i) => i.key)).toEqual([
+      "err_weekday_range",
+      "err_timezone",
+      "err_override_value",
+      "err_override_date",
+    ])
+  })
+
+  it("已经同步来的覆盖表原样合法：同步结果不能自己过不了校验", () => {
+    expect(
+      validateCalendarForm(
+        日历({ holidays: [{ date: "2026-10-01", kind: "rest" }, { date: "2026-10-10", kind: "work" }] })
+      )
+    ).toEqual([])
+  })
+})
+
+describe("日历：表单 ↔ 载荷", () => {
+  const 日历配置: PeakCalendar = {
+    timezone: "Asia/Shanghai",
+    weekdays: [1, 2, 3, 4, 5],
+    dateOverrides: { "2026-10-01": "rest" },
+    holidaySyncedAt: 1759271400,
+    holidaySource: "remote:https://example.com/2026.json",
+  }
+
+  it("回填成表单：覆盖表变行、同步元数据跟着走", () => {
+    const f = calendarToForm(日历配置)
+    expect(f.timezone).toBe("Asia/Shanghai")
+    expect(f.weekdays).toEqual([1, 2, 3, 4, 5])
+    expect(f.holidays).toEqual([{ date: "2026-10-01", kind: "rest" }])
+    // 同步元数据必须跟着回填：PUT 是整份覆盖，不带就等于把"最近同步于…"抹掉
+    expect(f.holidaySyncedAt).toBe(1759271400)
+    expect(f.holidaySource).toBe("remote:https://example.com/2026.json")
+  })
+
+  it("回填是深拷贝：在表单里改星期不会动到父组件持有的那份", () => {
+    const f = calendarToForm(日历配置)
+    f.weekdays.push(6)
+    expect(日历配置.weekdays).toEqual([1, 2, 3, 4, 5])
+  })
+
+  it("回填容忍缺字段：未配置过的关联与手工编辑过的配置都读得进来", () => {
+    // 缺 dateOverrides 是最要紧的一支：service.GetPeakCalendar 在整份配置缺失时
+    // 会补默认值，但配置存在而字段缺失（老版本写入）时不会
+    const 空壳 = { timezone: "UTC" } as unknown as PeakCalendar
+    const f = calendarToForm(空壳)
+    expect(f.weekdays).toEqual([])
+    expect(f.holidays).toEqual([])
+    expect(f.holidaySyncedAt).toBeUndefined()
+    expect(f.holidaySource).toBeUndefined()
+
+    const 全空 = {} as unknown as PeakCalendar
+    expect(calendarToForm(全空)).toEqual({
+      timezone: "",
+      weekdays: [],
+      holidays: [],
+      holidaySyncedAt: undefined,
+      holidaySource: undefined,
+    })
+  })
+
+  it("提交载荷：空星期省略、覆盖表永远带对象、同步元数据原样带回", () => {
+    const payload = calendarFormToPayload({
+      timezone: " Asia/Shanghai ",
+      weekdays: [],
+      holidays: [],
+      holidaySyncedAt: 1759271400,
+      holidaySource: "bundled:holidays/2026.json",
+    })
+    expect(payload.timezone).toBe("Asia/Shanghai")
+    expect(payload.weekdays).toBeUndefined()
+    // 不带 omitempty 的字段：空也要发 {}，否则配置文件里看不到这个字段
+    expect(payload.dateOverrides).toEqual({})
+    expect(payload.holidaySyncedAt).toBe(1759271400)
+    expect(payload.holidaySource).toBe("bundled:holidays/2026.json")
+  })
+
+  it("提交载荷：星期升序、覆盖表按行合出来、没同步过就不带同步元数据", () => {
+    const payload = calendarFormToPayload({
+      timezone: "UTC",
+      weekdays: [3, 1],
+      holidays: [
+        { date: "2026-10-01", kind: "rest" },
+        { date: "2026-10-10", kind: "work" },
+      ],
+    })
+    expect(payload.weekdays).toEqual([1, 3])
+    expect(payload.dateOverrides).toEqual({ "2026-10-01": "rest", "2026-10-10": "work" })
+    expect(payload.holidaySyncedAt).toBeUndefined()
+    expect(payload.holidaySource).toBeUndefined()
   })
 })
 
@@ -509,10 +650,15 @@ describe("节假日覆盖", () => {
       ])
     ).toEqual({ "2026-10-01": "work" })
   })
+
+  it("往返一圈回到原样（表单 → 载荷 → 表单）", () => {
+    const 覆盖 = { "2026-10-01": "rest", "2026-10-10": "work" }
+    expect(overridesFromHolidayRows(holidayRowsFromOverrides(覆盖))).toEqual(覆盖)
+  })
 })
 
 describe("预览呈现", () => {
-  it("按配置的时区渲染，而不是浏览器本地时区", () => {
+  it("按服务端回传的时区渲染，而不是浏览器本地时区", () => {
     const point = {
       start: Date.UTC(2026, 9, 1, 0, 30),
       end: Date.UTC(2026, 9, 1, 1, 0),

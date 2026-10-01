@@ -41,6 +41,16 @@ type OpenAIMessage struct {
 	Name       string           `json:"name,omitempty"`
 	// Refusal 只在响应里出现：模型拒答时的那段文本。Anthropic 没有对应的块类型。
 	Refusal json.RawMessage `json:"refusal,omitempty"`
+	// ReasoningContent / Reasoning 也是响应侧的："心里话"。两套字段名都要看——
+	// DeepSeek 一类用前者，另一些上游用后者。Anthropic 的 thinking 块必须带签名，
+	// 这里给不出来，只能丢并记账（见 response.go 与 stream.go）。
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+	Reasoning        string `json:"reasoning,omitempty"`
+}
+
+// hasReasoning 这条消息带没带推理内容。
+func (m OpenAIMessage) hasReasoning() bool {
+	return m.ReasoningContent != "" || m.Reasoning != ""
 }
 
 // OpenAIContentPart 是 content 数组里的一块。type 取 text / image_url。

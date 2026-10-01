@@ -87,8 +87,9 @@ const (
 	NoteUnparsableContent Note = "unparsable_content"
 	// NoteUnknownFinishReason 上游给了认不出的 finish_reason / stop_reason，落了兜底值。
 	NoteUnknownFinishReason Note = "unknown_finish_reason"
-	// NoteContentFiltered 上游因内容过滤截断（content_filter → refusal）。语义能对上，
-	// 但两边的档位叫法不同，记一笔免得排查时对不上号。
+	// NoteContentFiltered 两端在"内容被拦下"这件事上用了不同的档位：OpenAI 的
+	// content_filter 对 Anthropic 的 refusal，语义能对上但名字对不上，两个方向都记一笔——
+	// 排查时看到 stop_reason 与上游日志里的说法不一致，才知道是翻译层换的词。
 	NoteContentFiltered Note = "content_filtered"
 	// NotePausedTurn 上游的 pause_turn（长任务暂停），OpenAI 没有这一档，落成了 stop。
 	NotePausedTurn Note = "paused_turn"

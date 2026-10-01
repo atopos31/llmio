@@ -233,6 +233,31 @@ func TestOpenAIResponseToAnthropicLooseContent(t *testing.T) {
 		requireNote(t, notes, NoteUnparsableContent)
 	})
 
+	t.Run("推理内容丢掉并记账", func(t *testing.T) {
+		// 两套字段名都要认：流式那条路径一直两套都看，非流式少记这一笔的话，
+		// 同一个请求走流式与非流式会给出不同的账
+		for _, field := range []string{"reasoning_content", "reasoning"} {
+			out, notes := toAnthropicResponse(t, `{
+				"id": "x", "model": "m",
+				"choices": [{"index": 0, "message": {"role": "assistant", "content": "答案", "`+field+`": "心里盘算了一下"}, "finish_reason": "stop"}]
+			}`)
+			blocks := contentBlocks(t, out)
+			if len(blocks) != 1 || blocks[0]["text"] != "答案" {
+				t.Fatalf("%s 不该进 content: %v", field, blocks)
+			}
+			requireNote(t, notes, NoteDroppedReasoning)
+		}
+	})
+
+	t.Run("没有推理内容就不记这一笔", func(t *testing.T) {
+		// 反向用例：记账是"改了什么"，没有可改的就不该有一条
+		_, notes := toAnthropicResponse(t, `{
+			"id": "x", "model": "m",
+			"choices": [{"index": 0, "message": {"role": "assistant", "content": "答案"}, "finish_reason": "stop"}]
+		}`)
+		requireNoNote(t, notes, NoteDroppedReasoning)
+	})
+
 	t.Run("refusal 丢掉并记账", func(t *testing.T) {
 		out, notes := toAnthropicResponse(t, `{
 			"id": "x", "model": "m",
@@ -405,7 +430,7 @@ func TestAnthropicResponseToOpenAIStopReasons(t *testing.T) {
 		{stop: "stop_sequence", want: "stop"},
 		{stop: "max_tokens", want: "length"},
 		{stop: "tool_use", want: "tool_calls"},
-		{stop: "refusal", want: "content_filter"},
+		{stop: "refusal", want: "content_filter", wantNote: NoteContentFiltered},
 		{stop: "pause_turn", want: "stop", wantNote: NotePausedTurn},
 		{stop: "brand_new_reason", want: "stop", wantNote: NoteUnknownFinishReason},
 	}
@@ -422,6 +447,22 @@ func TestAnthropicResponseToOpenAIStopReasons(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAnthropicResponseToOpenAINormalStopNeedsNoFilterNote(t *testing.T) {
+	// 反向用例：这一笔是"换了档位名"的记号，正常收尾不许有。两个方向都要看——
+	// o2a 方向原本只在非流式路径上记，a2o 方向则一笔都不记，正是这种"两头各记一半"
+	// 的写法让 content_filter 漏了账
+	out, notes := toOpenAIResponse(t, `{"id":"m","type":"message","role":"assistant","model":"x",
+		"content":[{"type":"text","text":"hi"}],"stop_reason":"end_turn"}`)
+	if choice(t, out)["finish_reason"] != "stop" {
+		t.Fatalf("正常收尾应当映射成 stop: %v", choice(t, out)["finish_reason"])
+	}
+	requireNoNote(t, notes, NoteContentFiltered)
+
+	_, notes = toAnthropicResponse(t, `{"id":"x","model":"m",
+		"choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]}`)
+	requireNoNote(t, notes, NoteContentFiltered)
 }
 
 func TestAnthropicResponseToOpenAIEmpty(t *testing.T) {

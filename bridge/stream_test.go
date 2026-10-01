@@ -746,6 +746,9 @@ func TestAnthropicToOpenAIStreamPauseTurnAndUnknownStop(t *testing.T) {
 	}{
 		{stop: "pause_turn", want: "stop", wantNote: NotePausedTurn},
 		{stop: "brand_new", want: "stop", wantNote: NoteUnknownFinishReason},
+		// 与 o2a 方向对称：换档位名同样要留痕，两个方向漏哪一边都会让同一件事只有
+		// 一半的请求能查出原因
+		{stop: "refusal", want: "content_filter", wantNote: NoteContentFiltered},
 	} {
 		t.Run(tc.stop, func(t *testing.T) {
 			s := NewAnthropicToOpenAIStream()

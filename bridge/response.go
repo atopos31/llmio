@@ -111,6 +111,12 @@ func OpenAIResponseToAnthropic(raw []byte) ([]byte, []Note, error) {
 	if len(choice.Message.Refusal) > 0 && string(choice.Message.Refusal) != "null" && string(choice.Message.Refusal) != `""` {
 		notes = append(notes, NoteDroppedRefusal)
 	}
+	// 推理内容要在这里记一笔：Anthropic 只有带签名的 thinking 块，签名给不出来。
+	// 流式那条路径（stream.go）一直是这么做的，非流式少记这一笔的话，同一个请求
+	// 流式与非流式会给出不同的账，谁也不知道该信哪个
+	if choice.Message.hasReasoning() {
+		notes = append(notes, NoteDroppedReasoning)
+	}
 	for i, call := range choice.Message.ToolCalls {
 		input, err := toolInput(call.Function.Arguments)
 		if err != nil {
@@ -128,9 +134,6 @@ func OpenAIResponseToAnthropic(raw []byte) ([]byte, []Note, error) {
 	}
 
 	stopReason := anthropicStopReason(choice.FinishReason, &notes)
-	if choice.FinishReason == "content_filter" {
-		notes = append(notes, NoteContentFiltered)
-	}
 
 	out := AnthropicResponse{
 		ID:           anthropicMessageID(res.ID),
@@ -172,6 +175,9 @@ func textOfParts(parts []OpenAIContentPart) string {
 }
 
 // anthropicStopReason 把 finish_reason 映射成 stop_reason。
+//
+// 有损的档位就在这个函数里记账，而不是交给调用方：流式与非流式都从这儿走，谁少记
+// 一笔，同一个请求就会给出两份不同的账（content_filter 就是这么漏过一次）。
 func anthropicStopReason(finish string, notes *[]Note) string {
 	switch finish {
 	case "", "stop":
@@ -181,6 +187,7 @@ func anthropicStopReason(finish string, notes *[]Note) string {
 	case "tool_calls", "function_call":
 		return "tool_use"
 	case "content_filter":
+		*notes = append(*notes, NoteContentFiltered)
 		return "refusal"
 	default:
 		// 认不出的档位落到 end_turn，但要留下痕迹：调用方靠 stop_reason 判断"是不是
@@ -303,7 +310,8 @@ func anthropicContentToOpenAI(blocks []AnthropicBlock, notes *[]Note) ([]string,
 	return texts, calls
 }
 
-// openAIFinishReason 把 stop_reason 映射成 finish_reason。
+// openAIFinishReason 把 stop_reason 映射成 finish_reason。有损的档位在这里记账，
+// 理由同 anthropicStopReason。
 func openAIFinishReason(stop string, notes *[]Note) string {
 	switch stop {
 	case "", "end_turn", "stop_sequence":
@@ -313,6 +321,10 @@ func openAIFinishReason(stop string, notes *[]Note) string {
 	case "tool_use":
 		return "tool_calls"
 	case "refusal":
+		// Anthropic 的 refusal 是模型自己拒答，OpenAI 的 content_filter 是内容被过滤器
+		// 拦下——成因不同，只有档位名最接近。客户端看到 content_filter 会以为"被安全
+		// 策略挡了"，实际未必，因此这一笔与 o2a 方向同样要记
+		*notes = append(*notes, NoteContentFiltered)
 		return "content_filter"
 	case "pause_turn":
 		// 服务端主动暂停（长任务），OpenAI 没有这一档；客户端只会当作正常结束

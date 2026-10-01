@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"io"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -215,6 +216,17 @@ func TestBridgeNotes(t *testing.T) {
 	})
 }
 
+// upstreamRes 造一个上游响应。Content-Length 是照抄真上游的样子写上的：修复前它会被
+// 原样复制给客户端，而翻译后的字节数对不上，net/http 直接把连接掐了。
+func upstreamRes(body io.ReadCloser) *http.Response {
+	return &http.Response{
+		StatusCode:    http.StatusOK,
+		Header:        http.Header{"Content-Length": []string{"999"}, "Content-Type": []string{"application/json"}},
+		Body:          body,
+		ContentLength: 999,
+	}
+}
+
 func TestBridgeResponseNonStream(t *testing.T) {
 	tr := TranslatorFor(consts.StyleOpenAI, consts.StyleAnthropic)
 	if tr == nil {
@@ -223,13 +235,13 @@ func TestBridgeResponseNonStream(t *testing.T) {
 
 	t.Run("翻成客户端协议并记账", func(t *testing.T) {
 		notes := NewBridgeNotes()
-		body, err := bridgeResponse(tr, io.NopCloser(strings.NewReader(`{
+		res := upstreamRes(io.NopCloser(strings.NewReader(`{
 			"id":"msg_1","type":"message","role":"assistant","model":"claude",
-			"content":[{"type":"text","text":"你好"}],"stop_reason":"end_turn"}`)), false, notes)
-		if err != nil {
+			"content":[{"type":"text","text":"你好"}],"stop_reason":"end_turn"}`)))
+		if err := bridgeResponse(tr, res, false, notes); err != nil {
 			t.Fatalf("转换失败: %v", err)
 		}
-		raw, err := io.ReadAll(body)
+		raw, err := io.ReadAll(res.Body)
 		if err != nil {
 			t.Fatalf("读取失败: %v", err)
 		}
@@ -241,16 +253,45 @@ func TestBridgeResponseNonStream(t *testing.T) {
 		}
 	})
 
-	t.Run("有损的地方记下来", func(t *testing.T) {
-		notes := NewBridgeNotes()
-		body, err := bridgeResponse(tr, io.NopCloser(strings.NewReader(`{
+	t.Run("作废上游的 Content-Length", func(t *testing.T) {
+		res := upstreamRes(io.NopCloser(strings.NewReader(`{
 			"id":"msg_1","type":"message","role":"assistant","model":"claude",
-			"content":[{"type":"thinking","thinking":"心里话","signature":"s"},{"type":"text","text":"答案"}],
-			"stop_reason":"end_turn"}`)), false, notes)
-		if err != nil {
+			"content":[{"type":"text","text":"你好"}],"stop_reason":"end_turn"}`)))
+		if err := bridgeResponse(tr, res, false, NewBridgeNotes()); err != nil {
 			t.Fatalf("转换失败: %v", err)
 		}
-		if _, err := io.ReadAll(body); err != nil {
+		// 留着它的后果是 net/http 按旧长度校验写入，超了就把连接掐断，客户端拿到半截
+		if got := res.Header.Get("Content-Length"); got != "" {
+			t.Fatalf("Content-Length 还留着 %q：翻译后的字节数与上游那份对不上，必须删掉", got)
+		}
+		// 其余的头照旧
+		if got := res.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("不该顺手把别的头也删了: %q", got)
+		}
+	})
+
+	t.Run("流式也要作废 Content-Length", func(t *testing.T) {
+		res := upstreamRes(io.NopCloser(strings.NewReader(
+			"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m\",\"model\":\"c\"}}\n\n")))
+		if err := bridgeResponse(tr, res, true, NewBridgeNotes()); err != nil {
+			t.Fatalf("转换失败: %v", err)
+		}
+		if got := res.Header.Get("Content-Length"); got != "" {
+			t.Fatalf("Content-Length 还留着 %q", got)
+		}
+		io.ReadAll(res.Body)
+	})
+
+	t.Run("有损的地方记下来", func(t *testing.T) {
+		notes := NewBridgeNotes()
+		res := upstreamRes(io.NopCloser(strings.NewReader(`{
+			"id":"msg_1","type":"message","role":"assistant","model":"claude",
+			"content":[{"type":"thinking","thinking":"心里话","signature":"s"},{"type":"text","text":"答案"}],
+			"stop_reason":"end_turn"}`)))
+		if err := bridgeResponse(tr, res, false, notes); err != nil {
+			t.Fatalf("转换失败: %v", err)
+		}
+		if _, err := io.ReadAll(res.Body); err != nil {
 			t.Fatalf("读取失败: %v", err)
 		}
 		if notes.String() != string(bridge.NoteDroppedThinking) {
@@ -259,22 +300,16 @@ func TestBridgeResponseNonStream(t *testing.T) {
 	})
 
 	t.Run("上游读挂了", func(t *testing.T) {
-		body, err := bridgeResponse(tr, &failingBody{}, false, NewBridgeNotes())
-		if err == nil {
+		res := upstreamRes(&failingBody{})
+		if err := bridgeResponse(tr, res, false, NewBridgeNotes()); err == nil {
 			t.Fatal("读挂了应当报错")
-		}
-		if body != nil {
-			t.Fatal("出错时不该给出响应体")
 		}
 	})
 
 	t.Run("响应解不出来", func(t *testing.T) {
-		body, err := bridgeResponse(tr, io.NopCloser(strings.NewReader(`{半截`)), false, NewBridgeNotes())
-		if err == nil {
+		res := upstreamRes(io.NopCloser(strings.NewReader(`{半截`)))
+		if err := bridgeResponse(tr, res, false, NewBridgeNotes()); err == nil {
 			t.Fatal("解不开的响应应当报错——给了客户端等于发出一份坏数据")
-		}
-		if body != nil {
-			t.Fatal("出错时不该给出响应体")
 		}
 	})
 }
@@ -291,10 +326,11 @@ func TestBridgeResponseStream(t *testing.T) {
 		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"答案\"}}\n\n" +
 		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n"
 
-	body, err := bridgeResponse(tr, io.NopCloser(strings.NewReader(upstream)), true, notes)
-	if err != nil {
+	res := upstreamRes(io.NopCloser(strings.NewReader(upstream)))
+	if err := bridgeResponse(tr, res, true, notes); err != nil {
 		t.Fatalf("转换失败: %v", err)
 	}
+	body := res.Body
 	if notes.String() != "" {
 		t.Fatalf("还没读完就不该有记账（列表还在长）: %q", notes.String())
 	}

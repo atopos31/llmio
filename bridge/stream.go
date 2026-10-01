@@ -367,9 +367,6 @@ func (s *OpenAIToAnthropicStream) finish() string {
 	stop := "end_turn"
 	if s.finishReason != "" {
 		stop = anthropicStopReason(s.finishReason, &s.notes)
-		if s.finishReason == "content_filter" {
-			s.notes = append(s.notes, NoteContentFiltered)
-		}
 	} else if len(s.tools) > 0 {
 		// [DONE] 前不给 finish_reason 是工具调用流的常态（见 docs/protocol-bridge.md §6）。
 		// 见没见过工具调用是唯一能拿来推断的依据，不发 message_delta 客户端会一直等

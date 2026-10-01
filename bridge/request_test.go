@@ -827,6 +827,59 @@ func TestAnthropicToOpenAIBasic(t *testing.T) {
 	}
 }
 
+func TestAnthropicToOpenAIStringContent(t *testing.T) {
+	// Anthropic 允许 content 写成裸字符串（单块文本的简写），Claude Code 的普通轮次就是
+	// 这个形状。判成"翻不过去"的话，这类请求会白白被换走一家上游
+	out, notes := toOpenAI(t, `{
+		"model": "claude-sonnet-5",
+		"max_tokens": 64,
+		"messages": [
+			{"role": "user", "content": "你好"},
+			{"role": "assistant", "content": "在的"},
+			{"role": "user", "content": ""}
+		]
+	}`)
+
+	messages := out["messages"].([]any)
+	if len(messages) != 2 {
+		// 空串那条归一成一个空文本块，随后按"空文本块"的规矩丢掉整条消息
+		t.Fatalf("空串消息应当被丢掉，剩下两条: %v", messages)
+	}
+	if got := messages[0].(map[string]any)["content"]; got != "你好" {
+		t.Fatalf("字符串简写没转成文本: %v", got)
+	}
+	if got := messages[1].(map[string]any)["content"]; got != "在的" {
+		t.Fatalf("assistant 的字符串简写没转成文本: %v", got)
+	}
+	requireNote(t, notes, NoteDroppedEmptyText)
+	requireNote(t, notes, NoteDroppedEmptyMessage)
+}
+
+func TestAnthropicToOpenAIContentShapes(t *testing.T) {
+	// 除了字符串与块数组，其余写法（对象、数字）是坏数据，仍要拒绝——不然会静默变成
+	// 一条没有内容的消息，模型读到的提示比客户端发的少
+	for _, body := range []string{
+		`{"model":"m","max_tokens":1,"messages":[{"role":"user","content":{"type":"text","text":"你好"}}]}`,
+		`{"model":"m","max_tokens":1,"messages":[{"role":"user","content":42}]}`,
+		// 连消息本身都不是对象，读 role/content 无从谈起
+		`{"model":"m","max_tokens":1,"messages":["你好"]}`,
+	} {
+		if _, _, err := AnthropicRequestToOpenAI([]byte(body), Options{}); err == nil {
+			t.Fatalf("这种 content 应当被拒绝: %s", body)
+		}
+	}
+
+	// content 缺失或为 null 不算坏数据：就是"这条消息没有内容"，归一成没有块
+	out, notes := toOpenAI(t, `{
+		"model": "m", "max_tokens": 1,
+		"messages": [{"role": "user", "content": null}, {"role": "user", "content": "嗨"}]
+	}`)
+	if messages := out["messages"].([]any); len(messages) != 1 {
+		t.Fatalf("空消息应当被丢掉，只剩下有内容的那条: %v", messages)
+	}
+	requireNote(t, notes, NoteDroppedEmptyMessage)
+}
+
 func TestAnthropicToOpenAISystemShapes(t *testing.T) {
 	t.Run("块数组形式", func(t *testing.T) {
 		out, _ := toOpenAI(t, `{

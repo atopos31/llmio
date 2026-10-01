@@ -245,14 +245,12 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			// 客户端看到的和 ChatLog 记的都得是客户端协议（记录用的 processer 是按
 			// 客户端协议选的）
 			if translator != nil {
-				converted, err := bridgeResponse(translator, res.Body, before.Stream, bridgeNotes)
-				if err != nil {
+				if err := bridgeResponse(translator, res, before.Stream, bridgeNotes); err != nil {
 					fail(fmt.Errorf("bridge response: %w", err))
 					balancer.Delete(id)
 					res.Body.Close()
 					continue
 				}
-				res.Body = converted
 			}
 
 			balancer.Success(id)

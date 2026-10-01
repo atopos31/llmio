@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"io"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -183,23 +184,32 @@ func (b *bridgedBody) Close() error {
 	return b.BridgedBody.Close()
 }
 
-// bridgeResponse 把上游响应体翻成客户端协议。
+// bridgeResponse 把上游响应**就地**翻成客户端协议：换掉 res.Body，顺带作废
+// Content-Length。
+//
+// 作废那个头不是洁癖：它是随响应一起从上游复制过来的，而翻译后的字节数几乎不可能
+// 与上游那份相同（字段名、外层包裹、块结构全变了）。net/http 在写响应时会拿它做校验，
+// 写出超过声明长度就直接掐断连接（`http: wrote more than the declared Content-Length`），
+// 客户端拿到的是半截响应——比长度不准严重得多。删掉之后按分块传输走，长度由传输层算。
 //
 // 流式边走边翻；非流式在这里整体读完再翻——非流式的响应体反正要被完整读一遍
 // （ErrorMatcher 与记录都在读），留在 Body 里等调用方读只是把同一件事推后。
-func bridgeResponse(translator *bridge.Translator, body io.ReadCloser, stream bool, notes *BridgeNotes) (io.ReadCloser, error) {
+func bridgeResponse(translator *bridge.Translator, res *http.Response, stream bool, notes *BridgeNotes) error {
 	if stream {
-		return &bridgedBody{BridgedBody: bridge.NewBridgedBody(body, translator.Stream()), notes: notes}, nil
+		res.Body = &bridgedBody{BridgedBody: bridge.NewBridgedBody(res.Body, translator.Stream()), notes: notes}
+	} else {
+		raw, err := io.ReadAll(res.Body)
+		res.Body.Close()
+		if err != nil {
+			return err
+		}
+		converted, responseNotes, err := translator.Response(raw)
+		if err != nil {
+			return err
+		}
+		notes.record(responseNotes)
+		res.Body = io.NopCloser(bytes.NewReader(converted))
 	}
-	raw, err := io.ReadAll(body)
-	body.Close()
-	if err != nil {
-		return nil, err
-	}
-	converted, responseNotes, err := translator.Response(raw)
-	if err != nil {
-		return nil, err
-	}
-	notes.record(responseNotes)
-	return io.NopCloser(bytes.NewReader(converted)), nil
+	res.Header.Del("Content-Length")
+	return nil
 }

@@ -158,14 +158,33 @@ OpenAI → Anthropic：
 - 文本增量：若当前没有打开的文本块，先发 `content_block_start(index=0)`；再发
   `text_delta`
 - `delta.tool_calls[]`：每个 `index` 是一条**独立通道**（并发调用时会在多个 index 之间
-  交错出现，不能假设顺序）。首次见到某 index → 关掉当前块，发 `content_block_start`
-  （`tool_use`，带 `id` / `name`，`input:{}`），随后该 index 的 `function.arguments`
-  片段变成 `input_json_delta` 的 `partial_json`
-- `finish_reason` → 关掉打开的块，发 `message_delta`（`stop_reason`）与 `message_stop`
+  交错出现，不能假设顺序）。**参数片段攒在各通道的缓冲里，直到收尾才一次性变成
+  `tool_use` 块 + `input_json_delta`**。Anthropic 的内容块一旦 `content_block_stop`
+  就不能重开，边收边发的话交错的那两路参数会被搅进同一个块，客户端拼出来的 JSON 直接
+  是坏的。代价是工具调用不是实时可见——客户端本来也要等 `finish_reason` 才去执行工具，
+  这点延迟不损失什么
 - **`[DONE]` 前没有 `finish_reason`**（工具调用流里常见）→ 按"有没有见过 tool_call"
   推断 `tool_use` / `end_turn`，**不能什么都不发**：不发 `message_delta` 客户端会一直等
+- **收尾不在看见 `finish_reason` 的那一刻发生，而是等到 `[DONE]` 或上游断开**。开了
+  `stream_options.include_usage` 的上游会把收尾拆成两段：先是带 `finish_reason`、
+  `usage` 为空的那条，紧跟着才是 `choices` 为空、只带 `usage` 的那条。前一条一到就
+  收尾的话，用量永远落在收尾之后被丢掉——而 llmio 记 Anthropic 用量只认 `message_delta`
+  这一条（`service.ProcesserAnthropic`），输入 token 会被记成 0
+- 流中间报错（`{"error":{...}}`）→ 转成 Anthropic 的 `error` 事件，**此后再不补收尾**：
+  补出来的 `message_stop` 会让客户端把半截回答当成一次完整的生成
 
-Anthropic → OpenAI 是逆过程，另需注意 `message_delta` 的 `usage` 要并进最后一个 chunk。
+Anthropic → OpenAI 是逆过程：
+
+- `message_start` → 一条 `delta:{role:"assistant"}` 的 chunk
+- `text_delta` / `input_json_delta` → 各自的增量 chunk
+- 内容块下标与 OpenAI 的 `tool_calls[].index` **不是一回事**：前者按块排列（中间夹文本
+  块就会出现 0/1/2），后者必须从 0 起连续编号，要维护一张映射表
+- `thinking` / `redacted_thinking` 块与 `thinking_delta` / `signature_delta` 没有对应物，
+  丢掉并记 `Note`
+- `message_delta` 的 `usage` 要并进最后一个 chunk（llmio 的 OpenAI 用量统计只认收尾那
+  一条），末尾补 `[DONE]`
+
+两边的收尾事件都保证**恰好发一次**，即使上游断流（`Close` 兜底）或出现重复的收尾标记。
 
 ## 7. 接线
 
@@ -194,8 +213,12 @@ Anthropic → OpenAI 是逆过程，另需注意 `message_delta` 的 `usage` 要
 ## 9. 分步
 
 1. **第一步（已完成）**：`bridge` 包 + 两个方向的**请求**互转 + 清洗 + `Note`，
-   `go test -cover ./bridge/` 语句覆盖 100%
-2. 非流式响应互转
-3. 流式状态机（两个方向）
+   连同"改了什么"的记账
+2. **第二步（已完成）**：非流式响应互转（含错误体）
+3. **第三步（已完成）**：流式状态机（两个方向）+ 接到转发路径上的 `BridgedBody`
 4. 接线（判断要不要转、`Note` 进 ChatLog）——**就在本分支继续**，做完拿真实上游
    （Opencode）端到端跑一遍再合
+
+第 1–3 步的验收方式：`go test -cover ./bridge/` 语句覆盖 100%；每条新钉再**逐条证伪**
+一遍（把源码改坏 → 对应的那条测试必须转红 → 还原）。证伪要区分"断言失败"与"编译不过"：
+后者说明变异本身无效，不算数。

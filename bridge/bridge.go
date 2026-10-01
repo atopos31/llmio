@@ -73,6 +73,37 @@ const (
 	// NotePrefixedToolError 工具结果带 is_error，在正文前加了 [tool_error] 标记。
 	// OpenAI 的 tool 消息没有"这是失败"这个位，丢了模型会以为工具成功了。
 	NotePrefixedToolError Note = "prefixed_tool_error"
+
+	// 以下几条约只出现在**响应**侧：那边没有重试的机会（字已经生成出来了），
+	// 做不到的地方只能带上并记账，不能像请求侧那样拒绝。
+
+	// NoteDroppedExtraChoices 上游返回了多条候选，只取 index 最小的那条。
+	NoteDroppedExtraChoices Note = "dropped_extra_choices"
+	// NoteUnparsableToolArguments 工具调用参数解不出 JSON 对象，落成了空 input。
+	// 请求侧遇到这种情况会拒绝；响应侧拒绝等于丢掉整次生成，只能落空并留下记号。
+	NoteUnparsableToolArguments Note = "unparsable_tool_arguments"
+	// NoteUnparsableContent 响应里的 content 形状认不出（既不是字符串也不是块数组），
+	// 原样当文本带了过去。
+	NoteUnparsableContent Note = "unparsable_content"
+	// NoteUnknownFinishReason 上游给了认不出的 finish_reason / stop_reason，落了兜底值。
+	NoteUnknownFinishReason Note = "unknown_finish_reason"
+	// NoteContentFiltered 上游因内容过滤截断（content_filter → refusal）。语义能对上，
+	// 但两边的档位叫法不同，记一笔免得排查时对不上号。
+	NoteContentFiltered Note = "content_filtered"
+	// NotePausedTurn 上游的 pause_turn（长任务暂停），OpenAI 没有这一档，落成了 stop。
+	NotePausedTurn Note = "paused_turn"
+	// NoteDroppedRefusal OpenAI 的 refusal 是一段独立的拒绝文本，Anthropic 没有对应块。
+	NoteDroppedRefusal Note = "dropped_refusal"
+	// NoteDroppedUnknownBlock 丢掉了目标协议里放不下的内容块（响应侧）。
+	NoteDroppedUnknownBlock Note = "dropped_unknown_block"
+	// NoteSkippedChunk 流里有一段载荷解不出 JSON，跳过了。SSE 流里常有厂商自己的
+	// 心跳帧，跳过是常态，但真丢了一整段内容也只有这一条线索。
+	NoteSkippedChunk Note = "skipped_chunk"
+	// NoteDroppedUnknownEvent 流里出现了认不出的事件类型，跳过了。
+	NoteDroppedUnknownEvent Note = "dropped_unknown_event"
+	// NoteDroppedReasoning 丢掉了 reasoning_content / reasoning（DeepSeek 一类模型的
+	// 思维链）。Anthropic 的 thinking 块必须带签名，这里给不出来。
+	NoteDroppedReasoning Note = "dropped_reasoning"
 )
 
 // Unsupported 表示这份请求**无法在目标协议里表达**，换个说法就是"这家上游服务不了"。

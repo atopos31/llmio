@@ -39,6 +39,8 @@ type OpenAIMessage struct {
 	ToolCalls  []OpenAIToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string           `json:"tool_call_id,omitempty"`
 	Name       string           `json:"name,omitempty"`
+	// Refusal 只在响应里出现：模型拒答时的那段文本。Anthropic 没有对应的块类型。
+	Refusal json.RawMessage `json:"refusal,omitempty"`
 }
 
 // OpenAIContentPart 是 content 数组里的一块。type 取 text / image_url。

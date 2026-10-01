@@ -48,6 +48,7 @@ function stats(over: Partial<StatsResult> = {}): StatsResult {
       { ts: 1_699_000_000_000, total: 10, success: 9, error: 1, running: 0, tokens: 1500, prompt: 1000, completion: 500, cached: 250, avgTps: 40, avgFirstChunkMs: 1200 },
     ],
     byModel: [group("deepseek-chat")],
+    byModelProvider: [],
     byProvider: [group("scnet")],
     byKey: [group("dev-key")],
     byName: [group("claude-code")],

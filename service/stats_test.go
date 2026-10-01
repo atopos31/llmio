@@ -628,6 +628,7 @@ func TestAggregateEmptyInput(t *testing.T) {
 	}
 	// 所有集合都必须是非 nil 的空切片，保证 JSON 序列化为 [] 而不是 null
 	if res.Trend == nil || res.ByModel == nil || res.ByProvider == nil ||
+		res.ByModelProvider == nil ||
 		res.ByKey == nil || res.ByName == nil || res.ByUserAgent == nil ||
 		res.Errors == nil || res.ErrorTrend == nil ||
 		res.TopTps == nil || res.Slowest == nil || res.RecentError == nil {
@@ -779,6 +780,126 @@ func TestAggregateGroupsSortedByTotalThenName(t *testing.T) {
 	// 分组内无成功请求 → 成功率分母为 0 → 0
 	if gamma.SuccessRate != 0 {
 		t.Fatalf("gamma 成功率应为 0，实得 %v", gamma.SuccessRate)
+	}
+}
+
+// 模型×上游这一维要能回答"同一个模型的几个上游谁快"。
+//
+// 两个边际分布都答不了：byModel 把同一模型的多个上游混成一行，
+// byProvider 又把同一上游的多个模型混成一行。因此这里断言的是
+// **联合**分布的分量，而不是它恰好等于某个边际分布。
+func TestAggregateByModelProvider(t *testing.T) {
+	t.Parallel()
+
+	base := time.Now()
+	mk := func(name, provider string, tps float64, fc time.Duration) models.ChatLog {
+		l := logAt(1, base, consts.StatusSuccess)
+		l.Name = name
+		l.ProviderName = provider
+		l.Tps = tps
+		l.FirstChunkTime = fc
+		return l
+	}
+
+	res := AggregateWithBucket([]models.ChatLog{
+		// 同一个请求名，两个上游：正是"要对比"的那种情形
+		mk("claude", "快上游", 40, 300*time.Millisecond),
+		mk("claude", "快上游", 60, 500*time.Millisecond),
+		mk("claude", "慢上游", 10, 3*time.Second),
+		// 另一个模型挂在同一个上游上：联合分布要把它分出去
+		mk("gpt", "快上游", 5, time.Second),
+	}, StatsFilter{}, time.Hour)
+
+	if len(res.ByModelProvider) != 3 {
+		t.Fatalf("应有 3 行（claude×2 + gpt×1），实得 %d：%+v",
+			len(res.ByModelProvider), res.ByModelProvider)
+	}
+
+	byKey := map[string]GroupStat{}
+	for _, g := range res.ByModelProvider {
+		byKey[g.Model+"|"+g.Provider] = g
+	}
+
+	fast, ok := byKey["claude|快上游"]
+	if !ok {
+		t.Fatalf("缺少 claude×快上游：%+v", res.ByModelProvider)
+	}
+	// 分量字段必须原样保留：前端要按模型把上游归成一组，
+	// 光有一行「claude · 快上游」拆不回来
+	if fast.Name != "claude · 快上游" {
+		t.Fatalf("行名应为「模型 · 上游」，实得 %q", fast.Name)
+	}
+	if fast.Total != 2 || fast.AvgTps != 50 {
+		t.Fatalf("claude×快上游 应有 2 条、平均 50 TPS，实得 %+v", fast)
+	}
+	slow, ok := byKey["claude|慢上游"]
+	if !ok || slow.Total != 1 || slow.AvgTps != 10 {
+		t.Fatalf("claude×慢上游 不符：%+v", slow)
+	}
+
+	// 边际分布是混着的，这正是要分开的理由：
+	// claude 这一行把两个上游合成了 3 条
+	for _, g := range res.ByModel {
+		if g.Name == "claude" && g.Total != 3 {
+			t.Fatalf("byModel 的 claude 应为 3 条，实得 %d", g.Total)
+		}
+	}
+	// 快上游这一行把两个模型合成了 3 条
+	for _, g := range res.ByProvider {
+		if g.Name == "快上游" && g.Total != 3 {
+			t.Fatalf("byProvider 的快上游应为 3 条，实得 %d", g.Total)
+		}
+	}
+}
+
+// 其余维度不该带上模型/上游这两个身份字段——它们只在联合分布里有意义，
+// 到处都填会让前端以为别的维度也能按上游归组。
+func TestAggregateModelProviderFieldsOnlyOnJoint(t *testing.T) {
+	t.Parallel()
+
+	l := logAt(1, time.Now(), consts.StatusSuccess)
+	res := AggregateWithBucket([]models.ChatLog{l}, StatsFilter{}, time.Hour)
+
+	for _, g := range res.ByModelProvider {
+		if g.Model != "gpt-4o" || g.Provider != "prov-a" {
+			t.Fatalf("联合分布应带上分量：%+v", g)
+		}
+	}
+	for _, g := range res.ByModel {
+		if g.Model != "" || g.Provider != "" {
+			t.Fatalf("byModel 不应带分量：%+v", g)
+		}
+	}
+	for _, g := range res.ByProvider {
+		if g.Model != "" || g.Provider != "" {
+			t.Fatalf("byProvider 不应带分量：%+v", g)
+		}
+	}
+}
+
+// 空名走与其它维度同一套兜底，否则联合分布会出现「 · 快上游」这种行名。
+func TestAggregateJointLabelDashesEmptyParts(t *testing.T) {
+	t.Parallel()
+
+	mk := func(name, provider string) models.ChatLog {
+		l := logAt(1, time.Now(), consts.StatusSuccess)
+		l.Name, l.ProviderName = name, provider
+		return l
+	}
+	res := AggregateWithBucket([]models.ChatLog{
+		mk("", "p"),
+		mk("m", ""),
+		mk("", ""),
+	}, StatsFilter{}, time.Hour)
+
+	names := map[string]bool{}
+	for _, g := range res.ByModelProvider {
+		names[g.Name] = true
+	}
+	for _, want := range []string{"- · p", "m · -", "- · -"} {
+		if !names[want] {
+			t.Fatalf("应有行名 %q，实得 %+v", want, res.ByModelProvider)
+		}
 	}
 }
 

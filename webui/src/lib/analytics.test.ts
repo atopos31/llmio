@@ -15,9 +15,12 @@ import {
   errorBarWidth,
   errorViewMode,
   fromLocalInput,
+  groupByModel,
   isMissingModelMetric,
   keyFilterOptions,
   logDetailPath,
+  MODEL_DIMENSIONS,
+  modelDimensionGroups,
   MODEL_SORT_KEYS,
   nextModelSort,
   observedOptions,
@@ -75,6 +78,7 @@ function statsWith(over: Partial<StatsResult> = {}): StatsResult {
     byKey: [],
     byName: [],
     byUa: [],
+    byModelProvider: [],
     ...over,
   } as StatsResult
 }
@@ -525,5 +529,65 @@ describe("模型性能排序", () => {
     ]
     expect(names(gs, { key: "cost", dir: "desc" })).toEqual(["pricey", "cheap"])
     expect(names(gs, { key: "retries", dir: "asc" })).toEqual(["pricey", "cheap"])
+  })
+})
+
+describe("模型性能的呈现维度", () => {
+  it("三个维度齐备且顺序稳定", () => {
+    expect(MODEL_DIMENSIONS).toEqual(["model", "provider", "modelProvider"])
+  })
+
+  it("每个维度取到对应的数组", () => {
+    const stats = statsWith({
+      byModel: [group({ name: "m" })],
+      byProvider: [group({ name: "p" })],
+      byModelProvider: [group({ name: "m · p" })],
+    })
+    expect(modelDimensionGroups(stats, "model").map((g) => g.name)).toEqual(["m"])
+    expect(modelDimensionGroups(stats, "provider").map((g) => g.name)).toEqual(["p"])
+    expect(modelDimensionGroups(stats, "modelProvider").map((g) => g.name)).toEqual(["m · p"])
+  })
+})
+
+describe("模型×上游按模型归组", () => {
+  /** 一行「模型 · 上游」。分量字段是服务端另填的，这里一并给上。 */
+  function joint(model: string, provider: string, total: number): GroupStat {
+    return group({ name: `${model} · ${provider}`, model, provider, total })
+  }
+
+  it("把同一模型的上游收进一组，并给出组名", () => {
+    const groups = groupByModel([joint("a", "x", 3), joint("a", "y", 2), joint("b", "x", 1)])
+    expect(groups.map((g) => g.model)).toEqual(["a", "b"])
+    expect(groups[0].rows.map((r) => r.provider)).toEqual(["x", "y"])
+  })
+
+  it("组的先后按各行合计现算，不跟着输入顺序走", () => {
+    // b 单独一行就比 a 的任意一行大，但 a 有两行、合计更大——按分量比会排错
+    const groups = groupByModel([joint("b", "x", 4), joint("a", "x", 3), joint("a", "y", 3)])
+    expect(groups.map((g) => g.model)).toEqual(["a", "b"])
+  })
+
+  it("合计相同时按模型名的码点定序，不随输入顺序跳", () => {
+    const input = [joint("b", "x", 1), joint("a", "x", 1)]
+    expect(groupByModel(input).map((g) => g.model)).toEqual(["a", "b"])
+    expect(groupByModel([...input].reverse()).map((g) => g.model)).toEqual(["a", "b"])
+  })
+
+  it("模型名自己带分隔符时不会被拆开", () => {
+    // 行名是拼出来的，靠拆字符串认模型必然在这里翻车：
+    // 「a · b」这个名字按分隔符拆会得到两个模型，实际是同一个
+    const groups = groupByModel([joint("a · b", "x", 2), joint("a", "b · x", 1)])
+    expect(groups.map((g) => g.model)).toEqual(["a · b", "a"])
+    expect(groups[0].rows).toHaveLength(1)
+  })
+
+  it("分量字段缺失时回落到行名——老接口没有 model 字段也还能摆出来", () => {
+    const groups = groupByModel([group({ name: "m · p" }), group({ name: "m · q" })])
+    expect(groups).toHaveLength(2)
+    expect(groups.map((g) => g.model)).toEqual(["m · p", "m · q"])
+  })
+
+  it("空输入给空数组", () => {
+    expect(groupByModel([])).toEqual([])
   })
 })

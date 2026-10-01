@@ -29,6 +29,7 @@ import {
   type AnalyticsFilter,
   type AnalyticsView,
   type DimensionKey,
+  type ModelDimension,
   type ModelSort,
   type ModelSortKey,
 } from "@/lib/analytics"
@@ -73,6 +74,11 @@ export default function AnalyticsPage() {
    * 走一套 URL 同步会造出第二种状态机制。代价是刷新后回到默认排序，可接受。
    */
   const [modelSort, setModelSort] = useState<ModelSort>(DEFAULT_MODEL_SORT)
+  /**
+   * 模型性能表按哪个维度摆行。默认仍是"模型"——与改动前一致，
+   * 打开这一页看到的第一眼不该变。
+   */
+  const [modelDimension, setModelDimension] = useState<ModelDimension>("model")
 
   const [stats, setStats] = useState<StatsResult | null>(null)
   /**
@@ -297,7 +303,13 @@ export default function AnalyticsPage() {
             {view === "latency" && <LatencyView stats={stats!} />}
             {view === "errors" && <ErrorsView stats={stats!} />}
             {view === "models" && (
-              <ModelsView stats={stats!} sort={modelSort} onSort={handleModelSort} />
+              <ModelsView
+                stats={stats!}
+                sort={modelSort}
+                onSort={handleModelSort}
+                dimension={modelDimension}
+                onDimension={setModelDimension}
+              />
             )}
           </div>
         )}

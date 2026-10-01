@@ -389,7 +389,12 @@ type TrendPoint struct {
 
 // GroupStat 是单个分组的统计。
 type GroupStat struct {
-	Name            string  `json:"name"`
+	Name string `json:"name"`
+	// Model / Provider 只在模型×上游这一维填写：行名是「模型 · 上游」，
+	// 但展示要按模型把上游归成一组，光有一行拼好的标签拆不回来
+	// （模型名里完全可能自己就带分隔符）。其余维度留空。
+	Model           string  `json:"model,omitempty"`
+	Provider        string  `json:"provider,omitempty"`
 	Total           int64   `json:"total"`
 	Success         int64   `json:"success"`
 	Error           int64   `json:"error"`
@@ -460,23 +465,28 @@ type LogRow struct {
 
 // StatsResult 是聚合输出的完整结果。
 type StatsResult struct {
-	GeneratedAt int64            `json:"generatedAt"`
-	BucketMs    int64            `json:"bucketMs"`
-	Truncated   bool             `json:"truncated"`
-	Range       RangeInfo        `json:"range"`
-	KPI         KPI              `json:"kpi"`
-	Trend       []TrendPoint     `json:"trend"`
-	ByModel     []GroupStat      `json:"byModel"`
-	ByProvider  []GroupStat      `json:"byProvider"`
-	ByKey       []GroupStat      `json:"byKey"`
-	ByName      []GroupStat      `json:"byName"`
-	ByUserAgent []GroupStat      `json:"byUa"`
-	Errors      []ErrorGroup     `json:"errors"`
-	ErrorTrend  []TrendPoint     `json:"errorTrend"`
-	Latency     LatencyBreakdown `json:"latency"`
-	TopTps      []LogRow         `json:"topTps"`
-	Slowest     []LogRow         `json:"slowest"`
-	RecentError []LogRow         `json:"recentErrors"`
+	GeneratedAt int64        `json:"generatedAt"`
+	BucketMs    int64        `json:"bucketMs"`
+	Truncated   bool         `json:"truncated"`
+	Range       RangeInfo    `json:"range"`
+	KPI         KPI          `json:"kpi"`
+	Trend       []TrendPoint `json:"trend"`
+	ByModel     []GroupStat  `json:"byModel"`
+	ByProvider  []GroupStat  `json:"byProvider"`
+	// ByModelProvider 是模型×上游的联合分布。
+	//
+	// 两个边际分布（byModel / byProvider）推不出它来：同一个模型挂多个上游时，
+	// 谁快谁慢只在联合分布里看得见，而"只按请求名对比"会把它们混成一行。
+	ByModelProvider []GroupStat      `json:"byModelProvider"`
+	ByKey           []GroupStat      `json:"byKey"`
+	ByName          []GroupStat      `json:"byName"`
+	ByUserAgent     []GroupStat      `json:"byUa"`
+	Errors          []ErrorGroup     `json:"errors"`
+	ErrorTrend      []TrendPoint     `json:"errorTrend"`
+	Latency         LatencyBreakdown `json:"latency"`
+	TopTps          []LogRow         `json:"topTps"`
+	Slowest         []LogRow         `json:"slowest"`
+	RecentError     []LogRow         `json:"recentErrors"`
 }
 
 // RangeInfo 是本次聚合实际覆盖的时间范围。
@@ -528,20 +538,21 @@ func Aggregate(logs []models.ChatLog, f StatsFilter) StatsResult {
 // 便于测试与复用（调用方已解析过档位时避免重复解析）。
 func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Duration) StatsResult {
 	res := StatsResult{
-		GeneratedAt: time.Now().UnixMilli(),
-		BucketMs:    bucket.Milliseconds(),
-		Range:       RangeInfo{From: unixMilliOrZero(f.From), To: unixMilliOrZero(f.To)},
-		Trend:       []TrendPoint{},
-		ByModel:     []GroupStat{},
-		ByProvider:  []GroupStat{},
-		ByKey:       []GroupStat{},
-		ByName:      []GroupStat{},
-		ByUserAgent: []GroupStat{},
-		Errors:      []ErrorGroup{},
-		ErrorTrend:  []TrendPoint{},
-		TopTps:      []LogRow{},
-		Slowest:     []LogRow{},
-		RecentError: []LogRow{},
+		GeneratedAt:     time.Now().UnixMilli(),
+		BucketMs:        bucket.Milliseconds(),
+		Range:           RangeInfo{From: unixMilliOrZero(f.From), To: unixMilliOrZero(f.To)},
+		Trend:           []TrendPoint{},
+		ByModel:         []GroupStat{},
+		ByProvider:      []GroupStat{},
+		ByModelProvider: []GroupStat{},
+		ByKey:           []GroupStat{},
+		ByName:          []GroupStat{},
+		ByUserAgent:     []GroupStat{},
+		Errors:          []ErrorGroup{},
+		ErrorTrend:      []TrendPoint{},
+		TopTps:          []LogRow{},
+		Slowest:         []LogRow{},
+		RecentError:     []LogRow{},
 	}
 
 	// 只需一帧快照，避免多处重复计算 now。
@@ -553,6 +564,7 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 		bucketOrder     []int64
 		models          = newGroupAcc()
 		providers       = newGroupAcc()
+		modelProviders  = newGroupAcc()
 		keys            = newGroupAcc()
 		names           = newGroupAcc()
 		uas             = newGroupAcc()
@@ -628,6 +640,7 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 		// ---- 分组 ----
 		models.add(l.Name, l)
 		providers.add(l.ProviderName, l)
+		modelProviders.addJoint(l.Name, l.ProviderName, l)
 		keys.add(keyLabel(l.AuthKeyID), l)
 		names.add(l.Name, l)
 		uas.add(l.UserAgent, l)
@@ -728,6 +741,7 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 	// ---- 分组收尾 ----
 	res.ByModel = models.result()
 	res.ByProvider = providers.result()
+	res.ByModelProvider = modelProviders.result()
 	res.ByKey = keys.result()
 	res.ByName = names.result()
 	res.ByUserAgent = uas.result()
@@ -865,14 +879,46 @@ type groupItem struct {
 func newGroupAcc() *groupAcc { return &groupAcc{items: map[string]*groupItem{}} }
 
 func (a *groupAcc) add(name string, l models.ChatLog) {
-	if name == "" {
-		name = "-"
+	a.count(a.item(name), l)
+}
+
+// addJoint 累计模型×上游这一维。
+//
+// 名字取「模型 · 上游」是给**读**用的，两个分量另存字段——表格要按模型把
+// 上游归成一组，而拼好的标签拆不回来：模型名里本身就可能带分隔符，
+// 拆错了会把一个模型的两行上游分到两个组里，看起来像多了一个模型。
+func (a *groupAcc) addJoint(model, provider string, l models.ChatLog) {
+	it := a.item(jointLabel(model, provider))
+	it.stat.Model, it.stat.Provider = dashIfEmpty(model), dashIfEmpty(provider)
+	a.count(it, l)
+}
+
+// jointLabel 是模型×上游这一维的行名。
+func jointLabel(model, provider string) string {
+	return dashIfEmpty(model) + " · " + dashIfEmpty(provider)
+}
+
+// dashIfEmpty 与 add 里的兜底一致：空名统一显示成短横。
+func dashIfEmpty(s string) string {
+	if s == "" {
+		return "-"
 	}
+	return s
+}
+
+// item 取（或建）一个分组。同名分组共用同一个累计器。
+func (a *groupAcc) item(name string) *groupItem {
+	name = dashIfEmpty(name)
 	it, ok := a.items[name]
 	if !ok {
 		it = &groupItem{stat: GroupStat{Name: name}}
 		a.items[name] = it
 	}
+	return it
+}
+
+// count 把一条日志累计进分组。
+func (a *groupAcc) count(it *groupItem, l models.ChatLog) {
 	s := &it.stat
 	s.Total++
 	switch l.Status {

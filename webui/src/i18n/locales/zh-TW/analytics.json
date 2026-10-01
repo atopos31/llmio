@@ -118,6 +118,13 @@
   "models": {
     "title": "模型性能",
     "note": "點列頭排序，再點一次換方向。沒有成功樣本的模型（TPS 或首包為 0）一律排在最後，不會被當成最快。",
+    "note_joint": "同一個模型的各家供應商歸在一組。點欄頭在各組內排序，組的先後一律按請求數——這樣換維度時「第一名的模型」不會換人。",
+    "dimension_label": "列按什麼維度排",
+    "dimensions": {
+      "model": "模型",
+      "provider": "供應商",
+      "modelProvider": "模型 × 供應商"
+    },
     "empty": "所選範圍內沒有模型資料",
     "sort": {
       "none": "點擊按「{{column}}」排序",
@@ -126,6 +133,7 @@
     },
     "columns": {
       "name": "模型",
+      "provider": "供應商",
       "total": "請求",
       "successRate": "成功率",
       "avgTps": "平均 TPS",

@@ -88,6 +88,9 @@ function fixture(over: Partial<StatsResult> = {}): StatsResult {
       { ts: 1_759_981_800_000, total: 4, success: 3, error: 1, running: 0, tokens: 600, prompt: 400, completion: 200, cached: 100, avgTps: 40, avgFirstChunkMs: 1200 },
     ],
     byModel: [group("gpt-test")],
+    // 联合维度默认留空：它的形状与 byModel 不同（行名是「模型 · 提供商」），
+    // 与其在这里编一份可能被误当成真数据的，不如让要它的用例自己给
+    byModelProvider: [],
     byProvider: [group("prov-a"), group("prov-b")],
     byKey: [group("admin"), group("dev-key")],
     byName: [group("dev")],
@@ -140,6 +143,21 @@ function renderPage() {
  */
 function queries(): StatsQuery[] {
   return mocked.getStats.mock.calls.map((c) => c[0] ?? {})
+}
+
+/**
+ * 表体各行的文本，用来断言先后次序（首行是表头，故从头切掉）。
+ *
+ * 放在模块层而不是某个 describe 里：模型维度与「模型 × 提供商」两处都要
+ * 靠它读行序，而这两处的关系恰恰是"换个维度行序怎么变"——断言工具必须是
+ * 同一把，否则两边的"第几行"可能各说各的。
+ */
+function bodyRows(): string[] {
+  const table = screen.getByRole("table")
+  return within(table)
+    .getAllByRole("row")
+    .slice(1)
+    .map((r) => r.textContent ?? "")
 }
 
 beforeEach(async () => {
@@ -337,15 +355,6 @@ describe("分析页 · 模型性能", () => {
     })
   }
 
-  /** 表体各行的文本，用来断言先后次序（首行是表头，故从头切掉）。 */
-  function bodyRows(): string[] {
-    const table = screen.getByRole("table")
-    return within(table)
-      .getAllByRole("row")
-      .slice(1)
-      .map((r) => r.textContent ?? "")
-  }
-
   async function openModels() {
     const user = userEvent.setup()
     renderPage()
@@ -400,5 +409,102 @@ describe("分析页 · 模型性能", () => {
 
     expect(await screen.findByText("所选范围内没有模型数据")).toBeInTheDocument()
     expect(screen.queryByText("数据加载失败")).not.toBeInTheDocument()
+  })
+})
+
+describe("分析页 · 在同一模型的上游之间比", () => {
+  /** 一行「模型 · 上游」。分量字段由服务端另填，展示要按它归组。 */
+  function j(model: string, provider: string, over: Partial<GroupStat> = {}): GroupStat {
+    return group(`${model} · ${provider}`, { model, provider, ...over })
+  }
+
+  /**
+   * alpha 走两家上游（一快一慢），beta 只走一家。
+   *
+   * 合计：alpha 8 条、beta 4 条——两组的分量都不如 beta 的单行大，
+   * 于是"组顺序按合计现算"与"按分量算"会给出不同的答案。
+   */
+  function jointFixture(): StatsResult {
+    return fixture({
+      byModel: [group("alpha", { total: 8 }), group("beta", { total: 4 })],
+      byProvider: [group("fast-up", { total: 7 }), group("slow-up", { total: 5 })],
+      byModelProvider: [
+        j("alpha", "slow-up", { total: 5, avgTps: 8, cost: 1.25 }),
+        j("alpha", "fast-up", { total: 3, avgTps: 60, cost: 0.5 }),
+        j("beta", "fast-up", { total: 4, avgTps: 30, cost: 0.75 }),
+      ],
+    })
+  }
+
+  async function openDimension(name: string) {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText("请求趋势")
+    await user.click(screen.getByRole("radio", { name: "模型性能" }))
+    await user.click(screen.getByRole("radio", { name }))
+    return user
+  }
+
+  it("同一模型的各家提供商挨在一起，模型名升成组头", async () => {
+    mocked.getStats.mockResolvedValue(jointFixture())
+    await openDimension("模型 × 提供商")
+
+    const rows = bodyRows()
+    // 组头一行 + 该模型的各行。alpha 的两家之间不再夹着 beta 的行
+    expect(rows).toHaveLength(5)
+    expect(rows[0]).toContain("alpha")
+    expect(rows[1]).toContain("slow-up")
+    expect(rows[2]).toContain("fast-up")
+    expect(rows[3]).toContain("beta")
+    expect(rows[4]).toContain("fast-up")
+    // 组头是行组的表头：读屏时底下每行才会被读成"属于 alpha"
+    expect(screen.getByRole("rowheader", { name: "alpha" })).toBeInTheDocument()
+  })
+
+  it("组内按列排序，但组的先后始终按请求数——第一名的模型不换人", async () => {
+    mocked.getStats.mockResolvedValue(jointFixture())
+    const user = await openDimension("模型 × 提供商")
+
+    // 默认按请求数降序：alpha 合计 8 > beta 4，两组都不受分量影响
+    expect(bodyRows()[0]).toContain("alpha")
+    expect(bodyRows()[3]).toContain("beta")
+
+    // 切到 TPS 降序：alpha 组内翻成快的在前（服务端给的是请求数序），
+    // 但 alpha 这一组仍排在第一——排序键动不了组的先后
+    const tpsHead = screen.getByRole("columnheader", { name: /平均 TPS/ })
+    await user.click(within(tpsHead).getByRole("button"))
+    expect(tpsHead).toHaveAttribute("aria-sort", "descending")
+
+    const rows = bodyRows()
+    expect(rows[0]).toContain("alpha")
+    expect(rows[1]).toContain("fast-up")
+    expect(rows[2]).toContain("slow-up")
+    expect(rows[3]).toContain("beta")
+    // 行名与读数仍是本页口径，不是原始字段
+    expect(rows[1]).toContain("$0.5000")
+  })
+
+  it("切到提供商维度看的是另一份边际，首列表头跟着换", async () => {
+    mocked.getStats.mockResolvedValue(jointFixture())
+    await openDimension("提供商")
+
+    expect(screen.getByRole("columnheader", { name: "提供商" })).toBeInTheDocument()
+    const rows = bodyRows()
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toContain("fast-up")
+    // 提供商维度下没有组头，行名就是提供商本身
+    expect(screen.queryByRole("rowheader")).not.toBeInTheDocument()
+  })
+
+  it("该维度没有数据时，切换器留着，说的是没有数据而不是加载失败", async () => {
+    // byModel 有数据、联合维度没有：旧接口或还没落地的服务端就是这样
+    mocked.getStats.mockResolvedValue(fixture({ byModel: [group("alpha")] }))
+    await openDimension("模型 × 提供商")
+
+    expect(await screen.findByText("所选范围内没有模型数据")).toBeInTheDocument()
+    expect(screen.queryByText("数据加载失败")).not.toBeInTheDocument()
+    // 切换器不能跟着消失，否则切进来就出不去了
+    expect(screen.getByRole("radio", { name: "模型" })).toBeInTheDocument()
+    expect(screen.getByRole("radio", { name: "模型 × 提供商" })).toBeInTheDocument()
   })
 })

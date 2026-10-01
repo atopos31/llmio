@@ -118,6 +118,13 @@
   "models": {
     "title": "Model performance",
     "note": "Click a column header to sort; click again to flip the direction. Models with no successful sample (TPS or first chunk of 0) always sort last — they are never treated as the fastest.",
+    "note_joint": "Each model keeps its providers together. Clicking a column sorts within each group; group order stays by request count, so switching dimension never changes which model leads.",
+    "dimension_label": "Group rows by",
+    "dimensions": {
+      "model": "Model",
+      "provider": "Provider",
+      "modelProvider": "Model × provider"
+    },
     "empty": "No model data in the selected range",
     "sort": {
       "none": "Sort by {{column}}",
@@ -126,6 +133,7 @@
     },
     "columns": {
       "name": "Model",
+      "provider": "Provider",
       "total": "Requests",
       "successRate": "Success",
       "avgTps": "Avg TPS",

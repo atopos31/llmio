@@ -358,6 +358,72 @@ export function errorBarWidth(count: number, base: number): number {
 // ---------------------------------------------------------------------------
 
 /**
+ * 模型性能表的呈现维度。
+ *
+ * 三个而不是两个：`model` 与 `provider` 是两张边际分布，各自把另一半抹平了。
+ * 同一个请求名挂在多个上游上时（同一个模型走了几家），`model` 只给一行合计，
+ * "这家比那家慢多少"在表里根本读不出来——那正是这张表最该回答的问题。
+ */
+export type ModelDimension = "model" | "provider" | "modelProvider"
+
+/** 界面顺序。 */
+export const MODEL_DIMENSIONS = [
+  "model",
+  "provider",
+  "modelProvider",
+] as const satisfies readonly ModelDimension[]
+
+/** 维度 → 结果字段。与 DIMENSION_STAT 同一套查表办法。 */
+const MODEL_DIMENSION_STAT: Record<ModelDimension, keyof StatsResult> = {
+  model: "byModel",
+  provider: "byProvider",
+  modelProvider: "byModelProvider",
+}
+
+/** 取某维度下的分组。顺序沿用服务端（按请求数降序）。 */
+export function modelDimensionGroups(stats: StatsResult, dim: ModelDimension): GroupStat[] {
+  return stats[MODEL_DIMENSION_STAT[dim]] as GroupStat[]
+}
+
+/** 一个模型及其各上游的行。 */
+export interface JointGroup {
+  model: string
+  rows: GroupStat[]
+}
+
+/**
+ * 把模型×上游的行按模型归组，让同一个模型的上游在表里挨着。
+ *
+ * 组的顺序**由各行合计现算**（请求数降序，同量按名称码点升序），而不是另接
+ * 一份 `byModel` 进来：两者本就得数相同（同一批日志的和），多传一个入参
+ * 只会多一处可能对不上的地方。这样切到这一维时模型之间的相对次序不变，
+ * 用户不会因为换了个维度就看到"第一名"换了人。
+ *
+ * 模型名取自分量字段而不是从行名里拆：行名是「模型 · 上游」拼的，
+ * 而模型名里本身就可能带这个分隔符。
+ */
+export function groupByModel(joint: GroupStat[]): JointGroup[] {
+  const byModel = new Map<string, GroupStat[]>()
+  for (const g of joint) {
+    const model = g.model ?? g.name
+    const rows = byModel.get(model)
+    if (rows) rows.push(g)
+    else byModel.set(model, [g])
+  }
+
+  // 合计跟组一起存，不再另开一张 Map 反查：反查的键必然命中，
+  // 于是 `?? 0` 那类兜底永远走不到，只是给覆盖率留一条假分支。
+  const groups = Array.from(byModel, ([model, rows]) => ({
+    model,
+    rows,
+    total: rows.reduce((n, r) => n + r.total, 0),
+  }))
+  groups.sort((a, b) => (a.total === b.total ? compareName(a.model, b.model) : b.total - a.total))
+
+  return groups.map(({ model, rows }) => ({ model, rows }))
+}
+
+/**
  * 可排序的列，取的是 `GroupStat` 的字段名。
  *
  * 直接用字段名而不是另起一套列 id，是为了让"取值"退化成 `g[key]`——

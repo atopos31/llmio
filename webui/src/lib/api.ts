@@ -420,6 +420,14 @@ export interface TrendPoint {
 
 export interface GroupStat {
   name: string;
+  /**
+   * 模型名与上游名，**只在 `byModelProvider` 这一维有值**。
+   *
+   * 行名（`name`）是拼好的「模型 · 上游」，但表格要按模型把上游归成一组，
+   * 拿拼好的字符串去拆是不行的：模型名里本身就可能带分隔符。
+   */
+  model?: string;
+  provider?: string;
   total: number;
   success: number;
   error: number;
@@ -490,6 +498,8 @@ export interface StatsResult {
   trend: TrendPoint[];
   byModel: GroupStat[];
   byProvider: GroupStat[];
+  /** 模型×上游的联合分布。两个边际分布推不出它来，见 service/stats.go。 */
+  byModelProvider: GroupStat[];
   byKey: GroupStat[];
   byName: GroupStat[];
   byUa: GroupStat[];

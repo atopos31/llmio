@@ -33,6 +33,11 @@ type Model struct {
 	Strategy     string // 负载均衡策略 默认 lottery
 	Breaker      *bool  // 是否开启熔断
 	DisplayOrder int    // 模型展示顺序，值越大越靠前
+	// PreferDirect 优先匹配相同协议：候选池里先挑说客户端协议的提供商，一个都没有
+	// 才退回可转换的那些。关掉则整池按权重摇（见 service.poolFor）。
+	// nil 表示没配过（迁移上来的老行），按**开**处理——转换功能上线前候选池只有
+	// 本协议的，这样老模型的行为不会因为多出一列而改变。
+	PreferDirect *bool
 }
 
 type ModelWithProvider struct {
@@ -82,12 +87,18 @@ type ChatLog struct {
 	ProviderModel string `gorm:"index"`
 	ProviderName  string `gorm:"index"`
 	Status        string `gorm:"index;index:idx_chat_logs_status_created,priority:1"` // error or success
-	Style         string // 类型
-	UserAgent     string `gorm:"index"` // 用户代理
-	RemoteIP      string // 访问ip
-	AuthKeyID     uint   `gorm:"index;index:idx_chat_logs_key_created,priority:1"` // 使用的AuthKey ID
-	SessionID     string `gorm:"index"`                                            // 请求体中的session_id
-	ChatIO        bool   // 是否开启IO记录
+	Style         string // 类型（客户端协议）
+	// UpstreamStyle 实际使用的上游协议。直连时与 Style 相同；不同即说明这次转发经过了
+	// 一层协议翻译（见 service/bridge.go）。
+	UpstreamStyle string `gorm:"index" json:"upstream_style,omitempty"`
+	// BridgeNotes 这次协议翻译"改了什么"，逗号分隔的短码（见 bridge.Note）。
+	// 只作排查用：丢了哪个参数、补了什么默认值，客户端从响应里看不出来，这里留个线索。
+	BridgeNotes string `json:"bridge_notes,omitempty"`
+	UserAgent   string `gorm:"index"` // 用户代理
+	RemoteIP    string // 访问ip
+	AuthKeyID   uint   `gorm:"index;index:idx_chat_logs_key_created,priority:1"` // 使用的AuthKey ID
+	SessionID   string `gorm:"index"`                                            // 请求体中的session_id
+	ChatIO      bool   // 是否开启IO记录
 
 	Error          string        // if status is error, this field will be set
 	Retry          int           // 重试次数

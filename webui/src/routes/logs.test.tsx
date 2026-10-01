@@ -254,3 +254,70 @@ describe("日志页 · 多选筛选", () => {
     expect(screen.queryByRole("button", { name: "清空筛选" })).not.toBeInTheDocument()
   })
 })
+
+/**
+ * 协议转换（OpenAI 客户端 ↔ Anthropic 上游）在日志页的呈现。
+ *
+ * 这一块的信息在别处都拿不到：客户端看到的响应与直连无异（转换对它透明），
+ * 后端也只是把这些短码写进了日志行。界面若把它藏起来或漏读字段，一次"答案
+ * 变了但没人知道为什么"的排查就断了线。
+ */
+describe("日志页 · 协议转换", () => {
+  /** 打开唯一一行的详情抽屉 */
+  async function openDetail() {
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole("button", { name: "日志详情: 42" }))
+    return user
+  }
+
+  it("客户端 openai、上游 anthropic：给出方向，并把每个改动码译成人话", async () => {
+    mocked.getLogs.mockResolvedValue(
+      response([
+        log({ Style: "openai", upstream_style: "anthropic", bridge_notes: "defaulted_max_tokens,dropped_seed" }),
+      ])
+    )
+    renderPage()
+    await openDetail()
+
+    expect(await screen.findByText("协议转换")).toBeInTheDocument()
+    expect(screen.getByText("openai → anthropic")).toBeInTheDocument()
+    // 短码本身留着（能拿去 grep 日志），旁边是它的释义
+    expect(screen.getByText("defaulted_max_tokens")).toBeInTheDocument()
+    expect(screen.getByText("请求没带最大输出长度，补了默认值（可能被截断）")).toBeInTheDocument()
+    expect(screen.getByText("dropped_seed")).toBeInTheDocument()
+    expect(screen.getByText("丢掉了 seed 参数")).toBeInTheDocument()
+  })
+
+  it("同协议直连：不摆出这一节（绝大多数日志都是这种，摆了就是噪声）", async () => {
+    mocked.getLogs.mockResolvedValue(response([log({ Style: "openai", upstream_style: "openai" })]))
+    renderPage()
+    await openDetail()
+
+    // 详情确实开了——否则下面的断言就是"什么都没渲染"的假通过
+    expect(await screen.findByText("基本信息")).toBeInTheDocument()
+    expect(screen.queryByText("协议转换")).not.toBeInTheDocument()
+  })
+
+  it("转了但没丢东西：说清是逐字段对应的，而不是留一片空白让人猜", async () => {
+    mocked.getLogs.mockResolvedValue(response([log({ Style: "anthropic", upstream_style: "openai" })]))
+    renderPage()
+    await openDetail()
+
+    expect(await screen.findByText("anthropic → openai")).toBeInTheDocument()
+    expect(screen.getByText("逐字段一一对应，这次转换没有丢下什么")).toBeInTheDocument()
+  })
+
+  it("码表里没有的新码：显示原码与未知条目，而不是把 i18n 键路径漏到界面上", async () => {
+    // 后端加了新码而三语词条还没跟上时会走到这里。i18next 认不出键时默认吐出
+    // 键路径本身，"logs:bridge.notes.…" 直接给用户看是明显的缺陷
+    mocked.getLogs.mockResolvedValue(
+      response([log({ Style: "openai", upstream_style: "anthropic", bridge_notes: "brand_new_note" })])
+    )
+    renderPage()
+    await openDetail()
+
+    expect(await screen.findByText("brand_new_note")).toBeInTheDocument()
+    expect(screen.getByText("未知条目")).toBeInTheDocument()
+    expect(screen.queryByText(/logs:bridge\.notes/)).not.toBeInTheDocument()
+  })
+})

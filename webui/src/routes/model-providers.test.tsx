@@ -17,6 +17,7 @@ import {
   getProviders,
   previewPeakTerms,
   testModelProvider,
+  updateModel,
   updateModelOrder,
   updateModelProvider,
   type Model,
@@ -54,6 +55,7 @@ const mocked = {
   getModelProviders: vi.mocked(getModelProviders),
   getModelProviderStatus: vi.mocked(getModelProviderStatus),
   updateModelOrder: vi.mocked(updateModelOrder),
+  updateModel: vi.mocked(updateModel),
   deleteModel: vi.mocked(deleteModel),
   createModel: vi.mocked(createModel),
   getProviderModels: vi.mocked(getProviderModels),
@@ -533,6 +535,65 @@ describe("模型路由页 · 键盘排序", () => {
  *   4. **预览按服务端回传的时区渲染**：编辑器手上没有全局日历，用浏览器本地
  *      时区显示会出现"08:30 命中了夜间优惠"这种自相矛盾的画面。
  */
+describe("模型表单 · 优先同协议", () => {
+  const SWITCH = "优先匹配相同协议"
+
+  /** 打开某一行（表格里那一个按钮）的编辑对话框 */
+  async function openEdit() {
+    const user = userEvent.setup()
+    await within(await table()).findByText("gpt-test")
+    await user.click(within(await table()).getByRole("button", { name: "编辑模型" }))
+    return user
+  }
+
+  it("新建时默认勾上，并随请求一起提交", async () => {
+    const user = userEvent.setup()
+    mocked.createModel.mockResolvedValue(model())
+    renderPage()
+    await table()
+
+    await user.click(screen.getByRole("button", { name: "添加模型" }))
+    const box = await screen.findByRole("checkbox", { name: SWITCH })
+    expect(box).toBeChecked()
+
+    await user.type(screen.getByLabelText("名称"), "gpt-new")
+    await user.click(screen.getByRole("button", { name: "创建" }))
+
+    await waitFor(() =>
+      expect(mocked.createModel).toHaveBeenCalledWith(expect.objectContaining({ prefer_direct: true }))
+    )
+  })
+
+  it("库里没有这一列的老模型：打开时是勾着的，保存也不会把它改成关", async () => {
+    // 这一列是后加的，老行的值是 NULL。若把"缺失"读成"关"，用户只是进来看一眼、
+    // 保存一下，候选池就从"先挑本协议"变成"整池按权重摇"——一次静默的流量改道
+    mocked.updateModel.mockResolvedValue(model())
+    renderPage()
+    const user = await openEdit()
+
+    expect(await screen.findByRole("checkbox", { name: SWITCH })).toBeChecked()
+    await user.click(screen.getByRole("button", { name: "更新" }))
+
+    await waitFor(() =>
+      expect(mocked.updateModel).toHaveBeenCalledWith(1, expect.objectContaining({ prefer_direct: true }))
+    )
+  })
+
+  it("明确关掉过的模型：打开时没勾，原样跟着 false 提交", async () => {
+    mocked.getModelOptions.mockResolvedValue([model({ PreferDirect: false })])
+    mocked.updateModel.mockResolvedValue(model())
+    renderPage()
+    const user = await openEdit()
+
+    expect(await screen.findByRole("checkbox", { name: SWITCH })).not.toBeChecked()
+    await user.click(screen.getByRole("button", { name: "更新" }))
+
+    await waitFor(() =>
+      expect(mocked.updateModel).toHaveBeenCalledWith(1, expect.objectContaining({ prefer_direct: false }))
+    )
+  })
+})
+
 describe("关联表单 · 峰谷条款", () => {
   const 已配条款: PeakTerms = {
     enabled: true,

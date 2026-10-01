@@ -772,6 +772,13 @@ function LogDetailSheet({ log, onClose }: { log: ChatLog | null; onClose: () => 
 
   const cached = log?.prompt_tokens_details?.cached_tokens ?? 0
   const hasPricing = (log?.input_price ?? 0) > 0 || (log?.output_price ?? 0) > 0
+  // 上游协议与客户端协议不同 = 这次请求走了一层协议转换。直连时后端写入的
+  // upstream_style 与 Style 相同，转换时才分叉
+  const bridged = !!log?.upstream_style && log.upstream_style !== log.Style
+  const bridgeCodes = (log?.bridge_notes ?? "")
+    .split(",")
+    .map((code) => code.trim())
+    .filter(Boolean)
   const totalCost = log
     ? (Math.max(0, (log.prompt_tokens ?? 0) - cached) / 1e6) * (log.input_price ?? 0) +
       (cached / 1e6) * (log.cache_read_price ?? 0) +
@@ -809,6 +816,12 @@ function LogDetailSheet({ log, onClose }: { log: ChatLog | null; onClose: () => 
                 <DetailField label={t("logs:detail.provider")} value={log.ProviderName || "-"} />
                 <DetailField label={t("logs:detail.provider_model")} value={log.ProviderModel || "-"} mono />
                 <DetailField label={t("logs:detail.type")} value={log.Style || "-"} />
+                {bridged && (
+                  <DetailField
+                    label={t("logs:bridge.upstream_type")}
+                    value={<span className="reading text-xs">{log.upstream_style}</span>}
+                  />
+                )}
                 <DetailField label={t("logs:detail.size")} value={log.Size ? formatBytes(log.Size) : "-"} />
                 <DetailField label={t("logs:detail.remote_ip")} value={log.RemoteIP || "-"} mono />
                 <DetailField
@@ -829,6 +842,30 @@ function LogDetailSheet({ log, onClose }: { log: ChatLog | null; onClose: () => 
                 <DetailField label={t("logs:detail.user_agent")} value={log.UserAgent || "-"} mono />
               </div>
             </Section>
+
+            {bridged && (
+              <Section title={t("logs:bridge.title")}>
+                <div className="grid grid-cols-2 gap-3">
+                  <DetailField
+                    label={t("logs:bridge.direction")}
+                    value={<span className="reading text-xs">{log.Style} → {log.upstream_style}</span>}
+                  />
+                </div>
+                <div className="mt-3 space-y-1.5">
+                  <div className="text-[11px] tracking-wide text-muted-foreground uppercase">
+                    {bridgeCodes.length > 0 ? t("logs:bridge.changed") : t("logs:bridge.clean")}
+                  </div>
+                  {bridgeCodes.map((code) => (
+                    <div key={code} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <code className="reading rounded bg-muted px-1.5 py-0.5 text-[11px]">{code}</code>
+                      <span className="text-xs text-muted-foreground">
+                        {t(`logs:bridge.notes.${code}` as never, { defaultValue: t("logs:bridge.unknown_note") })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
 
             <Section title={t("logs:detail.performance")}>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

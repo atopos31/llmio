@@ -109,6 +109,8 @@
     "timeout": "超时时间(秒)",
     "io_log": "IO 记录",
     "breaker": "熔断",
+    "prefer_direct": "优先匹配相同协议",
+    "prefer_direct_desc": "候选池里先挑说客户端协议的提供商，一个都没有才退回可转换的（如 OpenAI 客户端配 Anthropic 上游）。关掉则本协议与可转换协议的上游一起按权重摇。",
     "strategy": "负载均衡策略",
     "strategy_lottery_title": "Lottery",
     "strategy_lottery_desc": "按权重概率抽取, 适合随机分散流量.",

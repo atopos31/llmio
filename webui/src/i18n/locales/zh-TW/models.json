@@ -109,6 +109,8 @@
     "timeout": "逾時時間(秒)",
     "io_log": "IO 記錄",
     "breaker": "熔斷",
+    "prefer_direct": "優先匹配相同協定",
+    "prefer_direct_desc": "候選池裡先挑說客戶端協定的供應商，一個都沒有才退回可轉換的（如 OpenAI 用戶端配 Anthropic 上游）。關掉則本協定與可轉換協定的上游一起依權重搖。",
     "strategy": "負載均衡策略",
     "strategy_lottery_title": "Lottery",
     "strategy_lottery_desc": "依權重機率抽取，適合隨機分散流量。",

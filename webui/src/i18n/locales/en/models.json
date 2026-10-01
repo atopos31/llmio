@@ -109,6 +109,8 @@
     "timeout": "Timeout (s)",
     "io_log": "IO Log",
     "breaker": "Circuit Breaker",
+    "prefer_direct": "Prefer the same protocol",
+    "prefer_direct_desc": "Pick providers that speak the client's protocol first, and fall back to convertible ones (e.g. an OpenAI client with an Anthropic upstream) only when there are none. Turn it off to let both protocols compete by weight.",
     "strategy": "Load Balancing Strategy",
     "strategy_lottery_title": "Lottery",
     "strategy_lottery_desc": "Randomly selects based on weight. Best for spreading traffic randomly.",

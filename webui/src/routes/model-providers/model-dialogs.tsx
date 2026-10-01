@@ -163,6 +163,22 @@ export function ModelFormDialog({ open, editingModel, saving, onClose, onSubmit 
 
             <FormField
               control={form.control}
+              name="prefer_direct"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-base">{t("model_form.prefer_direct")}</FormLabel>
+                    <p className="text-[13px] text-muted-foreground">{t("model_form.prefer_direct_desc")}</p>
+                  </div>
+                  <FormControl>
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
               name="strategy"
               render={({ field }) => (
                 <FormItem className="rounded-lg border p-4 space-y-3">

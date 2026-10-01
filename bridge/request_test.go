@@ -1316,3 +1316,107 @@ func TestAnthropicToOpenAIRejects(t *testing.T) {
 
 	_ = base
 }
+
+// ---------------------------------------------------------------------------
+// 翻译器入口
+// ---------------------------------------------------------------------------
+
+func TestNewTranslator(t *testing.T) {
+	cases := []struct {
+		client, upstream Protocol
+		want             bool
+	}{
+		{ProtocolOpenAI, ProtocolAnthropic, true},
+		{ProtocolAnthropic, ProtocolOpenAI, true},
+		{ProtocolOpenAI, ProtocolOpenAI, false},
+		{ProtocolAnthropic, ProtocolAnthropic, false},
+		{ProtocolOpenAI, Protocol("gemini"), false},
+		{Protocol("openai-res"), ProtocolOpenAI, false},
+		{Protocol("openai-res"), ProtocolAnthropic, false},
+	}
+	for _, tc := range cases {
+		tr, ok := NewTranslator(tc.client, tc.upstream)
+		if ok != tc.want {
+			t.Fatalf("NewTranslator(%q, %q) = %v，期望 %v", tc.client, tc.upstream, ok, tc.want)
+		}
+		if !ok {
+			if tr != nil {
+				t.Fatalf("两端不用翻时不该给出翻译器: %v", tr)
+			}
+			continue
+		}
+		if tr.From() != tc.client || tr.To() != tc.upstream {
+			t.Fatalf("方向记错了: %v → %v", tr.From(), tr.To())
+		}
+	}
+}
+
+func TestTranslatorBothWays(t *testing.T) {
+	t.Run("openai 客户端 → anthropic 上游", func(t *testing.T) {
+		tr, _ := NewTranslator(ProtocolOpenAI, ProtocolAnthropic)
+		body, _, err := tr.Request([]byte(`{"model":"m","messages":[{"role":"user","content":"hi"}]}`), Options{})
+		if err != nil {
+			t.Fatalf("请求转换失败: %v", err)
+		}
+		out := decode(t, body)
+		if _, ok := out["messages"]; !ok {
+			t.Fatalf("应当转成 messages 形状: %v", out)
+		}
+		if out["max_tokens"] != float64(DefaultMaxTokens) {
+			t.Fatalf("Anthropic 方向的 max_tokens 必填: %v", out)
+		}
+		res, _, err := tr.Response([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"你好"}],"stop_reason":"end_turn"}`))
+		if err != nil {
+			t.Fatalf("响应转换失败: %v", err)
+		}
+		if choice(t, decode(t, res))["message"].(map[string]any)["content"] != "你好" {
+			t.Fatalf("响应没翻回 OpenAI 形状: %s", res)
+		}
+		if _, ok := tr.Stream().(*AnthropicToOpenAIStream); !ok {
+			t.Fatal("流式方向应当是从 Anthropic 翻回 OpenAI")
+		}
+	})
+
+	t.Run("anthropic 客户端 → openai 上游", func(t *testing.T) {
+		tr, _ := NewTranslator(ProtocolAnthropic, ProtocolOpenAI)
+		body, _, err := tr.Request([]byte(`{"model":"m","max_tokens":10,"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`), Options{})
+		if err != nil {
+			t.Fatalf("请求转换失败: %v", err)
+		}
+		out := decode(t, body)
+		if out["messages"].([]any)[0].(map[string]any)["role"] != "user" {
+			t.Fatalf("应当转成 OpenAI 的 messages 形状: %v", out)
+		}
+		res, _, err := tr.Response([]byte(`{"id":"chatcmpl-1","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"你好"},"finish_reason":"stop"}]}`))
+		if err != nil {
+			t.Fatalf("响应转换失败: %v", err)
+		}
+		if decode(t, res)["type"] != "message" {
+			t.Fatalf("响应没翻回 Anthropic 形状: %s", res)
+		}
+		if _, ok := tr.Stream().(*OpenAIToAnthropicStream); !ok {
+			t.Fatal("流式方向应当是从 OpenAI 翻回 Anthropic")
+		}
+	})
+}
+
+func TestAnthropicRequestToOpenAIStreamOptions(t *testing.T) {
+	// Anthropic 的流一定带 usage，OpenAI 的默认不带：不主动要，token 全记成 0
+	out, _, err := AnthropicRequestToOpenAI([]byte(`{"model":"m","max_tokens":10,"stream":true,"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`), Options{})
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	opts, ok := decode(t, out)["stream_options"].(map[string]any)
+	if !ok || opts["include_usage"] != true {
+		t.Fatalf("流式请求应当注入 include_usage: %s", out)
+	}
+
+	// 非流式不注入：多带一个字段就可能让挑剔的上游 400
+	out, _, err = AnthropicRequestToOpenAI([]byte(`{"model":"m","max_tokens":10,"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`), Options{})
+	if err != nil {
+		t.Fatalf("转换失败: %v", err)
+	}
+	if _, ok := decode(t, out)["stream_options"]; ok {
+		t.Fatalf("非流式不该注入 stream_options: %s", out)
+	}
+}

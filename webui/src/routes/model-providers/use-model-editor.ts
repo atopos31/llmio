@@ -11,6 +11,7 @@ export const modelEditSchema = z.object({
   time_out: z.number().min(0, { message: "超时时间不能为负数" }),
   strategy: z.enum(["lottery", "rotor"]),
   breaker: z.boolean(),
+  prefer_direct: z.boolean(),
 })
 
 export type ModelFormValues = z.infer<typeof modelEditSchema>
@@ -23,6 +24,7 @@ export const emptyModelForm: ModelFormValues = {
   time_out: 60,
   strategy: "lottery",
   breaker: false,
+  prefer_direct: true,
 }
 
 /** 编辑时把模型摊成表单值：strategy 只认这两个，其余一律回落到 lottery */
@@ -34,6 +36,9 @@ export function toFormValues(model: Model): ModelFormValues {
     time_out: model.TimeOut,
     strategy: model.Strategy === "rotor" ? "rotor" : "lottery",
     breaker: model.Breaker ?? false,
+    // 没配过（老模型）按"开"显示：勾子若默认关，用户只是改个备注再保存，
+    // 就会把候选池从"只挑本协议"悄悄换成"整池按权重摇"
+    prefer_direct: model.PreferDirect ?? true,
   }
 }
 
@@ -80,6 +85,7 @@ export function useModelEditor({ onUpdated, onCreated }: Options) {
           time_out: values.time_out,
           strategy: values.strategy,
           breaker: values.breaker,
+          prefer_direct: values.prefer_direct,
         })
         onUpdated(updated)
         toast.success(`模型: ${updated.Name} 更新成功`)
@@ -91,6 +97,7 @@ export function useModelEditor({ onUpdated, onCreated }: Options) {
           time_out: values.time_out,
           strategy: values.strategy,
           breaker: values.breaker,
+          prefer_direct: values.prefer_direct,
         })
         onCreated(created)
         toast.success(`模型: ${created.Name} 创建成功`)

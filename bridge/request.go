@@ -578,6 +578,12 @@ func AnthropicRequestToOpenAI(raw []byte, _ Options) ([]byte, []Note, error) {
 		Stream:      req.Stream,
 		Stop:        openAIStopJSON(req.StopSequences),
 	}
+	if req.Stream {
+		// Anthropic 的流一定在 message_delta 里带 usage，OpenAI 的流默认不带，得主动要
+		// （stream_options.include_usage）。不注入这一条，这条链路上的 token 会全记成 0，
+		// 成本统计静默失真——llmio 对 OpenAI 客户端也是这么做的，见 service.BeforerOpenAI。
+		out.StreamOptions = json.RawMessage(`{"include_usage":true}`)
+	}
 	if req.MaxTokens > 0 {
 		maxTokens := req.MaxTokens
 		out.MaxTokens = &maxTokens

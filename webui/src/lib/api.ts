@@ -29,6 +29,9 @@ export interface Model {
   TimeOut: number;
   Strategy: string;
   Breaker?: boolean | null;
+  // 优先匹配相同协议。null/undefined = 没配过（转换功能上线前建的模型），
+  // 后端按"开"处理
+  PreferDirect?: boolean | null;
   DisplayOrder?: number;
 }
 
@@ -203,6 +206,7 @@ export async function createModel(model: {
   time_out: number;
   strategy: string;
   breaker: boolean;
+  prefer_direct: boolean;
 }): Promise<Model> {
   return apiRequest<Model>('/models', {
     method: 'POST',
@@ -217,6 +221,7 @@ export async function updateModel(id: number, model: {
   time_out?: number;
   strategy?: string;
   breaker?: boolean;
+  prefer_direct?: boolean;
 }): Promise<Model> {
   return apiRequest<Model>(`/models/${id}`, {
     method: 'PUT',
@@ -628,6 +633,12 @@ export interface ChatLog {
   ProviderName: string;
   Status: string;
   Style: string;
+  // upstream_style 实际使用的上游协议。与 Style 不同即说明这次请求经过了协议转换
+  // （见 service/bridge.go）；同协议直连时后端给空值（omitempty）。
+  upstream_style?: string;
+  // bridge_notes 转换过程中有损的地方，逗号分隔的短码（如 dropped_seed）。
+  // 码表见 bridge/bridge.go 的 Note 常量，界面按 logs:bridge.notes.<码> 查译文。
+  bridge_notes?: string;
   UserAgent: string;
   RemoteIP?: string;
   Error: string;

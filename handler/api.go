@@ -36,6 +36,9 @@ type ModelRequest struct {
 	TimeOut  int    `json:"time_out"`
 	Strategy string `json:"strategy"`
 	Breaker  bool   `json:"breaker"`
+	// PreferDirect 优先匹配相同协议。指针是为了区分"没传"（nil，按开处理，老客户端
+	// 不改行为）与"明确关掉"（false）
+	PreferDirect *bool `json:"prefer_direct"`
 }
 
 type ModelOrderRequest struct {
@@ -328,6 +331,7 @@ func CreateModel(c *gin.Context) {
 		TimeOut:      req.TimeOut,
 		Strategy:     strategy,
 		Breaker:      &req.Breaker,
+		PreferDirect: req.PreferDirect,
 		DisplayOrder: maxDisplayOrder + 1,
 	}
 
@@ -372,12 +376,13 @@ func UpdateModel(c *gin.Context) {
 
 	// Update fields
 	updates := models.Model{
-		Name:     req.Name,
-		Remark:   req.Remark,
-		MaxRetry: req.MaxRetry,
-		TimeOut:  req.TimeOut,
-		Strategy: strategy,
-		Breaker:  &req.Breaker,
+		Name:         req.Name,
+		Remark:       req.Remark,
+		MaxRetry:     req.MaxRetry,
+		TimeOut:      req.TimeOut,
+		Strategy:     strategy,
+		Breaker:      &req.Breaker,
+		PreferDirect: req.PreferDirect,
 	}
 
 	if _, err := gorm.G[models.Model](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {

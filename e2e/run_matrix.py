@@ -413,7 +413,16 @@ def stub_cases(providers):
                                       absent=["top_k", "thinking"]),
                         log=dict(style="anthropic", upstream_style="openai", status="success",
                                  notes=["dropped_top_k", "dropped_thinking"]))),
-        # 10 翻不过去的：结构化输出在 Anthropic 侧没有表示法 —— 不能装作答应了
+        # 10 反方向上的 top_k：Anthropic 有同名的参数，翻得过去就不该吞掉——"能搬却不搬"
+        # 比"搬不了所以记一笔"更糟，调用方看不见任何痕迹
+        dict(name="搬运·top_k（OpenAI 客户端→Anthropic 上游）", client="openai",
+             assoc=[{"provider": oa, "provider_model": "stub-text"}],
+             body=dict(text, max_tokens=64, top_k=40),
+             check=dict(content="stub-text",
+                        upstream=dict(path="/anthropic/messages", model="stub-text", equals={"top_k": 40}),
+                        log=dict(style="openai", upstream_style="anthropic", status="success",
+                                 notes_absent=["dropped_top_k"]))),
+        # 11 翻不过去的：结构化输出在 Anthropic 侧没有表示法 —— 不能装作答应了
         dict(name="拒绝·结构化输出", client="openai", assoc=[{"provider": oa, "provider_model": "stub-text"}],
              body=dict(text, max_tokens=64, response_format={"type": "json_schema", "json_schema": {"name": "r", "schema": {"type": "object"}}}),
              check=dict(shape="error", upstream=dict(none=True),

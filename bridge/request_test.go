@@ -351,6 +351,35 @@ func TestOpenAIToAnthropicAcceptsHarmlessHints(t *testing.T) {
 	requireNote(t, notes, NoteDroppedUser)
 }
 
+func TestOpenAIToAnthropicTopK(t *testing.T) {
+	// top_k 不是 OpenAI 官方参数，但兼容实现普遍照收。Anthropic 有同名的 top_k 且语义一致，
+	// 所以这里要**搬过去**：既有实现里它是被静默吞掉的（连字段都没声明），而"能搬却不搬"
+	// 比"搬不了所以记一笔"更糟——调用方看不见任何痕迹
+	out, notes := toAnthropic(t, `{
+		"messages": [{"role": "user", "content": "hi"}],
+		"max_tokens": 10,
+		"top_k": 40
+	}`, Options{})
+
+	if out["top_k"] != float64(40) {
+		t.Fatalf("top_k 应当原样搬过去: %v", out["top_k"])
+	}
+	if len(notes) != 0 {
+		t.Fatalf("搬得过去就不该记账: %v", notes)
+	}
+}
+
+func TestOpenAIToAnthropicTopKAbsentStaysAbsent(t *testing.T) {
+	// 反向用例：没写 top_k 就不该凭空造一个 0 出来——Anthropic 的 top_k 是可选参数，
+	// 出现一个 0 的意思是"只从概率最高的一个 token 里采"，与"不限制"完全是两回事
+	out, _ := toAnthropic(t, `{
+		"messages": [{"role": "user", "content": "hi"}]
+	}`, Options{})
+	if _, ok := out["top_k"]; ok {
+		t.Fatalf("没写 top_k 就不该出现: %v", out["top_k"])
+	}
+}
+
 func TestOpenAIToAnthropicTools(t *testing.T) {
 	out, notes := toAnthropic(t, `{
 		"messages": [{"role": "user", "content": "天气怎么样"}],

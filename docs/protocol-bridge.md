@@ -67,6 +67,7 @@ OpenCode 那类上游把这条路堵死了一半：
 | `max_tokens` / `max_completion_tokens` | `max_tokens` | Anthropic **必填**；缺省时落 `DefaultMaxTokens`，并记 `Note`（见 4） |
 | `stop`（字符串或数组） | `stop_sequences`（数组） | |
 | `temperature` / `top_p` | 同名 | |
+| `top_k` | `top_k` | 不是 OpenAI 官方参数，但兼容实现普遍照收；语义与 Anthropic 的同名参数一致，**照搬**（早期实现里它是被静默吞掉的：连字段都没声明，调用方看不见任何痕迹） |
 | `stream` | `stream` | |
 | `tools[].function.{name,description,parameters}` | `{name,description,input_schema}` | `parameters` 原样带过（`RawMessage`），不解析 |
 | `tool_choice:"auto"` | `{type:auto}` | |

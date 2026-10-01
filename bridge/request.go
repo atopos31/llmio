@@ -26,6 +26,7 @@ func OpenAIRequestToAnthropic(raw []byte, opt Options) ([]byte, []Note, error) {
 		Model:         req.Model,
 		Temperature:   req.Temperature,
 		TopP:          req.TopP,
+		TopK:          req.TopK,
 		Stream:        req.Stream,
 		MaxTokens:     anthropicMaxTokens(&req, opt, &notes),
 		StopSequences: parseOpenAIStop(req.Stop),

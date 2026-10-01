@@ -10,25 +10,28 @@ import "encoding/json"
 
 // OpenAIRequest 是一份 /v1/chat/completions 请求体。
 type OpenAIRequest struct {
-	Model               string                `json:"model"`
-	Messages            []OpenAIMessage       `json:"messages"`
-	MaxTokens           *int                  `json:"max_tokens,omitempty"`
-	MaxCompletionTokens *int                  `json:"max_completion_tokens,omitempty"`
-	Temperature         *float64              `json:"temperature,omitempty"`
-	TopP                *float64              `json:"top_p,omitempty"`
-	Stop                json.RawMessage       `json:"stop,omitempty"`
-	Stream              bool                  `json:"stream,omitempty"`
-	StreamOptions       json.RawMessage       `json:"stream_options,omitempty"`
-	Tools               []OpenAITool          `json:"tools,omitempty"`
-	ToolChoice          json.RawMessage       `json:"tool_choice,omitempty"`
-	ResponseFormat      *OpenAIResponseFormat `json:"response_format,omitempty"`
-	N                   *int                  `json:"n,omitempty"`
-	PresencePenalty     *float64              `json:"presence_penalty,omitempty"`
-	FrequencyPenalty    *float64              `json:"frequency_penalty,omitempty"`
-	Logprobs            *bool                 `json:"logprobs,omitempty"`
-	TopLogprobs         *int                  `json:"top_logprobs,omitempty"`
-	Seed                *int                  `json:"seed,omitempty"`
-	User                string                `json:"user,omitempty"`
+	Model               string          `json:"model"`
+	Messages            []OpenAIMessage `json:"messages"`
+	MaxTokens           *int            `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int            `json:"max_completion_tokens,omitempty"`
+	Temperature         *float64        `json:"temperature,omitempty"`
+	TopP                *float64        `json:"top_p,omitempty"`
+	// TopK 不是 OpenAI 官方参数，但兼容实现（vLLM、OpenRouter 一类）普遍照收。
+	// 声明它是为了别把它吞了：Anthropic 有同名的 top_k 且语义一致，翻得过去
+	TopK             *int                  `json:"top_k,omitempty"`
+	Stop             json.RawMessage       `json:"stop,omitempty"`
+	Stream           bool                  `json:"stream,omitempty"`
+	StreamOptions    json.RawMessage       `json:"stream_options,omitempty"`
+	Tools            []OpenAITool          `json:"tools,omitempty"`
+	ToolChoice       json.RawMessage       `json:"tool_choice,omitempty"`
+	ResponseFormat   *OpenAIResponseFormat `json:"response_format,omitempty"`
+	N                *int                  `json:"n,omitempty"`
+	PresencePenalty  *float64              `json:"presence_penalty,omitempty"`
+	FrequencyPenalty *float64              `json:"frequency_penalty,omitempty"`
+	Logprobs         *bool                 `json:"logprobs,omitempty"`
+	TopLogprobs      *int                  `json:"top_logprobs,omitempty"`
+	Seed             *int                  `json:"seed,omitempty"`
+	User             string                `json:"user,omitempty"`
 }
 
 // OpenAIMessage 一条消息。Content 是"字符串、块数组或 null"三选一，故用 RawMessage，

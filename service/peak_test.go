@@ -32,10 +32,10 @@ func setupPeakDB(t *testing.T) {
 	}
 	prev := models.DB
 	models.DB = db
-	InvalidatePeakPricing()
+	InvalidatePeakCalendar()
 	t.Cleanup(func() {
 		models.DB = prev
-		InvalidatePeakPricing()
+		InvalidatePeakCalendar()
 		if sqlDB, err := db.DB(); err == nil {
 			_ = sqlDB.Close()
 		}
@@ -50,6 +50,38 @@ func sh(t *testing.T, y int, m time.Month, d, hh, mm int) time.Time {
 		t.Fatalf("load tz: %v", err)
 	}
 	return time.Date(y, m, d, hh, mm, 0, 0, loc)
+}
+
+// peakFixture 是判定逻辑用例的取材便利结构：把条款（时段）与日历
+// （时区/工作日/日期覆盖）写在一个字面量里，由 terms() / calendar() 拆开。
+//
+// 这不是线上类型，只用在这里——判定逻辑的用例大都要同时摆好几项，
+// 分开写两遍会让"这条用例到底在验什么"淹没在字段堆里。
+// **归属本身**（时段归条款、工作日归日历）由 TestPeakTermsAndCalendarAreSeparate
+// 用真实的两个类型钉住，避免这里拆错了却没人发现。
+type peakFixture struct {
+	Enabled       bool
+	Timezone      string
+	Weekdays      []int
+	Periods       []models.PeakPeriod
+	DateOverrides map[string]string
+}
+
+func (f peakFixture) terms() models.PeakTerms {
+	return models.PeakTerms{Enabled: f.Enabled, Periods: f.Periods}
+}
+
+func (f peakFixture) calendar() models.PeakCalendar {
+	return models.PeakCalendar{
+		Timezone:      f.Timezone,
+		Weekdays:      f.Weekdays,
+		DateOverrides: f.DateOverrides,
+	}
+}
+
+// resolveWith 用一份 fixture 造判定器。
+func resolveWith(f peakFixture) PeakResolver {
+	return NewPeakResolver(f.terms(), f.calendar())
 }
 
 // ---------------------------------------------------------------------------
@@ -155,8 +187,8 @@ func TestInClockWindow(t *testing.T) {
 func TestIsWorkdayWeekdayRule(t *testing.T) {
 	t.Parallel()
 
-	cfg := models.PeakPricing{Weekdays: []int{1, 2, 3, 4, 5}}
-	r := NewPeakResolver(cfg)
+	cfg := peakFixture{Weekdays: []int{1, 2, 3, 4, 5}}
+	r := resolveWith(cfg)
 
 	// 2026-09-28 是周一，2026-10-03 是周六
 	got := map[string]bool{
@@ -176,7 +208,7 @@ func TestIsWorkdayDefaultWeekdaysWhenEmpty(t *testing.T) {
 	t.Parallel()
 
 	// Weekdays 为空时应默认周一至周五
-	r := NewPeakResolver(models.PeakPricing{})
+	r := resolveWith(peakFixture{})
 	if !r.IsWorkday(sh(t, 2026, 9, 28, 12, 0)) {
 		t.Fatal("空 Weekdays 时周一应为工作日")
 	}
@@ -188,7 +220,7 @@ func TestIsWorkdayDefaultWeekdaysWhenEmpty(t *testing.T) {
 func TestIsWorkdayDateOverrideWins(t *testing.T) {
 	t.Parallel()
 
-	cfg := models.PeakPricing{
+	cfg := peakFixture{
 		Weekdays: []int{1, 2, 3, 4, 5},
 		DateOverrides: map[string]string{
 			// 国庆放假：周五变休息日
@@ -197,7 +229,7 @@ func TestIsWorkdayDateOverrideWins(t *testing.T) {
 			"2026-10-10": models.DateOverrideWork,
 		},
 	}
-	r := NewPeakResolver(cfg)
+	r := resolveWith(cfg)
 
 	if r.IsWorkday(sh(t, 2026, 10, 2, 12, 0)) {
 		t.Fatal("被标记为休息的周五应判为休息日")
@@ -211,11 +243,11 @@ func TestIsWorkdayUnknownOverrideFallsBack(t *testing.T) {
 	t.Parallel()
 
 	// 无法识别的取值不应阻断判定，应回落到星期几规则
-	cfg := models.PeakPricing{
+	cfg := peakFixture{
 		Weekdays:      []int{1, 2, 3, 4, 5},
 		DateOverrides: map[string]string{"2026-09-28": "nonsense"},
 	}
-	r := NewPeakResolver(cfg)
+	r := resolveWith(cfg)
 	if !r.IsWorkday(sh(t, 2026, 9, 28, 12, 0)) {
 		t.Fatal("无法识别的覆盖值应回落到星期几规则（周一=工作日）")
 	}
@@ -225,7 +257,7 @@ func TestIsWorkdayCustomWeekdays(t *testing.T) {
 	t.Parallel()
 
 	// 自定义：只有周二算工作日（如某些地区周末不同）
-	r := NewPeakResolver(models.PeakPricing{Weekdays: []int{2}})
+	r := resolveWith(peakFixture{Weekdays: []int{2}})
 	if !r.IsWorkday(sh(t, 2026, 9, 29, 12, 0)) {
 		t.Fatal("周二应为工作日")
 	}
@@ -243,7 +275,7 @@ func TestResolvePeriodFirstMatchWins(t *testing.T) {
 
 	wt := true
 	// 顺序即优先级：先特例（工作日午休高价）后一般（工作日标准）
-	cfg := models.PeakPricing{
+	cfg := peakFixture{
 		Enabled:  true,
 		Weekdays: []int{1, 2, 3, 4, 5},
 		Periods: []models.PeakPeriod{
@@ -251,7 +283,7 @@ func TestResolvePeriodFirstMatchWins(t *testing.T) {
 			{Name: "标准", Start: "00:00", End: "24:00", Multiplier: 1},
 		},
 	}
-	r := NewPeakResolver(cfg)
+	r := resolveWith(cfg)
 
 	// 周一午间 → 尖峰
 	p := r.ResolvePeriod(sh(t, 2026, 9, 28, 13, 0))
@@ -268,13 +300,13 @@ func TestResolvePeriodFirstMatchWins(t *testing.T) {
 func TestResolvePeriodCrossMidnight(t *testing.T) {
 	t.Parallel()
 
-	cfg := models.PeakPricing{
+	cfg := peakFixture{
 		Enabled: true,
 		Periods: []models.PeakPeriod{
 			{Name: "夜间", Start: "00:30", End: "08:30", Multiplier: 0.25},
 		},
 	}
-	r := NewPeakResolver(cfg)
+	r := resolveWith(cfg)
 
 	// 02:00 命中
 	if p := r.ResolvePeriod(sh(t, 2026, 9, 28, 2, 0)); p == nil || p.Name != "夜间" {
@@ -290,13 +322,13 @@ func TestResolvePeriodDaysFilter(t *testing.T) {
 	t.Parallel()
 
 	// 仅周末的优惠
-	cfg := models.PeakPricing{
+	cfg := peakFixture{
 		Enabled: true,
 		Periods: []models.PeakPeriod{
 			{Name: "周末优惠", Start: "00:00", End: "24:00", Multiplier: 0.5, Days: []int{0, 6}},
 		},
 	}
-	r := NewPeakResolver(cfg)
+	r := resolveWith(cfg)
 
 	if p := r.ResolvePeriod(sh(t, 2026, 10, 3, 12, 0)); p == nil { // 周六
 		t.Fatal("周六应命中周末优惠")
@@ -311,7 +343,7 @@ func TestResolvePeriodWorkdayFilter(t *testing.T) {
 
 	wt := true
 	wf := false
-	cfg := models.PeakPricing{
+	cfg := peakFixture{
 		Enabled:  true,
 		Weekdays: []int{1, 2, 3, 4, 5},
 		Periods: []models.PeakPeriod{
@@ -319,7 +351,7 @@ func TestResolvePeriodWorkdayFilter(t *testing.T) {
 			{Name: "休息日价", Start: "00:00", End: "24:00", Multiplier: 0.5, Workday: &wf},
 		},
 	}
-	r := NewPeakResolver(cfg)
+	r := resolveWith(cfg)
 
 	if p := r.ResolvePeriod(sh(t, 2026, 9, 28, 12, 0)); p == nil || p.Name != "工作日价" {
 		t.Fatalf("周一点工作日价，实得 %+v", p)
@@ -333,14 +365,14 @@ func TestResolvePeriodInvalidClockSkipped(t *testing.T) {
 	t.Parallel()
 
 	// 一个写坏的时段不应让所有判定失败，而应被跳过
-	cfg := models.PeakPricing{
+	cfg := peakFixture{
 		Enabled: true,
 		Periods: []models.PeakPeriod{
 			{Name: "坏时段", Start: "bogus", End: "24:00", Multiplier: 9},
 			{Name: "好东西", Start: "00:00", End: "24:00", Multiplier: 1.5},
 		},
 	}
-	r := NewPeakResolver(cfg)
+	r := resolveWith(cfg)
 
 	p := r.ResolvePeriod(sh(t, 2026, 9, 28, 12, 0))
 	if p == nil || p.Name != "好东西" {
@@ -351,7 +383,7 @@ func TestResolvePeriodInvalidClockSkipped(t *testing.T) {
 func TestResolvePeriodNoPeriods(t *testing.T) {
 	t.Parallel()
 
-	r := NewPeakResolver(models.PeakPricing{Enabled: true})
+	r := resolveWith(peakFixture{Enabled: true})
 	if p := r.ResolvePeriod(sh(t, 2026, 9, 28, 12, 0)); p != nil {
 		t.Fatalf("无时段配置时应返回 nil，实得 %+v", p)
 	}
@@ -360,7 +392,7 @@ func TestResolvePeriodNoPeriods(t *testing.T) {
 func TestResolveMultiplier(t *testing.T) {
 	t.Parallel()
 
-	cfg := models.PeakPricing{
+	cfg := peakFixture{
 		Enabled: true,
 		Periods: []models.PeakPeriod{
 			{Name: "夜间", Start: "00:30", End: "08:30", Multiplier: 0.25},
@@ -368,14 +400,14 @@ func TestResolveMultiplier(t *testing.T) {
 	}
 
 	t.Run("启用且命中", func(t *testing.T) {
-		m, name := NewPeakResolver(cfg).ResolveMultiplier(sh(t, 2026, 9, 28, 2, 0))
+		m, name := resolveWith(cfg).ResolveMultiplier(sh(t, 2026, 9, 28, 2, 0))
 		if m != 0.25 || name != "夜间" {
 			t.Fatalf("want 0.25/夜间, got %v/%q", m, name)
 		}
 	})
 
 	t.Run("启用但未命中回落基础价", func(t *testing.T) {
-		m, name := NewPeakResolver(cfg).ResolveMultiplier(sh(t, 2026, 9, 28, 12, 0))
+		m, name := resolveWith(cfg).ResolveMultiplier(sh(t, 2026, 9, 28, 12, 0))
 		if m != 1 || name != "" {
 			t.Fatalf("want 1/空, got %v/%q", m, name)
 		}
@@ -384,7 +416,7 @@ func TestResolveMultiplier(t *testing.T) {
 	t.Run("未启用时恒为基础价", func(t *testing.T) {
 		off := cfg
 		off.Enabled = false
-		m, name := NewPeakResolver(off).ResolveMultiplier(sh(t, 2026, 9, 28, 2, 0))
+		m, name := resolveWith(off).ResolveMultiplier(sh(t, 2026, 9, 28, 2, 0))
 		if m != 1 || name != "" {
 			t.Fatalf("want 1/空, got %v/%q", m, name)
 		}
@@ -398,18 +430,18 @@ func TestResolveMultiplierTimezoneIsRespected(t *testing.T) {
 	// 时区若被忽略，这个测试会失败——这正是它要守住的东西。
 	at := time.Date(2026, 9, 27, 18, 0, 0, 0, time.UTC) // 上海次日 02:00
 
-	cfgSH := models.PeakPricing{
+	cfgSH := peakFixture{
 		Enabled:  true,
 		Timezone: "Asia/Shanghai",
 		Periods:  []models.PeakPeriod{{Name: "夜间", Start: "00:30", End: "08:30", Multiplier: 0.25}},
 	}
-	if m, _ := NewPeakResolver(cfgSH).ResolveMultiplier(at); m != 0.25 {
+	if m, _ := resolveWith(cfgSH).ResolveMultiplier(at); m != 0.25 {
 		t.Fatalf("按上海时区应命中夜间，实得乘数 %v", m)
 	}
 
 	cfgUTC := cfgSH
 	cfgUTC.Timezone = "UTC"
-	if m, _ := NewPeakResolver(cfgUTC).ResolveMultiplier(at); m != 1 {
+	if m, _ := resolveWith(cfgUTC).ResolveMultiplier(at); m != 1 {
 		t.Fatalf("按 UTC 不应命中，实得乘数 %v", m)
 	}
 }
@@ -418,23 +450,32 @@ func TestResolveMultiplierUnknownTimezoneFallsBack(t *testing.T) {
 	t.Parallel()
 
 	// 时区无法解析时应退回原时间，而不是失败
-	cfg := models.PeakPricing{
+	cfg := peakFixture{
 		Enabled:  true,
 		Timezone: "Not/AZone",
 		Periods:  []models.PeakPeriod{{Name: "全天", Start: "00:00", End: "24:00", Multiplier: 2}},
 	}
-	if m, name := NewPeakResolver(cfg).ResolveMultiplier(sh(t, 2026, 9, 28, 12, 0)); m != 2 || name != "全天" {
+	if m, name := resolveWith(cfg).ResolveMultiplier(sh(t, 2026, 9, 28, 12, 0)); m != 2 || name != "全天" {
 		t.Fatalf("非法时区不应阻断判定，实得 %v/%q", m, name)
 	}
 }
 
-func TestConfigReturnsCopyOfUnderlying(t *testing.T) {
+func TestResolverReturnsBothHalves(t *testing.T) {
 	t.Parallel()
 
-	cfg := models.PeakPricing{Enabled: true, Timezone: "UTC"}
-	r := NewPeakResolver(cfg)
-	if got := r.Config(); got.Timezone != "UTC" || !got.Enabled {
-		t.Fatalf("Config() 应返回原配置，实得 %+v", got)
+	// 判定器同时持有条款与日历，两个取值器各自原样返回自己那一半——
+	// 别让"取条款"顺手把日历也塞进去，那样调用方就分不清哪份是哪份了。
+	terms := models.PeakTerms{Enabled: true, Periods: []models.PeakPeriod{
+		{Name: "夜间", Start: "00:00", End: "08:00", Multiplier: 0.25},
+	}}
+	cal := models.PeakCalendar{Timezone: "UTC", Weekdays: []int{6}}
+	r := NewPeakResolver(terms, cal)
+
+	if got := r.Terms(); !got.Enabled || len(got.Periods) != 1 || got.Periods[0].Name != "夜间" {
+		t.Fatalf("Terms() 应返回条款，实得 %+v", got)
+	}
+	if got := r.Calendar(); got.Timezone != "UTC" || len(got.Weekdays) != 1 || got.Weekdays[0] != 6 {
+		t.Fatalf("Calendar() 应返回日历，实得 %+v", got)
 	}
 }
 
@@ -475,81 +516,80 @@ func TestApplyPeakMultiplier(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 配置读取与持久化
+// 日历读取与持久化
 // ---------------------------------------------------------------------------
 
-func TestGetPeakPricingDefaultsWhenAbsent(t *testing.T) {
+func TestGetPeakCalendarDefaultsWhenAbsent(t *testing.T) {
 	setupPeakDB(t)
 
-	cfg := GetPeakPricing(context.Background())
-	// 未配置时返回默认：关闭状态（不应静默启用计费）
-	if cfg.Enabled {
-		t.Fatal("未配置时不应默认启用")
-	}
+	cfg := GetPeakCalendar(context.Background())
 	if cfg.Timezone != "Asia/Shanghai" {
 		t.Fatalf("默认时区不符：%q", cfg.Timezone)
+	}
+	if len(cfg.Weekdays) == 0 {
+		t.Fatal("默认应给出工作日定义（周一至周五）")
 	}
 	if cfg.DateOverrides == nil {
 		t.Fatal("DateOverrides 应为非 nil，避免调用方需做空值判断")
 	}
 }
 
-func TestGetPeakPricingCorruptConfigFallsBack(t *testing.T) {
+func TestGetPeakCalendarCorruptConfigFallsBack(t *testing.T) {
 	setupPeakDB(t)
 
-	if err := models.DB.Create(&models.Config{Key: models.KeyPeakPricing, Value: "{not json"}).Error; err != nil {
+	if err := models.DB.Create(&models.Config{Key: models.KeyPeakCalendar, Value: "{not json"}).Error; err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	InvalidatePeakPricing()
+	InvalidatePeakCalendar()
 
-	cfg := GetPeakPricing(context.Background())
-	if cfg.Enabled {
-		t.Fatal("配置损坏时应回落到默认（关闭），而不是让热路径出错")
+	cfg := GetPeakCalendar(context.Background())
+	if cfg.Timezone != "Asia/Shanghai" {
+		t.Fatalf("配置损坏时应回落到默认日历，而不是让热路径出错，实得 %+v", cfg)
 	}
 }
 
-func TestGetPeakPricingEmptyValueFallsBack(t *testing.T) {
+func TestGetPeakCalendarEmptyValueFallsBack(t *testing.T) {
 	setupPeakDB(t)
 
-	if err := models.DB.Create(&models.Config{Key: models.KeyPeakPricing, Value: "   "}).Error; err != nil {
+	if err := models.DB.Create(&models.Config{Key: models.KeyPeakCalendar, Value: "   "}).Error; err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	InvalidatePeakPricing()
+	InvalidatePeakCalendar()
 
-	if cfg := GetPeakPricing(context.Background()); cfg.Enabled {
-		t.Fatal("空值应回落默认")
+	if cfg := GetPeakCalendar(context.Background()); cfg.Timezone != "Asia/Shanghai" {
+		t.Fatalf("空值应回落默认，实得 %q", cfg.Timezone)
 	}
 }
 
-func TestSavePeakPricingCreatesThenUpdates(t *testing.T) {
+func TestSavePeakCalendarCreatesThenUpdates(t *testing.T) {
 	setupPeakDB(t)
 	ctx := context.Background()
 
-	cfg := models.DefaultPeakPricing()
-	cfg.Enabled = true
-	cfg.Periods = []models.PeakPeriod{{Name: "折扣", Start: "01:00", End: "07:00", Multiplier: 0.5}}
+	cfg := models.DefaultPeakCalendar()
+	cfg.Timezone = "UTC"
+	cfg.Weekdays = []int{1, 2, 3, 4, 5, 6}
 
-	if err := SavePeakPricing(ctx, cfg); err != nil {
+	if err := SavePeakCalendar(ctx, cfg); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	got := GetPeakPricing(ctx)
-	if !got.Enabled || len(got.Periods) != 1 || got.Periods[0].Name != "折扣" {
+	got := GetPeakCalendar(ctx)
+	if got.Timezone != "UTC" || len(got.Weekdays) != 6 {
 		t.Fatalf("首次保存后读取不符：%+v", got)
 	}
 
 	// 再次保存走更新分支
-	cfg.Periods = []models.PeakPeriod{{Name: "新折扣", Start: "02:00", End: "08:00", Multiplier: 0.3}}
-	if err := SavePeakPricing(ctx, cfg); err != nil {
+	cfg.Timezone = "Asia/Tokyo"
+	if err := SavePeakCalendar(ctx, cfg); err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	got = GetPeakPricing(ctx)
-	if len(got.Periods) != 1 || got.Periods[0].Name != "新折扣" {
-		t.Fatalf("更新后读取不符：%+v", got.Periods)
+	got = GetPeakCalendar(ctx)
+	if got.Timezone != "Asia/Tokyo" {
+		t.Fatalf("更新后读取不符：%+v", got)
 	}
 
 	// 只应有一行配置
 	var count int64
-	if err := models.DB.Model(&models.Config{}).Where("key = ?", models.KeyPeakPricing).Count(&count).Error; err != nil {
+	if err := models.DB.Model(&models.Config{}).Where("key = ?", models.KeyPeakCalendar).Count(&count).Error; err != nil {
 		t.Fatalf("count: %v", err)
 	}
 	if count != 1 {
@@ -557,16 +597,16 @@ func TestSavePeakPricingCreatesThenUpdates(t *testing.T) {
 	}
 }
 
-func TestSavePeakPricingNormalizesNilOverrides(t *testing.T) {
+func TestSavePeakCalendarNormalizesNilOverrides(t *testing.T) {
 	setupPeakDB(t)
 
-	cfg := models.PeakPricing{Enabled: true}
-	if err := SavePeakPricing(context.Background(), cfg); err != nil {
+	cfg := models.PeakCalendar{Timezone: "Asia/Shanghai"}
+	if err := SavePeakCalendar(context.Background(), cfg); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	// 落库后应是 {} 而非 null，便于前端直接做 map 操作
 	var row models.Config
-	if err := models.DB.Where("key = ?", models.KeyPeakPricing).First(&row).Error; err != nil {
+	if err := models.DB.Where("key = ?", models.KeyPeakCalendar).First(&row).Error; err != nil {
 		t.Fatalf("load: %v", err)
 	}
 	var decoded map[string]any
@@ -578,29 +618,29 @@ func TestSavePeakPricingNormalizesNilOverrides(t *testing.T) {
 	}
 }
 
-func TestInvalidatePeakPricingForcesReload(t *testing.T) {
+func TestInvalidatePeakCalendarForcesReload(t *testing.T) {
 	setupPeakDB(t)
 	ctx := context.Background()
 
-	if cfg := GetPeakPricing(ctx); cfg.Enabled {
-		t.Fatal("初始应为关闭")
+	if cfg := GetPeakCalendar(ctx); cfg.Timezone != "Asia/Shanghai" {
+		t.Fatal("初始应为默认时区")
 	}
 
 	// 绕过 Save（不触发失效）直接改库，模拟外部改动
-	cfg := models.DefaultPeakPricing()
-	cfg.Enabled = true
+	cfg := models.DefaultPeakCalendar()
+	cfg.Timezone = "UTC"
 	raw, _ := json.Marshal(cfg)
-	if err := models.DB.Create(&models.Config{Key: models.KeyPeakPricing, Value: string(raw)}).Error; err != nil {
+	if err := models.DB.Create(&models.Config{Key: models.KeyPeakCalendar, Value: string(raw)}).Error; err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
 	// 仍在 TTL 内，读到的还是旧值
-	if GetPeakPricing(ctx).Enabled {
+	if GetPeakCalendar(ctx).Timezone != "Asia/Shanghai" {
 		t.Fatal("TTL 内应命中缓存")
 	}
 
-	InvalidatePeakPricing()
-	if !GetPeakPricing(ctx).Enabled {
+	InvalidatePeakCalendar()
+	if GetPeakCalendar(ctx).Timezone != "UTC" {
 		t.Fatal("失效后应读到新值")
 	}
 }
@@ -608,12 +648,19 @@ func TestInvalidatePeakPricingForcesReload(t *testing.T) {
 func TestResolvePricingForDisabledIsZeroOverhead(t *testing.T) {
 	setupPeakDB(t)
 
-	i, c, o, period := ResolvePricingFor(context.Background(), time.Now(), 1, 2, 3)
-	if i != 1 || c != 2 || o != 3 {
-		t.Fatalf("未启用时单价应原样返回，实得 %v,%v,%v", i, c, o)
+	// 没配峰谷（nil）与配了但没启用，都必须原样返回，且**不读库**：
+	// 热路径上绝大多数关联都是这两种状态，多一次日历查询就是白花。
+	i, c, o, period := ResolvePricingFor(context.Background(), time.Now(), nil, 1, 2, 3)
+	if i != 1 || c != 2 || o != 3 || period != "" {
+		t.Fatalf("nil 条款应原样返回，实得 %v,%v,%v,%q", i, c, o, period)
 	}
-	if period != "" {
-		t.Fatalf("未启用时时段名应为空，实得 %q", period)
+
+	off := models.PeakTerms{Enabled: false, Periods: []models.PeakPeriod{
+		{Name: "夜间", Start: "00:00", End: "24:00", Multiplier: 0.25},
+	}}
+	i, c, o, period = ResolvePricingFor(context.Background(), time.Now(), &off, 1, 2, 3)
+	if i != 1 || c != 2 || o != 3 || period != "" {
+		t.Fatalf("未启用的条款应原样返回，实得 %v,%v,%v,%q", i, c, o, period)
 	}
 }
 
@@ -621,19 +668,18 @@ func TestResolvePricingForEnabled(t *testing.T) {
 	setupPeakDB(t)
 	ctx := context.Background()
 
-	cfg := models.PeakPricing{
-		Enabled:  true,
-		Timezone: "Asia/Shanghai",
+	if err := SavePeakCalendar(ctx, models.DefaultPeakCalendar()); err != nil {
+		t.Fatalf("save calendar: %v", err)
+	}
+	terms := models.PeakTerms{
+		Enabled: true,
 		Periods: []models.PeakPeriod{
 			{Name: "夜间", Start: "00:00", End: "24:00", Multiplier: 0.25},
 		},
 	}
-	if err := SavePeakPricing(ctx, cfg); err != nil {
-		t.Fatalf("save: %v", err)
-	}
 
 	at := sh(t, 2026, 9, 28, 12, 0)
-	i, c, o, period := ResolvePricingFor(ctx, at, 4, 2, 8)
+	i, c, o, period := ResolvePricingFor(ctx, at, &terms, 4, 2, 8)
 	if i != 1 || c != 0.5 || o != 2 {
 		t.Fatalf("单价未按乘数折算：%v,%v,%v", i, c, o)
 	}
@@ -642,6 +688,50 @@ func TestResolvePricingForEnabled(t *testing.T) {
 	}
 }
 
+// 条款与日历的归属是这次改造的核心，单独钉一遍：
+// 时段（哪几个小时算峰时）按上游走，工作日/时区全局共用。
+func TestPeakTermsAndCalendarAreSeparate(t *testing.T) {
+	setupPeakDB(t)
+	ctx := context.Background()
+
+	// 同一份日历，两份条款 → 结果必须不同：说明乘数取自条款
+	if err := SavePeakCalendar(ctx, models.PeakCalendar{Timezone: "Asia/Shanghai"}); err != nil {
+		t.Fatalf("save calendar: %v", err)
+	}
+	at := sh(t, 2026, 9, 28, 12, 0)
+	half := models.PeakTerms{Enabled: true, Periods: []models.PeakPeriod{
+		{Name: "半价", Start: "00:00", End: "24:00", Multiplier: 0.5},
+	}}
+	double := models.PeakTerms{Enabled: true, Periods: []models.PeakPeriod{
+		{Name: "双倍", Start: "00:00", End: "24:00", Multiplier: 2},
+	}}
+	if _, _, o, name := ResolvePricingFor(ctx, at, &half, 4, 2, 8); o != 4 || name != "半价" {
+		t.Fatalf("半价条款应得 4，实得 %v（%s）", o, name)
+	}
+	if _, _, o, name := ResolvePricingFor(ctx, at, &double, 4, 2, 8); o != 16 || name != "双倍" {
+		t.Fatalf("双倍条款应得 16，实得 %v（%s）", o, name)
+	}
+
+	// 同一份条款，两份日历 → 结果必须不同：说明工作日取自全局日历
+	rest := models.PeakTerms{Enabled: true, Periods: []models.PeakPeriod{
+		{Name: "仅休息日", Start: "00:00", End: "24:00", Multiplier: 0.5, Workday: boolPtr(false)},
+	}}
+	if _, _, _, name := ResolvePricingFor(ctx, at, &rest, 4, 2, 8); name != "" {
+		t.Fatalf("2026-09-28 是周一，休息日条款不该命中，实得 %q", name)
+	}
+	if err := SavePeakCalendar(ctx, models.PeakCalendar{
+		Timezone:      "Asia/Shanghai",
+		DateOverrides: map[string]string{"2026-09-28": models.DateOverrideRest},
+	}); err != nil {
+		t.Fatalf("save calendar: %v", err)
+	}
+	if _, _, _, name := ResolvePricingFor(ctx, at, &rest, 4, 2, 8); name != "仅休息日" {
+		t.Fatalf("日历把该日改成休息日后应命中，实得 %q", name)
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
+
 // ---------------------------------------------------------------------------
 // 时间轴预览
 // ---------------------------------------------------------------------------
@@ -649,7 +739,7 @@ func TestResolvePricingForEnabled(t *testing.T) {
 func TestPreviewScheduleMergesAdjacent(t *testing.T) {
 	t.Parallel()
 
-	cfg := models.PeakPricing{
+	cfg := peakFixture{
 		Enabled:  true,
 		Timezone: "Asia/Shanghai",
 		Weekdays: []int{1, 2, 3, 4, 5},
@@ -658,7 +748,7 @@ func TestPreviewScheduleMergesAdjacent(t *testing.T) {
 			{Name: "白天", Start: "08:00", End: "24:00", Multiplier: 1},
 		},
 	}
-	r := NewPeakResolver(cfg)
+	r := resolveWith(cfg)
 
 	// 从周一 00:00 起预览一整天
 	start := sh(t, 2026, 9, 28, 0, 0)
@@ -686,13 +776,13 @@ func TestPreviewScheduleMergesAdjacent(t *testing.T) {
 func TestPreviewScheduleIncludesWorkdayFlags(t *testing.T) {
 	t.Parallel()
 
-	cfg := models.PeakPricing{
+	cfg := peakFixture{
 		Enabled:  true,
 		Timezone: "Asia/Shanghai",
 		Weekdays: []int{1, 2, 3, 4, 5},
 		Periods:  []models.PeakPeriod{{Name: "全天", Start: "00:00", End: "24:00", Multiplier: 1}},
 	}
-	r := NewPeakResolver(cfg)
+	r := resolveWith(cfg)
 
 	// 周六起预览 3 天：周六、周日为休息日，周一为工作日。
 	// 时段与乘数全程不变，因此切段完全由工作日标记驱动。
@@ -721,13 +811,13 @@ func TestPreviewScheduleWorkdayToggleSplits(t *testing.T) {
 	t.Parallel()
 
 	// 周日→周一 会切换工作日标记
-	cfg := models.PeakPricing{
+	cfg := peakFixture{
 		Enabled:  true,
 		Timezone: "Asia/Shanghai",
 		Weekdays: []int{1, 2, 3, 4, 5},
 		Periods:  []models.PeakPeriod{{Name: "全天", Start: "00:00", End: "24:00", Multiplier: 1}},
 	}
-	r := NewPeakResolver(cfg)
+	r := resolveWith(cfg)
 
 	start := sh(t, 2026, 10, 4, 0, 0) // 周日
 	points := PreviewSchedule(r, start, 2)
@@ -745,7 +835,7 @@ func TestPreviewScheduleWorkdayToggleSplits(t *testing.T) {
 func TestPreviewScheduleClampsDays(t *testing.T) {
 	t.Parallel()
 
-	r := NewPeakResolver(models.PeakPricing{Enabled: true})
+	r := resolveWith(peakFixture{Enabled: true})
 	start := sh(t, 2026, 9, 28, 0, 0)
 
 	// days < 1 应钳到 1 天而不是返回空或 panic
@@ -762,8 +852,8 @@ func TestPreviewScheduleClampsDays(t *testing.T) {
 func TestPreviewScheduleDisabledIsSingleSegment(t *testing.T) {
 	t.Parallel()
 
-	cfg := models.PeakPricing{Enabled: false}
-	r := NewPeakResolver(cfg)
+	cfg := peakFixture{Enabled: false}
+	r := resolveWith(cfg)
 	points := PreviewSchedule(r, sh(t, 2026, 9, 28, 0, 0), 1)
 
 	// 未启用时全程基础价，但工作日标记仍会切换，因此至少 1 段
@@ -810,14 +900,14 @@ func TestSyncHolidaysMergesAndReplacesByYear(t *testing.T) {
 	ctx := context.Background()
 
 	// 预置：2025 年的旧数据 + 同一个 2026 年的一条陈旧数据 + 手动覆盖
-	cfg := models.DefaultPeakPricing()
+	cfg := models.DefaultPeakCalendar()
 	cfg.DateOverrides = map[string]string{
 		"2025-01-01":  models.DateOverrideRest,
 		"2026-10-01":  models.DateOverrideRest, // 陈旧，应被 2026 同步结果替换
 		"2026-12-31":  models.DateOverrideWork, // 手动覆盖，同属 2026，会被年度替换清掉
 		"2023-05-01:": models.DateOverrideWork, // 非法键也不应让同步失败
 	}
-	if err := SavePeakPricing(ctx, cfg); err != nil {
+	if err := SavePeakCalendar(ctx, cfg); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -863,7 +953,7 @@ func TestSyncHolidaysMergesAndReplacesByYear(t *testing.T) {
 	}
 
 	// 落库且缓存已失效，重新读取应拿到新值
-	if GetPeakPricing(ctx).DateOverrides["2026-10-10"] != models.DateOverrideWork {
+	if GetPeakCalendar(ctx).DateOverrides["2026-10-10"] != models.DateOverrideWork {
 		t.Fatal("同步结果未持久化")
 	}
 }

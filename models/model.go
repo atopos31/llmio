@@ -52,6 +52,11 @@ type ModelWithProvider struct {
 	CacheReadPrice   *float64
 	OutputPrice      *float64
 	Currency         string
+	// Peak 这一条关联的峰谷计费条款，nil 表示没配（按基础价计费）。
+	//
+	// 与三档单价同处一行是刻意的：乘数就是乘在它们上面的，
+	// 拆到别处就会出现"价格改了、条款还指着旧的那套"的可能。
+	Peak *PeakTerms `gorm:"serializer:json"`
 }
 
 // ChatLog 请求日志，也是分析聚合的事实表。

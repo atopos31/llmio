@@ -14,44 +14,47 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetPeakPricing 读取分时段计费配置。
+// GetPeakCalendar 读取全局工作日日历。
 //
 // 与通用的 GET /api/config/:key 的区别：这里返回结构化配置并补上默认值，
 // 未配置过时也能直接得到可用对象，前端无需自己拼默认配置。
-func GetPeakPricing(c *gin.Context) {
-	cfg := service.GetPeakPricing(c.Request.Context())
+func GetPeakCalendar(c *gin.Context) {
+	cfg := service.GetPeakCalendar(c.Request.Context())
 	common.Success(c, cfg)
 }
 
-// UpdatePeakPricing 覆盖分时段计费配置。
-func UpdatePeakPricing(c *gin.Context) {
-	var req models.PeakPricing
+// UpdatePeakCalendar 覆盖全局工作日日历。
+func UpdatePeakCalendar(c *gin.Context) {
+	var req models.PeakCalendar
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	if err := validatePeakPricing(req); err != nil {
+	if err := validatePeakCalendar(req); err != nil {
 		common.BadRequest(c, err.Error())
 		return
 	}
-	if err := service.SavePeakPricing(c.Request.Context(), req); err != nil {
-		common.InternalServerError(c, "Failed to save peak pricing: "+err.Error())
+	if err := service.SavePeakCalendar(c.Request.Context(), req); err != nil {
+		common.InternalServerError(c, "Failed to save peak calendar: "+err.Error())
 		return
 	}
-	common.Success(c, service.GetPeakPricing(c.Request.Context()))
+	common.Success(c, service.GetPeakCalendar(c.Request.Context()))
 }
 
-// PreviewPeakPricing 把当前配置回放未来一段时间，返回每个时段命中的区间。
+// PreviewPeakTerms 把一套峰谷条款回放到未来一段时间，返回每个时段命中的区间。
 //
 // 存在的理由：分时段规则的错误（跨零点写反、星期几位错、时区搞混）
 // 靠读配置很难发现，但一看时间轴就一目了然。
-func PreviewPeakPricing(c *gin.Context) {
-	var req models.PeakPricing
+//
+// 条款由请求体给出（编辑器要在保存前预览），日历取已保存的那份：
+// 日历是全局的、在另一个页面维护，预览时按它算才是"保存后会怎样"。
+func PreviewPeakTerms(c *gin.Context) {
+	var req models.PeakTerms
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	if err := validatePeakPricing(req); err != nil {
+	if err := validatePeakTerms(req); err != nil {
 		common.BadRequest(c, err.Error())
 		return
 	}
@@ -66,14 +69,15 @@ func PreviewPeakPricing(c *gin.Context) {
 		days = n
 	}
 
-	resolver := service.NewPeakResolver(req)
+	cal := service.GetPeakCalendar(c.Request.Context())
+	resolver := service.NewPeakResolver(req, cal)
 	common.Success(c, service.PreviewSchedule(resolver, time.Now(), days))
 }
 
 // SyncPeakHolidays 从公共数据源同步指定年份的节假日与调休安排。
 //
 // 这一项是"工作日"判定的关键补充：中国法定节假日与调休无法由星期几推出，
-// 必须依赖外部数据。同步失败时配置保持原样，前端可回退到手动填写或
+// 必须依赖外部数据。同步失败时日历保持原样，前端可回退到手动填写或
 // 仅按周一~周五判定。
 func SyncPeakHolidays(c *gin.Context) {
 	year := time.Now().Year()
@@ -104,13 +108,13 @@ func SyncPeakHolidays(c *gin.Context) {
 		"count":    count,
 		"source":   cfg.HolidaySource,
 		"syncedAt": cfg.HolidaySyncedAt,
-		"config":   cfg,
+		"calendar": cfg,
 	})
 }
 
-// validatePeakPricing 校验配置，尽量在写入前拦下会静默出错的配置。
-func validatePeakPricing(cfg models.PeakPricing) error {
-	for i, p := range cfg.Periods {
+// validatePeakTerms 校验峰谷条款，尽量在写入前拦下会静默出错的配置。
+func validatePeakTerms(terms models.PeakTerms) error {
+	for i, p := range terms.Periods {
 		start, err := service.ParseClock(p.Start)
 		if err != nil {
 			return fmt.Errorf("period %d (%s): start %w", i+1, p.Name, err)
@@ -128,12 +132,17 @@ func validatePeakPricing(cfg models.PeakPricing) error {
 			}
 		}
 	}
-	for _, d := range cfg.Weekdays {
+	return nil
+}
+
+// validatePeakCalendar 校验工作日日历。
+func validatePeakCalendar(cal models.PeakCalendar) error {
+	for _, d := range cal.Weekdays {
 		if d < 0 || d > 6 {
 			return fmt.Errorf("weekday %d out of range (0=Sunday, 6=Saturday)", d)
 		}
 	}
-	for date, v := range cfg.DateOverrides {
+	for date, v := range cal.DateOverrides {
 		if _, err := time.Parse("2006-01-02", date); err != nil {
 			return fmt.Errorf("invalid date override key %q: expected YYYY-MM-DD", date)
 		}
@@ -142,9 +151,9 @@ func validatePeakPricing(cfg models.PeakPricing) error {
 				date, v, models.DateOverrideWork, models.DateOverrideRest)
 		}
 	}
-	if cfg.Timezone != "" {
-		if _, err := time.LoadLocation(cfg.Timezone); err != nil {
-			return fmt.Errorf("invalid timezone %q", cfg.Timezone)
+	if cal.Timezone != "" {
+		if _, err := time.LoadLocation(cal.Timezone); err != nil {
+			return fmt.Errorf("invalid timezone %q", cal.Timezone)
 		}
 	}
 	return nil

@@ -2,8 +2,15 @@ package models
 
 import "time"
 
-// KeyPeakPricing 分时段计费配置在 configs 表中的键。
-const KeyPeakPricing = "peak_pricing"
+// KeyPeakCalendar 工作日日历在 configs 表中的键。
+const KeyPeakCalendar = "peak_calendar"
+
+// KeyPeakPricingLegacy 旧的全局分时段计费配置键。
+//
+// 峰谷条款现在挂在每条「模型 × 上游」关联上（ModelWithProvider.Peak），
+// 全局只剩一份工作日日历。这个键只在升级时读一次，用来把旧配置拆成
+// 日历（搬进 KeyPeakCalendar）与各条的条款（抄到关联行上）。
+const KeyPeakPricingLegacy = "peak_pricing"
 
 // PeakPeriod 一个计费时段。
 //
@@ -23,21 +30,34 @@ type PeakPeriod struct {
 	Workday *bool `json:"workday,omitempty"`
 }
 
-// PeakPricing 分时段计费配置。
+// PeakTerms 某个上游的峰谷计费条款。
 //
 // 时段的匹配顺序即优先级，**首个命中者胜出**：这样"先特例后一般"可以
 // 直接靠数组顺序表达，不需要额外的优先级字段。
 // 全部未命中时回落到乘数 1（基础价）。
-type PeakPricing struct {
+//
+// 条款而不是全局配置：峰谷窗口是**上游的商务条款**，同一时间点上
+// A 家中转在打折、B 家已进入峰时是完全正常的，一份全局配置必然有一半是错的。
+// 落点是 ModelWithProvider——价格（InputPrice 那三档）本来就挂在那里，
+// 乘数作用于哪套基础价，就该和那套基础价待在同一行。
+type PeakTerms struct {
 	Enabled bool `json:"enabled"`
-	// Timezone 用于判定时段的时区。为空时按 server 本地时区。
+	// Periods 时段列表，顺序即优先级。
+	Periods []PeakPeriod `json:"periods"`
+}
+
+// PeakCalendar 全局工作日日历。
+//
+// 留在全局而不是跟着条款走：这是一份**日历事实**（哪天放假、哪天调休、
+// 按哪个时区算"今天"），对所有上游是同一个答案。每个关联各存一份的话，
+// 同步一次节假日要写 N 遍，N 份之间还会不一致。
+type PeakCalendar struct {
+	// Timezone 用于判定"此刻是本地的几点/星期几"。为空时按 server 本地时区。
 	// 必须显式配置的原因：上游的峰谷窗口按供应商所在时区定义，
 	// 而部署机可能是任意时区，二者不一致会让时段整体错位。
 	Timezone string `json:"timezone"`
 	// Weekdays 工作日定义（0=周日 … 6=周六）。为空时默认周一至周五。
 	Weekdays []int `json:"weekdays,omitempty"`
-	// Periods 时段列表，顺序即优先级。
-	Periods []PeakPeriod `json:"periods"`
 	// DateOverrides 按日期覆盖工作日判定，键为 "2006-01-02"，值为 "work" 或 "rest"。
 	//
 	// 这一项是法定节假日与调休的落点：中国的调休制度会让某个周六成为工作日，
@@ -58,15 +78,16 @@ const (
 	DateOverrideRest = "rest"
 )
 
-// DefaultPeakPricing 返回默认配置：关闭状态，工作日的全天为基础价。
+// DefaultPeakTerms 返回一份新的峰谷条款模板：**关闭**状态，两段示例时段。
 //
 // 默认关闭是刻意的——分时段计费会改变成本数字的语义，
 // 在用户明确配置前不应静默启用。
-func DefaultPeakPricing() PeakPricing {
-	return PeakPricing{
-		Enabled:  false,
-		Timezone: "Asia/Shanghai",
-		Weekdays: []int{1, 2, 3, 4, 5},
+//
+// 关着也给两段示例：打开开关的人马上要填的是时段，空白列表只会让人
+// 先去别处找格式；照抄示例改数字比从零写起快得多，也不影响"没配就不生效"。
+func DefaultPeakTerms() PeakTerms {
+	return PeakTerms{
+		Enabled: false,
 		Periods: []PeakPeriod{
 			{
 				Name:       "标准时段",
@@ -81,6 +102,14 @@ func DefaultPeakPricing() PeakPricing {
 				Multiplier: 0.25,
 			},
 		},
+	}
+}
+
+// DefaultPeakCalendar 返回默认工作日日历：东八区、周一至周五、无节假日数据。
+func DefaultPeakCalendar() PeakCalendar {
+	return PeakCalendar{
+		Timezone:      "Asia/Shanghai",
+		Weekdays:      []int{1, 2, 3, 4, 5},
 		DateOverrides: map[string]string{},
 	}
 }
@@ -111,11 +140,11 @@ func ToDateOverrides(days []HolidayDay) map[string]string {
 
 // EffectiveTime 返回用于时段判定的时间，已转换到配置的时区。
 // 时区无法解析时退回原时间，调用方不应因此失败。
-func (p PeakPricing) EffectiveTime(t time.Time) time.Time {
-	if p.Timezone == "" {
+func (c PeakCalendar) EffectiveTime(t time.Time) time.Time {
+	if c.Timezone == "" {
 		return t
 	}
-	loc, err := time.LoadLocation(p.Timezone)
+	loc, err := time.LoadLocation(c.Timezone)
 	if err != nil {
 		return t
 	}

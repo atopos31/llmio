@@ -14,7 +14,6 @@ import (
 	_ "time/tzdata"
 
 	"github.com/atopos31/llmio/models"
-	"gorm.io/gorm"
 )
 
 // ---------------------------------------------------------------------------
@@ -71,7 +70,7 @@ func InClockWindow(minutes, start, end int) bool {
 //
 // 入参应已转换到配置时区。
 func (r PeakResolver) IsWorkday(t time.Time) bool {
-	if override, ok := r.cfg.DateOverrides[t.Format("2006-01-02")]; ok {
+	if override, ok := r.cal.DateOverrides[t.Format("2006-01-02")]; ok {
 		switch override {
 		case models.DateOverrideWork:
 			return true
@@ -80,7 +79,7 @@ func (r PeakResolver) IsWorkday(t time.Time) bool {
 		}
 		// 无法识别的取值不阻断判定，回落到星期几规则
 	}
-	weekdays := r.cfg.Weekdays
+	weekdays := r.cal.Weekdays
 	if len(weekdays) == 0 {
 		weekdays = []int{1, 2, 3, 4, 5}
 	}
@@ -97,16 +96,16 @@ func (r PeakResolver) IsWorkday(t time.Time) bool {
 //
 // 按配置顺序首个命中者胜出，因此 Periods 的顺序即优先级。
 func (r PeakResolver) ResolvePeriod(t time.Time) *models.PeakPeriod {
-	if len(r.cfg.Periods) == 0 {
+	if len(r.terms.Periods) == 0 {
 		return nil
 	}
-	local := r.cfg.EffectiveTime(t)
+	local := r.cal.EffectiveTime(t)
 	minutes := local.Hour()*60 + local.Minute()
 	wd := int(local.Weekday())
 	workday := r.IsWorkday(local)
 
-	for i := range r.cfg.Periods {
-		p := &r.cfg.Periods[i]
+	for i := range r.terms.Periods {
+		p := &r.terms.Periods[i]
 
 		if len(p.Days) > 0 && !containsInt(p.Days, wd) {
 			continue
@@ -134,7 +133,7 @@ func (r PeakResolver) ResolvePeriod(t time.Time) *models.PeakPeriod {
 // ResolveMultiplier 返回指定时刻适用的价格乘数与命中的时段名。
 // 未命中任何时段时返回 1 与空名（即基础价）。
 func (r PeakResolver) ResolveMultiplier(t time.Time) (float64, string) {
-	if !r.cfg.Enabled {
+	if !r.terms.Enabled {
 		return 1, ""
 	}
 	p := r.ResolvePeriod(t)
@@ -144,18 +143,25 @@ func (r PeakResolver) ResolveMultiplier(t time.Time) (float64, string) {
 	return p.Multiplier, p.Name
 }
 
-// PeakResolver 在配置之上封装判定逻辑，避免每次判定都重复解析时区。
+// PeakResolver 在条款与日历之上封装判定逻辑，避免每次判定都重复解析时区。
+//
+// 两份入参而不是一份：条款按上游走（哪几个小时算峰时），日历全局共用
+// （这一天是不是工作日）。判定要同时用到两者，但它们的归属不同。
 type PeakResolver struct {
-	cfg models.PeakPricing
+	terms models.PeakTerms
+	cal   models.PeakCalendar
 }
 
 // NewPeakResolver 构造判定器。
-func NewPeakResolver(cfg models.PeakPricing) PeakResolver {
-	return PeakResolver{cfg: cfg}
+func NewPeakResolver(terms models.PeakTerms, cal models.PeakCalendar) PeakResolver {
+	return PeakResolver{terms: terms, cal: cal}
 }
 
-// Config 返回底层配置。
-func (r PeakResolver) Config() models.PeakPricing { return r.cfg }
+// Terms 返回底层条款。
+func (r PeakResolver) Terms() models.PeakTerms { return r.terms }
+
+// Calendar 返回底层日历。
+func (r PeakResolver) Calendar() models.PeakCalendar { return r.cal }
 
 func containsInt(hay []int, needle int) bool {
 	for _, v := range hay {
@@ -198,7 +204,7 @@ func PreviewSchedule(r PeakResolver, start time.Time, days int) []SchedulePoint 
 
 	for t := local; t.Before(end); t = t.Add(step) {
 		multiplier, period := r.ResolveMultiplier(t)
-		localT := r.cfg.EffectiveTime(t)
+		localT := r.cal.EffectiveTime(t)
 		workday := r.IsWorkday(localT)
 		ms := t.UnixMilli()
 
@@ -224,10 +230,10 @@ func PreviewSchedule(r PeakResolver, start time.Time, days int) []SchedulePoint 
 }
 
 // ---------------------------------------------------------------------------
-// 配置读取（带缓存）
+// 日历读取（带缓存）
 // ---------------------------------------------------------------------------
 
-// peakCacheTTL 配置缓存有效期。
+// peakCacheTTL 日历缓存有效期。
 //
 // 分时段判定在每次代理请求的热路径上，不能每次都读库；但改配置后
 // 也不应等到重启才生效，因此用短 TTL 而非永久缓存。
@@ -235,14 +241,14 @@ const peakCacheTTL = 30 * time.Second
 
 var (
 	peakMu       sync.RWMutex
-	peakCached   models.PeakPricing
+	peakCached   models.PeakCalendar
 	peakCachedAt time.Time
 	peakLoaded   bool
 )
 
-// GetPeakPricing 读取分时段计费配置，带短 TTL 缓存。
-// 读取失败或配置为空时返回默认配置（关闭状态），保证热路径不会因配置问题中断。
-func GetPeakPricing(ctx context.Context) models.PeakPricing {
+// GetPeakCalendar 读取全局工作日日历，带短 TTL 缓存。
+// 读取失败或配置为空时返回默认日历，保证热路径不会因配置问题中断。
+func GetPeakCalendar(ctx context.Context) models.PeakCalendar {
 	peakMu.RLock()
 	if peakLoaded && time.Since(peakCachedAt) < peakCacheTTL {
 		cfg := peakCached
@@ -251,7 +257,7 @@ func GetPeakPricing(ctx context.Context) models.PeakPricing {
 	}
 	peakMu.RUnlock()
 
-	cfg := loadPeakPricing(ctx)
+	cfg := loadPeakCalendar(ctx)
 
 	peakMu.Lock()
 	peakCached = cfg
@@ -261,20 +267,20 @@ func GetPeakPricing(ctx context.Context) models.PeakPricing {
 	return cfg
 }
 
-func loadPeakPricing(ctx context.Context) models.PeakPricing {
+func loadPeakCalendar(ctx context.Context) models.PeakCalendar {
 	var row models.Config
-	err := models.DB.WithContext(ctx).Where("key = ?", models.KeyPeakPricing).First(&row).Error
+	err := models.DB.WithContext(ctx).Where("key = ?", models.KeyPeakCalendar).First(&row).Error
 	if err != nil {
-		// 未配置或查询失败：回落到默认（关闭）
-		return models.DefaultPeakPricing()
+		// 未配置或查询失败：回落到默认（东八区、周一至周五）
+		return models.DefaultPeakCalendar()
 	}
 	if strings.TrimSpace(row.Value) == "" {
-		return models.DefaultPeakPricing()
+		return models.DefaultPeakCalendar()
 	}
-	var cfg models.PeakPricing
+	var cfg models.PeakCalendar
 	if err := json.Unmarshal([]byte(row.Value), &cfg); err != nil {
-		// 配置损坏时回落到默认而非报错：计费配置不该让代理请求失败。
-		return models.DefaultPeakPricing()
+		// 日历损坏时回落到默认而非报错：计费配置不该让代理请求失败。
+		return models.DefaultPeakCalendar()
 	}
 	if cfg.DateOverrides == nil {
 		cfg.DateOverrides = map[string]string{}
@@ -282,8 +288,8 @@ func loadPeakPricing(ctx context.Context) models.PeakPricing {
 	return cfg
 }
 
-// InvalidatePeakPricing 使配置缓存失效，供配置写入后调用。
-func InvalidatePeakPricing() {
+// InvalidatePeakCalendar 使日历缓存失效，供配置写入后调用。
+func InvalidatePeakCalendar() {
 	peakMu.Lock()
 	peakLoaded = false
 	peakCachedAt = time.Time{}
@@ -301,14 +307,15 @@ func ApplyPeakMultiplier(inputPrice, cacheReadPrice, outputPrice, multiplier flo
 	return inputPrice * multiplier, cacheReadPrice * multiplier, outputPrice * multiplier
 }
 
-// ResolvePricingFor 是热路径入口：为指定时刻解析出生效单价与时段名。
-// 配置未启用时直接返回原价，不产生任何额外开销。
-func ResolvePricingFor(ctx context.Context, at time.Time, inputPrice, cacheReadPrice, outputPrice float64) (float64, float64, float64, string) {
-	cfg := GetPeakPricing(ctx)
-	if !cfg.Enabled {
+// ResolvePricingFor 是热路径入口：为指定上游的条款解析出此刻的生效单价与时段名。
+//
+// terms 为 nil（该关联没配峰谷）或未启用时直接返回原价，不产生额外开销。
+// 日历从全局取——条款按上游，日历是事实。
+func ResolvePricingFor(ctx context.Context, at time.Time, terms *models.PeakTerms, inputPrice, cacheReadPrice, outputPrice float64) (float64, float64, float64, string) {
+	if terms == nil || !terms.Enabled {
 		return inputPrice, cacheReadPrice, outputPrice, ""
 	}
-	multiplier, period := NewPeakResolver(cfg).ResolveMultiplier(at)
+	multiplier, period := NewPeakResolver(*terms, GetPeakCalendar(ctx)).ResolveMultiplier(at)
 	i, c, o := ApplyPeakMultiplier(inputPrice, cacheReadPrice, outputPrice, multiplier)
 	return i, c, o, period
 }
@@ -317,27 +324,27 @@ func ResolvePricingFor(ctx context.Context, at time.Time, inputPrice, cacheReadP
 // 节假日数据同步
 // ---------------------------------------------------------------------------
 
-// SyncHolidays 拉取指定年份节假日并合并进配置的 DateOverrides。
+// SyncHolidays 拉取指定年份节假日并合并进日历的 DateOverrides。
 //
 // fetch 为 nil 时使用 DefaultHolidayFetcher（远端优先、失败回落到内置数据）。
 //
 // 合并语义：同一年份的既有覆盖会被**整体替换**，其他年份的保持不动。
 // 整体替换而非逐条合并，是为了让重复同步幂等——否则已撤销的调休
 // 会以陈旧条目的形式残留下来。
-func SyncHolidays(ctx context.Context, year int, fetch HolidayFetcher) (models.PeakPricing, int, error) {
+func SyncHolidays(ctx context.Context, year int, fetch HolidayFetcher) (models.PeakCalendar, int, error) {
 	if fetch == nil {
 		fetch = DefaultHolidayFetcher
 	}
 	days, source, err := fetch(ctx, year)
 	if err != nil {
-		return models.PeakPricing{}, 0, err
+		return models.PeakCalendar{}, 0, err
 	}
 	overrides := models.ToDateOverrides(days)
 	if len(overrides) == 0 {
-		return models.PeakPricing{}, 0, fmt.Errorf("holiday source returned no usable dates for %d", year)
+		return models.PeakCalendar{}, 0, fmt.Errorf("holiday source returned no usable dates for %d", year)
 	}
 
-	cfg := GetPeakPricing(ctx)
+	cfg := GetPeakCalendar(ctx)
 
 	// 先清掉该年份的旧覆盖，再写入新的，实现"按年替换"
 	prefix := fmt.Sprintf("%04d-", year)
@@ -355,14 +362,14 @@ func SyncHolidays(ctx context.Context, year int, fetch HolidayFetcher) (models.P
 	cfg.HolidaySyncedAt = time.Now().Unix()
 	cfg.HolidaySource = source
 
-	if err := SavePeakPricing(ctx, cfg); err != nil {
-		return models.PeakPricing{}, 0, err
+	if err := SavePeakCalendar(ctx, cfg); err != nil {
+		return models.PeakCalendar{}, 0, err
 	}
 	return cfg, len(overrides), nil
 }
 
-// SavePeakPricing 持久化配置并使其缓存失效。
-func SavePeakPricing(ctx context.Context, cfg models.PeakPricing) error {
+// SavePeakCalendar 持久化全局日历并使其缓存失效。
+func SavePeakCalendar(ctx context.Context, cfg models.PeakCalendar) error {
 	if cfg.DateOverrides == nil {
 		cfg.DateOverrides = map[string]string{}
 	}
@@ -370,26 +377,10 @@ func SavePeakPricing(ctx context.Context, cfg models.PeakPricing) error {
 	if err != nil {
 		return err
 	}
-
-	var row models.Config
-	err = models.DB.WithContext(ctx).Where("key = ?", models.KeyPeakPricing).First(&row).Error
-	switch {
-	case err == nil:
-		row.Value = string(raw)
-		if err := models.DB.WithContext(ctx).Save(&row).Error; err != nil {
-			return err
-		}
-	case err == gorm.ErrRecordNotFound:
-		if err := models.DB.WithContext(ctx).Create(&models.Config{
-			Key:   models.KeyPeakPricing,
-			Value: string(raw),
-		}).Error; err != nil {
-			return err
-		}
-	default:
+	if err := models.SaveConfigValue(ctx, models.KeyPeakCalendar, string(raw)); err != nil {
 		return err
 	}
 
-	InvalidatePeakPricing()
+	InvalidatePeakCalendar()
 	return nil
 }

@@ -62,6 +62,9 @@ func Init(ctx context.Context, path string) {
 	if err := ensureLogCleanupPolicyConfig(ctx); err != nil {
 		panic(err)
 	}
+	if err := MigratePeakTermsToAssociations(ctx); err != nil {
+		panic(err)
+	}
 	zero := 0.0
 	if _, err := gorm.G[ModelWithProvider](DB).Where("input_price IS NULL").Update(ctx, "input_price", &zero); err != nil {
 		panic(err)

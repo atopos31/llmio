@@ -100,10 +100,11 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 			slog.Info("using provider", "provider", provider.Name, "model", modelWithProvider.ProviderModel)
 
-			// 分时段计价：按请求发起时刻解析出生效单价并快照进日志。
-			// 快照的是实际生效价，因此历史成本不会被后来的时段配置改动所改写。
+			// 分时段计价：按请求发起时刻 + **这一条关联的**峰谷条款解析出
+			// 生效单价并快照进日志。快照的是实际生效价，因此历史成本不会被
+			// 后来的时段配置改动所改写。
 			inputPrice, cacheReadPrice, outputPrice, peakPeriod := ResolvePricingFor(
-				ctx, start,
+				ctx, start, modelWithProvider.Peak,
 				lo.FromPtrOr(modelWithProvider.InputPrice, 0),
 				lo.FromPtrOr(modelWithProvider.CacheReadPrice, 0),
 				lo.FromPtrOr(modelWithProvider.OutputPrice, 0),

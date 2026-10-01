@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -34,34 +33,34 @@ func TestResolvePeriodInvalidEndClockSkipped(t *testing.T) {
 	t.Parallel()
 
 	// Start 合法、End 非法：应跳过该时段继续匹配后续时段
-	cfg := models.PeakPricing{
+	cfg := peakFixture{
 		Enabled: true,
 		Periods: []models.PeakPeriod{
 			{Name: "起点合法终点坏", Start: "00:00", End: "25:99", Multiplier: 9},
 			{Name: "正常", Start: "00:00", End: "24:00", Multiplier: 1.5},
 		},
 	}
-	p := NewPeakResolver(cfg).ResolvePeriod(sh(t, 2026, 9, 28, 12, 0))
+	p := resolveWith(cfg).ResolvePeriod(sh(t, 2026, 9, 28, 12, 0))
 	if p == nil || p.Name != "正常" {
 		t.Fatalf("应跳过终点非法的时段，实得 %+v", p)
 	}
 }
 
-func TestLoadPeakPricingNormalizesMissingOverrides(t *testing.T) {
+func TestLoadPeakCalendarNormalizesMissingOverrides(t *testing.T) {
 	setupPeakDB(t)
 
 	// 存量配置可能没有 dateOverrides 字段（更早版本写入，或手工编辑省略），
 	// 读取时必须补齐为非 nil，否则调用方要做额外的空值判断
 	if err := models.DB.Create(&models.Config{
-		Key:   models.KeyPeakPricing,
-		Value: `{"enabled":true,"timezone":"UTC"}`,
+		Key:   models.KeyPeakCalendar,
+		Value: `{"timezone":"UTC"}`,
 	}).Error; err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	InvalidatePeakPricing()
+	InvalidatePeakCalendar()
 
-	cfg := GetPeakPricing(context.Background())
-	if !cfg.Enabled || cfg.Timezone != "UTC" {
+	cfg := GetPeakCalendar(context.Background())
+	if cfg.Timezone != "UTC" {
 		t.Fatalf("配置未正确读取：%+v", cfg)
 	}
 	if cfg.DateOverrides == nil {
@@ -69,27 +68,12 @@ func TestLoadPeakPricingNormalizesMissingOverrides(t *testing.T) {
 	}
 }
 
-func TestSavePeakPricingRejectsUnmarshalableValue(t *testing.T) {
-	setupPeakDB(t)
-
-	// NaN 无法序列化为 JSON。这里既验证错误被正确返回，
-	// 也说明乘数字段缺少有限性校验——写入方应自行保证，读取方不受影响。
-	cfg := models.DefaultPeakPricing()
-	cfg.Periods = []models.PeakPeriod{{
-		Name: "坏乘数", Start: "00:00", End: "01:00", Multiplier: math.NaN(),
-	}}
-
-	if err := SavePeakPricing(context.Background(), cfg); err == nil {
-		t.Fatal("无法序列化的配置应返回错误")
-	}
-}
-
-func TestSavePeakPricingUpdateBranchError(t *testing.T) {
+func TestSavePeakCalendarUpdateBranchError(t *testing.T) {
 	setupPeakDB(t)
 	ctx := context.Background()
 
 	// 先建行，使后续写入走更新分支
-	if err := SavePeakPricing(ctx, models.DefaultPeakPricing()); err != nil {
+	if err := SavePeakCalendar(ctx, models.DefaultPeakCalendar()); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 
@@ -100,12 +84,12 @@ func TestSavePeakPricingUpdateBranchError(t *testing.T) {
 	})
 	t.Cleanup(func() { models.DB.Callback().Update().Remove(name) })
 
-	if err := SavePeakPricing(ctx, models.DefaultPeakPricing()); err == nil {
+	if err := SavePeakCalendar(ctx, models.DefaultPeakCalendar()); err == nil {
 		t.Fatal("更新失败时应返回错误")
 	}
 }
 
-func TestSavePeakPricingCreateBranchError(t *testing.T) {
+func TestSavePeakCalendarCreateBranchError(t *testing.T) {
 	setupPeakDB(t)
 
 	name := "test:fail-create"
@@ -114,12 +98,12 @@ func TestSavePeakPricingCreateBranchError(t *testing.T) {
 	})
 	t.Cleanup(func() { models.DB.Callback().Create().Remove(name) })
 
-	if err := SavePeakPricing(context.Background(), models.DefaultPeakPricing()); err == nil {
+	if err := SavePeakCalendar(context.Background(), models.DefaultPeakCalendar()); err == nil {
 		t.Fatal("创建失败时应返回错误")
 	}
 }
 
-func TestSavePeakPricingQueryError(t *testing.T) {
+func TestSavePeakCalendarQueryError(t *testing.T) {
 	setupPeakDB(t)
 
 	// 删表后查询返回的不是 ErrRecordNotFound 而是"表不存在"，
@@ -128,7 +112,7 @@ func TestSavePeakPricingQueryError(t *testing.T) {
 		t.Fatalf("drop: %v", err)
 	}
 
-	if err := SavePeakPricing(context.Background(), models.DefaultPeakPricing()); err == nil {
+	if err := SavePeakCalendar(context.Background(), models.DefaultPeakCalendar()); err == nil {
 		t.Fatal("查询失败时应返回错误")
 	}
 }

@@ -155,10 +155,12 @@ func main() {
 		// Peak (time-of-day / workday) pricing.
 		// 独立成一组而非并入通用 config 端点：需要结构化校验、默认值补齐，
 		// 以及节假日同步这个带外网调用的动作。
-		api.GET("/peak-pricing", handler.GetPeakPricing)
-		api.PUT("/peak-pricing", handler.UpdatePeakPricing)
-		api.POST("/peak-pricing/preview", handler.PreviewPeakPricing)
-		api.POST("/peak-pricing/holidays/sync", handler.SyncPeakHolidays)
+		// 峰谷条款本身挂在「模型 × 上游」关联上（随 model-providers 的增改走），
+		// 这里只有全局的工作日日历与"保存前预览条款"这两件事。
+		api.GET("/peak-calendar", handler.GetPeakCalendar)
+		api.PUT("/peak-calendar", handler.UpdatePeakCalendar)
+		api.POST("/peak-calendar/preview", handler.PreviewPeakTerms)
+		api.POST("/peak-calendar/holidays/sync", handler.SyncPeakHolidays)
 
 		// 配额与余量。
 		// 读端点与外层一致（TOKEN 之后）；写端点另受 LLMIO_QUOTA_ALLOW_WRITE 控制，

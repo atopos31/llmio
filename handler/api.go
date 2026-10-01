@@ -58,6 +58,8 @@ type ModelWithProviderRequest struct {
 	CacheReadPrice   float64           `json:"cache_read_price"`
 	OutputPrice      float64           `json:"output_price"`
 	Currency         string            `json:"currency"`
+	// Peak 这一条关联自己的峰谷条款，nil 表示没配（按基础价计费）。
+	Peak *models.PeakTerms `json:"peak"`
 }
 
 // ModelProviderStatusRequest represents the request body for updating provider status
@@ -616,6 +618,7 @@ func CreateModelProvider(c *gin.Context) {
 		CacheReadPrice:   &req.CacheReadPrice,
 		OutputPrice:      &req.OutputPrice,
 		Currency:         req.Currency,
+		Peak:             req.Peak,
 	}
 
 	defaultStatus := true
@@ -682,11 +685,23 @@ func UpdateModelProvider(c *gin.Context) {
 		CacheReadPrice:   &req.CacheReadPrice,
 		OutputPrice:      &req.OutputPrice,
 		Currency:         req.Currency,
+		Peak:             req.Peak,
 	}
 
 	if _, err := gorm.G[models.ModelWithProvider](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {
 		common.InternalServerError(c, "Failed to update model-provider association: "+err.Error())
 		return
+	}
+
+	// 结构体更新会跳过零值，指针为 nil 正是"没配峰谷"的表达，因此它会被
+	// 整条跳过——用户把峰谷关掉后旧条款仍留在库里，下次开启会拿回一份陈年配置。
+	// 这里补一次显式清空。
+	if req.Peak == nil {
+		if _, err := gorm.G[models.ModelWithProvider](models.DB).Where("id = ?", id).
+			Update(c.Request.Context(), "peak", nil); err != nil {
+			common.InternalServerError(c, "Failed to clear peak terms: "+err.Error())
+			return
+		}
 	}
 
 	// Get updated model-provider association
@@ -982,8 +997,8 @@ func UpdateConfigByKey(c *gin.Context) {
 	}
 
 	// 写入后让相关缓存失效，否则新配置要等 TTL 过期才生效
-	if key == models.KeyPeakPricing {
-		service.InvalidatePeakPricing()
+	if key == models.KeyPeakCalendar {
+		service.InvalidatePeakCalendar()
 	}
 
 	common.Success(c, map[string]string{

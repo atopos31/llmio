@@ -18,6 +18,9 @@ const (
 	KeyLogCompressState   = "log_compress_state"
 	KeyLogDecompressState = "log_decompress_state"
 	KeyLogCompressBackup  = "log_compress_backup"
+	// KeyLogReclaimState 记的是**空间回收**（增量回收 / 启动转换）上一次干了什么。
+	// 与迁移分开：回收不动数据，只动文件，而且它每次都跑完（不像迁移有水位）。
+	KeyLogReclaimState = "log_reclaim_state"
 )
 
 type AnthropicCountTokens struct {
@@ -77,12 +80,68 @@ type LogCompressState struct {
 	Skipped   int64 `json:"skipped"` // 扫到但无需改动的行数
 	// BytesBefore / BytesAfter 只统计**扫过的行**在这一列上的字节数，
 	// 所以两者之差恰好是 input 列被省掉的字节——不含组表，组表要另算。
-	BytesBefore int64  `json:"bytes_before"`
-	BytesAfter  int64  `json:"bytes_after"`
-	Attempts    int    `json:"attempts"` // 连续失败次数，成功一批就清零
-	LastError   string `json:"last_error"`
-	StartedAt   string `json:"started_at"`
-	FinishedAt  string `json:"finished_at"`
+	BytesBefore int64 `json:"bytes_before"`
+	BytesAfter  int64 `json:"bytes_after"`
+	// BytesTotal 是**全表**原文在这一列上的合计，只在"从水位 0 起跑"那一次量。
+	//
+	// 它存在的唯一理由是当压缩比的分子。用 BytesBefore 当分子是错的：
+	// 那个数只覆盖**扫过的行**，而分母（真正落库）是全表——半程时分子是全表
+	// 的一半、分母是全表，算出来的比值恰好是真值的一半，一个看起来很专业的
+	// 错误数字。两个数必须盖住同一批行。
+	//
+	// 它同时是"实时"的来源：从起跑那一刻起分子就固定了，分母随着行改形态
+	// 一路缩，比值肉眼可见地往上爬；而 BytesBefore 要等跑完才等于它。
+	//
+	// 续跑时**保留**不重算：水位之后还有明文行不代表全表都还是明文，
+	// 已经压过的行的原文已经不在了，量不回来。所以它的定义是"起跑时那一量"。
+	BytesTotal int64  `json:"bytes_total"`
+	Attempts   int    `json:"attempts"` // 连续失败次数，成功一批就清零
+	LastError  string `json:"last_error"`
+	StartedAt  string `json:"started_at"`
+	FinishedAt string `json:"finished_at"`
+}
+
+// LogReclaimState 是**空间回收**的运行记录。
+//
+// 与迁移的状态机不同，它没有水位：回收是一次一次独立的动作，跑到哪算哪，
+// 中断了也没有"一半的形态"可言——文件该多大还是多大，只是没缩到位。
+// 所以这里记的是**结果**，不是进度。
+type LogReclaimState struct {
+	// Status: idle / running / done / failed。`done` 里再分跑完没跑完，见 StopReason。
+	Status string `json:"status"`
+	// Source 是这一次是谁发起的：startup（启动期转换/VACUUM）或 manual（点回收）。
+	Source string `json:"source"`
+	// PageSize 是页大小，用来把页数折成字节（界面上要说"放掉了 5.4 GiB"）。
+	PageSize int64 `json:"page_size"`
+	// FreedPages / FreedBytes 是这一次放掉的页数与字节数。
+	FreedPages int64 `json:"freed_pages"`
+	FreedBytes int64 `json:"freed_bytes"`
+	// FileSizeBefore / FileSizeAfter 是文件大小的收尾。**回收的意义全在这两个数上**
+	// ——freelist 少了不等于文件小了（auto_vacuum=0 时文件一字节都不会缩）。
+	FileSizeBefore int64 `json:"file_size_before"`
+	FileSizeAfter  int64 `json:"file_size_after"`
+	FreelistBefore int64 `json:"freelist_before"`
+	FreelistAfter  int64 `json:"freelist_after"`
+	// Calls 是这一次打了几条 `PRAGMA incremental_vacuum`。它是**页数的同义词**：
+	// 生产驱动忽略参数、每条恰好放一页（见 service.reclaimPagesPerTx）。
+	Calls      int    `json:"calls"`
+	DurationMs int64  `json:"duration_ms"`
+	StartedAt  string `json:"started_at"`
+	FinishedAt string `json:"finished_at"`
+	// StopReason 是收尾时的判定。
+	// 增量回收（manual）：
+	//   empty          —— freelist 空了，这一趟把能放的全放了
+	//   budget         —— 到点了（本轮时间预算用完），还剩着没放，可以再点一次
+	//   no_auto_vacuum —— 库的 auto_vacuum 不是 INCREMENTAL，这句 PRAGMA 是空操作
+	//   stalled        —— 放了一批 freelist 却没少（引擎行为反常），主动收工并记 LastError
+	// 启动期（startup）：
+	//   converted            —— 转成了 auto_vacuum=INCREMENTAL（转换本身就是一次 VACUUM）
+	//   vacuumed             —— 只做了启动期 VACUUM（DB_VACUUM=true）
+	//   insufficient_space   —— 磁盘不够，**跳过**（不是失败：服务照常起）
+	//
+	// 两者共有：failed —— 出错。
+	StopReason string `json:"stop_reason"`
+	LastError  string `json:"last_error"`
 }
 
 // LogCompressBackup 记下迁移开始前的备份存证。

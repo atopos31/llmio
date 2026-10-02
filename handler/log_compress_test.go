@@ -47,9 +47,13 @@ func setupCompressHandlerDB(t *testing.T) {
 	prevDB := models.DB
 	prevPath := models.DBPath
 	models.DB = db
-	// backupPath() 由 DBPath 推出来，所以这一条同时决定了"备份在哪找"。
-	// 指向一个确实不存在的路径，好让"未找到备份"是确定的。
-	models.DBPath = filepath.Join(filepath.Dir(path), "nonexistent.db")
+	// DBPath 有两个用处，都要照顾到：
+	//   1. `backupPath()` = DBPath + ".bak" —— 决定「备份在哪找」。
+	//   2. `RunCompression` 要 os.Stat 它来拿库大小（判定备份是不是比库还旧）。
+	// 所以它必须指向**一个真实存在**的文件，否则第 2 条会先失败，
+	// 这几条用例就测不到备份那道门了。"没找到备份"由 t.TempDir() 保证：
+	// 全新的空目录里不会有 .bak。
+	models.DBPath = path
 
 	// 放开跑成功的用例会真的起一个后台迁移 goroutine。它跑在空库上、
 	// 毫秒级就结束，但**必须在下一个用例开始前确认它退出了**——
@@ -57,12 +61,28 @@ func setupCompressHandlerDB(t *testing.T) {
 	// 这个理由，于是断言"拒绝理由是备份"就变成了一个偶发失败。
 	t.Cleanup(func() {
 		awaitCompressIdle(t)
+		// 回收同样是后台 goroutine，而且它一旦在 models.DB/models.DBPath 被还原
+		// 之后才跑，就会去读一个已经不存在的库——症状是一个与用例无关的
+		// nil 指针 panic。StartReclaim 在**返回之前**就占了位，所以这里等得到。
+		awaitReclaimIdle(t)
 		models.DB = prevDB
 		models.DBPath = prevPath
 		if sqlDB, err := db.DB(); err == nil {
 			_ = sqlDB.Close()
 		}
 	})
+}
+
+// awaitReclaimIdle 等后台回收退出。
+func awaitReclaimIdle(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for service.ReclaimRunning() {
+		if time.Now().After(deadline) {
+			t.Fatal("后台回收 5 秒还没退出——有东西卡住了")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // awaitCompressIdle 等后台迁移退出。空库上它下一秒就好，超时说明真有东西卡住了。
@@ -146,6 +166,22 @@ func TestRunCompression_AcceptsEmptyBody(t *testing.T) {
 	}
 	if msg, _ := env["message"].(string); !bytes.Contains([]byte(msg), []byte("备份")) {
 		t.Fatalf("空 body 没走到备份门，而是 %q——它被当成了格式错误", msg)
+	}
+}
+
+// 回收的门只有一道：一轮只能有一个。它不像迁移那样还要过备份这一类确认
+// （回收不动数据、可重复、可中断），但它**全程持写锁**，所以前端那道确认
+// 对话框是产品判断，不是接口约束。
+func TestReclaimStorage_StartsAsynchronously(t *testing.T) {
+	setupCompressHandlerDB(t)
+
+	code, env := postJSON(t, ReclaimStorage, "/api/logs/compression/reclaim", "")
+	if code != http.StatusOK {
+		t.Fatalf("回收的业务码是 %d，期望 200（msg=%v）", code, env["message"])
+	}
+	data, _ := env["data"].(map[string]any)
+	if started, _ := data["started"].(bool); !started {
+		t.Fatalf("响应里没写 started：%v", env["data"])
 	}
 }
 

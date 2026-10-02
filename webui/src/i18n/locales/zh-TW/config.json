@@ -61,12 +61,13 @@
     "skipped_value": "其中 {{n}} 列無需改動",
     "failed_after": "連續失敗 {{n}} 次後停止",
     "original": "原始請求體",
-    "original_hint": "已遷移列的原始位元組合計",
+    "original_hint": "全表原文合計，遷移起跑時量一次",
+    "original_unmeasured": "還沒量過：點一次「開始遷移」即可量出（只讀記錄頭，不改資料）",
     "stored": "真正落庫",
     "stored_hint": "請求體欄位 + 分塊組表 + 塊表索引（索引約 {{block}}，為估算值）",
     "ratio": "壓縮比",
     "ratio_hint": "原始 ÷ 真正落庫",
-    "ratio_partial": "還有未遷移的列，此比值不完整",
+    "ratio_running": "遷移進行中：此值會隨列改形態繼續上升（起跑時約 1.0×）",
     "file_size": "資料庫檔案",
     "file_size_hint": "磁碟上實際佔用",
     "reclaimable": "可回收空間",
@@ -78,6 +79,44 @@
     "blocks": "分塊表",
     "blocks_value": "{{blocks}} 個唯一塊 ｜ {{groups}} 個組",
     "blocks_hint": "組表落庫合計 {{size}}；塊表的每一列還被若干請求體共享",
+    "db_unavailable": "資料庫現況未量到（遷移正在寫入，這次讀取撞上鎖）——會自動重試，不需重新整理",
+    "db_unavailable_short": "資料庫現況暫時量不到，會自動重新整理",
+    "db_stale": "資料庫現況量於 {{time}}（此刻繁忙，量不動）",
+    "reclaim": {
+      "label": "空間回收：",
+      "never": "還沒回收過",
+      "freed": "已放掉 {{size}}",
+      "running": "回收中",
+      "how": "{{source}} · 收工原因：{{reason}} · 耗時 {{duration}} · {{calls}} 條語句",
+      "file_change": "檔案 {{before}} → {{after}}",
+      "button": "回收 {{size}}",
+      "button_bare": "回收空間",
+      "cost": "回收全程持寫鎖：期間寫請求會排隊，超過 5 秒的直接失敗；讀不受影響。每輪最多跑 90 秒，剩下的下次再放。",
+      "title": "回收資料庫裡的空閒頁",
+      "desc": "把 freelist 裡的頁還給檔案系統。它不動資料——可重複、可中斷、不丟東西。",
+      "warn": "這段時間裡，日誌寫入等寫請求會排隊並在 busy_timeout（5 秒）之後失敗；讀請求不受影響。",
+      "confirm": "開始回收",
+      "source": {
+        "startup": "啟動時做的",
+        "manual": "手動觸發"
+      },
+      "reason": {
+        "empty": "放完了",
+        "budget": "到點收工，剩下的下次再放",
+        "no_auto_vacuum": "這個庫沒開 auto_vacuum，回收是空操作",
+        "stalled": "放了一批卻沒見 freelist 變少，主動收工了（細節見下方報錯）",
+        "converted": "已轉成 auto_vacuum=INCREMENTAL",
+        "vacuumed": "啟動期 VACUUM",
+        "insufficient_space": "磁碟不夠，跳過了（服務照常啟動）",
+        "failed": "失敗"
+      },
+      "blocked": {
+        "busy_migration": "遷移正在跑，回收要等它結束——兩者搶同一把維護鎖。",
+        "no_stats": "此刻量不到資料庫的現狀，先確認它是不是真的有空閒頁。",
+        "no_auto_vacuum": "這個庫的 auto_vacuum=0，增量回收在這裡是空操作（實測 0 秒、檔案一字节不縮）。要縮檔案得整庫 VACUUM 一次；或者用 DB_AUTO_VACUUM_REBUILD=on 啟動一次，把它轉成 INCREMENTAL。",
+        "nothing": "沒有可回收的頁——檔案裡已經沒有空洞了。"
+      }
+    },
     "backup": {
       "label": "備份偵測：",
       "manual": "已找到可用備份",
@@ -121,7 +160,9 @@
       "pause_failed": "暫停失敗: {{message}}",
       "rollback_started": "回滾已在背景開始",
       "rollback_failed": "回滾失敗: {{message}}",
-      "save_failed": "儲存策略失敗: {{message}}"
+      "save_failed": "儲存策略失敗: {{message}}",
+      "reclaim_started": "回收已在後台開始",
+      "reclaim_failed": "回收失敗: {{message}}"
     }
   },
   "toast": {

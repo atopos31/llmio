@@ -61,12 +61,13 @@
     "skipped_value": "{{n}} needed no change",
     "failed_after": "Halted after {{n}} consecutive failures",
     "original": "Original bodies",
-    "original_hint": "Total original bytes of the migrated rows",
+    "original_hint": "Total original bytes across the table, measured once when a run starts",
+    "original_unmeasured": "Not measured yet: one \"Start migration\" measures it (reads record headers only, changes nothing)",
     "stored": "Actually stored",
     "stored_hint": "Body column + chunk groups + block index (index ≈ {{block}}, an estimate)",
     "ratio": "Ratio",
     "ratio_hint": "Original ÷ actually stored",
-    "ratio_partial": "Rows remain unmigrated, so this ratio is incomplete",
+    "ratio_running": "Migration in progress: this climbs as rows change form (starts near 1.0×)",
     "file_size": "Database file",
     "file_size_hint": "Actual usage on disk",
     "reclaimable": "Reclaimable",
@@ -78,6 +79,44 @@
     "blocks": "Chunk table",
     "blocks_value": "{{blocks}} unique blocks ｜ {{groups}} groups",
     "blocks_hint": "Groups total {{size}} on disk; each block row is shared by several bodies",
+    "db_unavailable": "Database stats unavailable (the migration is writing and this read hit the lock) — it retries automatically, no refresh needed",
+    "db_unavailable_short": "Database stats are temporarily unavailable; they refresh automatically",
+    "db_stale": "Database stats measured at {{time}} (too busy to measure right now)",
+    "reclaim": {
+      "label": "Reclaim:",
+      "never": "never run",
+      "freed": "freed {{size}}",
+      "running": "reclaiming",
+      "how": "{{source}} · stopped because: {{reason}} · took {{duration}} · {{calls}} statements",
+      "file_change": "file {{before}} → {{after}}",
+      "button": "Reclaim {{size}}",
+      "button_bare": "Reclaim space",
+      "cost": "Reclaim holds the write lock throughout: writes queue and fail after 5s. Reads are unaffected. Each round stops at 90s; the rest goes next time.",
+      "title": "Reclaim free pages",
+      "desc": "Return freelist pages to the filesystem. It does not touch data — repeatable, interruptible, nothing lost.",
+      "warn": "While it runs, log writes and other writes queue and fail after busy_timeout (5s); reads are unaffected.",
+      "confirm": "Start reclaim",
+      "source": {
+        "startup": "done at startup",
+        "manual": "triggered manually"
+      },
+      "reason": {
+        "empty": "nothing left to free",
+        "budget": "time budget reached; the rest goes next round",
+        "no_auto_vacuum": "this database has auto_vacuum off, so reclaim is a no-op",
+        "stalled": "a batch freed nothing and the freelist did not shrink, so it stopped early (see the error below)",
+        "converted": "converted to auto_vacuum=INCREMENTAL",
+        "vacuumed": "startup VACUUM",
+        "insufficient_space": "not enough disk, skipped (service started anyway)",
+        "failed": "failed"
+      },
+      "blocked": {
+        "busy_migration": "A migration is running; reclaim must wait — they share one maintenance lock.",
+        "no_stats": "The database cannot be measured right now, so there is no way to tell whether there is anything to free.",
+        "no_auto_vacuum": "This database has auto_vacuum=0, so incremental reclaim is a no-op here (0s, file shrinks by nothing). Shrinking it needs a full VACUUM; or start once with DB_AUTO_VACUUM_REBUILD=on to convert it to INCREMENTAL.",
+        "nothing": "Nothing to reclaim — the file has no holes left."
+      }
+    },
     "backup": {
       "label": "Backup probe:",
       "manual": "A usable backup was found",
@@ -121,7 +160,9 @@
       "pause_failed": "Failed to pause: {{message}}",
       "rollback_started": "Revert started in the background",
       "rollback_failed": "Revert failed: {{message}}",
-      "save_failed": "Failed to save policy: {{message}}"
+      "save_failed": "Failed to save policy: {{message}}",
+      "reclaim_started": "Reclaim started in the background",
+      "reclaim_failed": "Reclaim failed: {{message}}"
     }
   },
   "toast": {

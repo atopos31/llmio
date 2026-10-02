@@ -364,6 +364,171 @@ func TestLogCompress_ResumesFromWatermark(t *testing.T) {
 	}
 }
 
+// 压缩比的分子（BytesTotal）必须在**起跑那一刻量全表**，而且要把"压不动、
+// 被有意留成明文"的行也算进去——它们也是原文，只是没被改形态。
+//
+// 这一条同时钉住"实时"：这个数在跑第一行之前就已经定下来了，之后一路不变；
+// 变的是分母。若哪天有人把它改成"跑完再回填"，界面上的比值就会在整个迁移
+// 过程中一直空着——正是要修的那个毛病。
+func TestLogCompress_MeasuresOriginalTotalOnFreshRun(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	bodies := [][]byte{
+		bigRow(1, 64<<10),
+		bigRow(2, 32<<10),
+		[]byte("短"), // 逐行帧光帧头就 16 字节，比原文还大 ⇒ 留明文
+	}
+	seedPlaintextRows(t, ctx, bodies, time.Hour)
+
+	var want int64
+	for _, b := range bodies {
+		want += int64(len(b))
+	}
+
+	state, err := RunLogCompress(ctx, false)
+	if err != nil {
+		t.Fatalf("迁移失败：%v", err)
+	}
+	if state.BytesTotal != want {
+		t.Fatalf("原文合计 %d，期望 %d", state.BytesTotal, want)
+	}
+	// 从水位 0 起跑时两者相等——这正是 BytesTotal 的定义域，
+	// 也是"续跑绝不能重算"那条规矩的由来（见下一个用例）。
+	if state.BytesBefore != want {
+		t.Fatalf("扫过的行原文合计 %d，期望 %d", state.BytesBefore, want)
+	}
+}
+
+// 续跑**不能**重算原文合计。
+//
+// 水位之后还有明文，不代表全表都还是明文——已经压过的行的原文已经不在了，
+// 量回来只会是个偏小的数。拿它配全表的分母，得到的比值恰好是真值的一个零头，
+// 而且**看起来完全正常**：这就是当初 bytes_before 当分子犯的错，换个人再犯一次。
+func TestLogCompress_KeepsOriginalTotalAcrossResumes(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	bodies := make([][]byte, 6)
+	for i := range bodies {
+		bodies[i] = bigRow(300+i, 16<<10)
+	}
+	ids := seedPlaintextRows(t, ctx, bodies, time.Hour)
+
+	var full int64
+	for _, b := range bodies {
+		full += int64(len(b))
+	}
+
+	// 造一个"跑了一半"的现场：水位推过前 3 行，原文合计写的是**全表**的
+	// （从 0 起跑那一轮本来就会这么写）。
+	st := DefaultLogCompressState()
+	st.Status = compressRunning
+	st.LastID = ids[2]
+	st.Scanned = 3
+	st.BytesBefore = full
+	st.BytesTotal = full
+	if err := saveCompressState(ctx, modePack, st); err != nil {
+		t.Fatalf("写状态失败：%v", err)
+	}
+
+	got, err := RunLogCompress(ctx, false)
+	if err != nil {
+		t.Fatalf("续跑失败：%v", err)
+	}
+	if got.BytesTotal != full {
+		t.Fatalf("续跑后原文合计被改成了 %d，应当保持 %d（剩下的明文只有一半，"+
+			"重算出来的正好是假值的一半）", got.BytesTotal, full)
+	}
+}
+
+// 本次改动之前落的盘没有 bytes_total（那时候界面拿 bytes_before 当分子）。
+// 续跑时补一次，否则一份**早就迁完**的库会永远显示不出压缩比——而那正是
+// 要修的那个毛病，不能修完还留一个老库看不见。
+func TestLogCompress_BackfillsLegacyTotalOnResume(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	bodies := [][]byte{bigRow(1, 16<<10), bigRow(2, 16<<10)}
+	ids := seedPlaintextRows(t, ctx, bodies, time.Hour)
+
+	// 旧格式的状态：水位已经在末尾（这一轮不会再有候选行），
+	// 只有 bytes_before，没有 bytes_total。
+	const legacyBefore = 4242
+	st := DefaultLogCompressState()
+	st.Status = compressDone
+	st.LastID = ids[len(ids)-1]
+	st.Scanned = int64(len(bodies))
+	st.Packed = int64(len(bodies))
+	st.BytesBefore = legacyBefore
+	if err := saveCompressState(ctx, modePack, st); err != nil {
+		t.Fatalf("写状态失败：%v", err)
+	}
+
+	got, err := RunLogCompress(ctx, false)
+	if err != nil {
+		t.Fatalf("跑一轮失败：%v", err)
+	}
+	if got.BytesTotal != legacyBefore {
+		t.Fatalf("旧状态的原文合计没补上：得到 %d，期望 %d", got.BytesTotal, legacyBefore)
+	}
+}
+
+// 读侧兜底：一份**跑完的**旧状态（没有 bytes_total）必须一打开状态页就报出
+// 压缩比，而不是逼用户再点一次「开始迁移」。
+//
+// 这一条是真机反馈逼出来的：用户库里的状态是旧二进制落的盘，界面上压缩比
+// 那一格一直是"—"，而状态本身是 done、数据也明明已经压进去了。
+func TestLogCompress_ReadBackfillsLegacyTotalWithoutRerun(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	const legacyBefore = 6058628881
+	st := DefaultLogCompressState()
+	st.Status = compressDone
+	st.LastID = 12530
+	st.Scanned = 12483
+	st.Packed = 12468
+	st.BytesBefore = legacyBefore
+	// BytesTotal 留零：旧格式就是这样落的盘。
+	if err := saveCompressState(ctx, modePack, st); err != nil {
+		t.Fatalf("写状态失败：%v", err)
+	}
+
+	got, err := GetLogCompressState(ctx)
+	if err != nil {
+		t.Fatalf("读状态失败：%v", err)
+	}
+	if got.BytesTotal != legacyBefore {
+		t.Fatalf("跑完的旧状态没补上原文合计：得到 %d，期望 %d", got.BytesTotal, legacyBefore)
+	}
+}
+
+// 但**半途的**旧状态不能补。`bytes_before` 只盖住扫过的行，而界面的分母是
+// 全表——补出来的比值会恰好是真值的一半，一个看起来很专业的错数。
+// 宁可让它显示"还没量过"（点一次「开始迁移」就量出来了）。
+func TestLogCompress_DoesNotBackfillLegacyTotalMidRun(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	st := DefaultLogCompressState()
+	st.Status = compressRunning
+	st.LastID = 6000
+	st.Scanned = 5000
+	st.BytesBefore = 5 << 30
+	if err := saveCompressState(ctx, modePack, st); err != nil {
+		t.Fatalf("写状态失败：%v", err)
+	}
+
+	got, err := GetLogCompressState(ctx)
+	if err != nil {
+		t.Fatalf("读状态失败：%v", err)
+	}
+	if got.BytesTotal != 0 {
+		t.Fatalf("半途的旧状态不该补原文合计（补出来是假值的一半），实得 %d", got.BytesTotal)
+	}
+}
+
 // 一批失败必须**整批连水位一起回滚**（中断点 #3）。
 //
 // 注入方式：把块表改名，让写块那一步必然失败。若水位写在了事务外，

@@ -797,6 +797,15 @@ export interface CompressionState {
   skipped: number;
   bytes_before: number;
   bytes_after: number;
+  /**
+   * 全表原文合计，**在「开始迁移」那一次从水位 0 起跑时量一次**。
+   *
+   * 它是压缩比的分子。`bytes_before` 不能当分子：那个数只覆盖扫过的行，
+   * 而分母（真正落库）是全表——跑了一半时它算出来的比值恰好是真值的一半。
+   *
+   * 0 表示还没量过（从没跑过，或者盘上那份状态是本次改动之前落的）。
+   */
+  bytes_total: number;
   attempts: number;
   last_error: string;
   started_at: string;
@@ -828,6 +837,11 @@ export interface CompressionDBStats {
   block_group_rows: number;
   block_group_bytes: number;
   input_column_bytes: number;
+  // stats_at 是这组数**量出来的时刻**（unix 毫秒），stale 表示它是上一次的。
+  // 后端给这一组数带 5 秒冷却：状态页在迁移期间每 2 秒轮询一次，而其中一项是
+  // 全表聚合（真库 185 万页）——每次都真扫，等于自己给自己制造锁竞争。
+  stats_at: number;
+  stale: boolean;
 }
 
 export interface CompressionStatus {
@@ -835,8 +849,58 @@ export interface CompressionStatus {
   state: CompressionState;
   decompress_state: CompressionState;
   backup: CompressionBackup;
-  db: CompressionDBStats;
+  // db 可能是 null：**量不到库的现状不是错误**。迁移正在写库时这一读会撞
+  // SQLITE_BUSY，后端重试后仍失败就如实给 null，而不是把 500 甩给前端
+  // （前端一 500 就整卡报错，用户得手动刷新）。进度 state 照常给。
+  db: CompressionDBStats | null;
+  // reclaim 是**上一次空间回收**的记录（启动期的转换/VACUUM，或手动点的那一下）。
+  // 与迁移进度是两件事：迁移把页省出来，回收才把页还给文件系统。
+  reclaim: ReclaimState;
   running: boolean;
+  // reclaiming 是"此刻有一轮回收在跑"。与 running 分开——它们是两个任务，
+  // 可以一个在跑另一个不在。
+  reclaiming: boolean;
+}
+
+/** 一次空间回收的记录。字段全是后端实测值，不是估算。 */
+export interface ReclaimState {
+  status: 'idle' | 'running' | 'done' | 'failed';
+  /** startup = 启动期做的（转换/VACUUM），manual = 手动点的回收 */
+  source: 'startup' | 'manual' | '';
+  page_size: number;
+  freed_pages: number;
+  freed_bytes: number;
+  file_size_before: number;
+  file_size_after: number;
+  freelist_before: number;
+  freelist_after: number;
+  calls: number;
+  duration_ms: number;
+  started_at: string;
+  finished_at: string;
+  /**
+   * 为什么停的。**这一栏不是日志，是给用户看的结论**：
+   *
+   *   empty / budget          —— 正常收工（放完了 / 到点收工，剩下的下次再放）
+   *   no_auto_vacuum          —— 这个库没开 auto_vacuum，增量回收是**空操作**。
+   *                              点了会"瞬间完成、什么都没变"，不说出来就是骗人。
+   *   stalled                 —— 放了一批 freelist 却没少（引擎行为反常），主动收工。
+   *                              唯一一个 status=done 却带 last_error 的收工。
+   *   converted / vacuumed    —— 启动期做的（转换 / VACUUM）
+   *   insufficient_space      —— 启动期预检发现磁盘不够，**跳过了**（服务照常起）
+   *   failed                  —— 出错，看 last_error
+   */
+  stop_reason:
+    | 'empty'
+    | 'budget'
+    | 'no_auto_vacuum'
+    | 'stalled'
+    | 'converted'
+    | 'vacuumed'
+    | 'insufficient_space'
+    | 'failed'
+    | '';
+  last_error: string;
 }
 
 export async function getCompression(): Promise<CompressionStatus> {
@@ -890,6 +954,19 @@ export async function rollbackCompression(): Promise<{ started: boolean }> {
     method: 'POST',
     body: JSON.stringify({ full: true, confirm: 'decompress' }),
   });
+}
+
+/**
+ * 起一轮空间回收：把 freelist 里的页还给文件系统。
+ *
+ * 它**不动数据**，所以没有 confirm 那道门——但它会**全程持写锁**（读不受影响，
+ * 写请求会排队并在 busy_timeout 后失败），所以界面上要标成维护动作、别让人
+ * 随手点。后端每次最多占 90 秒就收工，剩下的下次再放。
+ *
+ * 库没开 auto_vacuum 时这是个空操作，后端会如实回 `no_auto_vacuum`。
+ */
+export async function reclaimStorage(): Promise<{ started: boolean }> {
+  return apiRequest('/logs/compression/reclaim', { method: 'POST' });
 }
 
 // Test API functions

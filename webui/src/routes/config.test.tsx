@@ -10,13 +10,16 @@ import {
   getCompression,
   getPeakCalendar,
   pauseCompression,
+  reclaimStorage,
   rollbackCompression,
   runCompression,
   updateCompressionPolicy,
   type AnthropicCountTokens,
+  type CompressionDBStats,
   type CompressionStatus,
   type LogCleanupPolicy,
   type LogCleanupRecord,
+  type ReclaimState,
 } from "@/lib/api"
 
 // 这一页的数据全部经过 api.ts，切断它就断开了本页的全部 IO。
@@ -36,6 +39,7 @@ vi.mock("@/lib/api", () => ({
   pauseCompression: vi.fn(),
   rollbackCompression: vi.fn(),
   updateCompressionPolicy: vi.fn(),
+  reclaimStorage: vi.fn(),
 }))
 
 const mocked = {
@@ -48,6 +52,7 @@ const mocked = {
   pauseCompression: vi.mocked(pauseCompression),
   rollbackCompression: vi.mocked(rollbackCompression),
   updateCompressionPolicy: vi.mocked(updateCompressionPolicy),
+  reclaimStorage: vi.mocked(reclaimStorage),
 }
 
 /**
@@ -114,6 +119,7 @@ function compressionStatus(over: Partial<CompressionStatus> = {}): CompressionSt
       skipped: 0,
       bytes_before: 0,
       bytes_after: 0,
+      bytes_total: 0,
       attempts: 0,
       last_error: "",
       started_at: "",
@@ -129,6 +135,7 @@ function compressionStatus(over: Partial<CompressionStatus> = {}): CompressionSt
       skipped: 0,
       bytes_before: 0,
       bytes_after: 0,
+      bytes_total: 0,
       attempts: 0,
       last_error: "",
       started_at: "",
@@ -149,10 +156,46 @@ function compressionStatus(over: Partial<CompressionStatus> = {}): CompressionSt
       block_group_rows: 0,
       block_group_bytes: 0,
       input_column_bytes: 0,
+      stats_at: 0,
+      stale: false,
     },
     running: false,
+    reclaiming: false,
+    reclaim: {
+      status: "idle",
+      source: "",
+      page_size: 0,
+      freed_pages: 0,
+      freed_bytes: 0,
+      file_size_before: 0,
+      file_size_after: 0,
+      freelist_before: 0,
+      freelist_after: 0,
+      calls: 0,
+      duration_ms: 0,
+      started_at: "",
+      finished_at: "",
+      stop_reason: "",
+      last_error: "",
+    },
     ...over,
   }
+}
+
+/** 一份"回收过一轮、正常收工"的记录。 */
+function reclaimState(over: Partial<ReclaimState> = {}): ReclaimState {
+  return { ...compressionStatus().reclaim, ...over }
+}
+
+/**
+ * 一份非空的库现状。`compressionStatus().db` 的类型是 `| null`（量不到时后端
+ * 如实给 null），而绝大多数用例要的是"量到了"的那一份——用这个抽出来，
+ * 免得每处都写一遍非空断言。
+ */
+function dbStats(over: Partial<CompressionDBStats> = {}): CompressionDBStats {
+  const db = compressionStatus().db
+  if (db === null) throw new Error("compressionStatus() 的 db 不该是 null")
+  return { ...db, ...over }
 }
 
 /** 让两个 getConfig 分别返回给定值；不传即"未配置" */
@@ -280,9 +323,11 @@ describe("系统配置页 · 错误", () => {
  *
  * 这张卡上最容易做错的两件事，测试就钉这两件：
  *
- *  1. **压缩比什么时候才该显示。** `state.bytes_before` 只统计**扫过的行**，
- *     库里还有没迁的行时它是个不完整的分子。拿它去除以全库的落库字节，
- *     会得出一个看起来很专业的错误数字——比不显示更糟。
+ *  1. **压缩比的分子与分母必须盖同一批行。** `state.bytes_before` 只统计
+ *     **扫过的行**，拿它去除以全库的落库字节会得出一个看起来很专业的错误数字
+ *     （半程时恰好是真值的一半）。分子要用 `state.bytes_total`——全表原文合计。
+ *     但**别拿"还有没有明文行"当门**：压不动的行会被有意留成明文，
+ *     那个条件永远不成立，比值就一次都不会显示。
  *  2. **没备份时那道门。** 迁移原地改写历史行，出事时唯一不需要相信压缩代码
  *     的退路是"把备份盖回去"。所以没探到备份时不许直接开跑，必须过一次确认，
  *     而且确认之后要**如实**把"无备份"这件事传下去。
@@ -299,17 +344,17 @@ describe("系统配置页 · 数据库压缩", () => {
       state: {
         ...compressionStatus().state,
         status: "done",
+        bytes_total: 1024 ** 3,
         bytes_before: 1024 ** 3,
         bytes_after: 0,
       },
-      db: {
-        ...compressionStatus().db,
+      db: dbStats({
         pending_rows: 0,
         framed_rows: 100,
         input_column_bytes: 8 * 1024 ** 2,
         block_group_rows: 1,
         block_group_bytes: 2 * 1024 ** 2,
-      },
+      }),
     })
 
     renderPage()
@@ -318,39 +363,127 @@ describe("系统配置页 · 数据库压缩", () => {
     expect(screen.getByText("原始 ÷ 真正落库")).toBeInTheDocument()
   })
 
-  it("还有未迁移的行时不报压缩比，改说这个比值不完整", async () => {
+  /**
+   * 这一条是 bug 回归。曾经的判据是 `pending_rows === 0`，而 pending_rows 数的
+   * 是 `typeof(input)='text'`——**压不动的行**（帧比原文还大）会被迁移有意留成
+   * 明文，于是它永远到不了 0（真机上有 15 行），压缩比跟着一次都没显示过。
+   *
+   * 所以这里刻意让 pending_rows 非 0 而状态是 done：这正是真机上迁移跑完的样子。
+   */
+  it("有压不动而留成明文的行时，压缩比照常显示", async () => {
     withCompression({
       state: {
         ...compressionStatus().state,
-        status: "paused",
+        status: "done",
+        bytes_total: 1024 ** 3,
         bytes_before: 1024 ** 3,
-        scanned: 40,
-        total_rows: 100,
+        scanned: 12483,
+        total_rows: 12483,
+        skipped: 15,
       },
-      db: {
-        ...compressionStatus().db,
-        pending_rows: 60, // 还有 60 行是明文
-        framed_rows: 40,
+      db: dbStats({
+        pending_rows: 15, // 压不动的那几行，永远还是明文
+        framed_rows: 12468,
         input_column_bytes: 8 * 1024 ** 2,
+        block_group_rows: 891,
         block_group_bytes: 2 * 1024 ** 2,
-      },
+      }),
     })
 
     renderPage()
 
-    expect(await screen.findByText("还有未迁移的行，此比值不完整")).toBeInTheDocument()
-    expect(screen.queryByText(/×$/)).not.toBeInTheDocument()
-    expect(screen.getByText("已暂停")).toBeInTheDocument()
+    expect(await screen.findByText("102.4×")).toBeInTheDocument()
+    expect(screen.queryByText("还有未迁移的行，此比值不完整")).not.toBeInTheDocument()
+  })
+
+  /**
+   * 中途报的也必须是个**真数**：分子（全表原文）与分母（全表落库）盖的是同一批
+   * 行，所以"此刻全库比原文小 2 倍"这句话在半程就是成立的。用 bytes_before 当
+   * 分子则会算出真值的一半——那不是保守，是错的。
+   */
+  it("迁移跑到一半就给出比值，并说明它还会涨", async () => {
+    withCompression({
+      state: {
+        ...compressionStatus().state,
+        status: "running",
+        bytes_total: 2 * 1024 ** 3,
+        bytes_before: 1024 ** 3, // 只扫了一半 —— 它**不是**分子
+        scanned: 40,
+        total_rows: 100,
+      },
+      db: dbStats({
+        pending_rows: 60, // 还有 60 行是明文，占了分母的大半
+        framed_rows: 40,
+        input_column_bytes: 1024 ** 3,
+      }),
+    })
+
+    renderPage()
+
+    // 2 GiB ÷ 1 GiB = 2.0×（若误用 bytes_before 会得到 1.0×）
+    expect(await screen.findByText("2.0×")).toBeInTheDocument()
+    expect(screen.queryByText("1.0×")).not.toBeInTheDocument()
+    expect(
+      screen.getByText("迁移进行中：此值会随行改形态继续上升（起跑时约 1.0×）")
+    ).toBeInTheDocument()
+  })
+
+  it("还没量过原文合计时如实说没量过，而不是显示一个空比值", async () => {
+    withCompression({
+      db: dbStats({ pending_rows: 12483, input_column_bytes: 5 * 1024 ** 3 }),
+    })
+
+    renderPage()
+
+    expect(
+      await screen.findByText("还没量过：点一次「开始迁移」即可量出（只读记录头，不改数据）")
+    ).toBeInTheDocument()
+    // 三个读数格里的比值格是"—"
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0)
+  })
+
+  /**
+   * 这一条是**真机反馈的回归**：迁移正在写库的时候，状态接口那份"库的现状"
+   * 会撞上 SQLITE_BUSY。原先它一路 500 上去，整张卡报错、用户得手动刷新；
+   * 更要命的是「开始迁移」那个动作也要量一次库（只为一个文件大小），于是连
+   * 迁移都起不来。
+   *
+   * 现在的约定：量不到就给 `db: null`，**不画 0**。`auto_vacuum=0` 是个有确切
+   * 含义的值（文件永不缩），拿它顶替"不知道"会把警告画反。
+   */
+  it("量不到库的现状时如实说量不到，不拿 0 冒充（更不整卡报错）", async () => {
+    withCompression({ db: null })
+
+    renderPage()
+
+    // 整块给一句短的；"真正落库"那一格另给一句说清原因（这里只该出现一次）
+    expect(await screen.findByText("库的现状暂时量不到，会自动刷新")).toBeInTheDocument()
+    expect(screen.getAllByText(/这一读撞上了锁/)).toHaveLength(1)
+    // auto_vacuum 那条警告不能出现——我们并不知道它是多少
+    expect(screen.queryByText(/当前 auto_vacuum=0/)).not.toBeInTheDocument()
+    // 进度照常显示：它是另一条读法（读 Config），不该被库现状拖下水
+    expect(screen.getByText("进度")).toBeInTheDocument()
+  })
+
+  it("库的现状是上一次量到的时说清是几点量的", async () => {
+    const at = new Date("2026-10-02T22:30:00").getTime()
+    withCompression({
+      db: dbStats({ stats_at: at, stale: true }),
+    })
+
+    renderPage()
+
+    const hint = await screen.findByText(/库的现状是 .* 量到的（此刻繁忙，量不动）/)
+    expect(hint.textContent).toContain(new Date(at).toLocaleTimeString())
   })
 
   it("auto_vacuum=0 时说清省下的空间还在文件里，要 VACUUM 才能还给磁盘", async () => {
     withCompression({
-      db: {
-        ...compressionStatus().db,
+      db: dbStats({
         auto_vacuum: 0,
         page_size: 4096,
         freelist_count: 256, // 1 MiB
-      },
+      }),
     })
 
     renderPage()
@@ -415,7 +548,7 @@ describe("系统配置页 · 数据库压缩", () => {
     const user = userEvent.setup()
     withCompression({
       backup: { path: "/tmp/llmio.db.bak", size: 1, mtime: "", at: "", source: "stale" },
-      db: { ...compressionStatus().db, file_size: 1024 ** 3 },
+      db: dbStats({ file_size: 1024 ** 3 }),
     })
 
     renderPage()
@@ -474,7 +607,7 @@ describe("系统配置页 · 数据库压缩", () => {
   })
 
   it("一行都没压过时回滚按钮是禁用的", async () => {
-    withCompression({ db: { ...compressionStatus().db, framed_rows: 0 } })
+    withCompression({ db: dbStats({ framed_rows: 0 }) })
 
     renderPage()
 
@@ -485,7 +618,7 @@ describe("系统配置页 · 数据库压缩", () => {
     const user = userEvent.setup()
     withCompression({
       state: { ...compressionStatus().state, status: "done", bytes_before: 1024 ** 3 },
-      db: { ...compressionStatus().db, framed_rows: 12468, pending_rows: 0 },
+      db: dbStats({ framed_rows: 12468, pending_rows: 0 }),
     })
     mocked.rollbackCompression.mockResolvedValue({ started: true })
 
@@ -498,6 +631,144 @@ describe("系统配置页 · 数据库压缩", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "确认回滚" }))
     await waitFor(() => expect(mocked.rollbackCompression).toHaveBeenCalled())
+  })
+
+  /**
+   * 空间回收那一块。它要回答三个问题，三条各有一个用例：
+   *
+   *  1. **上一轮干了什么**——放掉多少、为什么停的。`stop_reason` 不是日志字段，
+   *     它是"这次回收到底有没有用"的结论（尤其 `no_auto_vacuum`：空了就是空了）。
+   *  2. **按钮为什么点不动**——每种灰都得说得出理由。一个不写原因的灰按钮
+   *     会被当成故障，而 `no_auto_vacuum` 那一种根本不是"暂时不行"，是这条路
+   *     在这个库上走不通。
+   *  3. **点下去之前要知道代价**——它全程持写锁，写请求会排队并失败。
+   */
+  describe("空间回收", () => {
+    it("如实说出上一轮放掉多少、为什么停的、文件变了多少", async () => {
+      withCompression({
+        db: dbStats({
+          auto_vacuum: 2,
+          freelist_count: 336_000,
+          file_size: 7.05 * 1024 ** 3,
+        }),
+        reclaim: reclaimState({
+          status: "done",
+          source: "startup",
+          freed_pages: 1_374_982,
+          freed_bytes: 5 * 1024 ** 3,
+          file_size_before: 7.05 * 1024 ** 3,
+          file_size_after: 1.46 * 1024 ** 3,
+          calls: 336,
+          duration_ms: 793_000,
+          stop_reason: "empty",
+        }),
+      })
+
+      renderPage()
+
+      expect(await screen.findByText(/已放掉 5/)).toBeInTheDocument()
+      // 为什么停的——这一栏是结论，不是日志。
+      expect(screen.getByText(/放完了/)).toBeInTheDocument()
+      expect(screen.getByText(/启动时做的/)).toBeInTheDocument()
+      // 文件真的缩了，这一步在界面上看得见。
+      // formatBytes 只保留一位小数（7.05 → 7.1），所以这里跟着它写。
+      expect(screen.getByText(/文件 7\.1 GB → 1\.5 GB/)).toBeInTheDocument()
+    })
+
+    /**
+     * `stalled` 是唯一一个 status=done 却带着 last_error 的收工。
+     * 它的存在理由是：真机上那个 pragma 曾经被驱动**静默忽略参数**（一次只放一页），
+     * 下一次可能变成一页都不放——那时"到点收工、剩余下次再放"和正常收工长得一模一样，
+     * 于是报错必须**跟着它一起显示**，不能因为 status 是 done 就藏起来。
+     */
+    it("原地踏步时：既报出这个理由，也把具体数字显示出来", async () => {
+      withCompression({
+        db: dbStats({ auto_vacuum: 2, freelist_count: 1_000 }),
+        reclaim: reclaimState({
+          status: "done",
+          freed_pages: 0,
+          stop_reason: "stalled",
+          last_error: "这批放完 freelist 反而没减少：1000 → 1000",
+        }),
+      })
+
+      renderPage()
+
+      expect(await screen.findByText(/没见 freelist 变少/)).toBeInTheDocument()
+      // 关键：status 是 done，但这句话照样得看得见。
+      expect(screen.getByText(/1000 → 1000/)).toBeInTheDocument()
+    })
+
+    it("库没开 auto_vacuum 时说明回收是空操作，不许人点一个注定没反应的按钮", async () => {
+      withCompression({
+        // 有空洞，但库是 auto_vacuum=0：这种情况下 `PRAGMA incremental_vacuum`
+        // 实测 0.000 秒返回、文件一字节不缩。按钮亮着才是骗人。
+        db: dbStats({ auto_vacuum: 0, freelist_count: 1_374_982 }),
+      })
+
+      renderPage()
+
+      const button = await screen.findByRole("button", { name: /回收/ })
+      expect(button).toBeDisabled()
+      expect(screen.getByText(/增量回收在这里是空操作/)).toBeInTheDocument()
+      expect(screen.getByText(/DB_AUTO_VACUUM_REBUILD=on/)).toBeInTheDocument()
+    })
+
+    it("没有可回收的页时按钮禁用，并说清是没空洞而不是坏了", async () => {
+      withCompression({ db: dbStats({ auto_vacuum: 2, freelist_count: 0 }) })
+
+      renderPage()
+
+      const button = await screen.findByRole("button", { name: /回收/ })
+      expect(button).toBeDisabled()
+      expect(screen.getByText(/文件里已经没有空洞了/)).toBeInTheDocument()
+    })
+
+    it("迁移在跑时回收让路，并说明是同一把维护锁", async () => {
+      withCompression({
+        running: true,
+        db: dbStats({ auto_vacuum: 2, freelist_count: 336_000 }),
+      })
+
+      renderPage()
+
+      expect(await screen.findByText(/两者抢同一把维护锁/)).toBeInTheDocument()
+    })
+
+    it("点下去之前先过一次确认，把写锁的代价说在点之前", async () => {
+      const user = userEvent.setup()
+      withCompression({
+        db: dbStats({ auto_vacuum: 2, freelist_count: 336_000 }),
+      })
+      mocked.reclaimStorage.mockResolvedValue({ started: true })
+
+      renderPage()
+      // 按钮上带可回收的量，所以按名字前缀找。
+      await user.click(await screen.findByRole("button", { name: /^回收 / }))
+
+      const dialog = await screen.findByRole("dialog")
+      expect(within(dialog).getByText(/写请求会排队/)).toBeInTheDocument()
+      expect(mocked.reclaimStorage).not.toHaveBeenCalled()
+
+      await user.click(within(dialog).getByRole("button", { name: "开始回收" }))
+      await waitFor(() => expect(mocked.reclaimStorage).toHaveBeenCalledTimes(1))
+    })
+
+    it("回收在跑时按钮变成回收中并且不再可点", async () => {
+      withCompression({
+        reclaiming: true,
+        db: dbStats({ auto_vacuum: 2, freelist_count: 336_000 }),
+      })
+
+      renderPage()
+
+      // 两处「回收中」：读数行一处、按钮一处。
+      const labels = await screen.findAllByText("回收中")
+      expect(labels.length).toBeGreaterThanOrEqual(2)
+      for (const button of screen.getAllByRole("button")) {
+        if (button.textContent?.includes("回收中")) expect(button).toBeDisabled()
+      }
+    })
   })
 })
 

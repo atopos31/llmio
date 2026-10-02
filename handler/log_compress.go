@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"log/slog"
-	"os"
 
 	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/models"
@@ -32,25 +31,14 @@ type compressStatus struct {
 	State           *models.LogCompressState  `json:"state"`
 	DecompressState *models.LogCompressState  `json:"decompress_state"`
 	Backup          models.LogCompressBackup  `json:"backup"`
-	DB              *compressDBStats          `json:"db"`
-	Running         bool                      `json:"running"`
-}
-
-type compressDBStats struct {
-	Path        string `json:"path"`
-	FileSize    int64  `json:"file_size"`
-	PageSize    int64  `json:"page_size"`
-	PageCount   int64  `json:"page_count"`
-	Freelist    int64  `json:"freelist_count"`
-	AutoVacuum  int64  `json:"auto_vacuum"`
-	Rows        int64  `json:"rows"`
-	PendingRows int64  `json:"pending_rows"`
-	FramedRows  int64  `json:"framed_rows"`
-
-	BlockRows   int64 `json:"block_rows"`
-	GroupRows   int64 `json:"block_group_rows"`
-	GroupBytes  int64 `json:"block_group_bytes"`
-	ColumnBytes int64 `json:"input_column_bytes"`
+	// DB 可能是 null：**量不到库的现状不该让整张卡报错**，进度（state）
+	// 是另一条读法，照样给。见 service/db_stats.go。
+	DB *service.DBStats `json:"db"`
+	// Reclaim 是上一次空间回收（启动期转换/VACUUM，或手动点的那一下）的结果。
+	Reclaim *models.LogReclaimState `json:"reclaim"`
+	Running bool                    `json:"running"`
+	// Reclaiming 是"此刻有一轮回收在跑"。与 Running 分开：它们是两个任务。
+	Reclaiming bool `json:"reclaiming"`
 }
 
 // GetCompressionStatus 返回压缩状态。
@@ -72,9 +60,14 @@ func GetCompressionStatus(c *gin.Context) {
 		common.InternalServerError(c, "Failed to load decompress state: "+err.Error())
 		return
 	}
-	db, err := readCompressDBStats(ctx)
+	// 量不到就是 null，不报错（见 service/db_stats.go 的开头）。
+	db := service.ReadDBStats(ctx)
+	// 备份判定用的库大小另走文件系统：那是个 os.Stat，不会撞锁，
+	// 也不该被上面那组数的 5 秒冷却期拖旧。
+	size, _ := service.DBFileSize()
+	reclaim, err := service.GetLogReclaimState(ctx)
 	if err != nil {
-		common.InternalServerError(c, "Failed to read database stats: "+err.Error())
+		common.InternalServerError(c, "Failed to load reclaim state: "+err.Error())
 		return
 	}
 
@@ -82,9 +75,11 @@ func GetCompressionStatus(c *gin.Context) {
 		Policy:          policy,
 		State:           state,
 		DecompressState: decompressState,
-		Backup:          service.VerifyBackup(backupPath(), db.FileSize),
+		Backup:          service.VerifyBackup(backupPath(), size),
 		DB:              db,
+		Reclaim:         reclaim,
 		Running:         service.CompressRunning(),
+		Reclaiming:      service.ReclaimRunning(),
 	})
 }
 
@@ -135,12 +130,21 @@ func RunCompression(c *gin.Context) {
 
 	// 备份门槛（§1.5）。看似啰嗦，但"迁移不可逆"这件事值得多问一句：
 	// 真出事时，从备份盖回去是唯一不需要相信压缩代码那条路。
-	db, err := readCompressDBStats(ctx)
+	//
+	// 这里只要一个文件大小，所以**只量文件大小**。原先它走的是整条
+	// `readCompressDBStats`（含一次全表聚合），于是迁移正在写库的时候点「开始」
+	// 会撞 SQLITE_BUSY → 500 → 迁移根本起不来。真机反馈就是这个形状。
+	//
+	// 那么为什么这一句 os.Stat 失败仍然报 500？因为它与上面那次的失败**不是
+	// 一类事**：那一次是"库正忙，读不到"（可重试、可降级、不该拦人），这一次是
+	// "库文件不见了或读不到"——进程正拿着它，这只可能是权限或文件被移走，
+	// 是**真实故障**。而且没有它就算不出备份够不够新，那道门也就形同虚设。
+	size, err := service.DBFileSize()
 	if err != nil {
-		common.InternalServerError(c, "Failed to read database stats: "+err.Error())
+		common.InternalServerError(c, "Failed to read database size: "+err.Error())
 		return
 	}
-	backup := service.VerifyBackup(backupPath(), db.FileSize)
+	backup := service.VerifyBackup(backupPath(), size)
 	if backup.Source != "manual" {
 		if !req.AcknowledgeNoBackup {
 			common.BadRequest(c, "没有探测到可用备份（"+backup.Path+"，"+backup.Source+"）——"+
@@ -225,6 +229,22 @@ func RollbackCompression(c *gin.Context) {
 	common.Success(c, map[string]any{"started": true})
 }
 
+// ReclaimStorage 触发一次增量回收，异步返回。
+//
+// 异步的理由与迁移一样（分钟级的事不该挂在请求上），但它比迁移更需要说清
+// 代价：回收**全程持写锁**，虽然读不受影响，写请求会排队、超时即失败。
+// 所以这个接口不是"随手点一下"，前端要把它标成维护动作。
+//
+// 占位（"有一轮在跑"）由 service.StartReclaim **同步**做完，所以这里的
+// `started: true` 是可信的：返回之后再来一下必然被上面那道门挡掉。
+func ReclaimStorage(c *gin.Context) {
+	if err := service.StartReclaim(c.Request.Context()); err != nil {
+		common.BadRequest(c, "已有一轮回收在执行，请等它结束")
+		return
+	}
+	common.Success(c, map[string]any{"started": true})
+}
+
 // GetDecompressStatus 单独查回滚进度（回滚与迁移是两条独立的水位）。
 func GetDecompressStatus(c *gin.Context) {
 	state, err := service.GetLogDecompressState(c.Request.Context())
@@ -248,52 +268,6 @@ func backupPath() string {
 	return models.DBPath + ".bak"
 }
 
-// readCompressDBStats 量一次库的现状。
-//
-// `pending_rows` 是全表扫 typeof——它只读记录的类型头、不读载荷（这一列平均
-// 470 KiB），所以便宜；但它确实是全表级的，状态页别做成每秒轮询。
-func readCompressDBStats(ctx context.Context) (*compressDBStats, error) {
-	stats := &compressDBStats{Path: models.DBPath}
-
-	if models.DBPath != "" {
-		if info, err := os.Stat(models.DBPath); err == nil {
-			stats.FileSize = info.Size()
-		}
-	}
-	for _, q := range []struct {
-		sql string
-		dst *int64
-	}{
-		{`PRAGMA page_size`, &stats.PageSize},
-		{`PRAGMA page_count`, &stats.PageCount},
-		{`PRAGMA freelist_count`, &stats.Freelist},
-		{`PRAGMA auto_vacuum`, &stats.AutoVacuum},
-	} {
-		if err := models.DB.WithContext(ctx).Raw(q.sql).Row().Scan(q.dst); err != nil {
-			return nil, err
-		}
-	}
-
-	if err := models.DB.WithContext(ctx).Raw(`
-		SELECT count(*),
-		       COALESCE(sum(CASE WHEN typeof(input) = 'text' THEN 1 ELSE 0 END), 0),
-		       COALESCE(sum(CASE WHEN typeof(input) = 'blob' THEN 1 ELSE 0 END), 0),
-		       COALESCE(sum(length(CAST(input AS BLOB))), 0)
-		FROM chat_ios WHERE deleted_at IS NULL`).
-		Row().Scan(&stats.Rows, &stats.PendingRows, &stats.FramedRows, &stats.ColumnBytes); err != nil {
-		return nil, err
-	}
-
-	// 两张块表由 AutoMigrate 建，永远存在（即便是空表），所以这里不处理
-	// "表不存在"——`SELECT count(*)` 也永远不会返回零行。
-	if err := models.DB.WithContext(ctx).Raw(`SELECT count(*) FROM blocks`).
-		Row().Scan(&stats.BlockRows); err != nil {
-		return nil, err
-	}
-	if err := models.DB.WithContext(ctx).Raw(
-		`SELECT count(*), COALESCE(sum(length(data)), 0) FROM block_groups`).
-		Row().Scan(&stats.GroupRows, &stats.GroupBytes); err != nil {
-		return nil, err
-	}
-	return stats, nil
-}
+// 量库现状的代码搬去了 service/db_stats.go。搬家的理由不是分层洁癖：
+// 它现在带缓存与重试，而"缓存多久"是个业务判断；更要紧的是「开始迁移」
+// 那条路只该量一个文件大小，不该被一组全表聚合拖住（见上面的 RunCompression）。

@@ -194,8 +194,14 @@ func (m compressMode) candidateFilter() string {
 	if m == modeUnpack {
 		return "typeof(input) = 'blob'"
 	}
-	return "typeof(input) = 'text'"
+	return plaintextFilter
 }
+
+// plaintextFilter 是"这一行还裸着原文"的判据。pack 的候选过滤器就是它。
+//
+// 单独抽出来是因为它还有第二个用处：量**原文合计**。量原文只能用这一个判据，
+// 不能跟着模式走——unpack 的候选是帧，对它求和得到的是帧的字节数，不是原文。
+const plaintextFilter = "typeof(input) = 'text'"
 
 // DefaultLogCompressState 是"从没跑过"的状态。
 func DefaultLogCompressState() *models.LogCompressState {
@@ -224,6 +230,18 @@ func getCompressState(ctx context.Context, mode compressMode) (*models.LogCompre
 	}
 	if state.Status == "" {
 		state.Status = compressIdle
+	}
+	// 读侧兜底：`bytes_total` 是后加的字段，**在它之前落盘的状态里没有它**，
+	// 而界面拿它当压缩比的分子——不加这一句，一份早就迁完的库会永远显示不出
+	// 压缩比，除非用户再点一次「开始迁移」（`runCompressMode` 里有同样的补写，
+	// 但那只在真跑一轮时才发生）。
+	//
+	// 只补**跑完的**状态。半途的不能补：`bytes_before` 只盖住扫过的行，
+	// 而分母是全表，补出来的比值会恰好是真值的一半——一个看起来很专业的错数。
+	// 跑完的状态里两者盖的是同一批行（都是"当时还是明文的那些"），补得成立。
+	if mode == modePack && state.Status == compressDone &&
+		state.BytesTotal == 0 && state.BytesBefore > 0 {
+		state.BytesTotal = state.BytesBefore
 	}
 	return state, nil
 }
@@ -315,6 +333,15 @@ func runCompressMode(ctx context.Context, mode compressMode, full bool) (*models
 	}
 	state.FinishedAt = ""
 
+	// 续跑时补一次原文合计：本次改动之前落的盘没有 bytes_total（那时候界面
+	// 拿 bytes_before 当分子）。bytes_before 是迁移历轮扫过的**全部候选行**的
+	// 原文合计，在"整库本来是明文、一路迁完"这个最常见的形态下与它相等；
+	// 已经以压缩形态直接写进来的行不在其中，所以补出来的值只可能偏保守。
+	// 不补的话，一份早就迁完的库会永远显示不出压缩比——而那正是要修的那个毛病。
+	if state.LastID > 0 && state.BytesTotal == 0 && state.BytesBefore > 0 {
+		state.BytesTotal = state.BytesBefore
+	}
+
 	// 快照要在水位复位**之后**做：TotalRows 的定义是"本轮要扫的候选行总数"
 	// （已扫 + 剩余），复位后它才是全量，续跑时它是"这轮开始时还剩多少"。
 	snap, err := snapshotCompress(ctx, mode, state.LastID)
@@ -323,6 +350,15 @@ func runCompressMode(ctx context.Context, mode compressMode, full bool) (*models
 	}
 	state.MaxID = snap.maxID
 	state.TotalRows = state.Scanned + snap.total
+	// 原文合计只在**从 0 起跑**的那一次量得准：那时"水位之后还是明文的行"
+	// 就是全表。续跑时水位之后只剩一部分明文，已经压过的行的原文已经不在了
+	// ——量不回来，所以保留上一个值，绝不用一个只覆盖半张表的数去覆盖它。
+	//
+	// 只在 pack 这一路取：unpack 的候选是帧，量出来的是帧的字节数不是原文，
+	// 而回滚本来也不该报"压缩比"。
+	if mode == modePack && state.LastID == 0 {
+		state.BytesTotal = snap.plainBytes
+	}
 	if state.StartedAt == "" || full {
 		state.StartedAt = time.Now().Format(time.RFC3339)
 	}
@@ -333,7 +369,8 @@ func runCompressMode(ctx context.Context, mode compressMode, full bool) (*models
 
 	slog.Info("log compress run started",
 		"mode", mode.String(), "full", full,
-		"last_id", state.LastID, "max_id", state.MaxID, "total_rows", state.TotalRows)
+		"last_id", state.LastID, "max_id", state.MaxID, "total_rows", state.TotalRows,
+		"bytes_total", state.BytesTotal)
 
 	for {
 		if compressPauseRequested.Load() {
@@ -440,6 +477,11 @@ func sleepBetweenBatches(ctx context.Context, d time.Duration) {
 type compressSnapshot struct {
 	maxID uint  // 本轮起点时的最大 id
 	total int64 // 水位之后、maxID 之前的候选行数
+	// plainBytes 是水位之后、maxID 之前那些**还裸着原文**的行在这一列上的字节合计。
+	//
+	// 它和 total 一起量、同一个 WHERE，所以不多一次扫描：`length()` 读的是记录
+	// 头里的长度字段，和 `typeof` 一样不碰载荷（这一列平均 470 KiB）。
+	plainBytes int64
 }
 
 // snapshotCompress 量出本轮要扫的范围。
@@ -458,10 +500,15 @@ func snapshotCompress(ctx context.Context, mode compressMode, lastID uint) (comp
 		return snap, fmt.Errorf("read max id: %w", err)
 	}
 
-	countQ := fmt.Sprintf(`SELECT count(*) FROM chat_ios
-		WHERE deleted_at IS NULL AND id > ? AND id <= ? AND %s`, mode.candidateFilter())
+	// 两个筛子刻意分开：count 跟着模式走（unpack 数的是帧），
+	// 原文合计固定用 plaintextFilter（见它的注释）。
+	countQ := fmt.Sprintf(`SELECT count(*),
+		       COALESCE(sum(CASE WHEN %s THEN length(CAST(input AS BLOB)) ELSE 0 END), 0)
+		FROM chat_ios
+		WHERE deleted_at IS NULL AND id > ? AND id <= ? AND %s`,
+		plaintextFilter, mode.candidateFilter())
 	if err := models.DB.WithContext(ctx).Raw(countQ, lastID, snap.maxID).
-		Row().Scan(&snap.total); err != nil {
+		Row().Scan(&snap.total, &snap.plainBytes); err != nil {
 		return snap, fmt.Errorf("count candidates: %w", err)
 	}
 	return snap, nil

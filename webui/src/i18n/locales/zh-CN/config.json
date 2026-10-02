@@ -61,12 +61,13 @@
     "skipped_value": "其中 {{n}} 行无需改动",
     "failed_after": "连续失败 {{n}} 次后停止",
     "original": "原始请求体",
-    "original_hint": "已迁移行的原始字节合计",
+    "original_hint": "全表原文合计，迁移起跑时量一次",
+    "original_unmeasured": "还没量过：点一次「开始迁移」即可量出（只读记录头，不改数据）",
     "stored": "真正落库",
     "stored_hint": "请求体列 + 分块组表 + 块表索引（索引约 {{block}}，为估算值）",
     "ratio": "压缩比",
     "ratio_hint": "原始 ÷ 真正落库",
-    "ratio_partial": "还有未迁移的行，此比值不完整",
+    "ratio_running": "迁移进行中：此值会随行改形态继续上升（起跑时约 1.0×）",
     "file_size": "库文件",
     "file_size_hint": "磁盘上实际占用",
     "reclaimable": "可回收空间",
@@ -78,6 +79,44 @@
     "blocks": "分块表",
     "blocks_value": "{{blocks}} 个唯一块 ｜ {{groups}} 个组",
     "blocks_hint": "组表落库合计 {{size}}；块表的每一行还被若干请求体共享",
+    "db_unavailable": "库的现状没量到（迁移正在写库，这一读撞上了锁）——会自动重试，不用刷新",
+    "db_unavailable_short": "库的现状暂时量不到，会自动刷新",
+    "db_stale": "库的现状是 {{time}} 量到的（此刻繁忙，量不动）",
+    "reclaim": {
+      "label": "空间回收：",
+      "never": "还没回收过",
+      "freed": "已放掉 {{size}}",
+      "running": "回收中",
+      "how": "{{source}} · 收工原因：{{reason}} · 耗时 {{duration}} · {{calls}} 条语句",
+      "file_change": "文件 {{before}} → {{after}}",
+      "button": "回收 {{size}}",
+      "button_bare": "回收空间",
+      "cost": "回收全程持写锁：其间写请求会排队，超过 5 秒的直接失败；读不受影响。每轮最多跑 90 秒，剩下的下次再放。",
+      "title": "回收数据库里的空闲页",
+      "desc": "把 freelist 里的页还给文件系统。它不动数据——可重复、可中断、不丢东西。",
+      "warn": "这段时间里，日志写入等写请求会排队并在 busy_timeout（5 秒）之后失败；读请求不受影响。",
+      "confirm": "开始回收",
+      "source": {
+        "startup": "启动时做的",
+        "manual": "手动触发"
+      },
+      "reason": {
+        "empty": "放完了",
+        "budget": "到点收工，剩下的下次再放",
+        "no_auto_vacuum": "这个库没开 auto_vacuum，回收是空操作",
+        "stalled": "放了一批却没见 freelist 变少，主动收工了（细节见下方报错）",
+        "converted": "已转成 auto_vacuum=INCREMENTAL",
+        "vacuumed": "启动期 VACUUM",
+        "insufficient_space": "磁盘不够，跳过了（服务照常启动）",
+        "failed": "失败"
+      },
+      "blocked": {
+        "busy_migration": "迁移正在跑，回收要等它结束——两者抢同一把维护锁。",
+        "no_stats": "此刻量不到库的现状，先确认它是不是真有空闲页。",
+        "no_auto_vacuum": "这个库的 auto_vacuum=0，增量回收在这里是空操作（实测 0 秒、文件一字节不缩）。要缩文件得整库 VACUUM 一次；或者用 DB_AUTO_VACUUM_REBUILD=on 启动一次，把它转成 INCREMENTAL。",
+        "nothing": "没有可回收的页——文件里已经没有空洞了。"
+      }
+    },
     "backup": {
       "label": "备份探测：",
       "manual": "已找到可用备份",
@@ -121,7 +160,9 @@
       "pause_failed": "暂停失败: {{message}}",
       "rollback_started": "回滚已在后台开始",
       "rollback_failed": "回滚失败: {{message}}",
-      "save_failed": "保存策略失败: {{message}}"
+      "save_failed": "保存策略失败: {{message}}",
+      "reclaim_started": "回收已在后台开始",
+      "reclaim_failed": "回收失败: {{message}}"
     }
   },
   "toast": {

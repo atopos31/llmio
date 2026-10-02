@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle, Database, Loader2, Pause, Play, RotateCcw } from "lucide-react"
+import { AlertTriangle, Database, HardDrive, Loader2, Pause, Play, RotateCcw } from "lucide-react"
 import { toast } from "sonner"
 
 import { ErrorState, ListSkeleton } from "@/components/state-views"
@@ -29,12 +29,13 @@ import { Switch } from "@/components/ui/switch"
 import {
   getCompression,
   pauseCompression,
+  reclaimStorage,
   rollbackCompression,
   runCompression,
   updateCompressionPolicy,
   type CompressionStatus,
 } from "@/lib/api"
-import { formatBytes } from "@/lib/format"
+import { formatBytes, formatDurationMs } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 /**
@@ -87,6 +88,7 @@ export function CompressionCard() {
   const [editOpen, setEditOpen] = useState(false)
   const [runOpen, setRunOpen] = useState(false)
   const [rollbackOpen, setRollbackOpen] = useState(false)
+  const [reclaimOpen, setReclaimOpen] = useState(false)
 
   /**
    * `watching` 是"有一轮任务在飞、界面得盯着它"。
@@ -97,6 +99,15 @@ export function CompressionCard() {
    * 再由"看到它不再是 running"这个条件把它放下去。
    */
   const [watching, setWatching] = useState(false)
+
+  /**
+   * `watchingReclaim` 是同一件事，但盯的是**空间回收**。
+   *
+   * 两个标志分开而不是合成一个：迁移与回收是两个任务，可以一个在跑另一个
+   * 不在。合成一个的话，迁移跑完的那一次刷新会把"回收还在跑"也一起放掉，
+   * 界面就停在"回收中"再也不动了。
+   */
+  const [watchingReclaim, setWatchingReclaim] = useState(false)
 
   const load = useCallback(async (): Promise<CompressionStatus | null> => {
     setLoadError(null)
@@ -118,20 +129,25 @@ export function CompressionCard() {
       // 一直转圈，但也不该装作没事——状态徽标照实显示 running，
       // 只是不轮询（后端 in-flight 为 false 就说明没人在跑）。
       if (next?.running) setWatching(true)
+      // 回收这条同理：in_flight 是个内存里的值，跟随进程，进程重启后它必然是
+      // false，而盘上那份 running 记录会一直留着——所以判据用 reclaiming。
+      if (next?.reclaiming) setWatchingReclaim(true)
     })
   }, [load])
 
   // 轮询只在确实有任务在飞时挂着。常驻的话配置页会永远每 2 秒打一次
   // 全表 count（状态接口的 pending_rows 是整表扫 typeof）。
   useEffect(() => {
-    if (!watching) return
+    if (!watching && !watchingReclaim) return
     const id = window.setInterval(() => {
       void load().then((next) => {
-        if (next && !next.running) setWatching(false)
+        if (!next) return
+        if (!next.running) setWatching(false)
+        if (!next.reclaiming) setWatchingReclaim(false)
       })
     }, RUNNING_POLL_MS)
     return () => window.clearInterval(id)
-  }, [watching, load])
+  }, [watching, watchingReclaim, load])
 
   const startRun = async (acknowledgeNoBackup: boolean) => {
     try {
@@ -177,6 +193,21 @@ export function CompressionCard() {
     }
   }
 
+  const onReclaim = async () => {
+    try {
+      setBusy(true)
+      await reclaimStorage()
+      setWatchingReclaim(true)
+      toast.success(t("compression.toast.reclaim_started"))
+      setReclaimOpen(false)
+      await load()
+    } catch (err) {
+      toast.error(t("compression.toast.reclaim_failed", { message: errorText(err) }))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -198,7 +229,12 @@ export function CompressionCard() {
             onRetry={() => void load()}
           />
         ) : status ? (
-          <CompressionBody status={status} onEdit={() => setEditOpen(true)} />
+          <CompressionBody
+            status={status}
+            onEdit={() => setEditOpen(true)}
+            reclaiming={watchingReclaim || status.reclaiming}
+            onReclaim={() => setReclaimOpen(true)}
+          />
         ) : null}
       </CardContent>
 
@@ -239,7 +275,9 @@ export function CompressionCard() {
             variant="outline"
             className="ml-auto text-status-critical-ink"
             onClick={() => setRollbackOpen(true)}
-            disabled={busy || status.running || status.db.framed_rows === 0}
+            disabled={
+              busy || status.running || (status.db !== null && status.db.framed_rows === 0)
+            }
           >
             <RotateCcw className="size-4" />
             {t("compression.rollback")}
@@ -321,6 +359,34 @@ export function CompressionCard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 回收也要过一次确认。它不是"随手点一下"：动作本身不动数据（可重复、
+          可中断、不丢东西），但它**全程持写锁**——其间所有写请求排队，
+          超过 busy_timeout（5 秒）的直接失败。也就是说，点这一下的代价是
+          "这段时间里的请求可能失败"，这句话必须点之前说，不是点之后从日志里看。 */}
+      <Dialog open={reclaimOpen} onOpenChange={setReclaimOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("compression.reclaim.title")}</DialogTitle>
+            <DialogDescription>{t("compression.reclaim.desc")}</DialogDescription>
+          </DialogHeader>
+          <div className="flex items-start gap-2 rounded-md border border-status-warning/40 bg-status-warning/5 px-3 py-2">
+            <AlertTriangle
+              className="mt-0.5 size-4 shrink-0 text-status-warning-ink"
+              aria-hidden="true"
+            />
+            <p className="text-xs text-status-warning-ink">{t("compression.reclaim.warn")}</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReclaimOpen(false)}>
+              {t("common:actions.cancel")}
+            </Button>
+            <Button onClick={() => void onReclaim()} disabled={busy}>
+              {t("compression.reclaim.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }
@@ -332,21 +398,44 @@ export function CompressionCard() {
 function CompressionBody({
   status,
   onEdit,
+  onReclaim,
+  reclaiming,
 }: {
   status: CompressionStatus
   onEdit: () => void
+  onReclaim: () => void
+  reclaiming: boolean
 }) {
   const { t } = useTranslation(["config", "common"])
-  const { state, db, policy, backup } = status
+  const { state, db, policy, backup, reclaim } = status
 
+  // db 可能是 null：**量不到库的现状不是错误**（迁移正在写库时这一读会撞锁，
+  // 后端重试后仍失败就把它标成 null）。那时不画 0——`auto_vacuum=0` 与
+  // `freelist_count=0` 都是有确切含义的值（前者意味着文件永不缩，界面据此
+  // 画警告线），拿 0 顶替"不知道"会把结论画反。整块如实说"没量到"。
+  //
   // 真正落库 = input 列 + 组表 + 块表。块表那 40 字节/行是估算（见 BLOCK_ROW_BYTES）。
-  const blockMetaBytes = db.block_rows * BLOCK_ROW_BYTES
-  const storedBytes = db.input_column_bytes + db.block_group_bytes + blockMetaBytes
+  const blockMetaBytes = db ? db.block_rows * BLOCK_ROW_BYTES : 0
+  const storedBytes = db
+    ? db.input_column_bytes + db.block_group_bytes + blockMetaBytes
+    : null
 
-  // 原始大小只在**全部迁完**时才是 state.bytes_before：那个计数只覆盖扫过的行。
-  // 还有没迁的行时报一个比值就是在替一个不完整的数下结论。
-  const settled = db.pending_rows === 0 && state.bytes_before > 0
-  const ratio = settled && storedBytes > 0 ? state.bytes_before / storedBytes : null
+  // 压缩比的分子是 **state.bytes_total**（全表原文合计，起跑时量一次）。
+  //
+  // 这里原先的门是 `pending_rows === 0`：理由是 bytes_before 只覆盖扫过的行，
+  // 拿它配全表的分母会算出一个看起来很专业的错数——那个顾虑是对的，但门开错了
+  // 地方。**该判的是"分子与分母盖的是不是同一批行"，不是"还有没有明文行"**：
+  // 而 pending_rows 永远到不了 0，因为**压不动的行**（帧比原文还大）会被迁移
+  // 有意留成明文，真机上就有 15 行。于是这个比值一次都没显示过。
+  //
+  // 换成 bytes_total 之后两个数盖的都是全表，中途报的也是真数——而且它会随着
+  // 行改形态**一路往上爬**（起跑时约 1.0×），这正是"实时"该有的样子。
+  const ratio =
+    state.bytes_total > 0 && storedBytes !== null && storedBytes > 0
+      ? state.bytes_total / storedBytes
+      : null
+  // 还在推进时这个数只会涨，得说出来，否则那个初始的 1.0× 会被当成"压了没用"。
+  const climbing = status.running || state.status === "running"
 
   // 进度分母：本轮要扫的总行数。没有候选行时（稳态）说"已完成"而不是 0/0。
   const total = state.total_rows
@@ -355,7 +444,22 @@ function CompressionBody({
 
   // freelist 里那些页是"删了/改了但还没还给文件系统"的量。它就是
   // "省了这么多但文件没缩"的那段距离，所以拿它和文件大小并排说。
-  const freelistBytes = db.freelist_count * db.page_size
+  const freelistBytes = db ? db.freelist_count * db.page_size : null
+
+  // 回收按钮为什么点不动。**每一条都要说得出理由**：一个灰着的按钮不写原因，
+  // 用户只会以为这功能是坏的。
+  const reclaimBlocked: string | null = status.running
+    ? "busy_migration"
+    : db === null
+      ? "no_stats"
+      : // auto_vacuum=0 时 `PRAGMA incremental_vacuum` 是个 0.000 秒的空操作
+        // （实测），文件一字节不缩。让人点一个注定什么都没发生的按钮，
+        // 比直接告诉他"这个库得先转一次"要糟得多。
+        db.auto_vacuum !== 2
+        ? "no_auto_vacuum"
+        : db.freelist_count === 0
+          ? "nothing"
+          : null
 
   return (
     <div className="space-y-4">
@@ -387,54 +491,87 @@ function CompressionBody({
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <Reading
           label={t("compression.original")}
-          value={state.bytes_before > 0 ? formatBytes(state.bytes_before) : "—"}
-          hint={t("compression.original_hint")}
+          value={state.bytes_total > 0 ? formatBytes(state.bytes_total) : "—"}
+          hint={
+            state.bytes_total > 0
+              ? t("compression.original_hint")
+              : t("compression.original_unmeasured")
+          }
         />
         <Reading
           label={t("compression.stored")}
-          value={formatBytes(storedBytes)}
-          hint={t("compression.stored_hint", { block: formatBytes(blockMetaBytes) })}
+          value={storedBytes !== null ? formatBytes(storedBytes) : "—"}
+          hint={
+            storedBytes !== null
+              ? t("compression.stored_hint", { block: formatBytes(blockMetaBytes) })
+              : t("compression.db_unavailable")
+          }
         />
         <Reading
           label={t("compression.ratio")}
           value={ratio ? `${ratio.toFixed(1)}×` : "—"}
-          hint={settled ? t("compression.ratio_hint") : t("compression.ratio_partial")}
+          hint={climbing ? t("compression.ratio_running") : t("compression.ratio_hint")}
         />
       </div>
 
       {/* 库的现状 */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <Reading
-          label={t("compression.file_size")}
-          value={formatBytes(db.file_size)}
-          hint={t("compression.file_size_hint")}
-        />
-        <Reading
-          label={t("compression.reclaimable")}
-          value={formatBytes(freelistBytes)}
-          hint={
-            db.auto_vacuum === 0
-              ? t("compression.reclaimable_hint_off")
-              : t("compression.reclaimable_hint_on")
-          }
-        />
-        <Reading
-          label={t("compression.rows")}
-          value={t("compression.rows_value", {
-            pending: db.pending_rows.toLocaleString(),
-            framed: db.framed_rows.toLocaleString(),
-          })}
-          hint={t("compression.rows_hint")}
-        />
-        <Reading
-          label={t("compression.blocks")}
-          value={t("compression.blocks_value", {
-            blocks: db.block_rows.toLocaleString(),
-            groups: db.block_group_rows.toLocaleString(),
-          })}
-          hint={t("compression.blocks_hint", { size: formatBytes(db.block_group_bytes) })}
-        />
-      </div>
+      {db === null ? (
+        <p className="text-xs text-muted-foreground">{t("compression.db_unavailable_short")}</p>
+      ) : (
+        <div className="space-y-1.5">
+          {/* 这一组数带 5 秒冷却（见 service/db_stats.go）：迁移期间每 2 秒轮询
+              一次全表聚合，等于自己给自己造锁竞争。所以它**可能是上一次的**，
+              说清楚是几点量到的，而不是让人以为这是此刻的。 */}
+          {db.stale && (
+            <p className="text-xs text-status-warning-ink">
+              {t("compression.db_stale", { time: new Date(db.stats_at).toLocaleTimeString() })}
+            </p>
+          )}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <Reading
+              label={t("compression.file_size")}
+              value={formatBytes(db.file_size)}
+              hint={t("compression.file_size_hint")}
+            />
+            <Reading
+              label={t("compression.reclaimable")}
+              value={formatBytes(freelistBytes ?? 0)}
+              hint={
+                db.auto_vacuum === 0
+                  ? t("compression.reclaimable_hint_off")
+                  : t("compression.reclaimable_hint_on")
+              }
+            />
+            <Reading
+              label={t("compression.rows")}
+              value={t("compression.rows_value", {
+                pending: db.pending_rows.toLocaleString(),
+                framed: db.framed_rows.toLocaleString(),
+              })}
+              hint={t("compression.rows_hint")}
+            />
+            <Reading
+              label={t("compression.blocks")}
+              value={t("compression.blocks_value", {
+                blocks: db.block_rows.toLocaleString(),
+                groups: db.block_group_rows.toLocaleString(),
+              })}
+              hint={t("compression.blocks_hint", { size: formatBytes(db.block_group_bytes) })}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 空间回收：把 freelist 里的页还给文件系统。
+          它与上面那个「可回收」读数是同一件事的两半，所以挨着放——
+          隔着半屏的话，用户看到"可回收 5 GiB"会不知道下一步该干什么。 */}
+      <ReclaimBlock
+        reclaim={reclaim}
+        reclaiming={reclaiming}
+        blocked={reclaimBlocked}
+        freelistBytes={freelistBytes}
+        onReclaim={onReclaim}
+      />
 
       {/* 备份探测结论 */}
       <div className="flex flex-wrap items-center gap-2 border-t border-dashed border-border pt-2 text-xs">
@@ -492,6 +629,131 @@ function Reading({
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <p className="reading text-sm font-semibold">{value}</p>
       <p className="text-[11px] text-muted-foreground">{hint}</p>
+    </div>
+  )
+}
+
+/**
+ * 空间回收那一块：上一次回收的结论 + 触发按钮。
+ *
+ * ## 为什么"上一次为什么停的"要当正文显示
+ *
+ * 因为 `no_auto_vacuum` 这一个值，是"点了按钮、瞬间完成、什么都没变"
+ * 与"这个库得先转一次"之间的全部区别。后端如实记了它，界面就有义务说出来。
+ *
+ * ## 为什么按钮会灰
+ *
+ * 每种灰都有理由，而且都写在按钮下面（见调用方算的 `blocked`）。一个不写
+ * 原因的灰按钮会被当成故障——尤其 `no_auto_vacuum` 这一种，它不是"暂时不行"，
+ * 是这个库的形态决定了这条路走不通，得换一条路。
+ */
+function ReclaimBlock({
+  reclaim,
+  reclaiming,
+  blocked,
+  freelistBytes,
+  onReclaim,
+}: {
+  reclaim: CompressionStatus["reclaim"]
+  reclaiming: boolean
+  blocked: string | null
+  freelistBytes: number | null
+  onReclaim: () => void
+}) {
+  const { t } = useTranslation("config")
+  const ran = reclaim.status === "done" || reclaim.status === "failed"
+  // 换过多少：只有真放过页才说得出这个数。启动期的转换/VACUUM 也记了，
+  // 所以它同时是"上次启动时做过什么"的回执。
+  const shrank =
+    ran && reclaim.file_size_before > 0 && reclaim.file_size_after > 0
+      ? reclaim.file_size_after < reclaim.file_size_before
+      : false
+
+  return (
+    <div className="space-y-2 border-t border-dashed border-border pt-2">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-0.5">
+          <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
+            <span className="font-medium text-muted-foreground">
+              {t("compression.reclaim.label")}
+            </span>
+            {ran ? (
+              <span className="reading">
+                {t("compression.reclaim.freed", {
+                  size: formatBytes(reclaim.freed_bytes),
+                })}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">{t("compression.reclaim.never")}</span>
+            )}
+            {reclaiming && (
+              <span className="flex items-center gap-1 text-status-good-ink">
+                <Loader2 className="size-3 animate-spin" />
+                {t("compression.reclaim.running")}
+              </span>
+            )}
+          </div>
+          {ran && (
+            <p className="reading text-[11px] break-all text-muted-foreground">
+              {t("compression.reclaim.how", {
+                reason: t(`compression.reclaim.reason.${reclaim.stop_reason}` as never, {
+                  defaultValue: reclaim.stop_reason,
+                }),
+                source: t(`compression.reclaim.source.${reclaim.source}` as never, {
+                  defaultValue: reclaim.source,
+                }),
+                duration: formatDurationMs(reclaim.duration_ms),
+                calls: reclaim.calls,
+              })}
+              {shrank &&
+                " · " +
+                  t("compression.reclaim.file_change", {
+                    before: formatBytes(reclaim.file_size_before),
+                    after: formatBytes(reclaim.file_size_after),
+                  })}
+            </p>
+          )}
+          {/* 有 last_error 就显示，不只在 failed 时：`stalled` 是 done 但要带话说清
+              为什么提前收工——那一句在收工理由里指了过来说"细节见下方报错"。 */}
+          {reclaim.last_error && (
+            <p className="reading text-[11px] break-all text-status-critical-ink">
+              {reclaim.last_error}
+            </p>
+          )}
+          {blocked && (
+            <p className="text-[11px] text-muted-foreground">
+              {t(`compression.reclaim.blocked.${blocked}` as never, { defaultValue: blocked })}
+            </p>
+          )}
+        </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          onClick={onReclaim}
+          disabled={reclaiming || blocked !== null}
+        >
+          {reclaiming ? (
+            <>
+              <Loader2 className="size-4 animate-spin" />
+              {t("compression.reclaim.running")}
+            </>
+          ) : (
+            <>
+              <HardDrive className="size-4" />
+              {freelistBytes !== null && freelistBytes > 0
+                ? t("compression.reclaim.button", { size: formatBytes(freelistBytes) })
+                : t("compression.reclaim.button_bare")}
+            </>
+          )}
+        </Button>
+      </div>
+      {/* 只在这一轮确实有东西可放时说代价。没东西可放时的警告是噪音，
+          而噪音会让真正的警告失效。 */}
+      {blocked === null && freelistBytes !== null && freelistBytes > 0 && (
+        <p className="text-[11px] text-status-warning-ink">{t("compression.reclaim.cost")}</p>
+      )}
     </div>
   )
 }

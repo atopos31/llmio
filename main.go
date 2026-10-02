@@ -41,6 +41,12 @@ func init() {
 }
 
 func main() {
+	// 存储层维护（启动期 VACUUM / auto_vacuum 转换）**放在监听端口之前**：
+	// 这两件事都持排他写锁、要 2 倍库大小的空闲磁盘，放在监听之后就意味着
+	// 在途请求会撞 busy_timeout 吃到 500；放在之前则请求永远看不到它。
+	// 默认两个开关都是关的，所以常态下这一句只是读一次 pragma。
+	service.PrepareStorage(context.Background())
+
 	service.StartLogCleanupScheduler(context.Background())
 	// 历史行的形态迁移。默认策略 Enabled=false，所以它平时只是每 30 秒
 	// 空看一眼（水位≈maxID 时那两条查询扫到 0 行就返回）。
@@ -156,6 +162,9 @@ func main() {
 		api.POST("/logs/compression/pause", handler.PauseCompression)
 		api.GET("/logs/compression/decompress", handler.GetDecompressStatus)
 		api.POST("/logs/compression/decompress", handler.RollbackCompression)
+		// 空间回收：把 freelist 里的页还给文件系统。不是迁移的一部分
+		// （它不动数据），但和迁移是同一件事的两半——见 service/storage.go。
+		api.POST("/logs/compression/reclaim", handler.ReclaimStorage)
 
 		// Auth key management
 		api.GET("/auth-keys", handler.GetAuthKeys)

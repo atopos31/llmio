@@ -82,10 +82,11 @@ var compressPauseRequested atomic.Bool
 
 func DefaultLogCompressPolicy() *models.LogCompressPolicy {
 	return &models.LogCompressPolicy{
-		Enabled:    false,
-		BatchRows:  defaultCompressBatchRows,
-		BatchBytes: defaultCompressBatchBytes,
-		QuiesceSec: defaultCompressQuiesceSec,
+		Enabled:         false,
+		BatchRows:       defaultCompressBatchRows,
+		BatchBytes:      defaultCompressBatchBytes,
+		QuiesceSec:      defaultCompressQuiesceSec,
+		BatchIntervalMs: 0, // 不停顿：手动点「开始迁移」就是要点完它
 	}
 }
 
@@ -131,6 +132,16 @@ func clampLogCompressPolicy(p *models.LogCompressPolicy) {
 	}
 	if p.QuiesceSec > 86400 {
 		p.QuiesceSec = 86400
+	}
+	// 上限 5 秒：一份 12,483 行 / 5.64 GiB 的库在批 64 行下是 195 批，
+	// 停 5 秒就是 16 分钟量级、占用率掉到 4% 以下。真想更闲的应当**暂停**
+	// 而不是把它调成龟速——暂停是可续的、状态是看得见的，而一个停了半小时
+	// 还在 running 的迁移只会让人以为它卡死了。
+	if p.BatchIntervalMs < 0 {
+		p.BatchIntervalMs = 0
+	}
+	if p.BatchIntervalMs > 5000 {
+		p.BatchIntervalMs = 5000
 	}
 }
 
@@ -372,6 +383,55 @@ func runCompressMode(ctx context.Context, mode compressMode, full bool) (*models
 				"mode", mode.String(), "attempts", state.Attempts,
 				"last_id", state.LastID, "error", err)
 			return state, err
+		}
+
+		// 批间停顿：占用率旋钮，见 LogCompressPolicy.BatchIntervalMs。
+		//
+		// 放在这里（提交之后、取下一批之前）有两个后果，都是想要的：第一，
+		// **第一批发车不等**——点了「开始迁移」立刻动，停顿只发生在批与批之间；
+		// 第二，**停顿时不持任何锁**（锁是 applyCompressBatch 里每批一取的），
+		// 这正是这个旋钮的意义所在。
+		//
+		// 代价是最后一批之后也会白停一次（再过一轮才发现没候选行、转 done）。
+		// 用 0 默认值时它是零，而调大它的操作员已经明确选了"慢一点"。
+		sleepBetweenBatches(ctx, time.Duration(policy.BatchIntervalMs)*time.Millisecond)
+	}
+}
+
+// compressSleepSlice 是停顿的检查粒度：暂停按钮按下去最多隔这么久生效。
+const compressSleepSlice = 50 * time.Millisecond
+
+// sleepBetweenBatches 在批与批之间停 d，但**随时可以被叫醒**。
+//
+// 不能直接 `time.Sleep(d)`：暂停是操作员的即时动作，按下去却要瞪着进度条
+// 等最多 d（上限 5 秒）才停，那个手感是"按钮坏了"。ctx 取消同理——进程要退，
+// 没有任何理由再等。
+//
+// 切片轮询而不是 select 一个 timer + 一个暂停通道：暂停状态本来就是个
+// atomic.Bool（`PauseLogCompress` 只置位、不阻塞），再加一条通道就是给同一件
+// 事造第二份真相。50 ms 的粒度对上"人的反应时间"绰绰有余。
+func sleepBetweenBatches(ctx context.Context, d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	deadline := time.Now().Add(d)
+	for {
+		// 先查暂停再查时间：暂停标志可能是在上一次切片里置上的，
+		// 那时我们正好在 time.After 里面，现在补上这一眼。
+		if compressPauseRequested.Load() {
+			return
+		}
+		remain := time.Until(deadline)
+		if remain <= 0 {
+			return
+		}
+		if remain > compressSleepSlice {
+			remain = compressSleepSlice
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(remain):
 		}
 	}
 }

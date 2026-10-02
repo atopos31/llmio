@@ -31,9 +31,10 @@ type LogCleanupPolicy struct {
 	RetentionDays int  `json:"retention_days"`
 }
 
-// LogCompressPolicy 是历史行迁移的策略。三个参数都是"每批多大"，不是"压多狠"——
-// 压多狠（分块大小、组大小）是**写死在代码里的**，见 BlockChunkAvg 旁边的注释：
-// 那三个数一旦有数据落库就不能改，改成可配置只会给人一个"改一下试试"的机会。
+// LogCompressPolicy 是历史行迁移的策略。前三个参数是"每批多大"、第四个是
+// "批与批之间歇多久"，都不是"压多狠"——压多狠（分块大小、组大小）是
+// **写死在代码里的**，见 BlockChunkAvg 旁边的注释：那三个数一旦有数据落库就
+// 不能改，改成可配置只会给人一个"改一下试试"的机会。
 type LogCompressPolicy struct {
 	// Enabled 管的是**后台自动推进**。手动触发（POST .../run）不看它——
 	// 与日志清理的语义保持一致。
@@ -46,6 +47,17 @@ type LogCompressPolicy struct {
 	// QuiesceSec 是冷静期：updated_at 比它新的行不碰。它挡的是"正在被写的那一行"
 	// ——Create 之后、补响应体的 Updates 之前，那一行是半成品。
 	QuiesceSec int `json:"quiesce_sec"`
+	// BatchIntervalMs 是批与批之间的**主动停顿**，0 表示不停。
+	//
+	// 它不改变任何一批的行为，改的是**迁移占用写锁的时间比例**。一批持锁约
+	// 185 ms（真机 12,483 行 / 36s / 批 64 行折算），默认 0 时这批接着那批，
+	// 迁移期间库有八成时间在写事务里——请求不会报错（busy_timeout 罩得住），
+	// 但每次日志 INSERT 都要排队。
+	//
+	// 所以这是个**占用率旋钮**，不是性能旋钮：调大它迁移更慢、但库更闲。
+	// "迁移该跑多凶"取决于这台机器同时在干什么，是运维判断而不是技术判断，
+	// 所以它可配。
+	BatchIntervalMs int `json:"batch_interval_ms"`
 }
 
 // LogCompressState 是迁移进度。水位与它写在**同一个事务**里（INV-1 的推广）：
@@ -80,10 +92,10 @@ type LogCompressState struct {
 // 那一刻的库**。所以进状态页的东西必须是自己量出来的（大小 + mtime），
 // 不是操作员口头保证的。
 type LogCompressBackup struct {
-	Path   string `json:"path"`
-	Size   int64  `json:"size"`
-	MTime  string `json:"mtime"`
-	At     string `json:"at"`
+	Path  string `json:"path"`
+	Size  int64  `json:"size"`
+	MTime string `json:"mtime"`
+	At    string `json:"at"`
 	// Source 是**探出来的**结论，不是操作员说的：
 	//   manual  —— 探到备份，且不比库小
 	//   stale   —— 探到备份，但比库小（多半是迁移前的旧备份，盖回去会丢数据）

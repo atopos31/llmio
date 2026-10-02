@@ -88,6 +88,7 @@
     "policy_enabled": "Automatic progress: on",
     "policy_disabled": "Automatic progress: off (manual runs still work)",
     "policy_batch": "{{rows}} rows / {{bytes}} per batch",
+    "policy_interval": "{{ms}} ms between batches",
     "edit_policy": "Adjust policy",
     "start": "Start migration",
     "running": "Migrating…",
@@ -109,6 +110,8 @@
     "batch_rows_hint": "1–4096; out-of-range values are clamped. Larger batches pack groups fuller but hold more raw text in memory at once.",
     "batch_bytes": "Bytes per batch",
     "batch_bytes_hint": "Byte cap; a batch always keeps at least one row.",
+    "batch_interval": "Pause between batches (ms)",
+    "batch_interval_hint": "0–5000; out-of-range values are clamped. This tunes how much of the time the migration holds the database, not how fast it is: larger means an idler database and a longer migration.",
     "quiesce_sec": "Quiesce (seconds)",
     "quiesce_hint": "Rows written more recently than this are left alone, so half-written records are never migrated.",
     "toast": {

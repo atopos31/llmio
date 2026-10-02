@@ -88,6 +88,7 @@
     "policy_enabled": "背景自動推進：已啟用",
     "policy_disabled": "背景自動推進：未啟用（仍可手動執行）",
     "policy_batch": "每批 {{rows}} 列 / {{bytes}}",
+    "policy_interval": "批間停 {{ms}} ms",
     "edit_policy": "調整策略",
     "start": "開始遷移",
     "running": "遷移中…",
@@ -109,6 +110,8 @@
     "batch_rows_hint": "1–4096，越界會被夾回。越大每組打得越滿，但一次要讀進記憶體的原文也越多。",
     "batch_bytes": "每批位元組",
     "batch_bytes_hint": "位元組上限，至少保證一批一列。",
+    "batch_interval": "批間停頓（毫秒）",
+    "batch_interval_hint": "0–5000，越界會被夾回。它調的是遷移**佔用庫的時間比例**，不是快慢：調大則庫更閒、遷移更久。",
     "quiesce_sec": "冷靜期（秒）",
     "quiesce_hint": "最近被寫過的列不碰，避免遷到只寫了一半的記錄。",
     "toast": {

@@ -97,7 +97,13 @@ function renderPage() {
  */
 function compressionStatus(over: Partial<CompressionStatus> = {}): CompressionStatus {
   return {
-    policy: { enabled: false, batch_rows: 64, batch_bytes: 32 * 1024 * 1024, quiesce_sec: 60 },
+    policy: {
+      enabled: false,
+      batch_rows: 64,
+      batch_bytes: 32 * 1024 * 1024,
+      quiesce_sec: 60,
+      batch_interval_ms: 0,
+    },
     state: {
       status: "idle",
       last_id: 0,
@@ -282,8 +288,8 @@ describe("系统配置页 · 错误", () => {
  *     而且确认之后要**如实**把"无备份"这件事传下去。
  */
 describe("系统配置页 · 数据库压缩", () => {
-  /** 归零的一份状态，各用例只改自己关心的那几个字段。 */
-  function withCompression(over: Partial<CompressionStatus>) {
+  /** 归零的一份状态，各用例只改自己关心的那几个字段。不传即"全默认"。 */
+  function withCompression(over: Partial<CompressionStatus> = {}) {
     mocked.getCompression.mockResolvedValue(compressionStatus(over))
   }
 
@@ -420,6 +426,51 @@ describe("系统配置页 · 数据库压缩", () => {
       within(dialog).getByText(/多半是迁移前的旧备份——盖回去会丢数据/)
     ).toBeInTheDocument()
     expect(mocked.runCompression).not.toHaveBeenCalled()
+  })
+
+  /**
+   * 批间停顿是这次新加的**占用率旋钮**（迁移每批持写锁约 185 ms，停多久决定
+   * 库有多闲）。两件事必须钉住：它能被保存下去，以及**调过之后在卡片上看得见**
+   * ——一个改完就看不见的旋钮会被忘在那儿，然后有人对着一个慢了三倍的迁移查半天。
+   */
+  it("调整策略时把批间停顿一起提交", async () => {
+    const user = userEvent.setup()
+    mocked.updateCompressionPolicy.mockResolvedValue(compressionStatus().policy)
+
+    renderPage()
+    await user.click(await screen.findByRole("button", { name: "调整策略" }))
+
+    const dialog = await screen.findByRole("dialog")
+    const interval = within(dialog).getByLabelText("批间停顿（毫秒）")
+    await user.clear(interval)
+    await user.type(interval, "200")
+    await user.click(within(dialog).getByRole("button", { name: "保存" }))
+
+    await waitFor(() =>
+      expect(mocked.updateCompressionPolicy).toHaveBeenCalledWith(
+        expect.objectContaining({ batch_interval_ms: 200 })
+      )
+    )
+  })
+
+  it("批间停顿非 0 时在卡片上露出来，为 0 时不占位置", async () => {
+    withCompression({
+      policy: { ...compressionStatus().policy, batch_interval_ms: 200 },
+    })
+
+    renderPage()
+
+    expect(await screen.findByText("批间停 200 ms")).toBeInTheDocument()
+  })
+
+  it("批间停顿为 0（默认）时卡片上不出现这一项", async () => {
+    withCompression()
+
+    renderPage()
+
+    // 先等这只卡片真的渲染完（策略行里有「调整策略」），否则"没找到"可能只是还没渲染
+    await screen.findByRole("button", { name: "调整策略" })
+    expect(screen.queryByText(/批间停/)).not.toBeInTheDocument()
   })
 
   it("一行都没压过时回滚按钮是禁用的", async () => {

@@ -783,6 +783,8 @@ export interface CompressionPolicy {
   batch_rows: number;
   batch_bytes: number;
   quiesce_sec: number;
+  /** 批与批之间的主动停顿（毫秒），0 表示不停。它调的是迁移的**占用率**，不是快慢。 */
+  batch_interval_ms: number;
 }
 
 export interface CompressionState {

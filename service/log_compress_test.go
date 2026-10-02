@@ -681,14 +681,24 @@ func TestLogCompressPolicy_Clamps(t *testing.T) {
 		},
 		{
 			"超上限拉回",
-			models.LogCompressPolicy{BatchRows: 1 << 20, BatchBytes: 1 << 40, QuiesceSec: 1 << 20},
-			models.LogCompressPolicy{BatchRows: 4096, BatchBytes: 1 << 30, QuiesceSec: 86400},
+			models.LogCompressPolicy{BatchRows: 1 << 20, BatchBytes: 1 << 40, QuiesceSec: 1 << 20, BatchIntervalMs: 1 << 20},
+			models.LogCompressPolicy{BatchRows: 4096, BatchBytes: 1 << 30, QuiesceSec: 86400, BatchIntervalMs: 5000},
 		},
 		{
 			"负数回默认",
-			models.LogCompressPolicy{BatchRows: -1, BatchBytes: -1, QuiesceSec: -1},
+			models.LogCompressPolicy{BatchRows: -1, BatchBytes: -1, QuiesceSec: -1, BatchIntervalMs: -1},
 			models.LogCompressPolicy{
 				BatchRows: defaultCompressBatchRows, BatchBytes: defaultCompressBatchBytes, QuiesceSec: 0,
+			},
+		},
+		{
+			// 与"全零"那条对照：批间停顿的 0 是**要保留的合法值**（不停），
+			// 不是"没填所以回默认"。它的默认本来就是 0，所以两条看起来一样；
+			// 但意图不同，写在这里免得后来有人把它改成"回默认 100"。
+			"批间停顿 0 保持 0",
+			models.LogCompressPolicy{BatchIntervalMs: 0},
+			models.LogCompressPolicy{
+				BatchRows: defaultCompressBatchRows, BatchBytes: defaultCompressBatchBytes,
 			},
 		},
 	} {
@@ -701,11 +711,128 @@ func TestLogCompressPolicy_Clamps(t *testing.T) {
 				t.Fatalf("读策略失败：%v", err)
 			}
 			if got.BatchRows != tc.want.BatchRows || got.BatchBytes != tc.want.BatchBytes ||
-				got.QuiesceSec != tc.want.QuiesceSec {
+				got.QuiesceSec != tc.want.QuiesceSec ||
+				got.BatchIntervalMs != tc.want.BatchIntervalMs {
 				t.Fatalf("夹取结果 %+v，期望 %+v", *got, tc.want)
 			}
 		})
 	}
+}
+
+/**
+ * 批间停顿（占用率旋钮）。
+ *
+ * `sleepBetweenBatches` 只有三件事要做对，这三件都是**错了不会报错**的那类：
+ *
+ *  1. 睡够时间（否则旋钮形同虚设，而且没人会发现——迁移只是"还是那么快"）；
+ *  2. **能被暂停叫醒**（否则按了暂停要瞪着进度条等最多 5 秒，手感是"按钮坏了"）；
+ *  3. 0 就是 0（默认路径上一微秒都不该多花）。
+ *
+ * 时间断言用宽松的界：CI 与开发机上定时器都可能偏，这里要钉的是"睡没睡"
+ * 这个量级，不是精度。
+ */
+func TestSleepBetweenBatches_WaitsTheInterval(t *testing.T) {
+	resetCompressSignals(t)
+
+	started := time.Now()
+	sleepBetweenBatches(context.Background(), 150*time.Millisecond)
+	elapsed := time.Since(started)
+
+	if elapsed < 120*time.Millisecond {
+		t.Fatalf("要求停 150ms，实际只停了 %s——旋钮没起作用", elapsed)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("要求停 150ms，实际停了 %s——它睡过头了", elapsed)
+	}
+}
+
+func TestSleepBetweenBatches_ZeroIsImmediate(t *testing.T) {
+	resetCompressSignals(t)
+
+	started := time.Now()
+	sleepBetweenBatches(context.Background(), 0)
+	if elapsed := time.Since(started); elapsed > 20*time.Millisecond {
+		t.Fatalf("0 应当立刻返回，实际用了 %s", elapsed)
+	}
+}
+
+// 暂停按钮按下去要**立刻**有反应。用 5 秒（策略上限）而不是 150ms 来测：
+// 只有取到上限那个量级，"能被叫醒"与"睡满"才区分得开——短间隔下两者都是几十毫秒。
+func TestSleepBetweenBatches_WakesOnPause(t *testing.T) {
+	resetCompressSignals(t)
+	compressPauseRequested.Store(true)
+	defer resetCompressSignals(t)
+
+	started := time.Now()
+	sleepBetweenBatches(context.Background(), 5*time.Second)
+	elapsed := time.Since(started)
+
+	if elapsed > time.Second {
+		t.Fatalf("已经按了暂停，却在停顿里等了 %s——按下去要立刻停", elapsed)
+	}
+}
+
+// 进程要退（ctx 取消）时不该把剩下的停顿睡完。
+func TestSleepBetweenBatches_WakesOnContextCancel(t *testing.T) {
+	resetCompressSignals(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		cancel()
+	}()
+
+	started := time.Now()
+	sleepBetweenBatches(ctx, 5*time.Second)
+	elapsed := time.Since(started)
+
+	if elapsed > time.Second {
+		t.Fatalf("ctx 已取消，却在停顿里等了 %s", elapsed)
+	}
+}
+
+// 停顿**真的接在批与批之间**——上面三条只测了 sleepBetweenBatches 本身，
+// 而"它有没有被调用"是另一件事，且错了完全看不出来：迁移只是照旧飞快地跑完。
+//
+// 判据取的是量级差：批 1 行 × 2 行、批间停 700ms，跑完至少要 1 秒（两次停顿，
+// 含最后一批之后那一次）；没有接线的话整轮是几十毫秒。两边差一个数量级，
+// 所以定时器怎么飘都不影响结论。
+func TestLogCompress_BatchIntervalActuallyPauses(t *testing.T) {
+	resetCompressSignals(t)
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	if err := SaveLogCompressPolicy(ctx, &models.LogCompressPolicy{
+		BatchRows: 1, BatchBytes: defaultCompressBatchBytes,
+		QuiesceSec: 0, BatchIntervalMs: 700,
+	}); err != nil {
+		t.Fatalf("写策略失败：%v", err)
+	}
+	seedPlaintextRows(t, ctx, [][]byte{bigRow(1, 64<<10), bigRow(2, 64<<10)}, time.Hour)
+
+	started := time.Now()
+	state, err := RunLogCompress(ctx, false)
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("迁移失败：%v", err)
+	}
+	if state.Status != compressDone {
+		t.Fatalf("跑完的状态是 %q，期望 %q", state.Status, compressDone)
+	}
+	if elapsed < time.Second {
+		t.Fatalf("批间停 700ms × 2 批，整轮却只用了 %s——停顿没有接进迁移循环", elapsed)
+	}
+}
+
+// resetCompressSignals 把两个进程级信号复位。它们不该在用例之间泄漏——
+// 尤其是 pause：上一轮用例留下的 true 会让这一轮的迁移当场转 paused。
+func resetCompressSignals(t *testing.T) {
+	t.Helper()
+	compressPauseRequested.Store(false)
+	compressInFlight.Store(false)
+	t.Cleanup(func() {
+		compressPauseRequested.Store(false)
+		compressInFlight.Store(false)
+	})
 }
 
 func TestVerifyBackup(t *testing.T) {

@@ -463,6 +463,13 @@ function CompressionBody({
             bytes: formatBytes(policy.batch_bytes),
           })}
         </span>
+        {/* 只在非 0 时露出来：默认（0）不占位置，而一旦有人调过它，
+            迁移变慢就有了看得见的解释——否则那个旋钮会被忘在那儿。 */}
+        {policy.batch_interval_ms > 0 && (
+          <span className="reading">
+            {t("compression.policy_interval", { ms: policy.batch_interval_ms })}
+          </span>
+        )}
         <Button variant="link" size="sm" className="h-auto px-0 text-xs" onClick={onEdit}>
           {t("compression.edit_policy")}
         </Button>
@@ -532,6 +539,7 @@ function PolicyDialog({
   const [batchRows, setBatchRows] = useState(String(status.policy.batch_rows))
   const [batchBytes, setBatchBytes] = useState(String(status.policy.batch_bytes))
   const [quiesceSec, setQuiesceSec] = useState(String(status.policy.quiesce_sec))
+  const [batchIntervalMs, setBatchIntervalMs] = useState(String(status.policy.batch_interval_ms))
   const [saving, setSaving] = useState(false)
 
   // 每次打开都从服务端的最新值重置：这张卡是会被轮询刷新的，
@@ -542,6 +550,7 @@ function PolicyDialog({
     setBatchRows(String(status.policy.batch_rows))
     setBatchBytes(String(status.policy.batch_bytes))
     setQuiesceSec(String(status.policy.quiesce_sec))
+    setBatchIntervalMs(String(status.policy.batch_interval_ms))
   }, [open, status.policy])
 
   const save = async () => {
@@ -554,6 +563,7 @@ function PolicyDialog({
         batch_rows: Number(batchRows) || 0,
         batch_bytes: Number(batchBytes) || 0,
         quiesce_sec: Number(quiesceSec) || 0,
+        batch_interval_ms: Number(batchIntervalMs) || 0,
       })
       toast.success(t("toast.save_success"))
       onOpenChange(false)
@@ -582,7 +592,7 @@ function PolicyDialog({
             <Switch checked={enabled} onCheckedChange={setEnabled} />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="comp-batch-rows">{t("compression.batch_rows")}</Label>
               <Input
@@ -616,6 +626,21 @@ function PolicyDialog({
                 onChange={(e) => setQuiesceSec(e.target.value)}
               />
               <p className="text-[11px] text-muted-foreground">{t("compression.quiesce_hint")}</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="comp-interval">{t("compression.batch_interval")}</Label>
+              <Input
+                id="comp-interval"
+                type="number"
+                min={0}
+                max={5000}
+                step={50}
+                value={batchIntervalMs}
+                onChange={(e) => setBatchIntervalMs(e.target.value)}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {t("compression.batch_interval_hint")}
+              </p>
             </div>
           </div>
         </div>

@@ -88,6 +88,7 @@
     "policy_enabled": "后台自动推进：已启用",
     "policy_disabled": "后台自动推进：未启用（仍可手动运行）",
     "policy_batch": "每批 {{rows}} 行 / {{bytes}}",
+    "policy_interval": "批间停 {{ms}} ms",
     "edit_policy": "调整策略",
     "start": "开始迁移",
     "running": "迁移中…",
@@ -109,6 +110,8 @@
     "batch_rows_hint": "1–4096，越界会被夹回。越大每组打得越满，但一次要读进内存的原文也越多。",
     "batch_bytes": "每批字节",
     "batch_bytes_hint": "字节上限，至少保证一批一行。",
+    "batch_interval": "批间停顿（毫秒）",
+    "batch_interval_hint": "0–5000，越界会被夹回。它调的是迁移**占用库的时间比例**，不是快慢：调大则库更闲、迁移更久。",
     "quiesce_sec": "冷静期（秒）",
     "quiesce_hint": "最近被写过的行不碰，避免迁到只写了一半的记录。",
     "toast": {

@@ -1,6 +1,16 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle, Database, HardDrive, Loader2, Pause, Play, RotateCcw } from "lucide-react"
+import {
+  AlertTriangle,
+  CircleHelp,
+  Database,
+  HardDrive,
+  Loader2,
+  Pause,
+  Play,
+  RotateCcw,
+  Square,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { ErrorState, ListSkeleton } from "@/components/state-views"
@@ -26,15 +36,25 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Meter } from "@/components/ui/meter"
 import { Switch } from "@/components/ui/switch"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   getCompression,
   pauseCompression,
   reclaimStorage,
   rollbackCompression,
   runCompression,
+  stopReclaim,
   updateCompressionPolicy,
+  updateReclaimPolicy,
   type CompressionStatus,
+  type ReclaimPolicy,
 } from "@/lib/api"
+import {
+  estimateReclaim,
+  estimateRowsSec,
+  MIGRATE_ROWS_PER_SEC,
+  ROLLBACK_ROWS_PER_SEC,
+} from "@/lib/compression"
 import { formatBytes, formatDurationMs } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -79,6 +99,219 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/**
+ * 三个动作共用的确认窗：「会发生什么」+「代价与退路」+ 可选的警告块。
+ *
+ * 这三段不是装饰。点这一下要付的代价——多久、期间服务什么样、事后能不能退、
+ * 数据显示成什么形态——**只有这张卡说得出来**：服务端只回一个 200 和一行日志，
+ * 事后想弄明白就得去读源码。所以三个动作**都**过这个窗；有备份也不跳过。
+ * 备份挡的是数据丢失，挡不住"点下去要跑半小时、期间写请求会排队"这类预期落差。
+ *
+ * 真机那次「回滚之后再迁移什么都没做」也说明同一件事：根因是水位没退，但
+ * **"回滚会把迁移进度重置"这句话本来就在这个窗里**——说在前面，能省掉一次排查。
+ */
+function ActionDialog({
+  open,
+  onOpenChange,
+  title,
+  desc,
+  flowTitle,
+  flow,
+  costTitle,
+  cost,
+  choice,
+  warning,
+  warningTone = "warning",
+  confirmLabel,
+  confirmVariant = "default",
+  busy,
+  onConfirm,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  title: string
+  desc: string
+  flowTitle: string
+  /** 点下去之后按顺序发生的事。空串会被丢掉，方便调用方按条件拼。 */
+  flow: string[]
+  costTitle?: string
+  cost?: string[]
+  /**
+   * 动作有档位可选时放这里（目前只有回收的"持续到放完"）。
+   * 它排在两个列表**下面**、确认按钮**上面**：先看完"会发生什么"，再决定怎么跑。
+   */
+  choice?: ReactNode
+  warning?: ReactNode
+  warningTone?: "warning" | "critical"
+  confirmLabel: string
+  confirmVariant?: "default" | "destructive"
+  busy: boolean
+  onConfirm: () => void
+}) {
+  const { t } = useTranslation("common")
+  const tone =
+    warningTone === "critical"
+      ? { box: "border-status-critical/40 bg-status-critical/5", ink: "text-status-critical-ink" }
+      : { box: "border-status-warning/40 bg-status-warning/5", ink: "text-status-warning-ink" }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{desc}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <ActionSection title={flowTitle}>
+            <ol className="space-y-1.5">
+              {flow.filter(Boolean).map((step, i) => (
+                <li key={i} className="flex gap-2 text-xs">
+                  <span className="reading shrink-0 text-muted-foreground/70">{i + 1}.</span>
+                  <span className="min-w-0 text-muted-foreground">{step}</span>
+                </li>
+              ))}
+            </ol>
+          </ActionSection>
+
+          {costTitle && cost && cost.length > 0 && (
+            <ActionSection title={costTitle}>
+              <ul className="space-y-1.5">
+                {cost.filter(Boolean).map((item, i) => (
+                  <li key={i} className="min-w-0 text-xs text-muted-foreground">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </ActionSection>
+          )}
+
+          {choice}
+
+          {warning && (
+            <div className={cn("flex items-start gap-2 rounded-md border px-3 py-2", tone.box)}>
+              <AlertTriangle className={cn("mt-0.5 size-4 shrink-0", tone.ink)} aria-hidden="true" />
+              <div className="min-w-0 space-y-1 text-xs">{warning}</div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            {t("actions.cancel")}
+          </Button>
+          <Button variant={confirmVariant} onClick={onConfirm} disabled={busy}>
+            {confirmLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ActionSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs font-medium">{title}</p>
+      {children}
+    </div>
+  )
+}
+
+/**
+ * 输入项标题旁的「？」：悬停或键盘聚焦时展开一段说明。
+ *
+ * 表单里每个数字都有两类读者。一类只想确认「这个框填什么」——那一行常显的
+ * hint 就够。另一类要知道「允许填多少、填超了会怎样、改了它影响的是什么」——
+ * 把这些也塞进 hint，那行常显的小字就变成一段说明书，而常显的字一长就没人读。
+ * 所以拆开：常显的说「这是什么」，悬停的说「边界与副作用」。
+ *
+ * 用 `button` 而不是图标本身：它能被 Tab 聚焦，Radix 的 Tooltip 在聚焦时同样
+ * 展开，所以键盘用户不必碰鼠标也看得到；`aria-label` 同时给读屏一个名字。
+ */
+function HelpHint({ label, text }: { label: string; text: string }) {
+  const [open, setOpen] = useState(false)
+
+  /**
+   * 「这一次聚焦不该展开」的标记，供 `onOpenChange` 兜底用（见下）。
+   */
+  const vetoFocusOpen = useRef(false)
+
+  return (
+    <Tooltip
+      open={open}
+      onOpenChange={(next) => {
+        // 兜底：万一没拦住（例如 Radix 换了处理函数的合并顺序），展开也要在这里被否掉。
+        if (next && vetoFocusOpen.current) {
+          vetoFocusOpen.current = false
+          return
+        }
+        setOpen(next)
+      }}
+    >
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          // Radix 的 Tooltip 在悬停**和聚焦**时都展开。悬停是我们要的；聚焦要分两种：
+          // Tab 走过来该展开（否则键盘用户永远看不到这段话），而弹窗打开时浏览器会把
+          // 焦点自动放到第一个可聚焦元素上——那个位置正好可能是这个「？」——就不该展开。
+          // 不收的话，点开弹窗帮助文案自己就冒出来了（真机复现过，在「数据库压缩策略」
+          // 窗里，焦点落在「后台自动推进」旁边的「？」上）。
+          //
+          // 判据用 `:focus-visible`：它回答的正是「这次聚焦是不是键盘来的」——鼠标点开
+          // 弹窗时程序聚焦不带它，Tab 走过来时带（两个方向都在真机上量过）。
+          //
+          // `preventDefault()` 是拦截的**主要**手段：Radix 的聚焦处理函数是
+          // `composeEventHandlers(props.onFocus, 展开)` 包出来的，它看到
+          // `defaultPrevented` 就不再往下走（`react-tooltip` 里那行
+          // `if (!isPointerDownRef.current) context.onOpen()`）。
+          // 而我们的处理函数一定排在它前面——`react-slot` 合并同名的 `on*` 时
+          // 子元素的先跑（`childPropValue(...args)` 在 `slotPropValue(...args)` 之前）。
+          onFocus={(event) => {
+            const byKeyboard = event.currentTarget.matches(":focus-visible")
+            vetoFocusOpen.current = !byKeyboard
+            if (!byKeyboard) event.preventDefault()
+          }}
+          // 标记不能留到下一次交互：悬停是明确的展开意图，一进指针就作废标记。
+          // （不这么做的话，被否掉的那次聚焦会把标记留下，用户随后把鼠标移上来
+          // 反而展不开。）
+          onPointerMove={() => {
+            vetoFocusOpen.current = false
+          }}
+          onBlur={() => {
+            vetoFocusOpen.current = false
+          }}
+          className="inline-flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          <CircleHelp className="size-3.5" aria-hidden="true" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs leading-relaxed">
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** 标题 + 「？」。几个输入项的标题都是这个形状，抽出来免得每处各写一遍对齐。 */
+function FieldLabel({
+  htmlFor,
+  label,
+  help,
+}: {
+  htmlFor?: string
+  label: string
+  help: string
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Label htmlFor={htmlFor}>{label}</Label>
+      <HelpHint label={label} text={help} />
+    </div>
+  )
+}
+
 export function CompressionCard() {
   const { t } = useTranslation(["config", "common"])
   const [status, setStatus] = useState<CompressionStatus | null>(null)
@@ -89,6 +322,17 @@ export function CompressionCard() {
   const [runOpen, setRunOpen] = useState(false)
   const [rollbackOpen, setRollbackOpen] = useState(false)
   const [reclaimOpen, setReclaimOpen] = useState(false)
+  const [reclaimPolicyOpen, setReclaimPolicyOpen] = useState(false)
+  /**
+   * 回收弹窗里那个「持续到放完」开关。默认**打开**：
+   *
+   *   - 它点一次就把活干完（否则一个 5 GiB 的洞要点十次），
+   *   - 而且它**对写请求更好**——持续模式一批一轮、批间松手，写锁最多被握一批
+   *     的时间（实测最坏 4.4 秒 < busy_timeout 的 5 秒），写请求是排队而不是失败。
+   *
+   * 所以这不是"更凶"的那一档，是更温和的那一档，只是总耗时更长。
+   */
+  const [reclaimContinuous, setReclaimContinuous] = useState(true)
 
   /**
    * `watching` 是"有一轮任务在飞、界面得盯着它"。
@@ -196,7 +440,7 @@ export function CompressionCard() {
   const onReclaim = async () => {
     try {
       setBusy(true)
-      await reclaimStorage()
+      await reclaimStorage(reclaimContinuous)
       setWatchingReclaim(true)
       toast.success(t("compression.toast.reclaim_started"))
       setReclaimOpen(false)
@@ -207,6 +451,68 @@ export function CompressionCard() {
       setBusy(false)
     }
   }
+
+  /**
+   * 请求停止持续回收。
+   *
+   * 它**不**把 `watchingReclaim` 放掉：停止在批间生效，真正退出之前状态接口
+   * 还会一直报 reclaiming。提前放掉的话轮询就停了，界面会卡在"回收中"不动。
+   * 由轮询那条路看到 `reclaiming` 变假再收工。
+   */
+  const onStopReclaim = async () => {
+    try {
+      setBusy(true)
+      await stopReclaim()
+      toast.success(t("compression.toast.reclaim_stopped"))
+      await load()
+    } catch (err) {
+      toast.error(t("compression.toast.reclaim_stop_failed", { message: errorText(err) }))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // ── 弹窗里那几个估算 ──
+  //
+  // 全部以 `status.db` 为输入，而它**可能是 null**（迁移正在写库时量不到）。
+  // 那种时候估算一律留空：连"还剩多少行"都不知道，编一个数出来比不说更糟。
+  const db = status?.db ?? null
+
+  const noBackup = status !== null && status.backup.source !== "manual"
+
+  const pendingRows = db?.pending_rows ?? null
+  const runEta =
+    pendingRows !== null && pendingRows > 0
+      ? t("compression.run_eta", {
+          eta: formatDurationMs(estimateRowsSec(pendingRows, MIGRATE_ROWS_PER_SEC) * 1000),
+          rows: pendingRows.toLocaleString(),
+          rate: MIGRATE_ROWS_PER_SEC.toLocaleString(),
+        })
+      : ""
+
+  // 回滚要还原的是**已经压过的**行，不是待迁移的行——分母反了会给出一个
+  // 与真机差一个数量级的数（真机待迁移 12,483、已迁移 12,469，正好接近，
+  // 所以这个错不会自己暴露出来）。
+  const framedRows = db?.framed_rows ?? null
+  const rollbackEta =
+    framedRows !== null && framedRows > 0
+      ? t("compression.rollback_eta", {
+          eta: formatDurationMs(estimateRowsSec(framedRows, ROLLBACK_ROWS_PER_SEC) * 1000),
+          rows: framedRows.toLocaleString(),
+          rate: ROLLBACK_ROWS_PER_SEC.toLocaleString(),
+        })
+      : ""
+
+  const reclaimBytes = db !== null ? db.freelist_count * db.page_size : 0
+  const reclaimPlan = estimateReclaim(db?.freelist_count ?? 0, reclaimContinuous)
+  const reclaimEta =
+    db !== null && reclaimBytes > 0
+      ? t(reclaimContinuous ? "compression.reclaim.eta_continuous" : "compression.reclaim.eta", {
+          size: formatBytes(reclaimBytes),
+          rounds: reclaimPlan.rounds,
+          eta: formatDurationMs(reclaimPlan.seconds * 1000),
+        })
+      : ""
 
   return (
     <Card>
@@ -234,6 +540,8 @@ export function CompressionCard() {
             onEdit={() => setEditOpen(true)}
             reclaiming={watchingReclaim || status.reclaiming}
             onReclaim={() => setReclaimOpen(true)}
+            onStop={() => void onStopReclaim()}
+            onEditPolicy={() => setReclaimPolicyOpen(true)}
           />
         ) : null}
       </CardContent>
@@ -241,12 +549,11 @@ export function CompressionCard() {
       {status && !loadError && (
         <CardFooter className="flex flex-wrap gap-2">
           <Button
-            onClick={() => {
-              // 有可用备份就直接跑；没有就先弹确认。这道门在后端也有一份
-              // （没确认就是 400），这里只是把"为什么被拦"提前说清楚。
-              if (status.backup.source === "manual") void startRun(false)
-              else setRunOpen(true)
-            }}
+            // **总是**先弹确认，有备份也不例外。原先有备份就直接跑——那是拿
+            // "备份存在"当成了"用户知道会发生什么"，而这两件事没有关系。
+            // 没有备份时这个窗会多出一段警告、确认按钮变红，并把本次执行以
+            // "无备份"记入存证（后端也有一份同样的门，没确认就是 400）。
+            onClick={() => setRunOpen(true)}
             disabled={busy || status.running}
           >
             {status.running ? (
@@ -295,98 +602,131 @@ export function CompressionCard() {
       )}
 
       {status && (
-        <Dialog open={runOpen} onOpenChange={setRunOpen}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{t("compression.no_backup_title")}</DialogTitle>
-              <DialogDescription>{t("compression.no_backup_desc")}</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-2 text-sm">
-              <div className="flex items-start gap-2 rounded-md border border-status-warning/40 bg-status-warning/5 px-3 py-2">
-                <AlertTriangle
-                  className="mt-0.5 size-4 shrink-0 text-status-warning-ink"
-                  aria-hidden="true"
-                />
-                <div className="min-w-0 space-y-1">
-                  <p className="text-xs text-status-warning-ink">
-                    {t(`compression.backup.${status.backup.source}` as never, {
-                      defaultValue: status.backup.source,
-                    })}
-                  </p>
-                  <p className="reading text-xs break-all text-muted-foreground">
-                    {status.backup.path || "—"}
-                  </p>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">{t("compression.no_backup_hint")}</p>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setRunOpen(false)}>
-                {t("common:actions.cancel")}
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => void startRun(true)}
-                disabled={busy}
-              >
-                {t("compression.no_backup_confirm")}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <ReclaimPolicyDialog
+          open={reclaimPolicyOpen}
+          onOpenChange={setReclaimPolicyOpen}
+          policy={status.reclaim_policy}
+          onSaved={load}
+        />
       )}
 
-      <Dialog open={rollbackOpen} onOpenChange={setRollbackOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t("compression.rollback_title")}</DialogTitle>
-            <DialogDescription>{t("compression.rollback_desc")}</DialogDescription>
-          </DialogHeader>
-          <div className="flex items-start gap-2 rounded-md border border-status-critical/40 bg-status-critical/5 px-3 py-2">
-            <AlertTriangle
-              className="mt-0.5 size-4 shrink-0 text-status-critical-ink"
-              aria-hidden="true"
-            />
-            <p className="text-xs text-status-critical-ink">{t("compression.rollback_warn")}</p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRollbackOpen(false)}>
-              {t("common:actions.cancel")}
-            </Button>
-            <Button variant="destructive" onClick={() => void onRollback()} disabled={busy}>
-              {t("compression.rollback_confirm")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {status && (
+        <ActionDialog
+          open={runOpen}
+          onOpenChange={setRunOpen}
+          title={t("compression.run_title")}
+          desc={t("compression.run_desc")}
+          flowTitle={t("compression.run_flow_title")}
+          flow={[
+            t("compression.run_step_1"),
+            t("compression.run_step_2"),
+            t("compression.run_step_3"),
+            t("compression.run_step_4"),
+            runEta,
+          ]}
+          costTitle={t("compression.run_cost_title")}
+          cost={[t("compression.run_cost_1"), t("compression.run_cost_2")]}
+          warningTone="critical"
+          warning={
+            noBackup ? (
+              <>
+                <p className="font-medium">{t("compression.no_backup_title")}</p>
+                <p>{t("compression.no_backup_desc")}</p>
+                {/* 探测结论与路径照实带出来：用户要据此判断"我到底把备份
+                    放对地方了没有"，只写"未找到备份"他会不知道该看哪儿。 */}
+                <p className="reading break-all">
+                  {t(`compression.backup.${status.backup.source}` as never, {
+                    defaultValue: status.backup.source,
+                  })}
+                  {status.backup.path ? ` · ${status.backup.path}` : ""}
+                </p>
+                <p>{t("compression.no_backup_hint")}</p>
+              </>
+            ) : undefined
+          }
+          confirmLabel={
+            noBackup ? t("compression.no_backup_confirm") : t("compression.run_confirm")
+          }
+          confirmVariant={noBackup ? "destructive" : "default"}
+          busy={busy}
+          onConfirm={() => void startRun(noBackup)}
+        />
+      )}
+
+      <ActionDialog
+        open={rollbackOpen}
+        onOpenChange={setRollbackOpen}
+        title={t("compression.rollback_title")}
+        desc={t("compression.rollback_desc")}
+        flowTitle={t("compression.rollback_flow_title")}
+        flow={[
+          t("compression.rollback_step_1"),
+          t("compression.rollback_step_2"),
+          rollbackEta,
+        ]}
+        costTitle={t("compression.rollback_cost_title")}
+        // `rollback_reset` 那一句是**必须说的**：回滚跑完会把迁移进度重置成
+        // "从未运行"，想回到压缩形态得从头再做一遍。不说的话，用户回滚完看到
+        // 界面一片"从未运行"，会以为这一趟白跑了或者功能坏了。
+        cost={[t("compression.rollback_reset")]}
+        warningTone="critical"
+        warning={<p>{t("compression.rollback_warn")}</p>}
+        confirmLabel={t("compression.rollback_confirm")}
+        confirmVariant="destructive"
+        busy={busy}
+        onConfirm={() => void onRollback()}
+      />
 
       {/* 回收也要过一次确认。它不是"随手点一下"：动作本身不动数据（可重复、
           可中断、不丢东西），但它**全程持写锁**——其间所有写请求排队，
           超过 busy_timeout（5 秒）的直接失败。也就是说，点这一下的代价是
-          "这段时间里的请求可能失败"，这句话必须点之前说，不是点之后从日志里看。 */}
-      <Dialog open={reclaimOpen} onOpenChange={setReclaimOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t("compression.reclaim.title")}</DialogTitle>
-            <DialogDescription>{t("compression.reclaim.desc")}</DialogDescription>
-          </DialogHeader>
-          <div className="flex items-start gap-2 rounded-md border border-status-warning/40 bg-status-warning/5 px-3 py-2">
-            <AlertTriangle
-              className="mt-0.5 size-4 shrink-0 text-status-warning-ink"
-              aria-hidden="true"
+          "这段时间里的请求可能失败"，这句话必须点之前说，不是点之后从日志里看。
+          `why` 那一段回答的是另一半疑问："既然 VACUUM 快得多，为什么这里慢"——
+          不回答它，"慢"就会被当成"坏"。 */}
+      <ActionDialog
+        open={reclaimOpen}
+        onOpenChange={setReclaimOpen}
+        title={t("compression.reclaim.title")}
+        desc={t("compression.reclaim.desc")}
+        flowTitle={t("compression.reclaim.flow_title")}
+        flow={[
+          reclaimContinuous
+            ? t("compression.reclaim.step_continuous")
+            : t("compression.reclaim.step_1"),
+          reclaimEta,
+        ]}
+        costTitle={t("compression.reclaim.cost_title")}
+        cost={[
+          reclaimContinuous ? t("compression.reclaim.warn_continuous") : t("compression.reclaim.warn"),
+          t("compression.reclaim.why"),
+        ]}
+        choice={
+          // 两档的区别**不是凶不凶，而是写请求会不会失败**，所以这个开关必须
+          // 把两边的代价都写在旁边——只写"持续到放完"会让人以为它更激进。
+          <div className="flex items-start justify-between gap-3 rounded-lg border p-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="reclaim-continuous">{t("compression.reclaim.continuous")}</Label>
+                <HelpHint
+                  label={t("compression.reclaim.continuous")}
+                  text={t("compression.reclaim.continuous_help")}
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {t("compression.reclaim.continuous_hint")}
+              </p>
+            </div>
+            <Switch
+              id="reclaim-continuous"
+              checked={reclaimContinuous}
+              onCheckedChange={setReclaimContinuous}
             />
-            <p className="text-xs text-status-warning-ink">{t("compression.reclaim.warn")}</p>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReclaimOpen(false)}>
-              {t("common:actions.cancel")}
-            </Button>
-            <Button onClick={() => void onReclaim()} disabled={busy}>
-              {t("compression.reclaim.confirm")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        }
+        confirmLabel={t("compression.reclaim.confirm")}
+        busy={busy}
+        onConfirm={() => void onReclaim()}
+      />
     </Card>
   )
 }
@@ -399,11 +739,15 @@ function CompressionBody({
   status,
   onEdit,
   onReclaim,
+  onStop,
+  onEditPolicy,
   reclaiming,
 }: {
   status: CompressionStatus
   onEdit: () => void
   onReclaim: () => void
+  onStop: () => void
+  onEditPolicy: () => void
   reclaiming: boolean
 }) {
   const { t } = useTranslation(["config", "common"])
@@ -567,10 +911,14 @@ function CompressionBody({
           隔着半屏的话，用户看到"可回收 5 GiB"会不知道下一步该干什么。 */}
       <ReclaimBlock
         reclaim={reclaim}
+        policy={status.reclaim_policy}
         reclaiming={reclaiming}
+        stopping={status.reclaim_stopping}
         blocked={reclaimBlocked}
         freelistBytes={freelistBytes}
         onReclaim={onReclaim}
+        onStop={onStop}
+        onEditPolicy={onEditPolicy}
       />
 
       {/* 备份探测结论 */}
@@ -649,16 +997,24 @@ function Reading({
  */
 function ReclaimBlock({
   reclaim,
+  policy,
   reclaiming,
+  stopping,
   blocked,
   freelistBytes,
   onReclaim,
+  onStop,
+  onEditPolicy,
 }: {
   reclaim: CompressionStatus["reclaim"]
+  policy: ReclaimPolicy
   reclaiming: boolean
+  stopping: boolean
   blocked: string | null
   freelistBytes: number | null
   onReclaim: () => void
+  onStop: () => void
+  onEditPolicy: () => void
 }) {
   const { t } = useTranslation("config")
   const ran = reclaim.status === "done" || reclaim.status === "failed"
@@ -689,7 +1045,17 @@ function ReclaimBlock({
             {reclaiming && (
               <span className="flex items-center gap-1 text-status-good-ink">
                 <Loader2 className="size-3 animate-spin" />
-                {t("compression.reclaim.running")}
+                {stopping ? t("compression.reclaim.stopping") : t("compression.reclaim.running")}
+              </span>
+            )}
+            {/* 定时回收开着就挂个小标：它是**后台自己会动**的状态，不显示的话
+                用户只能从"我没点过，它怎么跑过了"里反推出来。 */}
+            {policy.enabled && (
+              <span className="text-[11px] text-muted-foreground">
+                {t("compression.reclaim.auto_on", {
+                  size: formatBytes(policy.min_bytes),
+                  min: Math.round(policy.check_interval_sec / 60),
+                })}
               </span>
             )}
           </div>
@@ -705,6 +1071,12 @@ function ReclaimBlock({
                 duration: formatDurationMs(reclaim.duration_ms),
                 calls: reclaim.calls,
               })}
+              {/* 持续那一趟要额外说"几轮"：同一个库，`1 轮` 和 `37 轮` 是两次
+                  完全不同的运维动作，光看耗时看不出来（一次是到点收工，
+                  一次是一路放到底）。 */}
+              {reclaim.continuous &&
+                " · " +
+                  t("compression.reclaim.rounds", { rounds: reclaim.rounds.toLocaleString() })}
               {shrank &&
                 " · " +
                   t("compression.reclaim.file_change", {
@@ -727,33 +1099,48 @@ function ReclaimBlock({
           )}
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0"
-          onClick={onReclaim}
-          disabled={reclaiming || blocked !== null}
-        >
-          {reclaiming ? (
-            <>
-              <Loader2 className="size-4 animate-spin" />
-              {t("compression.reclaim.running")}
-            </>
-          ) : (
-            <>
-              <HardDrive className="size-4" />
-              {freelistBytes !== null && freelistBytes > 0
-                ? t("compression.reclaim.button", { size: formatBytes(freelistBytes) })
-                : t("compression.reclaim.button_bare")}
-            </>
+        <div className="flex shrink-0 items-center gap-2">
+          {/* 「停止」只在真有一趟在跑时出现。持续回收可能跑十几分钟，
+              没有这个按钮，用户唯一能做的就是等——而它偏偏是"我现在不想让它
+              继续占库了"这种最常见的念头。 */}
+          {reclaiming && (
+            <Button variant="outline" size="sm" onClick={onStop} disabled={stopping}>
+              {stopping ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
+              {stopping ? t("compression.reclaim.stopping") : t("compression.reclaim.stop")}
+            </Button>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onReclaim}
+            disabled={reclaiming || blocked !== null}
+          >
+            {reclaiming ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                {t("compression.reclaim.running")}
+              </>
+            ) : (
+              <>
+                <HardDrive className="size-4" />
+                {freelistBytes !== null && freelistBytes > 0
+                  ? t("compression.reclaim.button", { size: formatBytes(freelistBytes) })
+                  : t("compression.reclaim.button_bare")}
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+        {/* 只在这一轮确实有东西可放时说代价。没东西可放时的警告是噪音，
+            而噪音会让真正的警告失效。 */}
+        {blocked === null && freelistBytes !== null && freelistBytes > 0 && (
+          <span className="text-status-warning-ink">{t("compression.reclaim.cost")}</span>
+        )}
+        <Button variant="link" size="sm" className="h-auto px-0 text-[11px]" onClick={onEditPolicy}>
+          {t("compression.reclaim.policy_edit")}
         </Button>
       </div>
-      {/* 只在这一轮确实有东西可放时说代价。没东西可放时的警告是噪音，
-          而噪音会让真正的警告失效。 */}
-      {blocked === null && freelistBytes !== null && freelistBytes > 0 && (
-        <p className="text-[11px] text-status-warning-ink">{t("compression.reclaim.cost")}</p>
-      )}
     </div>
   )
 }
@@ -848,7 +1235,13 @@ function PolicyDialog({
         <div className="space-y-4">
           <div className="flex flex-row items-center justify-between rounded-lg border p-4">
             <div className="space-y-0.5 pr-4">
-              <Label>{t("compression.policy_switch")}</Label>
+              <div className="flex items-center gap-1.5">
+                <Label>{t("compression.policy_switch")}</Label>
+                <HelpHint
+                  label={t("compression.policy_switch")}
+                  text={t("compression.policy_switch_help")}
+                />
+              </div>
               <p className="text-xs text-muted-foreground">{t("compression.policy_switch_hint")}</p>
             </div>
             <Switch checked={enabled} onCheckedChange={setEnabled} />
@@ -856,7 +1249,11 @@ function PolicyDialog({
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="comp-batch-rows">{t("compression.batch_rows")}</Label>
+              <FieldLabel
+                htmlFor="comp-batch-rows"
+                label={t("compression.batch_rows")}
+                help={t("compression.batch_rows_help")}
+              />
               <Input
                 id="comp-batch-rows"
                 type="number"
@@ -868,7 +1265,11 @@ function PolicyDialog({
               <p className="text-[11px] text-muted-foreground">{t("compression.batch_rows_hint")}</p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="comp-batch-bytes">{t("compression.batch_bytes")}</Label>
+              <FieldLabel
+                htmlFor="comp-batch-bytes"
+                label={t("compression.batch_bytes")}
+                help={t("compression.batch_bytes_help")}
+              />
               <Input
                 id="comp-batch-bytes"
                 type="number"
@@ -879,7 +1280,11 @@ function PolicyDialog({
               <p className="text-[11px] text-muted-foreground">{t("compression.batch_bytes_hint")}</p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="comp-quiesce">{t("compression.quiesce_sec")}</Label>
+              <FieldLabel
+                htmlFor="comp-quiesce"
+                label={t("compression.quiesce_sec")}
+                help={t("compression.quiesce_help")}
+              />
               <Input
                 id="comp-quiesce"
                 type="number"
@@ -890,7 +1295,11 @@ function PolicyDialog({
               <p className="text-[11px] text-muted-foreground">{t("compression.quiesce_hint")}</p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="comp-interval">{t("compression.batch_interval")}</Label>
+              <FieldLabel
+                htmlFor="comp-interval"
+                label={t("compression.batch_interval")}
+                help={t("compression.batch_interval_help")}
+              />
               <Input
                 id="comp-interval"
                 type="number"
@@ -905,6 +1314,155 @@ function PolicyDialog({
               </p>
             </div>
           </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            {t("common:actions.cancel")}
+          </Button>
+          <Button onClick={() => void save()} disabled={saving}>
+            {t("common:actions.save")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 回收策略（定时回收）
+// ---------------------------------------------------------------------------
+
+/**
+ * 空间回收的自动推进策略。
+ *
+ * 与迁移策略分成两个弹窗而不是并成一个：两者的触发时机不是一回事——迁移是
+ * "改一次数据形态就完事"，回收是"跟着删除量一直跑"。并在一起的话，用户改完
+ * 迁移的批大小会顺手动到回收的门槛，而这两个数之间没有任何关系。
+ *
+ * 这个开关默认关着，而且**界面上要说清楚它为什么值得开**：回收占写锁，
+ * 而一个"忙时开着服务"的库最不需要的就是一个会在任意时刻来占写锁的后台任务。
+ * 它的正当用途是"我知道这台机器晚上没人用"或者"我删了一大批日志，让它自己收"。
+ */
+function ReclaimPolicyDialog({
+  open,
+  onOpenChange,
+  policy,
+  onSaved,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  policy: ReclaimPolicy
+  onSaved: () => Promise<unknown>
+}) {
+  const { t } = useTranslation(["config", "common"])
+  const [enabled, setEnabled] = useState(policy.enabled)
+  const [minBytes, setMinBytes] = useState(String(policy.min_bytes))
+  const [checkSec, setCheckSec] = useState(String(policy.check_interval_sec))
+  const [saving, setSaving] = useState(false)
+
+  // 每次打开都从服务端的最新值重置：这张卡会被轮询刷新，沿用上一次填了一半的
+  // 值会让用户以为自己填的还在。
+  useEffect(() => {
+    if (!open) return
+    setEnabled(policy.enabled)
+    setMinBytes(String(policy.min_bytes))
+    setCheckSec(String(policy.check_interval_sec))
+  }, [open, policy])
+
+  const save = async () => {
+    try {
+      setSaving(true)
+      // 越界由后端夹回（不报错），这里不自己校验——两份校验迟早会不一致，
+      // 而后端那份才是权威。
+      await updateReclaimPolicy({
+        enabled,
+        min_bytes: Number(minBytes) || 0,
+        check_interval_sec: Number(checkSec) || 0,
+      })
+      toast.success(t("toast.save_success"))
+      onOpenChange(false)
+      await onSaved()
+    } catch (err) {
+      // 走 `compression.toast.save_failed` 这个带占位符的键，不要拿顶层
+      // `toast.save_failed` 拼字符串——那个键里也带 `{{message}}`，
+      // 手工拼会让它原样显示成 "保存策略失败: {{message}}: ..."。
+      toast.error(t("compression.toast.save_failed", { message: errorText(err) }))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{t("compression.reclaim.policy_title")}</DialogTitle>
+          <DialogDescription>{t("compression.reclaim.policy_desc")}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="flex flex-row items-center justify-between rounded-lg border p-4">
+            <div className="space-y-0.5 pr-4">
+              <div className="flex items-center gap-1.5">
+                <Label>{t("compression.reclaim.policy_switch")}</Label>
+                <HelpHint
+                  label={t("compression.reclaim.policy_switch")}
+                  text={t("compression.reclaim.policy_switch_help")}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("compression.reclaim.policy_switch_hint")}
+              </p>
+            </div>
+            <Switch checked={enabled} onCheckedChange={setEnabled} />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <FieldLabel
+                htmlFor="reclaim-min-bytes"
+                label={t("compression.reclaim.min_bytes")}
+                help={t("compression.reclaim.min_bytes_help")}
+              />
+              <Input
+                id="reclaim-min-bytes"
+                type="number"
+                min={0}
+                value={minBytes}
+                onChange={(e) => setMinBytes(e.target.value)}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {t("compression.reclaim.min_bytes_hint")}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <FieldLabel
+                htmlFor="reclaim-check-sec"
+                label={t("compression.reclaim.check_interval")}
+                help={t("compression.reclaim.check_interval_help")}
+              />
+              <Input
+                id="reclaim-check-sec"
+                type="number"
+                min={60}
+                max={86400}
+                step={60}
+                value={checkSec}
+                onChange={(e) => setCheckSec(e.target.value)}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {t("compression.reclaim.check_interval_hint")}
+              </p>
+            </div>
+          </div>
+
+          {/* 自动跑的那一趟总是**持续模式**：一次只收 90 秒的话，一个 5 GiB 的洞
+              要十个周期才收得完，那还不如不自动。这句话必须写出来——它决定了
+              用户对"自动回收期间服务会不会有一阵子写入变慢"的预期。 */}
+          <p className="text-[11px] text-muted-foreground">
+            {t("compression.reclaim.policy_continuous_note")}
+          </p>
         </div>
 
         <DialogFooter>

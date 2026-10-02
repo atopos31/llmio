@@ -860,13 +860,39 @@ export interface CompressionStatus {
   // reclaiming 是"此刻有一轮回收在跑"。与 running 分开——它们是两个任务，
   // 可以一个在跑另一个不在。
   reclaiming: boolean;
+  /**
+   * reclaim_stopping 是"按了停止、但那批还没跑完"的中间态。
+   *
+   * 停止在批间生效，所以按下之后到真正退出之间有一段（最多一批，约 1–4 秒）。
+   * 没有这个标志，界面只能继续显示"回收中"，用户会以为按钮没生效、然后再按一下，
+   * 而后端会把第二下挡掉（已有一轮在跑）——那就成了"点了没反应"。
+   */
+  reclaim_stopping: boolean;
+  /** reclaim_policy 是空间回收的**自动推进**策略（定时回收），与迁移策略分开。 */
+  reclaim_policy: ReclaimPolicy;
+}
+
+/** 空间回收的自动推进策略。默认全关——它会占写锁，是个会被感知到的动作。 */
+export interface ReclaimPolicy {
+  enabled: boolean;
+  /** 可回收空间小于它就不动手，免得为几 MiB 去占一次写锁。 */
+  min_bytes: number;
+  /** 多久看一次（秒）。看一次很便宜，它管的是"发现之后多久动手"。 */
+  check_interval_sec: number;
 }
 
 /** 一次空间回收的记录。字段全是后端实测值，不是估算。 */
 export interface ReclaimState {
   status: 'idle' | 'running' | 'done' | 'failed';
-  /** startup = 启动期做的（转换/VACUUM），manual = 手动点的回收 */
-  source: 'startup' | 'manual' | '';
+  /** startup = 启动期做的（转换/VACUUM），manual = 手动点的，scheduled = 定时回收起的 */
+  source: 'startup' | 'manual' | 'scheduled' | '';
+  /**
+   * continuous 记这一次是不是"持续到放完"。它与 rounds 一起构成回执：
+   * `rounds=1` 的 done/budget 是"点了一下、跑满一段"，`rounds=37` 才是"一路放到底"。
+   */
+  continuous: boolean;
+  /** 跑了几轮。单轮模式恒为 1；持续模式下一轮一批，所以它同时是"打了几批"。 */
+  rounds: number;
   page_size: number;
   freed_pages: number;
   freed_bytes: number;
@@ -894,6 +920,8 @@ export interface ReclaimState {
     | 'empty'
     | 'budget'
     | 'no_auto_vacuum'
+    | 'stopped'
+    | 'busy'
     | 'stalled'
     | 'converted'
     | 'vacuumed'
@@ -959,14 +987,40 @@ export async function rollbackCompression(): Promise<{ started: boolean }> {
 /**
  * 起一轮空间回收：把 freelist 里的页还给文件系统。
  *
- * 它**不动数据**，所以没有 confirm 那道门——但它会**全程持写锁**（读不受影响，
+ * 它**不动数据**，所以没有 confirm 那道门——但它会**占写锁**（读不受影响，
  * 写请求会排队并在 busy_timeout 后失败），所以界面上要标成维护动作、别让人
- * 随手点。后端每次最多占 90 秒就收工，剩下的下次再放。
+ * 随手点。
+ *
+ * 两档，差别不是快慢而是**写请求的待遇**：
+ *
+ *   - `continuous=false`（默认）：跑满一轮（90 秒）就收工，剩下的下次再放。
+ *     这 90 秒里写请求的 5 秒耐心必然耗尽 ⇒ **会失败**。
+ *   - `continuous=true`：一路放到没有空洞为止，但切成"一批一轮 + 批间松手 0.1 秒"
+ *     ⇒ 一把写锁最多被握一批的时间（实测最坏 4.4 秒 < 5 秒）⇒ 写请求
+ *     **排队但成功**。代价是松手那点纯等待：真机那趟 2,628 批，约 4–5 分钟
+ *     （在 15 分钟的搬运之上），不是数量级的变化。
  *
  * 库没开 auto_vacuum 时这是个空操作，后端会如实回 `no_auto_vacuum`。
  */
-export async function reclaimStorage(): Promise<{ started: boolean }> {
-  return apiRequest('/logs/compression/reclaim', { method: 'POST' });
+export async function reclaimStorage(
+  continuous = false
+): Promise<{ started: boolean; continuous: boolean }> {
+  return apiRequest('/logs/compression/reclaim', {
+    method: 'POST',
+    body: JSON.stringify({ continuous }),
+  });
+}
+
+/** 请求停止持续回收。**批间生效**，返回成功不等于已经停了。 */
+export async function stopReclaim(): Promise<{ stopping: boolean }> {
+  return apiRequest('/logs/compression/reclaim/stop', { method: 'POST' });
+}
+
+export async function updateReclaimPolicy(policy: ReclaimPolicy): Promise<ReclaimPolicy> {
+  return apiRequest<ReclaimPolicy>('/logs/compression/reclaim/policy', {
+    method: 'PUT',
+    body: JSON.stringify(policy),
+  });
 }
 
 // Test API functions

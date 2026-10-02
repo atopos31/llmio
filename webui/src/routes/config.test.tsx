@@ -5,6 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import ConfigPage from "@/routes/config"
 import {
+  estimateReclaim,
+  RECLAIM_BUDGET_SEC,
+  RECLAIM_PAGES_PER_BATCH,
+  RECLAIM_PAGES_PER_SEC,
+} from "@/lib/compression"
+import {
   configAPI,
   getCleanupHistory,
   getCompression,
@@ -13,7 +19,9 @@ import {
   reclaimStorage,
   rollbackCompression,
   runCompression,
+  stopReclaim,
   updateCompressionPolicy,
+  updateReclaimPolicy,
   type AnthropicCountTokens,
   type CompressionDBStats,
   type CompressionStatus,
@@ -40,6 +48,8 @@ vi.mock("@/lib/api", () => ({
   rollbackCompression: vi.fn(),
   updateCompressionPolicy: vi.fn(),
   reclaimStorage: vi.fn(),
+  stopReclaim: vi.fn(),
+  updateReclaimPolicy: vi.fn(),
 }))
 
 const mocked = {
@@ -53,6 +63,8 @@ const mocked = {
   rollbackCompression: vi.mocked(rollbackCompression),
   updateCompressionPolicy: vi.mocked(updateCompressionPolicy),
   reclaimStorage: vi.mocked(reclaimStorage),
+  stopReclaim: vi.mocked(stopReclaim),
+  updateReclaimPolicy: vi.mocked(updateReclaimPolicy),
 }
 
 /**
@@ -161,9 +173,15 @@ function compressionStatus(over: Partial<CompressionStatus> = {}): CompressionSt
     },
     running: false,
     reclaiming: false,
+    reclaim_stopping: false,
+    // 默认关着。定时回收会自己占写锁，所以"默认"这一档必须是关——
+    // 用例要测自动回收时显式打开，免得某天默认值被改反了还没人发现。
+    reclaim_policy: { enabled: false, min_bytes: 256 * 1024 ** 2, check_interval_sec: 3600 },
     reclaim: {
       status: "idle",
       source: "",
+      continuous: false,
+      rounds: 0,
       page_size: 0,
       freed_pages: 0,
       freed_bytes: 0,
@@ -360,7 +378,7 @@ describe("系统配置页 · 数据库压缩", () => {
     renderPage()
 
     expect(await screen.findByText("102.4×")).toBeInTheDocument()
-    expect(screen.getByText("原始 ÷ 真正落库")).toBeInTheDocument()
+    expect(screen.getByText("原始大小 ÷ 实际占用")).toBeInTheDocument()
   })
 
   /**
@@ -424,7 +442,7 @@ describe("系统配置页 · 数据库压缩", () => {
     expect(await screen.findByText("2.0×")).toBeInTheDocument()
     expect(screen.queryByText("1.0×")).not.toBeInTheDocument()
     expect(
-      screen.getByText("迁移进行中：此值会随行改形态继续上升（起跑时约 1.0×）")
+      screen.getByText("迁移进行中：随着更多数据被压缩，此值会继续上升（刚开始时约为 1.0×）")
     ).toBeInTheDocument()
   })
 
@@ -436,7 +454,7 @@ describe("系统配置页 · 数据库压缩", () => {
     renderPage()
 
     expect(
-      await screen.findByText("还没量过：点一次「开始迁移」即可量出（只读记录头，不改数据）")
+      await screen.findByText("尚未测量：点击一次「开始迁移」即可测出（只读取记录头部，不修改数据）")
     ).toBeInTheDocument()
     // 三个读数格里的比值格是"—"
     expect(screen.getAllByText("—").length).toBeGreaterThan(0)
@@ -457,10 +475,10 @@ describe("系统配置页 · 数据库压缩", () => {
     renderPage()
 
     // 整块给一句短的；"真正落库"那一格另给一句说清原因（这里只该出现一次）
-    expect(await screen.findByText("库的现状暂时量不到，会自动刷新")).toBeInTheDocument()
-    expect(screen.getAllByText(/这一读撞上了锁/)).toHaveLength(1)
+    expect(await screen.findByText("数据库状态暂时无法读取，系统会自动重试")).toBeInTheDocument()
+    expect(screen.getAllByText(/本次读取被阻塞/)).toHaveLength(1)
     // auto_vacuum 那条警告不能出现——我们并不知道它是多少
-    expect(screen.queryByText(/当前 auto_vacuum=0/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/当前数据库的 auto_vacuum 为 0/)).not.toBeInTheDocument()
     // 进度照常显示：它是另一条读法（读 Config），不该被库现状拖下水
     expect(screen.getByText("进度")).toBeInTheDocument()
   })
@@ -473,7 +491,7 @@ describe("系统配置页 · 数据库压缩", () => {
 
     renderPage()
 
-    const hint = await screen.findByText(/库的现状是 .* 量到的（此刻繁忙，量不动）/)
+    const hint = await screen.findByText(/数据库状态为 .* 的读数（当前数据库繁忙，暂时无法重新读取）/)
     expect(hint.textContent).toContain(new Date(at).toLocaleTimeString())
   })
 
@@ -489,11 +507,19 @@ describe("系统配置页 · 数据库压缩", () => {
     renderPage()
 
     expect(
-      await screen.findByText(/当前 auto_vacuum=0，文件只会涨不会缩，要 VACUUM 才能真正还给磁盘/)
+      await screen.findByText(
+        /当前数据库的 auto_vacuum 为 0，文件不会自动缩小，需要执行 VACUUM 才能把空间真正归还磁盘/
+      )
     ).toBeInTheDocument()
   })
 
-  it("探到可用备份时直接开跑，不带「无备份」确认", async () => {
+  /**
+   * 有备份也照样先弹一次确认。"备份存在"与"用户知道这一下会发生什么"
+   * 是两件事，拿前者当后者用，等于把一段没有备份时才显眼的警告
+   * 也一并省掉了。这个窗在没有备份时会多出警告、按钮变红、并要求把
+   * "无备份"记入存证——所以两种情形都走同一个入口，区别只在窗里的内容。
+   */
+  it("探到可用备份时也先弹确认，但窗里不带「无备份」的警告", async () => {
     const user = userEvent.setup()
     withCompression({
       backup: { path: "/tmp/llmio.db.bak", size: 999, mtime: "", at: "", source: "manual" },
@@ -507,10 +533,17 @@ describe("系统配置页 · 数据库压缩", () => {
     renderPage()
     await user.click(await screen.findByRole("button", { name: "开始迁移" }))
 
-    expect(mocked.runCompression).toHaveBeenCalledWith({
-      full: false,
-      acknowledge_no_backup: false,
-    })
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).queryByText("未检测到可用备份")).not.toBeInTheDocument()
+    expect(mocked.runCompression).not.toHaveBeenCalled()
+
+    await user.click(within(dialog).getByRole("button", { name: "开始迁移" }))
+    await waitFor(() =>
+      expect(mocked.runCompression).toHaveBeenCalledWith({
+        full: false,
+        acknowledge_no_backup: false,
+      })
+    )
   })
 
   it("没探到备份时先弹确认，确认后如实带上 acknowledge_no_backup", async () => {
@@ -529,8 +562,10 @@ describe("系统配置页 · 数据库压缩", () => {
 
     // 先弹框，**没有**已经开跑
     const dialog = await screen.findByRole("dialog")
-    expect(within(dialog).getByText("没有探测到可用备份")).toBeInTheDocument()
-    expect(within(dialog).getByText("未找到备份")).toBeInTheDocument()
+    expect(within(dialog).getByText("未检测到可用备份")).toBeInTheDocument()
+    // 探测结论与它找过的路径一起显示：只写"未找到备份"，
+    // 用户不知道该去哪儿把备份放对。
+    expect(within(dialog).getByText(/未找到备份 · \/tmp\/llmio\.db\.bak/)).toBeInTheDocument()
     expect(mocked.runCompression).not.toHaveBeenCalled()
 
     await user.click(within(dialog).getByRole("button", { name: "确认无备份并继续" }))
@@ -556,7 +591,7 @@ describe("系统配置页 · 数据库压缩", () => {
 
     const dialog = await screen.findByRole("dialog")
     expect(
-      within(dialog).getByText(/多半是迁移前的旧备份——盖回去会丢数据/)
+      within(dialog).getByText(/可能是迁移前的旧备份——用它还原会丢失数据/)
     ).toBeInTheDocument()
     expect(mocked.runCompression).not.toHaveBeenCalled()
   })
@@ -574,7 +609,9 @@ describe("系统配置页 · 数据库压缩", () => {
     await user.click(await screen.findByRole("button", { name: "调整策略" }))
 
     const dialog = await screen.findByRole("dialog")
-    const interval = within(dialog).getByLabelText("批间停顿（毫秒）")
+    // `selector: "input"`：标题旁那个「？」也是个带同名 aria-label 的按钮，
+    // 不限定的话这里会同时命中两个。
+    const interval = within(dialog).getByLabelText("批间暂停（毫秒）", { selector: "input" })
     await user.clear(interval)
     await user.type(interval, "200")
     await user.click(within(dialog).getByRole("button", { name: "保存" }))
@@ -593,7 +630,7 @@ describe("系统配置页 · 数据库压缩", () => {
 
     renderPage()
 
-    expect(await screen.findByText("批间停 200 ms")).toBeInTheDocument()
+    expect(await screen.findByText("批间暂停 200 毫秒")).toBeInTheDocument()
   })
 
   it("批间停顿为 0（默认）时卡片上不出现这一项", async () => {
@@ -604,6 +641,109 @@ describe("系统配置页 · 数据库压缩", () => {
     // 先等这只卡片真的渲染完（策略行里有「调整策略」），否则"没找到"可能只是还没渲染
     await screen.findByRole("button", { name: "调整策略" })
     expect(screen.queryByText(/批间停/)).not.toBeInTheDocument()
+  })
+
+  /**
+   * 标题旁那个「？」是这个表单唯一的说明出口。
+   *
+   * 每一个数字输入都有两件必须说、又不适合常显的事：**允许填多少**，以及
+   * **填超了会怎样**（后端是夹回，不报错——也就是"你填的值和你实际跑的值
+   * 可能不是一回事"）。这两句话不能只写在源码和文档里：用户看的是界面，
+   * 而"填了 99999 会被悄悄改成 5000"这件事必须在他下手之前说。
+   */
+  it("输入项标题旁的「？」悬停时展开取值范围与越界行为", async () => {
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(await screen.findByRole("button", { name: "调整策略" }))
+
+    const dialog = await screen.findByRole("dialog")
+    await user.hover(within(dialog).getByRole("button", { name: "批间暂停（毫秒）" }))
+
+    const tip = await screen.findByRole("tooltip")
+    expect(tip.textContent).toContain("0–5000")
+    expect(tip.textContent).toContain("自动调整")
+  })
+
+  /**
+   * 打开弹窗**本身**不该带出任何帮助文案。
+   *
+   * 这条是修出来的：Radix 的 Tooltip 在悬停与聚焦时都展开，而弹窗打开时浏览器
+   * 会把焦点自动放到第一个可聚焦元素上——「数据库压缩策略」窗里那个位置正好
+   * 就是「后台自动推进」旁边的「？」。于是点开弹窗，那段说明自己就冒出来了。
+   * 修法是只在「键盘走过来的聚焦」时才认这次展开，判据是 `:focus-visible`。
+   *
+   * 判据在浏览器里成立，但 jsdom 判断不了聚焦来源——它把「已聚焦」一律算成
+   * `:focus-visible` 为真。所以这里把这一条选择器单独打桩成假，模拟鼠标点开
+   * 弹窗时程序聚焦的样子；其余选择器照旧走真实实现，不干扰 Radix 自己的判断。
+   */
+  it("打开策略弹窗时不自带帮助文案（焦点是被弹窗放进去的，不是键盘走过来的）", async () => {
+    const realMatches = Element.prototype.matches
+    const spy = vi
+      .spyOn(Element.prototype, "matches")
+      .mockImplementation(function (this: Element, selector: string) {
+        if (selector === ":focus-visible") return false
+        return realMatches.call(this, selector)
+      })
+
+    try {
+      const user = userEvent.setup()
+
+      renderPage()
+      await user.click(await screen.findByRole("button", { name: "调整策略" }))
+      await screen.findByRole("dialog")
+
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  /**
+   * 上一条的配对用例：被否掉的那次聚焦**不能把「不许展开」一直留着**。
+   *
+   * 拦一次聚焦要立一个标记，而标记若只由「下一次该展开时」消费，就会留下一个
+   * 空档：鼠标点开弹窗（聚焦被否、标记立起），用户接着把鼠标移到「？」上打算看
+   * 说明——这时标记还在，悬停也会被一起否掉，等于把帮助文案彻底弄没了。
+   * 所以悬停（指针进入）要能作废那个标记。
+   */
+  it("弹窗收回帮助之后，鼠标再移上去仍然展得开", async () => {
+    const realMatches = Element.prototype.matches
+    const spy = vi
+      .spyOn(Element.prototype, "matches")
+      .mockImplementation(function (this: Element, selector: string) {
+        if (selector === ":focus-visible") return false
+        return realMatches.call(this, selector)
+      })
+
+    try {
+      const user = userEvent.setup()
+
+      renderPage()
+      await user.click(await screen.findByRole("button", { name: "调整策略" }))
+      const dialog = await screen.findByRole("dialog")
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
+
+      await user.hover(within(dialog).getByRole("button", { name: "每批行数" }))
+      const tip = await screen.findByRole("tooltip")
+      expect(tip.textContent).toContain("1–4096")
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it("回收策略弹窗里「检查周期」的「？」说清范围与默认值", async () => {
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(await screen.findByRole("button", { name: "回收策略" }))
+
+    const dialog = await screen.findByRole("dialog")
+    await user.hover(within(dialog).getByRole("button", { name: "检查周期（秒）" }))
+
+    const tip = await screen.findByRole("tooltip")
+    expect(tip.textContent).toContain("60–86400")
+    expect(tip.textContent).toContain("3600")
   })
 
   it("一行都没压过时回滚按钮是禁用的", async () => {
@@ -626,7 +766,9 @@ describe("系统配置页 · 数据库压缩", () => {
     await user.click(await screen.findByRole("button", { name: "回滚为明文" }))
 
     const dialog = await screen.findByRole("dialog")
-    expect(within(dialog).getByText(/回滚会让数据库明显变大/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/库文件会明显变大/)).toBeInTheDocument()
+    // 回滚完会重置迁移进度——不说的话，用户回来看到"从未运行"会以为白跑了。
+    expect(within(dialog).getByText(/迁移进度会被重置/)).toBeInTheDocument()
     expect(mocked.rollbackCompression).not.toHaveBeenCalled()
 
     await user.click(within(dialog).getByRole("button", { name: "确认回滚" }))
@@ -666,13 +808,13 @@ describe("系统配置页 · 数据库压缩", () => {
 
       renderPage()
 
-      expect(await screen.findByText(/已放掉 5/)).toBeInTheDocument()
+      expect(await screen.findByText(/已释放 5/)).toBeInTheDocument()
       // 为什么停的——这一栏是结论，不是日志。
-      expect(screen.getByText(/放完了/)).toBeInTheDocument()
-      expect(screen.getByText(/启动时做的/)).toBeInTheDocument()
+      expect(screen.getByText(/空闲空间已全部回收/)).toBeInTheDocument()
+      expect(screen.getByText(/服务启动时执行/)).toBeInTheDocument()
       // 文件真的缩了，这一步在界面上看得见。
       // formatBytes 只保留一位小数（7.05 → 7.1），所以这里跟着它写。
-      expect(screen.getByText(/文件 7\.1 GB → 1\.5 GB/)).toBeInTheDocument()
+      expect(screen.getByText(/文件大小 7\.1 GB → 1\.5 GB/)).toBeInTheDocument()
     })
 
     /**
@@ -694,7 +836,7 @@ describe("系统配置页 · 数据库压缩", () => {
 
       renderPage()
 
-      expect(await screen.findByText(/没见 freelist 变少/)).toBeInTheDocument()
+      expect(await screen.findByText(/本批未释放任何空闲页/)).toBeInTheDocument()
       // 关键：status 是 done，但这句话照样得看得见。
       expect(screen.getByText(/1000 → 1000/)).toBeInTheDocument()
     })
@@ -708,9 +850,10 @@ describe("系统配置页 · 数据库压缩", () => {
 
       renderPage()
 
-      const button = await screen.findByRole("button", { name: /回收/ })
+      // 「回收 <量>」与旁边那个「回收策略」链接都含"回收"，按前缀取前者。
+      const button = await screen.findByRole("button", { name: /^回收 / })
       expect(button).toBeDisabled()
-      expect(screen.getByText(/增量回收在这里是空操作/)).toBeInTheDocument()
+      expect(screen.getByText(/回收不会产生任何效果/)).toBeInTheDocument()
       expect(screen.getByText(/DB_AUTO_VACUUM_REBUILD=on/)).toBeInTheDocument()
     })
 
@@ -719,9 +862,11 @@ describe("系统配置页 · 数据库压缩", () => {
 
       renderPage()
 
-      const button = await screen.findByRole("button", { name: /回收/ })
+      // 没东西可放时不报量，按钮退回"回收空间"——与旁边那个
+      // 「回收策略」链接、以及有量可放时的「回收 <量>」都区分开。
+      const button = await screen.findByRole("button", { name: /^回收空间$/ })
       expect(button).toBeDisabled()
-      expect(screen.getByText(/文件里已经没有空洞了/)).toBeInTheDocument()
+      expect(screen.getByText(/数据库中已不存在空闲页/)).toBeInTheDocument()
     })
 
     it("迁移在跑时回收让路，并说明是同一把维护锁", async () => {
@@ -732,7 +877,7 @@ describe("系统配置页 · 数据库压缩", () => {
 
       renderPage()
 
-      expect(await screen.findByText(/两者抢同一把维护锁/)).toBeInTheDocument()
+      expect(await screen.findByText(/两者使用同一把维护锁/)).toBeInTheDocument()
     })
 
     it("点下去之前先过一次确认，把写锁的代价说在点之前", async () => {
@@ -740,14 +885,16 @@ describe("系统配置页 · 数据库压缩", () => {
       withCompression({
         db: dbStats({ auto_vacuum: 2, freelist_count: 336_000 }),
       })
-      mocked.reclaimStorage.mockResolvedValue({ started: true })
+      mocked.reclaimStorage.mockResolvedValue({ started: true, continuous: true })
 
       renderPage()
       // 按钮上带可回收的量，所以按名字前缀找。
       await user.click(await screen.findByRole("button", { name: /^回收 / }))
 
       const dialog = await screen.findByRole("dialog")
-      expect(within(dialog).getByText(/写请求会排队/)).toBeInTheDocument()
+      // 默认是持续那一档，所以这里说的是"排队变慢但不会失败"——
+      // 两档的代价不一样，说错了这个窗就白弹了。
+      expect(within(dialog).getByText(/写入请求会排队并变慢，而不会失败/)).toBeInTheDocument()
       expect(mocked.reclaimStorage).not.toHaveBeenCalled()
 
       await user.click(within(dialog).getByRole("button", { name: "开始回收" }))
@@ -768,6 +915,215 @@ describe("系统配置页 · 数据库压缩", () => {
       for (const button of screen.getAllByRole("button")) {
         if (button.textContent?.includes("回收中")) expect(button).toBeDisabled()
       }
+    })
+
+    /**
+     * 持续回收与单轮回收的账**不是一回事**，估算法因此分成两支：
+     *
+     *   - **单轮**：一轮封顶 90 秒，一个 5 GiB 的洞要十轮。这个"轮数"必须说出来——
+     *     不说的话，用户点一次、看到"到点收工、还剩一大截"，只会以为它坏了。
+     *   - **持续**：一轮恒等于一批（512 条语句恰好放 512 页），所以度量单位是**批**，
+     *     而耗时里必须算上每批之间松手的那 0.1 秒。真机那趟 2,628 批，光松手就 4 分多钟——
+     *     把它当零头漏掉，估算会比实际快一整截。
+     */
+    it("单轮按轮算、持续按批算，松手的等待也要计进去", () => {
+      const single = estimateReclaim(RECLAIM_PAGES_PER_SEC * RECLAIM_BUDGET_SEC * 3, false)
+      expect(single).toEqual({ rounds: 3, seconds: 3 * RECLAIM_BUDGET_SEC })
+
+      // 不足一轮的零头也占一整轮：一轮跑不满 90 秒就收工，剩下的得下次再点。
+      expect(estimateReclaim(1, false)).toEqual({ rounds: 1, seconds: RECLAIM_BUDGET_SEC })
+
+      const pages = RECLAIM_PAGES_PER_BATCH * 10
+      const continuous = estimateReclaim(pages, true)
+      expect(continuous.rounds).toBe(10)
+      // 10 批的搬运时间 + 10 次松手（各 0.1 秒）⇒ 严格大于纯搬运的折算值。
+      expect(continuous.seconds).toBeGreaterThan(pages / RECLAIM_PAGES_PER_SEC)
+      expect(continuous.seconds).toBe(Math.round(pages / RECLAIM_PAGES_PER_SEC + 10 * 0.1))
+    })
+
+    it("没东西可放时不做估算，给 0 而不是给一个假的时间", () => {
+      for (const continuous of [false, true]) {
+        expect(estimateReclaim(0, continuous)).toEqual({ rounds: 0, seconds: 0 })
+        expect(estimateReclaim(Number.NaN, continuous)).toEqual({ rounds: 0, seconds: 0 })
+      }
+    })
+
+    it("默认选「一路放到放完」，确认时把这个选择带进请求", async () => {
+      const user = userEvent.setup()
+      withCompression({ db: dbStats({ auto_vacuum: 2, freelist_count: 336_000 }) })
+      mocked.reclaimStorage.mockResolvedValue({ started: true, continuous: true })
+
+      renderPage()
+      await user.click(await screen.findByRole("button", { name: /^回收 / }))
+
+      const dialog = await screen.findByRole("dialog")
+      // 默认开着：「点一次把活干完」才是常态，关掉它是在主动选"只跑一轮、
+      // 剩下的下次再点"——那是个更费事的选项，不该是默认。
+      expect(within(dialog).getByRole("switch")).toBeChecked()
+      // 两档的说明文字不一样，得换：只写"持续到放完"会让人以为它更激进。
+      expect(within(dialog).getByText(/批與批之間暫停 0\.1 秒|批与批之间暂停 0\.1 秒/)).toBeInTheDocument()
+
+      await user.click(within(dialog).getByRole("button", { name: "开始回收" }))
+      await waitFor(() => expect(mocked.reclaimStorage).toHaveBeenCalledWith(true))
+    })
+
+    it("关掉持续开关就按单轮提交，文案也跟着换成单轮那一档", async () => {
+      const user = userEvent.setup()
+      withCompression({ db: dbStats({ auto_vacuum: 2, freelist_count: 336_000 }) })
+      mocked.reclaimStorage.mockResolvedValue({ started: true, continuous: false })
+
+      renderPage()
+      await user.click(await screen.findByRole("button", { name: /^回收 / }))
+
+      const dialog = await screen.findByRole("dialog")
+      await user.click(within(dialog).getByRole("switch"))
+      expect(within(dialog).getByRole("switch")).not.toBeChecked()
+      expect(within(dialog).getByText(/超过 5 秒仍未获得写入权限的请求会失败/)).toBeInTheDocument()
+
+      await user.click(within(dialog).getByRole("button", { name: "开始回收" }))
+      await waitFor(() => expect(mocked.reclaimStorage).toHaveBeenCalledWith(false))
+    })
+
+    /**
+     * 持续回收可能跑十几分钟，没有这个按钮，用户唯一能做的就是等——
+     * 而"我现在不想让它继续占库了"恰恰是最常见的念头。
+     *
+     * 这里只钉"按下去了、而且是**一次**"：停止在批间生效，后端那一趟
+     * 还会再跑最多一批，所以界面此刻不该假装已经停了（那是下一条用例）。
+     * 这条不重复点，也就顺带钉住了"点第二下会被后端挡掉"这个坑不出现。
+     */
+    it("回收跑着时给一个「停止」，按一下就发一次请求", async () => {
+      const user = userEvent.setup()
+      withCompression({
+        reclaiming: true,
+        db: dbStats({ auto_vacuum: 2, freelist_count: 336_000 }),
+      })
+      mocked.stopReclaim.mockResolvedValue({ stopping: true })
+
+      renderPage()
+      await user.click(await screen.findByRole("button", { name: "停止" }))
+
+      await waitFor(() => expect(mocked.stopReclaim).toHaveBeenCalledTimes(1))
+    })
+
+    it("按了停止但那一批还没跑完时，如实说自己正在停", async () => {
+      withCompression({
+        reclaiming: true,
+        reclaim_stopping: true,
+        db: dbStats({ auto_vacuum: 2, freelist_count: 336_000 }),
+      })
+
+      renderPage()
+
+      // 那一刻后端还在跑（reclaiming 仍为真），界面若继续显示"回收中"，
+      // 用户会以为按钮没生效、再按一下——后端会把第二下挡掉，
+      // 于是"按了没反应"。
+      expect(await screen.findByRole("button", { name: /正在停/ })).toBeDisabled()
+    })
+
+    it("持续那一趟的回执带上「跑了几批」——1 批和 2,628 批是两次不同的动作", async () => {
+      withCompression({
+        db: dbStats({ auto_vacuum: 2, freelist_count: 1_000 }),
+        reclaim: reclaimState({
+          status: "done",
+          source: "scheduled",
+          continuous: true,
+          rounds: 2_628,
+          freed_pages: 1_345_736,
+          stop_reason: "empty",
+        }),
+      })
+
+      renderPage()
+
+      expect(await screen.findByText(/按计划自动触发/)).toBeInTheDocument()
+      expect(screen.getByText(/2,628 批/)).toBeInTheDocument()
+    })
+
+    it("单轮那一趟不提批数：它恒为一批，说了反而是噪音", async () => {
+      withCompression({
+        db: dbStats({ auto_vacuum: 2, freelist_count: 1_000 }),
+        reclaim: reclaimState({
+          status: "done",
+          continuous: false,
+          rounds: 1,
+          freed_pages: 512,
+          stop_reason: "budget",
+        }),
+      })
+
+      renderPage()
+
+      expect(await screen.findByText(/本轮时间已到/)).toBeInTheDocument()
+      expect(screen.queryByText(/1 批/)).not.toBeInTheDocument()
+    })
+
+    it("被叫停的那一趟与跑完的那一趟在回执里分得开", async () => {
+      withCompression({
+        db: dbStats({ auto_vacuum: 2, freelist_count: 1_000 }),
+        reclaim: reclaimState({
+          status: "done",
+          continuous: true,
+          rounds: 12,
+          stop_reason: "stopped",
+        }),
+      })
+
+      renderPage()
+
+      // 都是 status=done，但"你按的停止"和"放完了"是两件事。
+      expect(await screen.findByText(/已手动停止/)).toBeInTheDocument()
+    })
+
+    it("迁移抢走维护锁时如实说是让位，而不是说自己跑完了", async () => {
+      withCompression({
+        db: dbStats({ auto_vacuum: 2, freelist_count: 1_000 }),
+        reclaim: reclaimState({
+          status: "done",
+          continuous: true,
+          rounds: 3,
+          stop_reason: "busy",
+        }),
+      })
+
+      renderPage()
+
+      expect(await screen.findByText(/回收已讓出資料庫維護鎖|回收已让出数据库维护锁/)).toBeInTheDocument()
+    })
+
+    it("定时回收开着时在读数行上挂一个小标，并提交改过的门槛与周期", async () => {
+      const user = userEvent.setup()
+      withCompression({
+        db: dbStats({ auto_vacuum: 2, freelist_count: 336_000 }),
+        reclaim_policy: { enabled: true, min_bytes: 512 * 1024 ** 2, check_interval_sec: 1800 },
+      })
+      mocked.updateReclaimPolicy.mockResolvedValue({
+        enabled: false,
+        min_bytes: 0,
+        check_interval_sec: 60,
+      })
+
+      renderPage()
+
+      // 后台自己会动这件事必须显示出来：不说的话，用户只能从
+      // "我没点过，它怎么跑过了"里反推。
+      expect(
+        await screen.findByText(/可回收空間超過 512 MB 時，每 30 分鐘檢查一次|可回收空间超过 512 MB 时，每 30 分钟检查一次/)
+      ).toBeInTheDocument()
+
+      await user.click(screen.getByRole("button", { name: "回收策略" }))
+      const dialog = await screen.findByRole("dialog")
+      // 关掉开关后保存：门槛与周期照旧带上去，不被开关连坐清零。
+      await user.click(within(dialog).getByRole("switch"))
+      await user.click(within(dialog).getByRole("button", { name: "保存" }))
+
+      await waitFor(() =>
+        expect(mocked.updateReclaimPolicy).toHaveBeenCalledWith({
+          enabled: false,
+          min_bytes: 512 * 1024 ** 2,
+          check_interval_sec: 1800,
+        })
+      )
     })
   })
 })

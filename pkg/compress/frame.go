@@ -63,9 +63,18 @@ const (
 	TypeRowFrame Type = 1
 	// TypeBlockRefs 是 input 列的块引用序列。
 	TypeBlockRefs Type = 2
+	// TypeGroup 是块表里的一组块（多个唯一块拼在一起压成的冷数据）。
+	//
+	// 它与前两者的区别值得单独一个类型而不是复用：块组是**全局共享**的，
+	// 而前两者是某一行的私有值。将来若要"把块组也塞进 chat_ios 的同一列"
+	// 或做按类型的统计/校验，这个字段就是唯一的判据，而它已经写进了
+	// 每一个历史帧头里——后补不回来。
+	TypeGroup Type = 3
 )
 
-func (t Type) known() bool { return t == TypeRowFrame || t == TypeBlockRefs }
+func (t Type) known() bool {
+	return t == TypeRowFrame || t == TypeBlockRefs || t == TypeGroup
+}
 
 func (t Type) String() string {
 	switch t {
@@ -73,6 +82,8 @@ func (t Type) String() string {
 		return "row"
 	case TypeBlockRefs:
 		return "blockrefs"
+	case TypeGroup:
+		return "group"
 	default:
 		return fmt.Sprintf("type(%d)", uint8(t))
 	}

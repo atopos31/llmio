@@ -274,6 +274,36 @@ zstd 帧几乎必然含非法 UTF-8 序列 ⇒ 若把帧当字符串塞进这个
 
 ---
 
+## 四之二、回执（哪些已经验过了）
+
+上面那张表是**待验清单**，不是成绩单。截至阶段 2 结束，实际拿到的证据如下。
+没列进来的条目就是**还没验**，一条都不许当成已通过。
+
+| §四 条目 | 状态 | 证据 |
+|---|---|---|
+| 2 帧判定对抗样本 | ✅ | `pkg/compress` 单测，语句覆盖率 100%，含故障注入分支 |
+| 3 陷阱 B 回归 | ✅ | `TestChatIOCompress_RoundTripThroughFrames`：帧写进库后 `DecompressBytes` 仍与原字节相等；改序列化器之前此条必然失败 |
+| 4 AutoMigrate 守卫（单库） | ✅ | `TestChatIOCompress_AutoMigrateLeavesChatIOsAlone`；另用变异测试坐实过它抓得住——把 `type:text` 改成 `type:varchar(255)` 即刻建表重建 |
+| 4 AutoMigrate 守卫（真库副本） | ✅ | 7217.5 MiB 副本上跑 `Init`：耗时 0.01 s，`chat_ios` 的 DDL / `table_info` / 索引**一字不变** |
+| 9 并发（`-race`） | ✅ | 全仓 `go test -race ./...` 通过。此前"本机没有 cgo/gcc"的缺口已补（MinGW-w64 16.2.0） |
+| 1 陷阱 A 守卫 | ⚠️ **只覆盖了一半** | 现在 `input` 还是明文列，测到的只是 GORM 的"零值不进 SET"。真正的护栏要等阶段 3 换钩子接入 |
+| 5 中断注入 / 6 幂等 / 7 回滚闭环 / 8 多实例 | ❌ 未做 | 属于迁移与块表的验证，随阶段 4–6 一起来 |
+| 9 泛型 API 触发钩子 | ❌ 未做 | 阶段 3 的第一件事 |
+
+**真机回执（生产库副本）**：
+
+- 逐行核对 **12,483 行**的 `input` / `of_string` / `of_string_array`，与原始字节比对
+  **全部通过**；其中 3593 行的 `of_string_array` 只有 JSON 文本的空白形态差异，语义完全相同。
+- 取最大的 200 条真实响应体做往返：**382.25 MiB → 5.99 MiB（63.8x）**。
+
+**踩到过一个坑，值得记下来**：第一次用的副本（`D:\llmio-test\llmio.db`）**自身是坏的**
+（scp 传输所致），`PRAGMA integrity_check` 都跑不完，读到大半行时随机报
+`database disk image is malformed (11)`。那个报错**完全看不出**是"库坏了"还是"压缩代码读错了"，
+而这两件事的处置方式天差地别。所以真机验收的**第 0 步永远是先验副本自身的完整性**
+（`TestCompressSerializer_RealDatabaseIntegrity`）——先修库，再谈压缩。
+
+---
+
 ## 五、诚实标注
 
 - `[测]` 的条目：`table_info`/`typeof` 分布、VACUUM 62.9 s、`Value` 被调两次、

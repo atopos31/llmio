@@ -72,6 +72,7 @@ func TestCodecAndTypeString(t *testing.T) {
 	types := map[Type]string{
 		TypeRowFrame:  "row",
 		TypeBlockRefs: "blockrefs",
+		TypeGroup:     "group",
 		Type(9):       "type(9)",
 	}
 	for ty, want := range types {
@@ -82,8 +83,21 @@ func TestCodecAndTypeString(t *testing.T) {
 	if CodecRaw.String() == CodecDeflate.String() {
 		t.Error("两个已知 Codec 打印成同一个名字")
 	}
-	if TypeRowFrame.String() == TypeBlockRefs.String() {
+	if TypeRowFrame.String() == TypeBlockRefs.String() || TypeGroup.String() == TypeRowFrame.String() {
 		t.Error("两个已知 Type 打印成同一个名字")
+	}
+	// 每一个已知 Type 都必须被 LooksLikeFrame 认下。漏一个的后果是
+	// 那种帧会被当成"不是帧"而按明文返回——块组一旦这样静默降级，
+	// 读出来的就是二进制垃圾。
+	for ty := Type(1); ty <= TypeGroup; ty++ {
+		b := make([]byte, HeaderLen)
+		copy(b[:4], Magic[:])
+		b[4] = Version
+		b[5] = byte(CodecRaw)
+		b[6] = byte(ty)
+		if !LooksLikeFrame(b) {
+			t.Errorf("Type %s 的帧头没被 LooksLikeFrame 认下", ty)
+		}
 	}
 }
 

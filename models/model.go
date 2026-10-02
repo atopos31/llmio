@@ -143,9 +143,17 @@ type ChatIO struct {
 	OutputUnion
 }
 
+// OutputUnion 是响应体的两种形态，互斥（见 service/process.go）。
+//
+// 两列都走 compress 序列化器：库里存压缩帧，Go 侧仍是 string / []string，
+// 前端契约（OfStringArray 必须是真数组）完全不受影响。
+//
+// `type:text` 是**必须的**，不是顺手写的：它把列类型钉死在 TEXT，
+// AutoMigrate 在 7 GB 表上才不会去做"建新表-拷数据-删旧表"那套重建。
+// 详见 docs/db-compression-safety.md §1.1 C1。
 type OutputUnion struct {
-	OfString      string
-	OfStringArray []string `gorm:"serializer:json"`
+	OfString      string   `gorm:"type:text;serializer:compress"`
+	OfStringArray []string `gorm:"type:text;serializer:compress"`
 }
 
 type ReqMeta struct {

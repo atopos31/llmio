@@ -237,7 +237,7 @@ func TestInit_UpgradesLegacySchemaInPlace(t *testing.T) {
 		if err := DB.First(&io, 2).Error; err != nil {
 			t.Fatalf("load chat io: %v", err)
 		}
-		if io.Input != `{"model":"claude-3"}` || io.LogId != 2 {
+		if string(io.Input) != `{"model":"claude-3"}` || io.LogId != 2 {
 			t.Fatalf("IO 记录被改写：%+v", io)
 		}
 

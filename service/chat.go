@@ -293,8 +293,10 @@ func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, pr
 	recordFunc := func() error {
 		defer reader.Close()
 		if ioLog {
+			// BodyBytes 不做拷贝：before.raw 由本请求独占，而 Create 是同步的，
+			// 等它读完才会继续往下走。真正的分块与压缩都在 BeforeCreate 里发生。
 			if err := gorm.G[models.ChatIO](models.DB).Create(ctx, &models.ChatIO{
-				Input: string(before.raw),
+				Input: models.BodyBytes(before.raw),
 				LogId: logId,
 			}); err != nil {
 				return err

@@ -276,7 +276,7 @@ zstd 帧几乎必然含非法 UTF-8 序列 ⇒ 若把帧当字符串塞进这个
 
 ## 四之二、回执（哪些已经验过了）
 
-上面那张表是**待验清单**，不是成绩单。截至阶段 2 结束，实际拿到的证据如下。
+上面那张表是**待验清单**，不是成绩单。截至阶段 3 结束，实际拿到的证据如下。
 没列进来的条目就是**还没验**，一条都不许当成已通过。
 
 | §四 条目 | 状态 | 证据 |
@@ -286,9 +286,12 @@ zstd 帧几乎必然含非法 UTF-8 序列 ⇒ 若把帧当字符串塞进这个
 | 4 AutoMigrate 守卫（单库） | ✅ | `TestChatIOCompress_AutoMigrateLeavesChatIOsAlone`；另用变异测试坐实过它抓得住——把 `type:text` 改成 `type:varchar(255)` 即刻建表重建 |
 | 4 AutoMigrate 守卫（真库副本） | ✅ | 7217.5 MiB 副本上跑 `Init`：耗时 0.01 s，`chat_ios` 的 DDL / `table_info` / 索引**一字不变** |
 | 9 并发（`-race`） | ✅ | 全仓 `go test -race ./...` 通过。此前"本机没有 cgo/gcc"的缺口已补（MinGW-w64 16.2.0） |
-| 1 陷阱 A 守卫 | ⚠️ **只覆盖了一半** | 现在 `input` 还是明文列，测到的只是 GORM 的"零值不进 SET"。真正的护栏要等阶段 3 换钩子接入 |
-| 5 中断注入 / 6 幂等 / 7 回滚闭环 / 8 多实例 | ❌ 未做 | 属于迁移与块表的验证，随阶段 4–6 一起来 |
-| 9 泛型 API 触发钩子 | ❌ 未做 | 阶段 3 的第一件事 |
+| 9 泛型 API 触发钩子 | ✅ | `TestChatIOInput_HooksFireOnBothAPIs`：经典 `db.Create`/`First` 与 `gorm.G[ChatIO]` 的 `Create`/`First`/`Find` 四条路径上 `BeforeCreate`/`AfterFind` 都触发（生产代码走的正是泛型 API） |
+| 1 陷阱 A 守卫 | ✅ | `TestChatIOCompress_UpdatesOutputDoesNotTouchInput` 已重写成真护栏：body **大到走块表**，照抄 `chat.go:314` 的 `Updates(OutputUnion)` 只带输出列，断言 `input` 的**原始列字节**不变且块表没长。真机版另在 12,483 行里抽 20 行真块表行复验（`assertOutputUpdateKeepsInput`） |
+| 块表：逐字节还原（真库副本） | ✅ | 阶段 3：12,483 行 / 5.64 GiB 全部经生产钩子写出再读回，**逐字节一致**，且每一行的 `typeof` 与形态一一对上 |
+| 块表：行与块同事务（INV-1） | ✅ | `TestBlockStore_RollsBackWithTransaction`：事务回滚后 `blocks` 与 `block_groups` 都为空 |
+| 5 中断注入 / 6 幂等 / 7 回滚闭环 / 8 多实例 | ❌ 未做 | 属于迁移的验证，随阶段 4–6 一起来 |
+| 2 块表 GC 悬空引用 | ❌ 未做 | 读路径已对悬空引用**明确报错**（`Get`，见 `models/block.go`），但 GC 本身还没写 |
 
 **真机回执（生产库副本）**：
 

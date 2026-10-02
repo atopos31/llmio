@@ -80,7 +80,7 @@ func TestChatIOCompress_RoundTripThroughFrames(t *testing.T) {
 	ofArray := bigChunks(2000)
 	io := ChatIO{
 		LogId: 1,
-		Input: `{"model":"gpt-4o"}`,
+		Input: BodyBytes(`{"model":"gpt-4o"}`),
 		OutputUnion: OutputUnion{
 			OfString:      ofString,
 			OfStringArray: ofArray,
@@ -135,8 +135,14 @@ func TestChatIOCompress_RoundTripThroughFrames(t *testing.T) {
 			t.Fatalf("of_string_array 第 %d 项变了", i)
 		}
 	}
-	if got.Input != `{"model":"gpt-4o"}` {
-		t.Errorf("input 不该被动过，得到 %q", got.Input)
+	// input 现在也走压缩（Phase 3），但这条 **18 字节** 的 body 会原样留着明文——
+	// 这是规则 1（压不了就存明文）在起作用，不是漏压：一个 16 字节的帧头加
+	// deflate 收尾比正文本身还长。大 body 落成帧的断言在 body_test.go 里。
+	if string(got.Input) != `{"model":"gpt-4o"}` {
+		t.Errorf("input 读回来变了，得到 %q", got.Input)
+	}
+	if got := columnType(t, db, io.ID, "input"); got != "text" {
+		t.Errorf("压不动的短 body 应当留明文 text，得到 %s", got)
 	}
 }
 
@@ -164,7 +170,7 @@ func TestChatIOCompress_LegacyPlaintextStillReadable(t *testing.T) {
 		if err != nil {
 			t.Fatalf("读旧行 %d 失败：%v", c.id, err)
 		}
-		if got.Input != c.input {
+		if string(got.Input) != c.input {
 			t.Errorf("行 %d 的 input 变了：%q", c.id, got.Input)
 		}
 		if got.OfString != c.ofString {
@@ -246,18 +252,28 @@ func TestChatIOCompress_AutoMigrateLeavesChatIOsAlone(t *testing.T) {
 
 // 陷阱 A 的守卫：Updates 只带 OutputUnion 时，input 必须一个字节都不动。
 //
-// 现在 input 还是明文列，所以这条测的是 GORM 的"零值不进 SET"行为；
-// 等 input 换成钩子接入（Phase 3），它会变成真正的护栏——
-// 那时钩子里的块引用一旦被 GORM 带进 SET，行里已存好的请求体就被覆盖了。
+// 这条现在是真的护栏了：input 走 BeforeCreate 钩子之后，如果钩子错挂在
+// BeforeSave 上，`Updates(ChatIO{OutputUnion: ...})` 也会把它触发一遍，
+// 而那时钩子看到的 Input 是零值——写回去就等于把已经存好的请求体抹掉。
+//
+// 断言用的是"更新前后库里的原始字节一模一样"，而不是"等于某个期望值"：
+// 前者对"存的是帧还是明文"不敏感，所以将来换存储形态也不会把这条测歪。
 func TestChatIOCompress_UpdatesOutputDoesNotTouchInput(t *testing.T) {
 	db := openCompressDB(t)
 	ctx := context.Background()
 
-	const input = `{"model":"gpt-4o","messages":[{"role":"user","content":"别动我"}]}`
+	// 这条 body 要足够大，才会走块表那条路；小 body 走的是逐行帧，
+	// 覆盖不到"引用序列被带进 SET"这个真正的风险面。
+	input := BodyBytes(strings.Repeat(bigText(40), 30))
 	io := ChatIO{LogId: 7, Input: input}
 	if err := gorm.G[ChatIO](db).Create(ctx, &io); err != nil {
 		t.Fatalf("写入失败：%v", err)
 	}
+	before := rawColumn(t, db, io.ID, "input")
+	if !compress.LooksLikeFrame(before) {
+		t.Fatalf("input 没有落成帧：%x", before[:min(16, len(before))])
+	}
+	blocksBefore := blockCount(t, db)
 
 	// 照抄 service/chat.go:314 的写法
 	output := OutputUnion{OfString: bigText(500)}
@@ -266,15 +282,19 @@ func TestChatIOCompress_UpdatesOutputDoesNotTouchInput(t *testing.T) {
 		t.Fatalf("更新响应体失败：%v", err)
 	}
 
-	if got := string(rawColumn(t, db, io.ID, "input")); got != input {
-		t.Fatalf("input 被覆盖了：\n之前：%s\n之后：%s", input, got)
+	if after := rawColumn(t, db, io.ID, "input"); !bytes.Equal(before, after) {
+		t.Fatalf("input 被覆盖了：\n之前：%x\n之后：%x", before[:min(32, len(before))], after[:min(32, len(after))])
 	}
-	if got := columnType(t, db, io.ID, "input"); got != "text" {
-		t.Errorf("本阶段 input 还应当是明文 text，得到 %s", got)
+	// 更新路径**不许**再把这份 body 分块存一遍——那会平白多出一批块。
+	if after := blockCount(t, db); after != blocksBefore {
+		t.Fatalf("更新响应体让块表从 %d 涨到 %d：钩子跑到更新路径上去了", blocksBefore, after)
 	}
 	got, err := gorm.G[ChatIO](db).Where("id = ?", io.ID).First(ctx)
 	if err != nil {
 		t.Fatalf("读回失败：%v", err)
+	}
+	if !bytes.Equal(got.Input, input) {
+		t.Error("请求体读回来变了")
 	}
 	if got.OfString != output.OfString {
 		t.Error("响应体没写进去")

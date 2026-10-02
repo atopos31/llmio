@@ -139,7 +139,13 @@ type PromptTokensDetails struct {
 type ChatIO struct {
 	gorm.Model
 	LogId uint
-	Input string
+	// Input 是请求体。它是三列里唯一走**块表**的（见 docs/db-compression-phase0.md
+	// 与 models/body.go），因为只有它带着 97% 的跨行重复。
+	//
+	// `type:text` 与 OutputUnion 同理：钉死列类型，AutoMigrate 才不会重建 7 GB 的表。
+	// 钉的是 TEXT，但帧按 BLOB 落进去——SQLite 的列亲和性只转换 TEXT↔数字，
+	// 不碰 BLOB，所以 `typeof(input)` 仍然分得清明文与帧。
+	Input BodyBytes `gorm:"type:text"`
 	OutputUnion
 }
 

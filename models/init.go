@@ -23,6 +23,10 @@ func Init(ctx context.Context, path string) {
 		panic(err)
 	}
 	DB = db
+	// 组缓存只按组 id 索引，而组 id 只在单个库文件内才有意义。走到这里说明
+	// 进程要开始用（可能是另一个）库了，旧缓存一律作废——否则会读到别的库里
+	// 同号的组，症状是"长度对得上、内容全错"，而且不报任何错。
+	blockStore.Reset()
 	if err := db.AutoMigrate(
 		&Provider{},
 		&Model{},
@@ -32,6 +36,10 @@ func Init(ctx context.Context, path string) {
 		&Config{},
 		&AuthKey{},
 		&LogCleanupRecord{},
+		// 块表只服务 chat_ios.input 一列（见 docs/db-compression-phase0.md）。
+		// 两张都是新表，AutoMigrate 只做 CREATE TABLE，不会碰既有的 7 GB 大表。
+		&Block{},
+		&BlockGroup{},
 	); err != nil {
 		panic(err)
 	}

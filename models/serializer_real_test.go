@@ -184,8 +184,11 @@ func TestCompressSerializer_RealDatabaseEveryRowReadsBack(t *testing.T) {
 			}
 			read++
 
-			// input 在 Phase 2 还是明文列：必须逐字节相等
-			if string(raw.Input) != got.Input {
+			// 这份副本是**没迁过**的生产库，所以 input 在库里仍是原始明文，
+			// 读路径（AfterFind）应当原样放行、逐字节相等。
+			// 迁移（Phase 4）之后这里会比出"帧 vs 还原后的明文"——那时这条断言
+			// 要改成"解出来的确实是这一列的原始内容"，而不是字节相等。
+			if string(raw.Input) != string(got.Input) {
 				t.Fatalf("行 %d 的 input 变了（原始 %d 字节 → 读回 %d 字节）",
 					raw.ID, len(raw.Input), len(got.Input))
 			}
@@ -260,7 +263,7 @@ func TestCompressSerializer_RealDatabasePayloadsRoundTrip(t *testing.T) {
 		if err := json.Unmarshal(s.OfStringArr, &chunks); err != nil {
 			t.Fatalf("行 %d 不是合法 JSON 数组：%v", s.ID, err)
 		}
-		io := ChatIO{LogId: s.ID, Input: "x", OutputUnion: OutputUnion{OfStringArray: chunks}}
+		io := ChatIO{LogId: s.ID, Input: BodyBytes("x"), OutputUnion: OutputUnion{OfStringArray: chunks}}
 		if err := gorm.G[ChatIO](dst).Create(ctx, &io); err != nil {
 			t.Fatalf("写入失败：%v", err)
 		}

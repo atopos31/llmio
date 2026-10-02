@@ -912,12 +912,15 @@ func GetChatIO(c *gin.Context) {
 	}
 
 	common.Success(c, gin.H{
-		"ID":            chatIO.ID,
-		"CreatedAt":     chatIO.CreatedAt,
-		"UpdatedAt":     chatIO.UpdatedAt,
-		"DeletedAt":     chatIO.DeletedAt,
-		"LogId":         chatIO.LogId,
-		"Input":         chatIO.Input,
+		"ID":        chatIO.ID,
+		"CreatedAt": chatIO.CreatedAt,
+		"UpdatedAt": chatIO.UpdatedAt,
+		"DeletedAt": chatIO.DeletedAt,
+		"LogId":     chatIO.LogId,
+		// 必须显式转成 string：Input 是 []byte 的具名类型，直接塞进 gin.H 会被
+		// encoding/json 当成二进制编成 base64，前端收到的就是一串乱码。
+		// 到这里为止 input 已经由 AfterFind 还原成原始请求体了。
+		"Input":         string(chatIO.Input),
 		"OfString":      chatIO.OfString,
 		"OfStringArray": chatIO.OfStringArray,
 		"Style":         style,

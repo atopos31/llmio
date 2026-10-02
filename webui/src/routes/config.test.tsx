@@ -7,8 +7,14 @@ import ConfigPage from "@/routes/config"
 import {
   configAPI,
   getCleanupHistory,
+  getCompression,
   getPeakCalendar,
+  pauseCompression,
+  rollbackCompression,
+  runCompression,
+  updateCompressionPolicy,
   type AnthropicCountTokens,
+  type CompressionStatus,
   type LogCleanupPolicy,
   type LogCleanupRecord,
 } from "@/lib/api"
@@ -22,9 +28,14 @@ vi.mock("@/lib/api", () => ({
   },
   getCleanupHistory: vi.fn(),
   testCountTokens: vi.fn(),
-  // 峰谷计费卡片自带取数，挂在这一页上。不给它默认值的话，它会渲染成
-  // 错误态并多出一个"重试"按钮，把这一页原有的重试断言搅成"找到多个"
+  // 峰谷计费卡片与数据库压缩卡片都自带取数，挂在这一页上。不给它们默认值的话，
+  // 它们会渲染成错误态并各多出一个"重试"按钮，把这一页原有的重试断言搅成"找到多个"。
   getPeakCalendar: vi.fn(),
+  getCompression: vi.fn(),
+  runCompression: vi.fn(),
+  pauseCompression: vi.fn(),
+  rollbackCompression: vi.fn(),
+  updateCompressionPolicy: vi.fn(),
 }))
 
 const mocked = {
@@ -32,6 +43,11 @@ const mocked = {
   updateConfig: vi.mocked(configAPI.updateConfig),
   getCleanupHistory: vi.mocked(getCleanupHistory),
   getPeakCalendar: vi.mocked(getPeakCalendar),
+  getCompression: vi.mocked(getCompression),
+  runCompression: vi.mocked(runCompression),
+  pauseCompression: vi.mocked(pauseCompression),
+  rollbackCompression: vi.mocked(rollbackCompression),
+  updateCompressionPolicy: vi.mocked(updateCompressionPolicy),
 }
 
 /**
@@ -73,6 +89,66 @@ function renderPage() {
   )
 }
 
+/**
+ * 一份"从未运行过"的压缩状态。
+ *
+ * 默认值刻意选**空库**：它的读数是这张卡最不显眼的一组（全 0、未找到备份），
+ * 于是这一页其它断言不会被压缩卡的数字碰巧撞上。
+ */
+function compressionStatus(over: Partial<CompressionStatus> = {}): CompressionStatus {
+  return {
+    policy: { enabled: false, batch_rows: 64, batch_bytes: 32 * 1024 * 1024, quiesce_sec: 60 },
+    state: {
+      status: "idle",
+      last_id: 0,
+      max_id: 0,
+      total_rows: 0,
+      scanned: 0,
+      packed: 0,
+      skipped: 0,
+      bytes_before: 0,
+      bytes_after: 0,
+      attempts: 0,
+      last_error: "",
+      started_at: "",
+      finished_at: "",
+    },
+    decompress_state: {
+      status: "idle",
+      last_id: 0,
+      max_id: 0,
+      total_rows: 0,
+      scanned: 0,
+      packed: 0,
+      skipped: 0,
+      bytes_before: 0,
+      bytes_after: 0,
+      attempts: 0,
+      last_error: "",
+      started_at: "",
+      finished_at: "",
+    },
+    backup: { path: "", size: 0, mtime: "", at: "", source: "missing" },
+    db: {
+      path: "/tmp/llmio.db",
+      file_size: 0,
+      page_size: 4096,
+      page_count: 0,
+      freelist_count: 0,
+      auto_vacuum: 0,
+      rows: 0,
+      pending_rows: 0,
+      framed_rows: 0,
+      block_rows: 0,
+      block_group_rows: 0,
+      block_group_bytes: 0,
+      input_column_bytes: 0,
+    },
+    running: false,
+    ...over,
+  }
+}
+
 /** 让两个 getConfig 分别返回给定值；不传即"未配置" */
 function configReplies(
   anthropic: AnthropicCountTokens | "" = "",
@@ -94,6 +170,7 @@ beforeEach(async () => {
     weekdays: [1, 2, 3, 4, 5],
     dateOverrides: {},
   })
+  mocked.getCompression.mockResolvedValue(compressionStatus())
   const i18n = (await import("@/i18n")).default
   await i18n.changeLanguage("zh-CN")
 })
@@ -189,6 +266,187 @@ describe("系统配置页 · 错误", () => {
 
     expect(await within(dialog).findByText("12")).toBeInTheDocument()
     expect(within(dialog).queryByText("清理历史加载失败")).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * 数据库压缩卡片。
+ *
+ * 这张卡上最容易做错的两件事，测试就钉这两件：
+ *
+ *  1. **压缩比什么时候才该显示。** `state.bytes_before` 只统计**扫过的行**，
+ *     库里还有没迁的行时它是个不完整的分子。拿它去除以全库的落库字节，
+ *     会得出一个看起来很专业的错误数字——比不显示更糟。
+ *  2. **没备份时那道门。** 迁移原地改写历史行，出事时唯一不需要相信压缩代码
+ *     的退路是"把备份盖回去"。所以没探到备份时不许直接开跑，必须过一次确认，
+ *     而且确认之后要**如实**把"无备份"这件事传下去。
+ */
+describe("系统配置页 · 数据库压缩", () => {
+  /** 归零的一份状态，各用例只改自己关心的那几个字段。 */
+  function withCompression(over: Partial<CompressionStatus>) {
+    mocked.getCompression.mockResolvedValue(compressionStatus(over))
+  }
+
+  it("迁移完成后给出压缩比：原始 ÷ 真正落库", async () => {
+    // 1 GiB 原始，落库 = 8 MiB（input 列）+ 2 MiB（组表）+ 0 块表 = 10 MiB ⇒ 约 102.4×
+    withCompression({
+      state: {
+        ...compressionStatus().state,
+        status: "done",
+        bytes_before: 1024 ** 3,
+        bytes_after: 0,
+      },
+      db: {
+        ...compressionStatus().db,
+        pending_rows: 0,
+        framed_rows: 100,
+        input_column_bytes: 8 * 1024 ** 2,
+        block_group_rows: 1,
+        block_group_bytes: 2 * 1024 ** 2,
+      },
+    })
+
+    renderPage()
+
+    expect(await screen.findByText("102.4×")).toBeInTheDocument()
+    expect(screen.getByText("原始 ÷ 真正落库")).toBeInTheDocument()
+  })
+
+  it("还有未迁移的行时不报压缩比，改说这个比值不完整", async () => {
+    withCompression({
+      state: {
+        ...compressionStatus().state,
+        status: "paused",
+        bytes_before: 1024 ** 3,
+        scanned: 40,
+        total_rows: 100,
+      },
+      db: {
+        ...compressionStatus().db,
+        pending_rows: 60, // 还有 60 行是明文
+        framed_rows: 40,
+        input_column_bytes: 8 * 1024 ** 2,
+        block_group_bytes: 2 * 1024 ** 2,
+      },
+    })
+
+    renderPage()
+
+    expect(await screen.findByText("还有未迁移的行，此比值不完整")).toBeInTheDocument()
+    expect(screen.queryByText(/×$/)).not.toBeInTheDocument()
+    expect(screen.getByText("已暂停")).toBeInTheDocument()
+  })
+
+  it("auto_vacuum=0 时说清省下的空间还在文件里，要 VACUUM 才能还给磁盘", async () => {
+    withCompression({
+      db: {
+        ...compressionStatus().db,
+        auto_vacuum: 0,
+        page_size: 4096,
+        freelist_count: 256, // 1 MiB
+      },
+    })
+
+    renderPage()
+
+    expect(
+      await screen.findByText(/当前 auto_vacuum=0，文件只会涨不会缩，要 VACUUM 才能真正还给磁盘/)
+    ).toBeInTheDocument()
+  })
+
+  it("探到可用备份时直接开跑，不带「无备份」确认", async () => {
+    const user = userEvent.setup()
+    withCompression({
+      backup: { path: "/tmp/llmio.db.bak", size: 999, mtime: "", at: "", source: "manual" },
+    })
+    mocked.runCompression.mockResolvedValue({
+      started: true,
+      full: false,
+      backup: { path: "/tmp/llmio.db.bak", size: 999, mtime: "", at: "", source: "manual" },
+    })
+
+    renderPage()
+    await user.click(await screen.findByRole("button", { name: "开始迁移" }))
+
+    expect(mocked.runCompression).toHaveBeenCalledWith({
+      full: false,
+      acknowledge_no_backup: false,
+    })
+  })
+
+  it("没探到备份时先弹确认，确认后如实带上 acknowledge_no_backup", async () => {
+    const user = userEvent.setup()
+    withCompression({
+      backup: { path: "/tmp/llmio.db.bak", size: 0, mtime: "", at: "", source: "missing" },
+    })
+    mocked.runCompression.mockResolvedValue({
+      started: true,
+      full: false,
+      backup: { path: "", size: 0, mtime: "", at: "", source: "forced" },
+    })
+
+    renderPage()
+    await user.click(await screen.findByRole("button", { name: "开始迁移" }))
+
+    // 先弹框，**没有**已经开跑
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).getByText("没有探测到可用备份")).toBeInTheDocument()
+    expect(within(dialog).getByText("未找到备份")).toBeInTheDocument()
+    expect(mocked.runCompression).not.toHaveBeenCalled()
+
+    await user.click(within(dialog).getByRole("button", { name: "确认无备份并继续" }))
+
+    // 确认之后才提交，且这个确认必须传到后端——后端那道门靠的就是它
+    await waitFor(() =>
+      expect(mocked.runCompression).toHaveBeenCalledWith({
+        full: false,
+        acknowledge_no_backup: true,
+      })
+    )
+  })
+
+  it("备份比库还小时不许直接开跑（旧备份盖回去会丢数据）", async () => {
+    const user = userEvent.setup()
+    withCompression({
+      backup: { path: "/tmp/llmio.db.bak", size: 1, mtime: "", at: "", source: "stale" },
+      db: { ...compressionStatus().db, file_size: 1024 ** 3 },
+    })
+
+    renderPage()
+    await user.click(await screen.findByRole("button", { name: "开始迁移" }))
+
+    const dialog = await screen.findByRole("dialog")
+    expect(
+      within(dialog).getByText(/多半是迁移前的旧备份——盖回去会丢数据/)
+    ).toBeInTheDocument()
+    expect(mocked.runCompression).not.toHaveBeenCalled()
+  })
+
+  it("一行都没压过时回滚按钮是禁用的", async () => {
+    withCompression({ db: { ...compressionStatus().db, framed_rows: 0 } })
+
+    renderPage()
+
+    expect(await screen.findByRole("button", { name: "回滚为明文" })).toBeDisabled()
+  })
+
+  it("已有压缩行时回滚要先过一道明确警告", async () => {
+    const user = userEvent.setup()
+    withCompression({
+      state: { ...compressionStatus().state, status: "done", bytes_before: 1024 ** 3 },
+      db: { ...compressionStatus().db, framed_rows: 12468, pending_rows: 0 },
+    })
+    mocked.rollbackCompression.mockResolvedValue({ started: true })
+
+    renderPage()
+    await user.click(await screen.findByRole("button", { name: "回滚为明文" }))
+
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).getByText(/回滚会让数据库明显变大/)).toBeInTheDocument()
+    expect(mocked.rollbackCompression).not.toHaveBeenCalled()
+
+    await user.click(within(dialog).getByRole("button", { name: "确认回滚" }))
+    await waitFor(() => expect(mocked.rollbackCompression).toHaveBeenCalled())
   })
 })
 

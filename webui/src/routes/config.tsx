@@ -29,6 +29,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Switch } from '@/components/ui/switch';
 import { configAPI, type AnthropicCountTokens, type LogCleanupPolicy, type LogCleanupRecord, getCleanupHistory, testCountTokens } from '@/lib/api';
 import { PeakCalendarCard } from '@/routes/peak-calendar';
+import { CompressionCard } from '@/routes/compression-card';
 import {
   Table,
   TableBody,
@@ -327,6 +328,17 @@ export default function ConfigPage() {
         */}
         <div className="mt-4">
           <PeakCalendarCard />
+        </div>
+
+        {/*
+          数据库压缩。与上面两张卡一样是一张自带取数的卡片，而且理由更硬：
+          它的状态接口里有一个全表扫 typeof 的读数（还没迁的行数），
+          并进 loadConfig 那次 Promise.all 就等于让配置页每次打开都打一遍全表。
+          要 VACUUM 才能真正把空间还给磁盘这件事也必须在这一页说清楚——
+          否则用户看完"省了 5.6 GiB"再去看文件还是 7 GiB，会以为功能是坏的。
+        */}
+        <div className="mt-4">
+          <CompressionCard />
         </div>
       </div>
 

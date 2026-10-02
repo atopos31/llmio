@@ -774,6 +774,122 @@ export async function getCleanupHistory(params: {
   );
 }
 
+// 数据库压缩（历史行的形态迁移）
+//
+// 与日志清理不同，跑一轮是分钟级的：`runCompression` 与 `rollbackCompression`
+// 都是"起个后台任务就返回"，进度只能从 `getCompression()` 轮询。
+export interface CompressionPolicy {
+  enabled: boolean;
+  batch_rows: number;
+  batch_bytes: number;
+  quiesce_sec: number;
+}
+
+export interface CompressionState {
+  status: 'idle' | 'running' | 'paused' | 'done' | 'failed';
+  last_id: number;
+  max_id: number;
+  total_rows: number;
+  scanned: number;
+  packed: number;
+  skipped: number;
+  bytes_before: number;
+  bytes_after: number;
+  attempts: number;
+  last_error: string;
+  started_at: string;
+  finished_at: string;
+}
+
+export interface CompressionBackup {
+  path: string;
+  size: number;
+  mtime: string;
+  at: string;
+  // manual / stale / missing / forced —— 见 models.LogCompressBackup
+  source: 'manual' | 'stale' | 'missing' | 'forced';
+}
+
+export interface CompressionDBStats {
+  path: string;
+  file_size: number;
+  page_size: number;
+  page_count: number;
+  freelist_count: number;
+  auto_vacuum: number;
+  rows: number;
+  // pending_rows 是"还没迁的行数"，全表扫 typeof（只读记录头，不读载荷）。
+  // framed_rows 是已经迁过的行数（含引用帧与逐行帧）。
+  pending_rows: number;
+  framed_rows: number;
+  block_rows: number;
+  block_group_rows: number;
+  block_group_bytes: number;
+  input_column_bytes: number;
+}
+
+export interface CompressionStatus {
+  policy: CompressionPolicy;
+  state: CompressionState;
+  decompress_state: CompressionState;
+  backup: CompressionBackup;
+  db: CompressionDBStats;
+  running: boolean;
+}
+
+export async function getCompression(): Promise<CompressionStatus> {
+  return apiRequest<CompressionStatus>('/logs/compression');
+}
+
+export async function updateCompressionPolicy(
+  policy: CompressionPolicy
+): Promise<CompressionPolicy> {
+  return apiRequest<CompressionPolicy>('/logs/compression/policy', {
+    method: 'PUT',
+    body: JSON.stringify(policy),
+  });
+}
+
+/**
+ * 起一轮迁移。
+ *
+ * `full` 从水位 0 重扫全表（已迁过的行会被候选过滤跳过，所以它是
+ * "水位不可信了，重扫确认"，不是"再压一遍"）。
+ *
+ * `acknowledge_no_backup` 是原地迁移的确认：没探到备份又不带它，后端**拒绝开跑**。
+ * 别在界面上默认传 true——那道门是唯一的"出事能盖回去"的保证。
+ */
+export async function runCompression(params: {
+  full?: boolean;
+  acknowledge_no_backup?: boolean;
+} = {}): Promise<{ started: boolean; full: boolean; backup: CompressionBackup }> {
+  return apiRequest('/logs/compression/run', {
+    method: 'POST',
+    body: JSON.stringify({
+      full: params.full ?? false,
+      acknowledge_no_backup: params.acknowledge_no_backup ?? false,
+    }),
+  });
+}
+
+export async function pauseCompression(): Promise<CompressionState> {
+  return apiRequest<CompressionState>('/logs/compression/pause', { method: 'POST' });
+}
+
+/**
+ * L2 降级：把库里的帧全部还原成明文。
+ *
+ * 它会让整个库**变大**（帧 → 明文），所以后端要求 confirm 必须是字面量
+ * "decompress"，且必须 full=true。调用前请确保有备份：这一趟跑完，
+ * 迁移的收益就没了，得重跑一遍才能回来。
+ */
+export async function rollbackCompression(): Promise<{ started: boolean }> {
+  return apiRequest('/logs/compression/decompress', {
+    method: 'POST',
+    body: JSON.stringify({ full: true, confirm: 'decompress' }),
+  });
+}
+
 // Test API functions
 export async function testCountTokens(): Promise<void> {
   return apiRequest<void>('/test/count_tokens');

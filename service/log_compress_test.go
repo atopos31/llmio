@@ -758,6 +758,109 @@ func TestLogCompress_DecompressRoundTrip(t *testing.T) {
 	}
 }
 
+// 回滚之后必须还能再迁一次，而且**全表**都要迁到。
+//
+// 真机上的形状是"迁移 → 回滚 → 再迁移"，第三步只压了 1 行就报 done，
+// 状态里 `packed` 还接着上一轮累计的数，界面上一半写"已完成"、一半写
+// "待迁移 12,483 行"。根因是**迁移的水位停在回滚前的位置**，而水位之前的行
+// 已经被回滚还原成明文了——水位不覆盖它们，候选查询就永远扫不到。
+//
+// 判据取**每一行的形态**：只断言"跑完了"是抓不到这个 bug 的，它确实报 done，
+// 也确实是"没有候选了"——在它自己那个错水位之后。
+func TestLogCompress_RecompressAfterRollback(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	ids := seedPlaintextRows(t, ctx, [][]byte{
+		bigRow(1, 96<<10),
+		bigRow(2, 40<<10),
+		bigRow(3, 72<<10),
+	}, time.Hour)
+
+	if _, err := RunLogCompress(ctx, false); err != nil {
+		t.Fatalf("第一次迁移失败：%v", err)
+	}
+	if _, err := RunLogDecompress(ctx, true); err != nil {
+		t.Fatalf("回滚失败：%v", err)
+	}
+
+	// 回滚完成 = 这一列回到"从没压过"。迁移的水位必须跟着退。
+	packState, err := GetLogCompressState(ctx)
+	if err != nil {
+		t.Fatalf("读迁移状态失败：%v", err)
+	}
+	if packState.LastID != 0 {
+		t.Fatalf("回滚之后迁移水位仍是 %d，下一次迁移从它续跑就会漏掉前面的行",
+			packState.LastID)
+	}
+	if packState.Status != compressIdle {
+		t.Fatalf("回滚之后迁移状态是 %q，期望 %q", packState.Status, compressIdle)
+	}
+
+	st, err := RunLogCompress(ctx, false)
+	if err != nil {
+		t.Fatalf("再迁移失败：%v", err)
+	}
+	if st.Status != compressDone {
+		t.Fatalf("再迁移后状态是 %q", st.Status)
+	}
+	for _, id := range ids {
+		if typ, _ := colShape(t, id); typ != "blob" {
+			t.Fatalf("行 %d 在再迁移之后仍是 %q——水位没有随回滚退回去", id, typ)
+		}
+	}
+	// 再迁一次仍要逐字节读得回来：水位归零重扫不能变成"压了两遍"。
+	after := readBack(t, ctx)
+	for _, id := range ids {
+		if len(after[id]) == 0 {
+			t.Fatalf("行 %d 读回来是空的", id)
+		}
+	}
+}
+
+// 续跑的回滚（full=false，内部路径）**不能**退迁移的水位：那种跑法只保证
+// "水位之后没有帧了"，水位之前的帧还在，迁移的水位仍然有效。
+//
+// 这条是上一条的边界。少了它，将来把 full 那个条件删掉也不会有人发现
+// ——而那时每一次部分回滚都会强制下一次迁移全表重扫一遍（幂等兜得住正确性，
+// 但把"续跑"这件事变成了摆设）。
+func TestLogCompress_PartialRollbackKeepsPackWatermark(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	ids := seedPlaintextRows(t, ctx, [][]byte{
+		bigRow(1, 96<<10),
+		bigRow(2, 40<<10),
+	}, time.Hour)
+	if _, err := RunLogCompress(ctx, false); err != nil {
+		t.Fatalf("迁移失败：%v", err)
+	}
+	packed, err := GetLogCompressState(ctx)
+	if err != nil {
+		t.Fatalf("读迁移状态失败：%v", err)
+	}
+	if packed.LastID == 0 {
+		t.Fatalf("迁移之后水位仍是 0，这条测试要验的东西不成立")
+	}
+
+	if _, err := RunLogDecompress(ctx, false); err != nil {
+		t.Fatalf("部分回滚失败：%v", err)
+	}
+	after, err := GetLogCompressState(ctx)
+	if err != nil {
+		t.Fatalf("读迁移状态失败：%v", err)
+	}
+	if after.LastID != packed.LastID {
+		t.Fatalf("部分回滚把迁移水位从 %d 改成了 %d", packed.LastID, after.LastID)
+	}
+	// 顺带钉住这一趟确实干了活：不然"水位没变"可能只是因为它什么都没做。
+	for _, id := range ids {
+		if typ, _ := colShape(t, id); typ != "text" {
+			t.Fatalf("行 %d 没被还原成明文，typeof=%q", id, typ)
+		}
+	}
+}
+
 // ── 迁移是否达到设计容量 ──────────────────────────────────────────────────
 
 // 迁移必须**批量打包**，不能逐行各封各的组。

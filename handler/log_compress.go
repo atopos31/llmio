@@ -34,11 +34,18 @@ type compressStatus struct {
 	// DB 可能是 null：**量不到库的现状不该让整张卡报错**，进度（state）
 	// 是另一条读法，照样给。见 service/db_stats.go。
 	DB *service.DBStats `json:"db"`
-	// Reclaim 是上一次空间回收（启动期转换/VACUUM，或手动点的那一下）的结果。
+	// Reclaim 是上一次空间回收（启动期转换/VACUUM，手动点的，或定时起的）的结果。
 	Reclaim *models.LogReclaimState `json:"reclaim"`
-	Running bool                    `json:"running"`
+	// ReclaimPolicy 是空间回收的自动推进策略。它与迁移策略（Policy）是两份，
+	// 因为两者的触发时机完全不是一回事：迁移完一次就不再跑了，回收要跟着
+	// 删除量一直跑。
+	ReclaimPolicy *models.LogReclaimPolicy `json:"reclaim_policy"`
+	Running       bool                     `json:"running"`
 	// Reclaiming 是"此刻有一轮回收在跑"。与 Running 分开：它们是两个任务。
 	Reclaiming bool `json:"reclaiming"`
+	// ReclaimStopping 是"按了停止、但那批还没跑完"的中间态。
+	// 不把它单独给出来的话，界面只能显示"还在回收中"，用户会以为按钮没生效。
+	ReclaimStopping bool `json:"reclaim_stopping"`
 }
 
 // GetCompressionStatus 返回压缩状态。
@@ -70,6 +77,11 @@ func GetCompressionStatus(c *gin.Context) {
 		common.InternalServerError(c, "Failed to load reclaim state: "+err.Error())
 		return
 	}
+	reclaimPolicy, err := service.GetLogReclaimPolicy(ctx)
+	if err != nil {
+		common.InternalServerError(c, "Failed to load reclaim policy: "+err.Error())
+		return
+	}
 
 	common.Success(c, compressStatus{
 		Policy:          policy,
@@ -78,9 +90,30 @@ func GetCompressionStatus(c *gin.Context) {
 		Backup:          service.VerifyBackup(backupPath(), size),
 		DB:              db,
 		Reclaim:         reclaim,
+		ReclaimPolicy:   reclaimPolicy,
 		Running:         service.CompressRunning(),
 		Reclaiming:      service.ReclaimRunning(),
+		ReclaimStopping: service.ReclaimStopping(),
 	})
+}
+
+// UpdateReclaimPolicy 改空间回收的自动推进策略。越界参数会被夹回（不报错）。
+func UpdateReclaimPolicy(c *gin.Context) {
+	var req models.LogReclaimPolicy
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if err := service.SaveLogReclaimPolicy(c.Request.Context(), &req); err != nil {
+		common.InternalServerError(c, "Failed to save reclaim policy: "+err.Error())
+		return
+	}
+	policy, err := service.GetLogReclaimPolicy(c.Request.Context())
+	if err != nil {
+		common.InternalServerError(c, "Failed to reload reclaim policy: "+err.Error())
+		return
+	}
+	common.Success(c, policy)
 }
 
 // UpdateCompressionPolicy 改策略。参数越界会被夹回合法区间（不报错）。
@@ -238,11 +271,38 @@ func RollbackCompression(c *gin.Context) {
 // 占位（"有一轮在跑"）由 service.StartReclaim **同步**做完，所以这里的
 // `started: true` 是可信的：返回之后再来一下必然被上面那道门挡掉。
 func ReclaimStorage(c *gin.Context) {
-	if err := service.StartReclaim(c.Request.Context()); err != nil {
+	var req reclaimRequest
+	// 允许空 body：不带参数就是"跑一轮"（与这个端点原来的行为一致）。
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			common.BadRequest(c, "Invalid request: "+err.Error())
+			return
+		}
+	}
+	opts := service.ReclaimOptions{Continuous: req.Continuous, Source: "manual"}
+	if err := service.StartReclaim(c.Request.Context(), opts); err != nil {
 		common.BadRequest(c, "已有一轮回收在执行，请等它结束")
 		return
 	}
-	common.Success(c, map[string]any{"started": true})
+	common.Success(c, map[string]any{"started": true, "continuous": req.Continuous})
+}
+
+// StopReclaim 请求停止持续回收。批间生效，所以返回成功不等于已经停了。
+//
+// 与「暂停迁移」不同，它没有"停下之后库处于什么形态"的问题：回收不动数据，
+// 停在任何一刻库都是完整的，只是文件没缩到位。
+func StopReclaim(c *gin.Context) {
+	if !service.StopReclaim() {
+		common.BadRequest(c, "当前没有回收在跑")
+		return
+	}
+	common.Success(c, map[string]any{"stopping": true})
+}
+
+type reclaimRequest struct {
+	// Continuous 为真时跑到放完（每批松手一次，见 service.reclaimContinuousPause），
+	// 而不是跑满一轮就把控制权交回来让用户再点。
+	Continuous bool `json:"continuous"`
 }
 
 // GetDecompressStatus 单独查回滚进度（回滚与迁移是两条独立的水位）。

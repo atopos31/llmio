@@ -21,6 +21,10 @@ const (
 	// KeyLogReclaimState 记的是**空间回收**（增量回收 / 启动转换）上一次干了什么。
 	// 与迁移分开：回收不动数据，只动文件，而且它每次都跑完（不像迁移有水位）。
 	KeyLogReclaimState = "log_reclaim_state"
+	// KeyLogReclaimPolicy 是空间回收的**自动推进**策略（要不要定时回收、多大才值得动）。
+	// 它独立于迁移策略：迁移是"改写数据形态"，回收是"把文件缩小"，两者的
+	// 触发时机完全不是一回事——迁移完一次就不再跑了，回收要跟着删除量一直跑。
+	KeyLogReclaimPolicy = "log_reclaim_policy"
 )
 
 type AnthropicCountTokens struct {
@@ -101,6 +105,27 @@ type LogCompressState struct {
 	FinishedAt string `json:"finished_at"`
 }
 
+// LogReclaimPolicy 是**空间回收**的自动推进策略。
+//
+// 默认全关（Enabled=false），这不是保守，是这条动作的性质决定的：回收**全程持
+// 写锁**，那是一段写请求会被排队的真实时间。"这台机器什么时候可以占用库"是运维
+// 判断而不是技术判断，默认替用户做主，就等于把一个会被感知到的动作变成默认行为。
+//
+// 与迁移策略不同，这里没有"每批多大"这一档：回收的批次大小（512 条语句/事务）
+// 是**被 busy_timeout 推出来的**（见 service.reclaimPagesPerTx），不是能按偏好
+// 调的旋钮——调大它换来的吞吐会被"一次锁窗口超过 5 秒、写请求直接失败"吃掉。
+type LogReclaimPolicy struct {
+	// Enabled 打开后，服务会按 CheckIntervalSec 定期看一眼，够条件就自动跑一趟。
+	// 手动点「回收」不看它（与迁移、日志清理的语义一致）。
+	Enabled bool `json:"enabled"`
+	// MinBytes 是"值得跑一趟"的门槛。没有它，一个刚回收过、只删了几行的库
+	// 会在每个周期被拉起来占一次写锁，换回来几 MiB——收益与打扰完全不成比例。
+	MinBytes int64 `json:"min_bytes"`
+	// CheckIntervalSec 是多久看一次。看一次很便宜（一次 freelist 计数），
+	// 所以它管的是"发现有空闲页之后多久动手"，不是性能旋钮。
+	CheckIntervalSec int `json:"check_interval_sec"`
+}
+
 // LogReclaimState 是**空间回收**的运行记录。
 //
 // 与迁移的状态机不同，它没有水位：回收是一次一次独立的动作，跑到哪算哪，
@@ -109,8 +134,21 @@ type LogCompressState struct {
 type LogReclaimState struct {
 	// Status: idle / running / done / failed。`done` 里再分跑完没跑完，见 StopReason。
 	Status string `json:"status"`
-	// Source 是这一次是谁发起的：startup（启动期转换/VACUUM）或 manual（点回收）。
+	// Source 是这一次是谁发起的：
+	//   startup   —— 启动期转换/VACUUM（在监听端口之前跑）
+	//   manual    —— 用户在控制台点的
+	//   scheduled —— 定时回收（见 LogReclaimPolicy）自己起来的
 	Source string `json:"source"`
+	// Continuous 记这一次是不是"持续到放完"。
+	//
+	// 它与 Rounds 一起构成回执：`Rounds=1` 的 done/budget 是"点了一下、跑满一段"，
+	// 而 `Rounds=37` 才是"一路放到底"。不记这两项，两种完全不同的运维动作
+	// 在记录里长得一模一样。
+	Continuous bool `json:"continuous"`
+	// Rounds 是跑了几轮。单轮模式恒为 1；持续模式下一轮一批（见
+	// service.reclaimContinuousPause 的"一批一松手"），所以它同时是
+	// "打了几批"的另一种写法。
+	Rounds int `json:"rounds"`
 	// PageSize 是页大小，用来把页数折成字节（界面上要说"放掉了 5.4 GiB"）。
 	PageSize int64 `json:"page_size"`
 	// FreedPages / FreedBytes 是这一次放掉的页数与字节数。
@@ -129,9 +167,11 @@ type LogReclaimState struct {
 	StartedAt  string `json:"started_at"`
 	FinishedAt string `json:"finished_at"`
 	// StopReason 是收尾时的判定。
-	// 增量回收（manual）：
+	// 增量回收（manual / scheduled）：
 	//   empty          —— freelist 空了，这一趟把能放的全放了
 	//   budget         —— 到点了（本轮时间预算用完），还剩着没放，可以再点一次
+	//   stopped        —— 用户按了「停止」（只在持续模式里可能出现）
+	//   busy           —— 持续模式的轮间松手之后，维护锁被别的任务抢走了，让给它
 	//   no_auto_vacuum —— 库的 auto_vacuum 不是 INCREMENTAL，这句 PRAGMA 是空操作
 	//   stalled        —— 放了一批 freelist 却没少（引擎行为反常），主动收工并记 LastError
 	// 启动期（startup）：

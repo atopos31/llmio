@@ -281,6 +281,18 @@ func saveCompressStateTx(tx *gorm.DB, mode compressMode, state *models.LogCompre
 	}
 }
 
+// resetModeState 把一条路的状态清成"从没跑过"（水位归零、统计清空）。
+//
+// 它服务的场景只有一个，但那个场景是真机上踩到的：**回滚跑完之后，迁移的水位
+// 就不代表任何事了**。见 runCompressMode 里 done 分支的那段注释。
+//
+// 刻意不复位 `bytes_total` 之外的任何东西去"保留画面"：回滚完成之后，这条路上
+// 的每一个计数（扫了多少、压了多少、省了多少字节）描述的都是**上一形态**的事，
+// 留着只会让界面自相矛盾。
+func resetModeState(ctx context.Context, mode compressMode) error {
+	return saveCompressState(ctx, mode, DefaultLogCompressState())
+}
+
 // ── 跑一轮 ────────────────────────────────────────────────────────────────
 
 // RunLogCompress 把历史明文行迁成压缩形态，一直跑到没有候选行为止。
@@ -393,6 +405,24 @@ func runCompressMode(ctx context.Context, mode compressMode, full bool) (*models
 			state.FinishedAt = time.Now().Format(time.RFC3339)
 			if err := saveCompressState(ctx, mode, state); err != nil {
 				return state, err
+			}
+			// 回滚把整个列还原成明文，**迁移的水位就此失效**：它还停在"上次压到
+			// 哪"，而水位之前的那些行现在全是明文。不退的话，下一次「开始迁移」
+			// 从那个水位续跑，**水位之前一行都扫不到**——它扫到 0〜几行候选就报
+			// done，而库里明明还有一整库明文。真机上就是这个形状：回滚 12,469 行
+			// 之后再迁移，只压了 1 行，状态却报 `packed=12469`（那个数是上一轮累计
+			// 的，续跑不重置），界面上一边写"已完成"一边写"待迁移 12,483 行"。
+			//
+			// 只在**全量跑完**时退：unpack 允许从水位续跑，那种情况下水位之前的帧
+			// 还没被还原，迁移的水位仍然有效。
+			//
+			// 反过来（迁移跑完退 unpack 的水位）不需要：回滚这条路在接口层就强制
+			// full，它的水位每次都是 0 起跑。
+			if mode == modeUnpack && full {
+				if err := resetModeState(ctx, modePack); err != nil {
+					return nil, err
+				}
+				slog.Info("log compress 水位随回滚复位", "mode", modePack.String())
 			}
 			slog.Info("log compress done",
 				"mode", mode.String(), "scanned", state.Scanned, "packed", state.Packed,

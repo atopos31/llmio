@@ -544,6 +544,410 @@ func TestStorage_ReclaimStateCorruptIsAnError(t *testing.T) {
 	}
 }
 
+// ── 持续回收 ──────────────────────────────────────────────────────────────
+
+// 持续模式的切分：**一批一轮**。单轮模式不按批数封顶，只按时间预算。
+//
+// 一个人为常数值得单独钉住，是因为持续模式对写请求的那条硬保证（写锁最多被握
+// 一批的时间 < busy_timeout）**完全建立在它上面**。哪天有人觉得"一批一轮太碎、
+// 改成十批一轮吧"，吞吐会好看一点，而那条保证会**悄无声息地**消失——
+// 界面上什么都不会变，只有写请求开始失败。
+func TestReclaimBatchesPerRound(t *testing.T) {
+	if got := reclaimBatchesPerRound(true); got != 1 {
+		t.Fatalf("持续模式必须一批一轮（写锁窗口 ≤ 一批 < busy_timeout），实得 %d", got)
+	}
+	if got := reclaimBatchesPerRound(false); got != 0 {
+		t.Fatalf("单轮模式应当只受时间预算约束，实得批数上限 %d", got)
+	}
+}
+
+// 持续回收的正面证据：**同一个库，一直放到 freelist 空**，而且轮数与批数对得上。
+//
+// 现场刻意造得比一批（512 页）大好几倍，这样"轮"这件事才真的发生。若哪天有人把
+// 轮循环写回单轮（比如把 continuous 参数丢掉），Rounds 会停在 1、freelist 还剩
+// 一大截，这一条就会红。
+func TestStorage_ContinuousReclaimDrainsInManyRounds(t *testing.T) {
+	models.Init(context.Background(), filepath.Join(t.TempDir(), "continuous.db"))
+	t.Cleanup(closeTestDB)
+	ctx := context.Background()
+
+	// 400 行 × 16 KiB ≈ 6.4 MiB ≈ 1600 页，够 3 批以上。
+	seedPlaintextRows(t, ctx, rowBodies(400, 16<<10), time.Hour)
+	if err := models.DB.WithContext(ctx).Exec(`DELETE FROM chat_ios`).Error; err != nil {
+		t.Fatalf("删行失败：%v", err)
+	}
+	before, err := readStorageCounters()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRounds := int((before.freelist + reclaimPagesPerTx - 1) / reclaimPagesPerTx)
+	if wantRounds < 3 {
+		t.Fatalf("现场没造对：freelist 只有 %d 页，凑不出几轮", before.freelist)
+	}
+
+	rec, err := ReclaimUntilDone(ctx)
+	if err != nil {
+		t.Fatalf("持续回收失败：%v", err)
+	}
+	if !rec.Continuous {
+		t.Fatal("回执里没记下这是持续回收——两种运维动作在记录里会长得一模一样")
+	}
+	if rec.StopReason != "empty" {
+		t.Fatalf("持续回收应当一路放到空，实得 %q（放了 %d 页，还剩 %d）",
+			rec.StopReason, rec.FreedPages, rec.FreelistAfter)
+	}
+	if rec.FreelistAfter != 0 {
+		t.Fatalf("跑到 empty 了 freelist 却不是 0：%d", rec.FreelistAfter)
+	}
+	if rec.Rounds != wantRounds {
+		t.Fatalf("起始 %d 页、一批 %d 页，应当恰好 %d 轮，实得 %d 轮",
+			before.freelist, reclaimPagesPerTx, wantRounds, rec.Rounds)
+	}
+	if rec.Calls != int(rec.FreedPages) {
+		t.Fatalf("语句数 %d 与实际放掉的 %d 页对不上（有一条一页这条事实在，两者应当恒等）",
+			rec.Calls, rec.FreedPages)
+	}
+	if rec.Rounds != 1 && rec.DurationMs < int64(rec.Rounds-1)*reclaimContinuousPause.Milliseconds() {
+		t.Fatalf("%d 轮之间的松手时间没算进耗时：%d ms", rec.Rounds, rec.DurationMs)
+	}
+}
+
+// 单轮模式**不许**自己接着跑：一轮到点就交还，剩下的留给下一次点击。
+//
+// 这是两种模式的全部区别所在，也是"用户点一次会不会跑十几分钟"的分界线。
+func TestStorage_SingleRoundReclaimDoesNotContinue(t *testing.T) {
+	models.Init(context.Background(), filepath.Join(t.TempDir(), "singleround.db"))
+	t.Cleanup(closeTestDB)
+	ctx := context.Background()
+
+	seedPlaintextRows(t, ctx, rowBodies(400, 16<<10), time.Hour)
+	if err := models.DB.WithContext(ctx).Exec(`DELETE FROM chat_ios`).Error; err != nil {
+		t.Fatalf("删行失败：%v", err)
+	}
+
+	rec, err := ReclaimFreePages(ctx)
+	if err != nil {
+		t.Fatalf("回收失败：%v", err)
+	}
+	if rec.Continuous {
+		t.Fatal("单轮回收不该被记成持续回收")
+	}
+	if rec.Rounds != 1 {
+		t.Fatalf("单轮模式只该跑一轮，实得 %d 轮", rec.Rounds)
+	}
+}
+
+// 「停止」要在批间生效，并且如实记成 stopped——不是 done、更不是 failed。
+//
+// 这个区别在界面上是有用的：stopped 意味着"你自己叫停的，剩下的下次再点"，
+// 而 done 意味着"这一趟该干的全干完了"。混起来用户会以为已经收干净了。
+func TestStorage_ContinuousReclaimStopsOnRequest(t *testing.T) {
+	models.Init(context.Background(), filepath.Join(t.TempDir(), "stop.db"))
+	t.Cleanup(closeTestDB)
+	ctx := context.Background()
+
+	seedPlaintextRows(t, ctx, rowBodies(400, 16<<10), time.Hour)
+	if err := models.DB.WithContext(ctx).Exec(`DELETE FROM chat_ios`).Error; err != nil {
+		t.Fatalf("删行失败：%v", err)
+	}
+	before, err := readStorageCounters()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type result struct {
+		rec *models.LogReclaimState
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		rec, err := ReclaimUntilDone(ctx)
+		done <- result{rec, err}
+	}()
+
+	// 起跑之后至少有一秒的松手窗口（reclaimContinuousPause），足够观察到并按下停止。
+	waitUntil(t, 2*time.Second, ReclaimRunning, "持续回收没能起跑")
+	if !StopReclaim() {
+		t.Fatal("正在跑的时候 StopReclaim 应当返回 true")
+	}
+
+	var got result
+	select {
+	case got = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("按下停止之后 10 秒还没退出来——停止只在批间生效，不该等这么久")
+	}
+	if got.err != nil {
+		t.Fatalf("回收失败：%v", got.err)
+	}
+	if got.rec.StopReason != "stopped" {
+		t.Fatalf("被叫停应当记成 stopped，实得 %q", got.rec.StopReason)
+	}
+	if got.rec.Status != "done" {
+		t.Fatalf("被叫停不是失败，状态应当是 done，实得 %q", got.rec.Status)
+	}
+	if got.rec.FreelistAfter == 0 {
+		t.Fatal("现场没造对：一轮就放完了，这条测不到「剩着没放」")
+	}
+	if got.rec.FreelistAfter >= before.freelist {
+		t.Fatalf("叫停之前跑的那几批应当有成效：%d → %d", before.freelist, got.rec.FreelistAfter)
+	}
+	// 光看上面两条还不够：**跑到 empty 再报 stopped** 也能满足它们（只要 freelist
+	// 恰好没归零）。这条钉的是"它是被叫停的，不是自己跑完的"。
+	wantRounds := int((before.freelist + reclaimPagesPerTx - 1) / reclaimPagesPerTx)
+	if got.rec.Rounds >= wantRounds {
+		t.Fatalf("起始 %d 页要 %d 轮才放得完，却跑了 %d 轮——这不是被叫停，是跑完了",
+			before.freelist, wantRounds, got.rec.Rounds)
+	}
+	if ReclaimRunning() || ReclaimStopping() {
+		t.Fatal("退出来了却还报在跑/正在停——界面会永远停在「回收中」")
+	}
+}
+
+// 轮与轮之间**必须放掉维护锁**。握着锁歇气的话，迁移的每一批都会堵在这段
+// 松手上（它用的是阻塞 Lock），而持续回收可能跑十几分钟。
+//
+// 这条同时是"持续回收不会饿死别的维护任务"的证据。
+func TestStorage_ContinuousReclaimYieldsMaintenanceLock(t *testing.T) {
+	models.Init(context.Background(), filepath.Join(t.TempDir(), "yield.db"))
+	t.Cleanup(closeTestDB)
+	ctx := context.Background()
+
+	seedPlaintextRows(t, ctx, rowBodies(400, 16<<10), time.Hour)
+	if err := models.DB.WithContext(ctx).Exec(`DELETE FROM chat_ios`).Error; err != nil {
+		t.Fatalf("删行失败：%v", err)
+	}
+	before, err := readStorageCounters()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.freelist <= reclaimPagesPerTx {
+		t.Fatalf("现场没造对：freelist 只有 %d 页，跑不满两轮", before.freelist)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = ReclaimUntilDone(ctx)
+		close(done)
+	}()
+	t.Cleanup(func() {
+		_ = StopReclaim()
+		<-done
+	})
+
+	// 判据必须**同时**要求"第一批已经落库"和"维护锁空着"。
+	//
+	// 只要"锁空着"是不够的：起跑那几纳秒里（CAS 抢到、TryLock 还没执行）
+	// 也满足"在跑 + 锁空着"，那样这条测试会在什么都没证明的情况下变绿。
+	// 加上前半个条件之后，唯一能满足的时刻就只剩**轮间的松手**。
+	waitUntil(t, 10*time.Second, func() bool {
+		if !ReclaimRunning() {
+			return false
+		}
+		counters, err := readStorageCounters()
+		if err != nil || counters.freelist > before.freelist-reclaimPagesPerTx {
+			return false
+		}
+		if !maintenanceMu.TryLock() {
+			return false
+		}
+		maintenanceMu.Unlock()
+		return true
+	}, "连续回收跑了几轮，维护锁却一次都没空出来——迁移会被饿死")
+}
+
+// 「这一眼要不要动手」的全部判断。四条理由都要逐条钉住：一个"开着却从来不动"
+// 的定时回收，如果理由算错了，界面上完全看不出来。
+func TestReclaimDue(t *testing.T) {
+	policy := func(enabled bool, minBytes int64) *models.LogReclaimPolicy {
+		return &models.LogReclaimPolicy{Enabled: enabled, MinBytes: minBytes, CheckIntervalSec: 3600}
+	}
+	const inc = models.AutoVacuumIncremental
+	cases := []struct {
+		name   string
+		policy *models.LogReclaimPolicy
+		av     int64
+		free   int64
+		want   string
+	}{
+		{"关着就不动", policy(false, 0), inc, 1 << 30, "disabled"},
+		{"没有策略也算关着", nil, inc, 1 << 30, "disabled"},
+		{"没开 auto_vacuum：跑了也是空操作", policy(true, 0), models.AutoVacuumNone, 1 << 30, "no_auto_vacuum"},
+		{"没到门槛", policy(true, 512<<20), inc, 100 << 20, "below_threshold"},
+		{"正好到门槛：跑", policy(true, 100<<20), inc, 100 << 20, ""},
+		{"过了门槛：跑", policy(true, 1<<20), inc, 100 << 20, ""},
+		{"门槛为 0：只要有一个字节的洞就跑", policy(true, 0), inc, 4096, ""},
+	}
+	for _, c := range cases {
+		if got := reclaimDue(c.policy, c.av, c.free); got != c.want {
+			t.Errorf("%s：reclaimDue() = %q，期望 %q", c.name, got, c.want)
+		}
+	}
+}
+
+// 策略的往返与夹回。夹回是**必须**的：一个手写进 Config 的 `check_interval_sec: 0`
+// 会让调度器变成一个不带 sleep 的死循环，把 CPU 烧满。
+func TestLogReclaimPolicy_ClampAndRoundTrip(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	// 没存过时给默认值，而不是零值——零值意味着"门槛 0、周期 0"，
+	// 那是一台空转的机器。
+	policy, err := GetLogReclaimPolicy(ctx)
+	if err != nil {
+		t.Fatalf("读默认策略失败：%v", err)
+	}
+	if policy.Enabled {
+		t.Fatal("定时回收默认应当关着：它会占写锁，是个会被感知到的动作")
+	}
+	if policy.CheckIntervalSec != defaultReclaimCheckSec || policy.MinBytes != defaultReclaimMinBytes {
+		t.Fatalf("默认值不对：%+v", policy)
+	}
+
+	// 越界值被夹回，而且夹回的结果要**落盘**（读回来还是合法值）。
+	if err := SaveLogReclaimPolicy(ctx, &models.LogReclaimPolicy{
+		Enabled: true, MinBytes: -1, CheckIntervalSec: 0,
+	}); err != nil {
+		t.Fatalf("保存策略失败：%v", err)
+	}
+	got, err := GetLogReclaimPolicy(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Enabled {
+		t.Fatal("开关没存上")
+	}
+	if got.MinBytes != 0 {
+		t.Fatalf("负门槛应当夹回 0，实得 %d", got.MinBytes)
+	}
+	if got.CheckIntervalSec != reclaimMinCheckSec {
+		t.Fatalf("周期 %d 应当夹到 %d，实得 %d",
+			0, reclaimMinCheckSec, got.CheckIntervalSec)
+	}
+
+	if err := SaveLogReclaimPolicy(ctx, &models.LogReclaimPolicy{
+		CheckIntervalSec: reclaimMaxCheckSec + 1, MinBytes: reclaimMaxMinBytes + 1,
+	}); err != nil {
+		t.Fatalf("保存策略失败：%v", err)
+	}
+	got, err = GetLogReclaimPolicy(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CheckIntervalSec != reclaimMaxCheckSec || got.MinBytes != reclaimMaxMinBytes {
+		t.Fatalf("上界没夹住：%+v", got)
+	}
+}
+
+// 存下策略要**立刻叫醒**调度器，而不是让它把旧周期睡完。
+//
+// 这一条盯的是真机上踩到的形状：调度器在进程启动时就把"1 小时"算好了，之后只是
+// 睡——用户把开关打开、周期改成 60 秒，等了两分钟一动不动，从界面上看就是"这功能
+// 坏了"。光"每轮重新读策略"救不了它：重新读只让新周期从下一轮起算，而这一轮睡的
+// 是旧周期，旧周期可以是 24 小时（reclaimMaxCheckSec）。
+//
+// 起点刻意把周期设成**上界**：没有叫醒这一下，这条测试要等一天才会绿。
+func TestStorage_ReclaimSchedulerWakesOnPolicySave(t *testing.T) {
+	models.Init(context.Background(), filepath.Join(t.TempDir(), "sched.db"))
+	t.Cleanup(closeTestDB)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	// reclaimWake 是包级的，前面的用例存过策略，里面可能还留着一个提醒。
+	// 不清掉的话，调度器的**第一轮**就会立刻返回——这条测试会在什么都没证明的
+	// 情况下变绿（它要证的恰恰是"第二轮起跑前的那一下叫醒"）。
+	drainReclaimWake(t)
+
+	// 造一个洞：删行之后 freelist 非空，门槛 0 ⇒ 一定过 reclaimDue 那三条。
+	seedPlaintextRows(t, ctx, rowBodies(64, 16<<10), time.Hour)
+	if err := models.DB.WithContext(ctx).Exec(`DELETE FROM chat_ios`).Error; err != nil {
+		t.Fatalf("删行失败：%v", err)
+	}
+	// 起点策略：开着，但周期是上界（24 小时）。
+	if err := SaveLogReclaimPolicy(ctx, &models.LogReclaimPolicy{
+		Enabled: true, MinBytes: 0, CheckIntervalSec: reclaimMaxCheckSec,
+	}); err != nil {
+		t.Fatalf("存策略失败：%v", err)
+	}
+
+	StartLogReclaimScheduler(ctx)
+
+	// 刚才那一下存策略本身就带一个提醒，先让它跑完——顺便证明调度器是活的
+	// （它要是连这一下都不理，下面那条会绿得毫无意义）。
+	waitUntil(t, 10*time.Second, func() bool {
+		got, err := GetLogReclaimState(ctx)
+		return err == nil && got.Source == "scheduled"
+	}, "起跑那一下的叫醒都没接住，调度器根本没在跑")
+
+	// 把回执换成一条"手动"的。下面的绿灯因此**只可能**来自新的一趟，
+	// 而不是上面那一趟留下的记录。
+	saveLogReclaimState(models.LogReclaimState{Status: "done", Source: "manual"})
+
+	// 现在调度器睡在 24 小时上。存一次策略——这是唯一能把它叫起来的动作。
+	if err := SaveLogReclaimPolicy(ctx, &models.LogReclaimPolicy{
+		Enabled: true, MinBytes: 0, CheckIntervalSec: reclaimMaxCheckSec,
+	}); err != nil {
+		t.Fatalf("存策略失败：%v", err)
+	}
+
+	// 记录只在回收**跑完**时落盘，所以这一等同时等到了"起跑"和"收工"。
+	var rec *models.LogReclaimState
+	waitUntil(t, 10*time.Second, func() bool {
+		got, err := GetLogReclaimState(ctx)
+		if err != nil || got.Source != "scheduled" {
+			return false
+		}
+		rec = got
+		return true
+	}, "存了策略之后 10 秒还没动静——它多半又睡回了旧周期（真机上就是 1 小时）")
+
+	// 自动起的那一趟必须是持续模式：一次只收 90 秒的话，一个 5 GiB 的洞要十个
+	// 周期才收得完，那还不如不自动。
+	if !rec.Continuous {
+		t.Fatal("定时回收起的必须是持续模式，否则它的意义就没了")
+	}
+}
+
+// drainReclaimWake 清掉调度器提醒里可能积着的那一个令牌。
+func drainReclaimWake(t *testing.T) {
+	t.Helper()
+	for {
+		select {
+		case <-reclaimWake:
+		default:
+			return
+		}
+	}
+}
+
+// 盘上那份策略坏了时如实报错，不静默给默认值——静默的话，用户会看到
+// "开关是关的"，而他明明打开过。
+func TestLogReclaimPolicy_CorruptIsAnError(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	if err := models.SaveConfigValue(ctx, models.KeyLogReclaimPolicy, "{不是 JSON"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GetLogReclaimPolicy(ctx); err == nil {
+		t.Fatal("策略坏了应当报错，而不是给一份默认值")
+	}
+}
+
+// waitUntil 轮询等到条件成立，超时就报错。用它而不是固定 sleep：
+// 这类断言要盯的是"某件事发生过"，等多久是环境决定的。
+func waitUntil(t *testing.T, limit time.Duration, cond func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(limit)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal(msg)
+}
+
 func closeTestDB() {
 	if sqlDB, err := models.DB.DB(); err == nil {
 		_ = sqlDB.Close()

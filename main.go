@@ -53,6 +53,9 @@ func main() {
 	// 它挂在这里而不是 init()：沙箱子进程不该起后台任务，
 	// 而且它要读写 DB，得等 models.Init 落定（init() 里已经做了）。
 	service.StartLogCompressScheduler(context.Background())
+	// 空间回收的定时推进。默认策略 Enabled=false，此时它每个周期只读一次
+	// freelist 计数（一次 pragma，不带锁）。与上面两个一样挂在这里而不是 init()。
+	service.StartLogReclaimScheduler(context.Background())
 
 	router := gin.Default()
 	// gzip压缩
@@ -164,7 +167,13 @@ func main() {
 		api.POST("/logs/compression/decompress", handler.RollbackCompression)
 		// 空间回收：把 freelist 里的页还给文件系统。不是迁移的一部分
 		// （它不动数据），但和迁移是同一件事的两半——见 service/storage.go。
+		//
+		// 回收有两档：跑一轮（默认）与持续跑到放完（body 里 continuous=true）。
+		// 持续那档是"点一次就把活干完"，stop 是它的刹车——批间生效，
+		// 所以停止之后可能还有一批在跑完的路上。
 		api.POST("/logs/compression/reclaim", handler.ReclaimStorage)
+		api.POST("/logs/compression/reclaim/stop", handler.StopReclaim)
+		api.PUT("/logs/compression/reclaim/policy", handler.UpdateReclaimPolicy)
 
 		// Auth key management
 		api.GET("/auth-keys", handler.GetAuthKeys)

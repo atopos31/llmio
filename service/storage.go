@@ -99,12 +99,77 @@ const (
 	// reclaimDiskMargin 是启动期 VACUUM 预检要求的最低空闲。
 	// VACUUM 全程要一份和库等大的临时副本（实测峰值额外占用 1.00× 库）。
 	reclaimDiskMargin = 64 << 20
+
+	// reclaimContinuousPause 是**持续回收**里轮与轮之间的松手时间。
+	//
+	// 持续模式下一轮恒等于一批（见 reclaimBatchesPerRound），所以"一批一轮 +
+	// 松手这么久"合起来是一条对写请求的**硬保证**，而不是修辞：
+	//
+	//	  写请求的耐心是 busy_timeout = 5 秒（超了就失败）。
+	//	  一批 512 条语句标称 1.1 秒、实测最坏约 4.4 秒（见 reclaimPagesPerTx），
+	//	  所以任何一把写锁最多被握 4.4 秒 —— 写请求等得过。
+	//
+	// 这条保证是持续回收**比连点十次更好**的全部理由。原先一轮 90 秒、段间不松手
+	// （见 reclaimBudget），那 90 秒里写请求的 5 秒耐心必然耗尽、直接失败；用户
+	// 想收掉一个 5 GiB 的洞就得连点十次、每次付 90 秒的写入失败。现在点一次，
+	// 写请求改成"排队但成功"。
+	//
+	// **为什么是 100 ms 而不是 1 秒**：窗口要够长，长到等待中的写请求能撞进来；
+	// 但不必长到"一撞就中"。SQLite 的 busy handler 是递增睡眠重试（1/2/5/10/…/100 ms），
+	// 所以一个 100 ms 的窗口最坏要两三个窗口才被撞上——那也还是**一两批的时间，
+	// 远在 5 秒以内**。而 1 秒的窗口要付的代价大得多：真机那一趟放了 2,628 批，
+	// 每批歇 1 秒就是 **44 分钟**的纯等待（整趟从 15 分钟变成约 1 小时），
+	// 100 ms 只要 4–5 分钟（变成约 19 分钟）。
+	//
+	// 那个"2,628 批"是算出来的不是量出来的：真机十轮 881 s 放掉 1,345,736 页，
+	// 折算每轮约 268 批 / 每批约 0.34 s——**比探针表里的 1.1 s 快得多**，因为探针
+	// 量的是搬迁最密的一段（同 reclaimPagesPerTx 的"地板"注释）。
+	reclaimContinuousPause = 100 * time.Millisecond
+
+	// 定时回收的默认门槛与周期。
+	//
+	// 门槛 256 MiB：低于它，一趟回收省下的空间与"占一次写锁、翻一遍整库"的
+	// 打扰不成比例。周期 1 小时：回收是删了东西之后的收尾动作，实时性没有价值。
+	defaultReclaimMinBytes = 256 << 20
+	defaultReclaimCheckSec = 3600
+	reclaimMaxCheckSec     = 86400
+	reclaimMinCheckSec     = 60
+	reclaimMaxMinBytes     = 1 << 40
 )
 
 var reclaimInFlight atomic.Bool
 
+// reclaimStopRequested 是「停止」按钮。放内存里而不是每轮去读 Config：
+// 停止是操作员的即时动作，不该等到下一轮落库才被看见。
+var reclaimStopRequested atomic.Bool
+
 // ReclaimRunning 报"有没有一轮回收在跑"。
 func ReclaimRunning() bool { return reclaimInFlight.Load() }
+
+// ReclaimStopping 报"有没有人按了停止、但它还没退出来"。
+//
+// 界面需要这个中间态：批与批之间才生效，所以按下之后到真正退出之间有一段
+// （最多一批，约 1–4 秒）。这段时间里按钮不该恢复成"再点一次"——
+// 那会让用户以为没生效，然后再按一下，而后端会把第二下挡掉（ErrReclaimRunning），
+// 界面就成了"点了没反应"。
+func ReclaimStopping() bool { return reclaimInFlight.Load() && reclaimStopRequested.Load() }
+
+// StopReclaim 请求停止持续回收（批间生效）。返回 false 表示当前没有回收在跑。
+func StopReclaim() bool {
+	if !reclaimInFlight.Load() {
+		return false
+	}
+	reclaimStopRequested.Store(true)
+	return true
+}
+
+// ReclaimOptions 是一次回收的调用参数。
+type ReclaimOptions struct {
+	// Continuous 为真时一直跑到放完（或被打断），而不是跑满一轮就交还。
+	Continuous bool
+	// Source 记进回执，见 models.LogReclaimState.Source。
+	Source string
+}
 
 // ── 启动期 ────────────────────────────────────────────────────────────────
 
@@ -242,18 +307,43 @@ func vacuumOnOneConnection(ctx context.Context, convert bool) error {
 // 占位（"此刻有一轮在跑"）与干活分开，是为了让 HTTP 那条路能在**写响应之前**
 // 就把位占上（理由见 StartReclaim）。
 
-// ReclaimFreePages 同步跑一轮回收，跑完才返回。
+// ReclaimFreePages 同步跑**一轮**回收，跑完才返回。
 //
 // 内部与测试用这一条；HTTP 端点用 StartReclaim（见它，占位必须发生在
 // 响应之前，理由写在那里）。
 func ReclaimFreePages(ctx context.Context) (*models.LogReclaimState, error) {
-	// 一轮只能有一个：抢锁只挡得住"同时"，挡不住"交替"——两轮首尾相接时
-	// 第二轮的 TryLock 是能成功的（第一轮已经放锁了）。
-	if !reclaimInFlight.CompareAndSwap(false, true) {
-		return nil, ErrReclaimRunning
+	return reclaimGuarded(ctx, ReclaimOptions{Source: "manual"})
+}
+
+// ReclaimUntilDone 同步跑到放完（或被要求停），中途每批松手一次。
+//
+// "持续回收"的语义就是它：一个 5 GiB 的洞要十轮，用户不该为此点十次。
+// 关于它对写请求的保证（以及为此付出的时间），见 reclaimContinuousPause。
+func ReclaimUntilDone(ctx context.Context) (*models.LogReclaimState, error) {
+	return reclaimGuarded(ctx, ReclaimOptions{Continuous: true, Source: "manual"})
+}
+
+func reclaimGuarded(ctx context.Context, opts ReclaimOptions) (*models.LogReclaimState, error) {
+	if err := beginReclaim(); err != nil {
+		return nil, err
 	}
 	defer reclaimInFlight.Store(false)
-	return reclaimFreePages(ctx)
+	return reclaimFreePages(ctx, opts)
+}
+
+// beginReclaim 抢下"这一趟归我"，并清掉上一趟可能留下的停止标志。
+//
+// 一次只能有一个：抢锁只挡得住"同时"，挡不住"交替"——两趟首尾相接时第二趟的
+// TryLock 是能成功的（第一趟已经放锁了），所以另有一道 CAS。
+//
+// **清标志必须发生在抢到 CAS 之后**：抢不到就说明有一趟正在跑，那个标志是
+// 操作员发给它的，这里动它等于吞掉一次「停止」。
+func beginReclaim() error {
+	if !reclaimInFlight.CompareAndSwap(false, true) {
+		return ErrReclaimRunning
+	}
+	reclaimStopRequested.Store(false)
+	return nil
 }
 
 // StartReclaim 占位之后就返回，回收在后台跑。
@@ -265,29 +355,40 @@ func ReclaimFreePages(ctx context.Context) (*models.LogReclaimState, error) {
 //     成功**，第二下把第一下的结果覆盖掉（两份都写回收记录）。
 //  2. 前端要据此立刻显示"回收中"。留一个空档的话，轮询得靠一个额外的客户端
 //     标志兜住（迁移那条路就是这么兜的），而这里能做得更干净。
-func StartReclaim(ctx context.Context) error {
-	if !reclaimInFlight.CompareAndSwap(false, true) {
-		return ErrReclaimRunning
+func StartReclaim(ctx context.Context, opts ReclaimOptions) error {
+	if err := beginReclaim(); err != nil {
+		return err
 	}
 	go func() {
 		defer reclaimInFlight.Store(false)
 		// 请求的 ctx 在响应写完之后就被取消了。半途而废必须是"进程被 kill"，
 		// 不能是"用户关了个标签页"——所以脱掉取消，只留值。
-		if _, err := reclaimFreePages(context.WithoutCancel(ctx)); err != nil {
+		if _, err := reclaimFreePages(context.WithoutCancel(ctx), opts); err != nil {
 			slog.Error("storage: 增量回收没能跑起来", "error", err)
 		}
 	}()
 	return nil
 }
 
-// reclaimFreePages 是回收本身，不带占位（占位由上面两个入口负责）。
-func reclaimFreePages(ctx context.Context) (*models.LogReclaimState, error) {
-	// 与迁移、日志清理互斥。**必须在开事务之前拿**：回收自己现在也开事务了
+// reclaimFreePages 是回收本身，不带占位（占位由上面几个入口负责）。
+//
+// 它是一层**轮循环**，套着原来那个批循环。单轮模式下这层循环只转一圈，行为与
+// 重构之前逐字一致；持续模式下它每转一圈就是一批（见 reclaimBatchesPerRound），
+// 转到放完、被打断、或轮间的锁被别人抢走为止。
+func reclaimFreePages(ctx context.Context, opts ReclaimOptions) (*models.LogReclaimState, error) {
+	// 与迁移、日志清理互斥。**必须在开事务之前拿**：回收自己开事务
 	// （每批一个，见 reclaimBatch），而它要挡住的正是别人此时开写事务。
 	if !maintenanceMu.TryLock() {
 		return nil, ErrMaintenanceBusy
 	}
-	defer maintenanceMu.Unlock()
+	// 锁在持续模式下会被**放掉再拿回来**（每次轮间松手），所以不能用 defer
+	// 一把梭——那样松手之后会二次 Unlock 直接 panic。
+	locked := true
+	defer func() {
+		if locked {
+			maintenanceMu.Unlock()
+		}
+	}()
 
 	before, err := readStorageCounters()
 	if err != nil {
@@ -295,7 +396,8 @@ func reclaimFreePages(ctx context.Context) (*models.LogReclaimState, error) {
 	}
 	rec := models.LogReclaimState{
 		Status:         "running",
-		Source:         "manual",
+		Source:         opts.Source,
+		Continuous:     opts.Continuous,
 		FileSizeBefore: before.fileSize,
 		FreelistBefore: before.freelist,
 		StartedAt:      time.Now().Format(time.RFC3339),
@@ -316,45 +418,151 @@ func reclaimFreePages(ctx context.Context) (*models.LogReclaimState, error) {
 	// readStorageCounters 量的是同一件事。
 	freelist := before.freelist
 	for {
-		batch := reclaimNextBatch(freelist)
-		if batch == 0 {
-			// 起始就没有空洞。上面的 auto_vacuum 检查已经挡掉了"根本没开"，
-			// 走到这里说明是"开着的、但此刻没洞可放"。
-			rec.Status, rec.StopReason = "done", "empty"
-			break
-		}
-		if err := reclaimBatch(ctx, batch); err != nil {
-			rec.Status, rec.StopReason = "failed", "failed"
-			rec.LastError = err.Error()
-			slog.Error("storage: 增量回收失败", "error", err)
-			break
-		}
-		rec.Calls += batch
+		roundStart := time.Now()
+		maxBatches := reclaimBatchesPerRound(opts.Continuous)
+		batches := 0
+		verdict := ""
 
-		now, err := readStorageCounters()
+		for {
+			if reclaimStopRequested.Load() {
+				verdict = "stopped"
+				break
+			}
+			batch := reclaimNextBatch(freelist)
+			if batch == 0 {
+				// 起始就没有空洞。上面的 auto_vacuum 检查已经挡掉了"根本没开"，
+				// 走到这里说明是"开着的、但此刻没洞可放"。
+				verdict = "empty"
+				break
+			}
+			if err := reclaimBatch(ctx, batch); err != nil {
+				verdict = "failed"
+				rec.LastError = err.Error()
+				slog.Error("storage: 增量回收失败", "error", err)
+				break
+			}
+			rec.Calls += batch
+			batches++
+
+			now, err := readStorageCounters()
+			if err != nil {
+				verdict = "failed"
+				rec.LastError = err.Error()
+				break
+			}
+			prev := freelist
+			freelist = now.freelist
+
+			verdict = reclaimVerdict(prev, freelist, time.Since(roundStart))
+			if verdict == "stalled" {
+				rec.LastError = fmt.Sprintf("这批放完 freelist 反而没减少：%d → %d", prev, freelist)
+				slog.Warn("storage: 增量回收原地踏步，收工", "freelist", freelist)
+			}
+			// 批数先到也算这一轮到点（持续模式恒等于一批，见 reclaimBatchesPerRound）。
+			if verdict == "" && maxBatches > 0 && batches >= maxBatches {
+				verdict = "budget"
+			}
+			if verdict != "" {
+				break
+			}
+		}
+		rec.Rounds++
+
+		// 只有"到点"是**可能**接着跑的：empty / stalled / failed / stopped
+		// 都是这一趟真正的终点。
+		if verdict != "budget" || !opts.Continuous {
+			rec.StopReason = verdict
+			if verdict == "failed" {
+				rec.Status = "failed"
+			} else {
+				rec.Status = "done"
+			}
+			break
+		}
+
+		// 轮间松手。**必须先放掉维护锁再歇**：持续回收可能跑十几分钟，握着锁
+		// 歇气会让迁移的每一批都堵在这儿（它用的是阻塞 Lock，见 applyCompressBatch）。
+		maintenanceMu.Unlock()
+		locked = false
+		keepGoing := waitReclaimPause(ctx)
+		if !keepGoing {
+			rec.Status, rec.StopReason = "done", "stopped"
+			break
+		}
+		// 歇完重新抢。抢不到说明别的维护任务插进来了——那是它该得的（迁移比
+		// 回收急：它改写数据形态，回收只是把文件缩小），这一趟就此收工，
+		// 理由记成 busy 而不是偷偷继续等。
+		if !maintenanceMu.TryLock() {
+			rec.Status, rec.StopReason = "done", "busy"
+			break
+		}
+		locked = true
+
+		next, err := readStorageCounters()
 		if err != nil {
 			rec.Status, rec.StopReason = "failed", "failed"
 			rec.LastError = err.Error()
 			break
 		}
-		if stop := reclaimVerdict(freelist, now.freelist, time.Since(start)); stop != "" {
-			if stop == "stalled" {
-				rec.LastError = fmt.Sprintf("这批放完 freelist 反而没减少：%d → %d", freelist, now.freelist)
-				slog.Warn("storage: 增量回收原地踏步，收工", "freelist", now.freelist)
-			}
-			rec.Status, rec.StopReason = "done", stop
+		freelist = next.freelist
+		if freelist == 0 {
+			rec.Status, rec.StopReason = "done", "empty"
 			break
 		}
-		freelist = now.freelist
 	}
 
 	finishReclaim(&rec, before)
 	rec.DurationMs = time.Since(start).Milliseconds()
 	saveLogReclaimState(rec)
 	slog.Info("storage: 增量回收收工",
-		"原因", rec.StopReason, "放掉页", rec.FreedPages,
+		"原因", rec.StopReason, "持续", rec.Continuous, "轮数", rec.Rounds,
+		"放掉页", rec.FreedPages,
 		"文件", rec.FileSizeBefore, "→", rec.FileSizeAfter, "耗时", rec.DurationMs)
 	return &rec, nil
+}
+
+// reclaimBatchesPerRound 是一轮里最多打几批。
+//
+//	0 → 不按批数封顶，只按时间预算（单轮模式，一轮最多 reclaimBudget）
+//	1 → 持续模式：**一批一轮**
+//
+// 持续模式为什么要切得这么碎，而不是"一轮 90 秒、轮间歇 1 秒"？因为只有切到
+// 一批，才能给写请求一条硬保证（推导见 reclaimContinuousPause）：一把写锁最多
+// 被握一批的时间，而一批的实测最坏值是 4.4 秒 < busy_timeout 的 5 秒。
+// 90 秒一轮里事务首尾相接、段间不松手，写请求那 5 秒耐心必然耗尽——那是
+// **"写请求失败"**，不是"写请求变慢"。持续回收的全部价值就在这条保证上。
+func reclaimBatchesPerRound(continuous bool) int {
+	if continuous {
+		return 1
+	}
+	return 0
+}
+
+// waitReclaimPause 在轮与轮之间松手 reclaimContinuousPause 那么久。
+// 返回 false 表示被要求停（或 ctx 结束），不该再开下一轮。
+//
+// 分片睡而不是一次睡够：一次 time.Sleep 的话「停止」要等到睡完才生效，
+// 而这段时间里维护锁是**放着的**——白等，且用户看着按钮没反应。
+func waitReclaimPause(ctx context.Context) bool {
+	deadline := time.Now().Add(reclaimContinuousPause)
+	for {
+		if reclaimStopRequested.Load() {
+			return false
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return true
+		}
+		step := 50 * time.Millisecond
+		if remaining < step {
+			step = remaining
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(step):
+		}
+	}
 }
 
 // reclaimNextBatch 决定这一批打多少条语句：要么打满，要么只打剩下的。
@@ -510,4 +718,191 @@ func saveLogReclaimState(rec models.LogReclaimState) {
 		models.KeyLogReclaimState, string(raw)); err != nil {
 		slog.Error("storage: 写回收记录失败", "error", err)
 	}
+}
+
+// ── 定时回收 ──────────────────────────────────────────────────────────────
+
+// DefaultLogReclaimPolicy 默认**全关**。
+//
+// 回收全程持写锁——那是一段写请求会被排队的真实时间，最坏一批 4.4 秒。
+// "这台机器什么时候可以占用库"是运维判断而不是技术判断，默认替用户做主，
+// 就等于把一个会被感知到的动作变成默认行为。
+func DefaultLogReclaimPolicy() *models.LogReclaimPolicy {
+	return &models.LogReclaimPolicy{
+		Enabled:          false,
+		MinBytes:         defaultReclaimMinBytes,
+		CheckIntervalSec: defaultReclaimCheckSec,
+	}
+}
+
+func GetLogReclaimPolicy(ctx context.Context) (*models.LogReclaimPolicy, error) {
+	policy := DefaultLogReclaimPolicy()
+	config, err := gorm.G[models.Config](models.DB).
+		Where("key = ?", models.KeyLogReclaimPolicy).First(ctx)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return policy, nil
+		}
+		return nil, err
+	}
+	if config.Value == "" {
+		return policy, nil
+	}
+	if err := json.Unmarshal([]byte(config.Value), policy); err != nil {
+		return nil, fmt.Errorf("unmarshal log reclaim policy: %w", err)
+	}
+	clampLogReclaimPolicy(policy)
+	return policy, nil
+}
+
+// clampLogReclaimPolicy 把越界的参数拉回合法区间。
+//
+// 门槛下界是 0（"不管多小都收"是个合法选择，只是默认不这么给）；上界 1 TiB 只是
+// 防呆，任何比库还大的门槛都等价于"永远不收"，那是用户自己选的。
+func clampLogReclaimPolicy(p *models.LogReclaimPolicy) {
+	if p.MinBytes < 0 {
+		p.MinBytes = 0
+	}
+	if p.MinBytes > reclaimMaxMinBytes {
+		p.MinBytes = reclaimMaxMinBytes
+	}
+	if p.CheckIntervalSec < reclaimMinCheckSec {
+		p.CheckIntervalSec = reclaimMinCheckSec
+	}
+	if p.CheckIntervalSec > reclaimMaxCheckSec {
+		p.CheckIntervalSec = reclaimMaxCheckSec
+	}
+}
+
+func SaveLogReclaimPolicy(ctx context.Context, policy *models.LogReclaimPolicy) error {
+	clampLogReclaimPolicy(policy)
+	raw, err := json.Marshal(policy)
+	if err != nil {
+		return err
+	}
+	if err := models.SaveConfigValue(ctx, models.KeyLogReclaimPolicy, string(raw)); err != nil {
+		return err
+	}
+	// 存下去了就叫醒调度器。**这一步不是优化，是正确性**：调度器睡的是
+	// "刚才读到的那个周期"，而它可能是 24 小时。没有这一下，用户把开关
+	// 打开之后，最坏要等一整天它才第一次看一眼——那时候他早就判定这功能坏了。
+	wakeReclaimScheduler()
+	return nil
+}
+
+// reclaimWake 是"回收策略刚被改过"的一次性提醒。
+//
+// 容量 1 且发送端不阻塞：连改两次只算一次提醒（调度器醒来会重新读策略，
+// 读到的一定是最后那份），而写策略这条路上不该出现任何等待。
+var reclaimWake = make(chan struct{}, 1)
+
+func wakeReclaimScheduler() {
+	select {
+	case reclaimWake <- struct{}{}:
+	default:
+	}
+}
+
+// waitReclaimTick 睡到下一个检查点，被"策略改了"或 ctx 结束时提前返回。
+//
+// 返回值是"要不要继续跑"：ctx 结束就该退出调度器。
+//
+// 被叫醒之后**立刻往下走**（而不是重算一次等待）：用户按下开关，期望的是
+// "现在就开始管"，把他排进下一个周期等于没叫醒。
+func waitReclaimTick(ctx context.Context, wait time.Duration) bool {
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+	case <-reclaimWake:
+	}
+	return true
+}
+
+// reclaimDue 是"这一眼要不要动手"里**不用抢锁**的那部分判断，抽成纯函数好逐条验。
+// 返回空串表示该跑，否则返回不跑的理由（进 debug 日志，也是排障时唯一的线索：
+// 一个"开着却从来不动"的定时回收，没有这句话就只能靠猜）。
+//
+//   - `disabled`       —— 开关关着
+//   - `no_auto_vacuum` —— `PRAGMA incremental_vacuum` 在这个库上是 0.000 秒空操作
+//     （实测），跑了只会每周期记一条"已收工、放掉 0 页"
+//   - `below_threshold` —— 门槛的全部意义就是拦住这些"跑了也不值"的周期
+func reclaimDue(policy *models.LogReclaimPolicy, autoVacuum int64, freelistBytes int64) string {
+	switch {
+	case policy == nil || !policy.Enabled:
+		return "disabled"
+	case autoVacuum != models.AutoVacuumIncremental:
+		return "no_auto_vacuum"
+	case freelistBytes < policy.MinBytes:
+		return "below_threshold"
+	}
+	return ""
+}
+
+// StartLogReclaimScheduler 定期看一眼要不要自动回收。
+//
+// 与迁移调度器（30 秒）不同，它的周期由策略决定、默认 1 小时：迁移是"点一下
+// 就开始跑"的交互式任务，被 kill 之后要能很快接上；而回收是**删除之后的收尾**，
+// 早十分钟晚十分钟没有任何区别，看一次却要读一次 freelist。
+//
+// 每一轮都**重新读策略、重新定时**，不用一个固定的 ticker：周期是可配的，
+// 固定 ticker 会让"改成 5 分钟"要等到下一个整点才生效。
+//
+// 光"重新读"还不够，**存策略时要叫醒它**（见 SaveLogReclaimPolicy）：重新读只
+// 让新周期从下一轮起算，而这一轮睡的还是旧周期。真机上是这么发现的——策略从
+// 默认的 1 小时改成 60 秒、开关打开，等了两分钟一动不动：调度器在进程启动时
+// 就把"1 小时"算好了。
+//
+// 它起的回收**总是持续模式**：定时回收的意义就是"没人守着也把洞收干净"，
+// 一次只收 90 秒的话，一个 5 GiB 的洞要十个周期——那还不如不自动。
+func StartLogReclaimScheduler(ctx context.Context) {
+	go func() {
+		for {
+			policy, err := GetLogReclaimPolicy(ctx)
+			if err != nil {
+				slog.Error("storage: 读回收策略失败", "error", err)
+				// 读不出来就按默认周期歇一轮。定时回收不是关键路径，
+				// 不该因为一次读失败就退出——下一轮还能好。
+				policy = DefaultLogReclaimPolicy()
+			}
+			if !waitReclaimTick(ctx, time.Duration(policy.CheckIntervalSec)*time.Second) {
+				return
+			}
+
+			// 在飞的回收（手动或上一轮定时）优先，别去抢。
+			if reclaimInFlight.Load() {
+				continue
+			}
+			counters, err := readStorageCounters()
+			if err != nil {
+				slog.Warn("storage: 定时回收量库失败，跳过这一眼", "error", err)
+				continue
+			}
+			freelistBytes := counters.freelist * counters.pageSize
+			// 先看那三条**不需要抢锁**的理由，再单独问一句"维护锁空着吗"。
+			// 顺序是有意的：一个关着的定时回收不该每个周期都去抢一次锁——哪怕
+			// 抢到就放，那也是一次白拿白放，而这条路径上还有别的东西在等它。
+			if reason := reclaimDue(policy, counters.autoVacuum, freelistBytes); reason != "" {
+				slog.Debug("storage: 这一眼不回收", "原因", reason, "可回收字节", freelistBytes)
+				continue
+			}
+			// 只问一句"空着吗"，问完立刻放掉：真正干活的那条路
+			// （StartReclaim → reclaimFreePages）会自己再抢一次，而且它抢的是
+			// **整趟**要用的那把——在这里替它拿着毫无意义。
+			if !maintenanceMu.TryLock() {
+				slog.Debug("storage: 这一眼不回收", "原因", "busy", "可回收字节", freelistBytes)
+				continue
+			}
+			maintenanceMu.Unlock()
+			slog.Info("storage: 定时回收起跑", "可回收字节", freelistBytes, "门槛", policy.MinBytes)
+			if err := StartReclaim(ctx, ReclaimOptions{Continuous: true, Source: "scheduled"}); err != nil {
+				// 抢不到不是错：刚刚另一个入口起来了。下一轮再说。
+				if !errors.Is(err, ErrReclaimRunning) {
+					slog.Error("storage: 定时回收没能起跑", "error", err)
+				}
+			}
+		}
+	}()
 }

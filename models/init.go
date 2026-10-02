@@ -14,6 +14,10 @@ import (
 
 var DB *gorm.DB
 
+// DBPath 是当前库文件的位置。压缩状态页要报库文件大小与 freelist，
+// 前者只能从文件系统量（SQLite 的 page_count*page_size 不含 WAL 与页头开销）。
+var DBPath string
+
 func Init(ctx context.Context, path string) {
 	if err := ensureDBFile(path); err != nil {
 		panic(err)
@@ -23,6 +27,7 @@ func Init(ctx context.Context, path string) {
 		panic(err)
 	}
 	DB = db
+	DBPath = path
 	// 组缓存只按组 id 索引，而组 id 只在单个库文件内才有意义。走到这里说明
 	// 进程要开始用（可能是另一个）库了，旧缓存一律作废——否则会读到别的库里
 	// 同号的组，症状是"长度对得上、内容全错"，而且不报任何错。

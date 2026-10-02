@@ -1,6 +1,7 @@
 package models
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
@@ -137,71 +138,136 @@ func (c *ChatIO) packBody(tx *gorm.DB) error {
 	if !compressionEnabled() {
 		return nil
 	}
-	ctx := tx.Statement.Context
-
-	if len(plain) >= inputBlockMin {
-		refs, err := blockStore.Put(ctx, tx, plain)
-		if err != nil {
-			return fmt.Errorf("compress: input 入块表失败: %w", err)
-		}
-		if len(refs) > 0 {
-			if frame := EncodeRefs(refs); frame != nil {
-				c.Input = frame
-				return nil
-			}
-			// 引用序列过不了自检。此时块已经写进本事务了，但这一行仍要存下来——
-			// 丢 body 比留几个孤儿块严重得多。孤儿由块表 GC 兜底回收。
-			// 真走到这里说明压缩代码本身有问题，不是数据有问题。
-		}
+	packed, err := PackBodies(tx.Statement.Context, tx, [][]byte{plain})
+	if err != nil {
+		return err
 	}
-
-	frame, ok := compress.EncodeVerified(plain, compress.TypeRowFrame, compress.LevelWrite)
-	if !ok || len(frame) >= len(plain) {
-		return nil // 压不动就存明文
+	if packed[0] != nil {
+		c.Input = packed[0]
 	}
-	c.Input = frame
 	return nil
 }
 
 // unpackBody 是读路径。
 func (c *ChatIO) unpackBody(tx *gorm.DB) error {
-	stored := c.Input
+	plain, err := UnpackBody(tx.Statement.Context, tx, c.Input)
+	if err != nil {
+		return err
+	}
+	c.Input = plain
+	return nil
+}
+
+// ── 供迁移与回滚调用的无模型接口 ──────────────────────────────────────────
+//
+// 迁移与回滚**必须绕开模型**：它们要读的是列里**此刻真实存着**的字节，不是
+// 模型层解出来的明文——拿模型读，AfterFind 会先把帧解成明文，于是"这一行迁没迁过"
+// 这件事就看不出来了；拿模型写，BeforeCreate 又会在回滚路径上把明文再压回去。
+// 所以两条路径都直接操作列，而把"编解码"这件事委托给下面这两个函数，
+// 保证**它们与生产钩子走的是同一份代码**（同一份代码 = 同一份正确性）。
+
+// PackBodies 把一批 body 逐个变成"该落库的字节"，与输入一一对应。
+//
+// 返回的每一项有三种可能：
+//   - nil      原样存明文（空、已是帧、压不动、压完不比原文小）
+//   - 引用帧   走了块表
+//   - 逐行帧   body 小于 inputBlockMin，或分不出块
+//
+// 判定与 packBody 完全一致，所以**迁移写出来的形态与线上写路径逐字节同形**：
+// 迁完之后库里不该出现任何"线上永远写不出来"的形态。
+//
+// 与 packBody 唯一的区别是分组：这一批新产生的块攒在一起按 BlockGroupTarget
+// 封口，而不是每行各封各的。这不是优化，是迁移能不能达到设计容量的前提——
+// 线上每行各封各，组平均只有 7.70 KiB（阶段 3 真机实测），远低于 flate 的
+// 32 KiB 窗口，白省 35.9%。详见 BlockStore.PutBatch。
+//
+// **不受 compressionEnabled() 影响**：那个开关管的是"新写入的行压不压"，
+// 而迁移是运维动作（L1 降级后仍然要能把历史行迁完、或者反过来还原），
+// 拿写路径的开关去管它，会让"关掉压缩"和"无法收尾"捆在一起。
+func PackBodies(ctx context.Context, tx *gorm.DB, plains [][]byte) ([][]byte, error) {
+	out := make([][]byte, len(plains))
+
+	// 先挑出该走块表的行。太小的行不进批：分块器对它们本来也只切出一块，
+	// 走块表要多付一条引用加一行块表记录，比省下来的还多。
+	var (
+		idx   []int
+		batch [][]byte
+	)
+	for i, p := range plains {
+		if len(p) >= inputBlockMin && !compress.LooksLikeFrame(p) {
+			idx = append(idx, i)
+			batch = append(batch, p)
+		}
+	}
+	if len(batch) > 0 {
+		rowRefs, err := blockStore.PutBatch(ctx, tx, batch)
+		if err != nil {
+			return nil, fmt.Errorf("compress: input 入块表失败: %w", err)
+		}
+		for j, refs := range rowRefs {
+			if len(refs) == 0 {
+				continue
+			}
+			// 引用序列过不了自检就退回逐行帧（下面的循环兜）。此时块已经写进
+			// 本事务了，但这一行仍要存下来——丢 body 比留几个孤儿块严重得多，
+			// 孤儿由块表 GC 兜底回收。真走到这里说明压缩代码本身有问题。
+			out[idx[j]] = EncodeRefs(refs)
+		}
+	}
+
+	for i, p := range plains {
+		if len(p) == 0 || out[i] != nil || compress.LooksLikeFrame(p) {
+			continue
+		}
+		frame, ok := compress.EncodeVerified(p, compress.TypeRowFrame, compress.LevelWrite)
+		if !ok || len(frame) >= len(p) {
+			continue // 压不动就存明文
+		}
+		out[i] = frame
+	}
+	return out, nil
+}
+
+// UnpackBody 把库里存的字节还原成明文，是读路径的无模型版本。
+//
+// 明文原样返回（历史行、以及压不动而留了明文的行），空值返回 nil。
+// 是帧但解不开则**明确报错**，绝不退回明文——把帧字节当明文交给调用方，
+// 就是一次静默的数据损坏。
+func UnpackBody(ctx context.Context, db *gorm.DB, stored []byte) ([]byte, error) {
 	if len(stored) == 0 {
-		return nil
+		return nil, nil
 	}
 	f, err := compress.Unmarshal(stored)
 	if errors.Is(err, compress.ErrNotFrame) {
-		return nil // 历史明文，原样放行
+		return stored, nil // 历史明文，原样放行
 	}
 	if err != nil {
 		// 帧头合法但我们解不了（未知编解码器）——报错，绝不退回明文。
-		return fmt.Errorf("compress: chat_ios.input 的帧头不可信: %w", err)
+		return nil, fmt.Errorf("compress: chat_ios.input 的帧头不可信: %w", err)
 	}
-	// 块表查询要用一个**干净的 statement**：此刻外层 Find 的 statement 还在
-	// 飞行中，直接复用会把它冲掉。Session(NewDB) 保留同一个 ConnPool 与
-	// context（所以事务里读得到自己的未提交数据），只换 statement。
-	db := tx.Session(&gorm.Session{NewDB: true})
+	// 块表查询要用一个**干净的 statement**：调用方的 statement 可能正在飞行中
+	// （读路径上就是如此），直接复用会把它冲掉。Session(NewDB) 保留同一个
+	// ConnPool 与 context（所以事务里读得到自己的未提交数据），只换 statement。
+	clean := db.Session(&gorm.Session{NewDB: true})
 
 	switch f.Type {
 	case compress.TypeBlockRefs:
 		refs, err := DecodeRefsFrame(f)
 		if err != nil {
-			return fmt.Errorf("compress: chat_ios.input 的引用序列坏了: %w", err)
+			return nil, fmt.Errorf("compress: chat_ios.input 的引用序列坏了: %w", err)
 		}
-		plain, err := blockStore.Get(tx.Statement.Context, db, refs)
+		plain, err := blockStore.Get(ctx, clean, refs)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		c.Input = plain
-		return nil
+		return plain, nil
 	case compress.TypeRowFrame:
 		plain, err := compress.Decompress(f)
 		if err != nil {
-			return fmt.Errorf("compress: chat_ios.input 解压失败: %w", err)
+			return nil, fmt.Errorf("compress: chat_ios.input 解压失败: %w", err)
 		}
-		c.Input = plain
-		return nil
+		return plain, nil
 	default:
-		return fmt.Errorf("compress: chat_ios.input 里装着 %s 帧，这一列不装这种", f.Type)
+		return nil, fmt.Errorf("compress: chat_ios.input 里装着 %s 帧，这一列不装这种", f.Type)
 	}
 }

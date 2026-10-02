@@ -42,6 +42,11 @@ func init() {
 
 func main() {
 	service.StartLogCleanupScheduler(context.Background())
+	// 历史行的形态迁移。默认策略 Enabled=false，所以它平时只是每 30 秒
+	// 空看一眼（水位≈maxID 时那两条查询扫到 0 行就返回）。
+	// 它挂在这里而不是 init()：沙箱子进程不该起后台任务，
+	// 而且它要读写 DB，得等 models.Init 落定（init() 里已经做了）。
+	service.StartLogCompressScheduler(context.Background())
 
 	router := gin.Default()
 	// gzip压缩
@@ -139,6 +144,18 @@ func main() {
 		api.GET("/user-agents", handler.GetUserAgents)
 		api.POST("/logs/cleanup", handler.CleanLogs)
 		api.GET("/logs/cleanup/history", handler.GetCleanupHistory)
+
+		// 历史行的形态迁移（数据库压缩）。
+		//
+		// 与 /logs/cleanup 不同，跑一轮是**分钟级**的，所以 run / rollback
+		// 都是"起一个后台任务就返回"，进度看状态接口。回滚单独一个端点、
+		// 还要求字面量确认：它会把整库**变大**（帧 → 明文），不该被误触。
+		api.GET("/logs/compression", handler.GetCompressionStatus)
+		api.PUT("/logs/compression/policy", handler.UpdateCompressionPolicy)
+		api.POST("/logs/compression/run", handler.RunCompression)
+		api.POST("/logs/compression/pause", handler.PauseCompression)
+		api.GET("/logs/compression/decompress", handler.GetDecompressStatus)
+		api.POST("/logs/compression/decompress", handler.RollbackCompression)
 
 		// Auth key management
 		api.GET("/auth-keys", handler.GetAuthKeys)

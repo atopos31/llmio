@@ -429,3 +429,213 @@ func randomBytes(n int) []byte {
 	}
 	return out
 }
+
+// ── 批量写入（历史行迁移走的就是这条路）────────────────────────────────────
+
+// distinctRow 造第 i 行的内容：n 字节不可压数据，掺上序号。
+//
+// 必须每行都不一样：randomBytes 是固定种子的，同一个 n 调两次拿到的是**同一份
+// 内容**，那样多行会互相去重成一块，"一行一个组"就测不出来了。差异散布在整行上
+// （步长取质数，避免跟分块节奏共振），保证每一块都不同。
+func distinctRow(i, n int) []byte {
+	out := randomBytes(n)
+	for j := 0; j < n; j += 977 {
+		out[j] ^= byte(i*31 + j)
+	}
+	return out
+}
+
+// 这一条是阶段 3 真机发现（线上组平均只有 **7.70 KiB**，按 256 KiB 打包能再省
+// **35.9%**）在单测里的缩影：**逐行写是一行一个组，批量写是一批几个组。**
+//
+// 组越小，每组 16 字节帧头的占比越高，组间的短程重复也越吃不到。历史行迁移
+// 必须走批量那条，否则迁完还是这个 7.70 KiB 的形态，等于白迁。
+func TestBlockStore_PutBatchPacksInsteadOfPerRow(t *testing.T) {
+	db := openCompressDB(t)
+	s := NewBlockStore(0)
+	ctx := context.Background()
+
+	const rows, each = 8, 100 << 10
+
+	// 逐行写：每行各封各的组
+	for i := range rows {
+		putGet(t, db, s, distinctRow(i, each))
+	}
+	perRow := groupCount(t, db)
+	if perRow != rows {
+		t.Fatalf("逐行写 %d 行应当是 %d 个组，得到 %d——分组规则变了？", rows, rows, perRow)
+	}
+
+	// 同样规模、不同内容，一次批量写
+	batch := make([][]byte, rows)
+	for i := range batch {
+		batch[i] = distinctRow(100+i, each)
+	}
+	refs, err := s.PutBatch(ctx, db, batch)
+	if err != nil {
+		t.Fatalf("PutBatch 失败：%v", err)
+	}
+	if len(refs) != rows {
+		t.Fatalf("返回 %d 行的引用，输入是 %d 行", len(refs), rows)
+	}
+
+	batched := groupCount(t, db) - perRow
+	// 8 × 100 KiB = 800 KiB，按 256 KiB 封口至少 4 个、最多 5 个
+	if batched > int64(rows*each/BlockGroupTarget)+1 {
+		t.Fatalf("批量写 %d 行用了 %d 个组，按 %s 封口不该超过 %d 个",
+			rows, batched, humanBytes(BlockGroupTarget), rows*each/BlockGroupTarget+1)
+	}
+	if batched >= perRow {
+		t.Fatalf("批量 %d 个组、逐行 %d 个组——批量没有起到打包作用", batched, perRow)
+	}
+
+	// 每一行都要能原样取回来
+	for i, b := range batch {
+		back, err := s.Get(ctx, db, refs[i])
+		if err != nil {
+			t.Fatalf("第 %d 行取回失败：%v", i, err)
+		}
+		if !bytes.Equal(back, b) {
+			t.Fatalf("第 %d 行还原不一致：%d 字节 vs %d 字节", i, len(back), len(b))
+		}
+	}
+}
+
+// 空行必须保持下标对齐：返回的引用序列与输入一一对应，否则调用方会把 A 行的
+// 引用写到 B 行身上——那是静默的数据错位，两条路径都不会报错。
+//
+// 注意"分不出块"这件事在这一层不存在：CutPoints 对任何非空输入都会切出至少
+// 一块（末尾那一刀是补的）。"小于 4 KiB 就不进块表"是钩子层（inputBlockMin）
+// 的决定，不是存储层的。
+func TestBlockStore_PutBatchKeepsAlignment(t *testing.T) {
+	db := openCompressDB(t)
+	s := NewBlockStore(0)
+	ctx := context.Background()
+
+	a := distinctRow(21, 64<<10)
+	b := distinctRow(22, 40<<10)
+	plains := [][]byte{nil, a, {}, b, nil}
+
+	refs, err := s.PutBatch(ctx, db, plains)
+	if err != nil {
+		t.Fatalf("PutBatch 失败：%v", err)
+	}
+	if len(refs) != len(plains) {
+		t.Fatalf("返回 %d 条，输入 %d 条", len(refs), len(plains))
+	}
+	for i, want := range []bool{false, true, false, true, false} {
+		if got := len(refs[i]) > 0; got != want {
+			t.Fatalf("第 %d 行（%d 字节）该不该有引用：期望 %v，得到 %v",
+				i, len(plains[i]), want, got)
+		}
+	}
+	// 两个大行各取一次、分别比对：引用一旦错位，这里必炸
+	for _, tc := range []struct {
+		i    int
+		want []byte
+	}{{1, a}, {3, b}} {
+		back, err := s.Get(ctx, db, refs[tc.i])
+		if err != nil {
+			t.Fatalf("第 %d 行取回失败：%v", tc.i, err)
+		}
+		if !bytes.Equal(back, tc.want) {
+			t.Fatalf("第 %d 行的引用指向了别的行：取回 %d 字节，该行是 %d 字节",
+				tc.i, len(back), len(tc.want))
+		}
+	}
+}
+
+// 一批里两行内容相同：只该插一份块，两行的引用序列完全相同。
+//
+// 这是批量相对逐行多出来的那份收益（批内去重），也是迁移里最常见的情形——
+// 历史行彼此高度重叠。
+func TestBlockStore_PutBatchDedupsWithinBatch(t *testing.T) {
+	db := openCompressDB(t)
+	s := NewBlockStore(0)
+	ctx := context.Background()
+
+	one := distinctRow(3, 80<<10)
+	refs, err := s.PutBatch(ctx, db, [][]byte{one, one, distinctRow(4, 80<<10)})
+	if err != nil {
+		t.Fatalf("PutBatch 失败：%v", err)
+	}
+	if len(refs[0]) != len(refs[1]) {
+		t.Fatalf("两行内容相同，引用数却不同：%d vs %d", len(refs[0]), len(refs[1]))
+	}
+	for i := range refs[0] {
+		if refs[0][i] != refs[1][i] {
+			t.Fatalf("第 %d 条引用不同：%d vs %d", i, refs[0][i], refs[1][i])
+		}
+	}
+	// 块表行数 = 两行内容合起来的唯一块数，不能是两份
+	var want int64
+	seen := map[uint32]bool{}
+	for _, r := range refs {
+		for _, id := range r {
+			if !seen[id] {
+				seen[id] = true
+				want++
+			}
+		}
+	}
+	if got := blockCount(t, db); got != want {
+		t.Fatalf("块表 %d 行，引用里只出现 %d 个不同块——批内没有去重", got, want)
+	}
+}
+
+// INV-1 对批量路径同样成立：事务回滚，这一批写的块与组一个都不许留。
+func TestBlockStore_PutBatchRollsBackWithTransaction(t *testing.T) {
+	db := openCompressDB(t)
+	s := NewBlockStore(0)
+	ctx := context.Background()
+
+	batch := make([][]byte, 6)
+	for i := range batch {
+		batch[i] = distinctRow(200+i, 60<<10)
+	}
+
+	boom := errors.New("这一批里有一行写失败")
+	err := db.Transaction(func(tx *gorm.DB) error {
+		if _, err := s.PutBatch(ctx, tx, batch); err != nil {
+			return err
+		}
+		if blockCount(t, tx) == 0 {
+			t.Fatal("事务内应当已经写进了块")
+		}
+		return boom
+	})
+	if !errors.Is(err, boom) {
+		t.Fatalf("期望事务因 %v 回滚，实际 %v", boom, err)
+	}
+	if n := blockCount(t, db); n != 0 {
+		t.Fatalf("事务回滚后块表还剩 %d 行（INV-1 破了）", n)
+	}
+	if n := groupCount(t, db); n != 0 {
+		t.Fatalf("事务回滚后组表还剩 %d 行", n)
+	}
+}
+
+// 单行 Put 必须就是"一批只有一行"的 PutBatch，两条路的引用序列要逐个相同。
+//
+// 这条守的是**线上写路径没有被批量那条路带偏**：线上每个请求一次 Put，
+// 它打出来的 7.70 KiB 小组是阶段 3 真机量过的既成事实，不能被顺手改掉。
+func TestBlockStore_PutMatchesPutBatchOfOne(t *testing.T) {
+	db := openCompressDB(t)
+	s := NewBlockStore(0)
+	ctx := context.Background()
+
+	body := distinctRow(9, 120<<10)
+	putRefs := putGet(t, db, s, body)
+	batchRefs, err := s.PutBatch(ctx, db, [][]byte{body})
+	if err != nil {
+		t.Fatalf("PutBatch 失败：%v", err)
+	}
+	if len(putRefs) != len(batchRefs[0]) {
+		t.Fatalf("两条路的引用数不同：%d vs %d", len(putRefs), len(batchRefs[0]))
+	}
+	for i := range putRefs {
+		if putRefs[i] != batchRefs[0][i] {
+			t.Fatalf("第 %d 条引用不同：%d vs %d", i, putRefs[i], batchRefs[0][i])
+		}
+	}
+}

@@ -257,43 +257,82 @@ func (s *BlockStore) Reset() {
 //
 // tx 必须是调用方正在用的那个事务。全程不另开连接——那会撞事务锁，
 // 卡满 busy_timeout 之后报 database is locked。
+//
+// 单行 Put 就是"只有一批、这一批只有一行"的 PutBatch，分组行为一致：
+// 每次调用各封各的组（真机实测这样打出来的组平均 7.70 KiB）。
 func (s *BlockStore) Put(ctx context.Context, tx *gorm.DB, plain []byte) ([]uint32, error) {
-	if len(plain) == 0 {
-		return nil, nil
+	refs, err := s.PutBatch(ctx, tx, [][]byte{plain})
+	if err != nil {
+		return nil, err
 	}
-	cuts := compress.CutPoints(plain, BlockChunkAvg, nil)
-	if len(cuts) == 0 {
-		return nil, nil
+	return refs[0], nil
+}
+
+// PutBatch 把一批 body 一起写进块表，返回与输入一一对应的引用序列
+// （空 body 与分不出块的 body 得到 nil）。
+//
+// 与逐个 Put 的**唯一**区别是分组：这一批新产生的块攒在一起按 BlockGroupTarget
+// 封口，而不是每行各封各的。这不是优化，是迁移能不能达到设计容量的前提——
+// 真机实测（阶段 3，生产库副本 12,483 行）：线上逐行写入的组平均只有 7.70 KiB，
+// 同一批内容按 256 KiB 重打是 88.21 MiB → 56.53 MiB，**差 35.9%**。
+// 历史行迁移必须走这一条，否则迁完仍是那个 7.70 KiB 的形态，白迁一遍。
+//
+// 那是不是越大越好：不是。一批越大，里面"库里还没有"的块越多，一次插进去的组
+// 才越接近 BlockGroupTarget；但整批原文要同时在内存里，事务越大回滚也越贵。
+// 调用方按"行数 + 原文字节"双重封顶。
+//
+// 顺序即组归属：块按**首次出现顺序**攒进组，与 insertBlockGroups、压实、
+// 阶段 0 基准车完全同规则。
+func (s *BlockStore) PutBatch(ctx context.Context, tx *gorm.DB, plains [][]byte) ([][]uint32, error) {
+	rowRefs := make([][]uint32, len(plains))
+
+	// 1. 把这一批所有的块都点出来。rowDigests 按行留一份，最后拼引用序列用；
+	//    allDigests / allChunks 下标一一对应，是查表与入组的依据。
+	var (
+		rowDigests = make([][][16]byte, len(plains))
+		allDigests [][16]byte
+		allChunks  [][]byte
+	)
+	for i, plain := range plains {
+		if len(plain) == 0 {
+			continue
+		}
+		cuts := compress.CutPoints(plain, BlockChunkAvg, nil)
+		if len(cuts) == 0 {
+			continue
+		}
+		ds := make([][16]byte, 0, len(cuts))
+		prev := 0
+		for _, cut := range cuts {
+			ch := plain[prev:cut]
+			prev = cut
+			ds = append(ds, compress.Digest(ch))
+			allChunks = append(allChunks, ch)
+		}
+		rowDigests[i] = ds
+		allDigests = append(allDigests, ds...)
+	}
+	if len(allDigests) == 0 {
+		return rowRefs, nil
 	}
 
-	// 先把这一行的块都点出来：digest 与内容各留一份。
-	digests := make([][16]byte, 0, len(cuts))
-	chunks := make([][]byte, 0, len(cuts))
-	prev := 0
-	for _, cut := range cuts {
-		ch := plain[prev:cut]
-		prev = cut
-		digests = append(digests, compress.Digest(ch))
-		chunks = append(chunks, ch)
-	}
-
-	known, err := lookupBlocks(ctx, tx, digests)
+	known, err := lookupBlocks(ctx, tx, allDigests)
 	if err != nil {
 		return nil, err
 	}
 
-	// 把还不存在的块攒成组写下去。组的边界按首次出现顺序切，
-	// 与 Phase 0 基准车、与迁移路径完全一致——组归属由这个顺序决定。
+	// 2. 库里还没有的块攒成组写下去。去重是**全批**范围：同一批里两行共用的块
+	//    只插一次，这也是批量相对逐行多出来的一份收益。
 	var (
 		missing []blockPending
-		seen    = make(map[[16]byte]bool, len(digests))
+		seen    = make(map[[16]byte]bool, len(allDigests))
 	)
-	for i, d := range digests {
+	for i, d := range allDigests {
 		if _, ok := known[d]; ok || seen[d] {
 			continue
 		}
 		seen[d] = true
-		missing = append(missing, blockPending{digest: d, data: chunks[i]})
+		missing = append(missing, blockPending{digest: d, data: allChunks[i]})
 	}
 	if len(missing) > 0 {
 		if err := insertBlockGroups(ctx, tx, missing); err != nil {
@@ -310,15 +349,22 @@ func (s *BlockStore) Put(ctx context.Context, tx *gorm.DB, plain []byte) ([]uint
 		}
 	}
 
-	refs := make([]uint32, len(digests))
-	for i, d := range digests {
-		loc, ok := known[d]
-		if !ok {
-			return nil, fmt.Errorf("compress: 块 %x 写完后仍查不到，拒绝写入悬空引用", d[:4])
+	// 3. 拼回每一行的引用序列。
+	for i, ds := range rowDigests {
+		if len(ds) == 0 {
+			continue
 		}
-		refs[i] = loc.id
+		refs := make([]uint32, len(ds))
+		for j, d := range ds {
+			loc, ok := known[d]
+			if !ok {
+				return nil, fmt.Errorf("compress: 块 %x 写完后仍查不到，拒绝写入悬空引用", d[:4])
+			}
+			refs[j] = loc.id
+		}
+		rowRefs[i] = refs
 	}
-	return refs, nil
+	return rowRefs, nil
 }
 
 type blockLoc struct {

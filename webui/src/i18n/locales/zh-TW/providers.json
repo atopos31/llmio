@@ -3,6 +3,11 @@
   "loading": "載入供應商列表",
   "no_data": "暫無供應商資料",
   "no_match": "找不到符合的供應商",
+  "list_title": "供應商列表",
+  "count": "共 {{total}} 個",
+  "count_filtered": "篩選後 {{total}} 個",
+  "load_failed": "供應商列表載入失敗",
+  "retry": "重試",
   "filters": {
     "name": "供應商名稱",
     "name_placeholder": "輸入名稱",
@@ -53,7 +58,6 @@
     "loading": "載入模型列表"
   },
   "toast": {
-    "fetch_failed": "取得供應商列表失敗: {{message}}",
     "delete_success": "供應商 {{name}} 刪除成功",
     "delete_failed": "刪除供應商失敗: {{message}}",
     "copy_model": "已複製模型名稱: {{name}}",

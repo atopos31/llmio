@@ -2,7 +2,9 @@
 .claude
 llmio.db
 llmio
+llmio.exe
 api.md
 todo.md
 db
 .gocache/
+node_modules/

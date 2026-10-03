@@ -106,12 +106,14 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	}
 
 	startReq := time.Now()
+	// 协议互转的记账盒：转发路径往里写"改了什么"，日志落库时读
+	bridgeNotes := service.NewBridgeNotes()
 	// 调用负载均衡后的 provider 并转发
 	res, log, err := service.BalanceChat(ctx, startReq, style, *before, *providersWithMeta, models.ReqMeta{
 		Header:    c.Request.Header,
 		RemoteIP:  c.ClientIP(),
 		UserAgent: c.Request.UserAgent(),
-	})
+	}, bridgeNotes)
 	if err != nil {
 		common.InternalServerError(c, err.Error())
 		return
@@ -129,7 +131,7 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	// 异步处理输出并记录 tokens
 	authKeyIOLog, _ := ctx.Value(consts.ContextKeyAuthKeyIOLog).(bool)
 	slog.Info("start recording log", "logId", logId, "authKeyIOLog", authKeyIOLog)
-	go service.RecordLog(context.Background(), startReq, pr, postProcessor, logId, *before, authKeyIOLog)
+	go service.RecordLog(context.Background(), startReq, pr, postProcessor, logId, *before, authKeyIOLog, bridgeNotes)
 	writeHeader(c, before.Stream, res.Header)
 
 	// 流式响应使用 flushWriter 确保数据实时发送
@@ -145,6 +147,13 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	}
 
 	pw.Close()
+
+	// 这次转发改过什么（丢了参数、补了默认值）在这里提示一次：客户端从响应里看不出
+	// 差别，日志是唯一能对上号的地方。同协议路径没有记账，不会有这条
+	if notes := bridgeNotes.String(); notes != "" {
+		slog.Warn("protocol bridged",
+			"traceID", log.TraceID, "from", log.Style, "to", log.UpstreamStyle, "notes", notes)
+	}
 }
 
 func writeHeader(c *gin.Context, stream bool, header http.Header) {

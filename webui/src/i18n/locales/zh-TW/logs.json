@@ -4,6 +4,10 @@
   "session_id_placeholder": "Session ID 搜尋...",
   "id_placeholder": "ID 搜尋...",
   "loading": "載入日誌資料",
+  "error": {
+    "load": "讀取日誌失敗",
+    "stale": "這次沒取到，下面是上一次的結果"
+  },
   "no_data": "暫無請求日誌",
   "clean": {
     "tooltip": "清理日誌",
@@ -31,7 +35,10 @@
     "provider_placeholder": "選擇供應商",
     "status_success": "成功",
     "status_running": "執行中",
-    "status_error": "錯誤"
+    "status_error": "錯誤",
+    "empty": "沒有可選值",
+    "active": "{{label}}，已選 {{count}} 項",
+    "clear": "清除篩選"
   },
   "table": {
     "id": "ID",
@@ -45,7 +52,12 @@
     "provider_model": "供應商模型",
     "type": "類型",
     "provider": "供應商",
-    "actions": "操作"
+    "actions": "操作",
+    "cache": "快取",
+    "cache_value": "{{percent}}%（{{tokens}}）",
+    "detail": "檢視詳情",
+    "view_io": "檢視請求內容",
+    "io_unavailable": "該請求未記錄內容（需成功且開啟 IO 記錄）"
   },
   "mobile": {
     "tokens": "Tokens",
@@ -88,6 +100,44 @@
     "billing_output": "輸出",
     "billing_total": "總計"
   },
+  "bridge": {
+    "title": "協定轉換",
+    "upstream_type": "上游協定",
+    "direction": "轉換方向",
+    "clean": "逐欄位一一對應，這次轉換沒有丟下什麼",
+    "changed": "這次轉換動過的地方",
+    "unknown_note": "未知條目",
+    "notes": {
+      "reordered_tool_result": "工具結果被挪到了訊息最前（Anthropic 要求如此）",
+      "filled_missing_tool_result": "給沒有結果的工具呼叫補了一筆失敗結果",
+      "dropped_orphan_tool_result": "丟掉了找不到對應工具呼叫的工具結果",
+      "dropped_empty_text": "丟掉了空白的文字區塊",
+      "dropped_empty_message": "丟掉了轉換後空無一物的訊息",
+      "defaulted_max_tokens": "請求沒帶最大輸出長度，補了預設值（可能被截斷）",
+      "dropped_seed": "丟掉了 seed 參數",
+      "dropped_user": "丟掉了 user 參數",
+      "dropped_top_k": "丟掉了 top_k 參數",
+      "dropped_thinking": "丟掉了思考（thinking）相關設定",
+      "dropped_metadata": "丟掉了 metadata",
+      "dropped_image_detail": "丟掉了圖片精度等級",
+      "image_by_url": "圖片改用 URL 傳遞（需要較新的上游支援）",
+      "flattened_content_order": "文字與圖片、工具呼叫的先後順序無法保留",
+      "defaulted_input_schema": "工具沒給參數定義，補了空 Schema",
+      "dropped_tool_strict": "丟掉了工具的嚴格模式標記",
+      "prefixed_tool_error": "工具失敗的結果加了 [tool_error] 標記",
+      "dropped_extra_choices": "上游回傳多筆候選，只取了第一筆",
+      "unparsable_tool_arguments": "工具呼叫參數解不出 JSON，落成了空參數",
+      "unparsable_content": "回應內容形狀認不出，按文字原樣帶過",
+      "unknown_finish_reason": "上游給了認不出的結束原因，用了預設值",
+      "content_filtered": "上游因內容過濾截斷，結束原因做了對譯",
+      "paused_turn": "上游暫停了長任務，結束原因落成了 stop",
+      "dropped_refusal": "丟掉了拒絕文字（目標協定沒有對應區塊）",
+      "dropped_unknown_block": "丟掉了目標協定放不下的內容區塊",
+      "skipped_chunk": "串流裡有一段資料解不出來，跳過了",
+      "dropped_unknown_event": "串流裡出現了認不出的事件，跳過了",
+      "dropped_reasoning": "丟掉了思維鏈（reasoning）"
+    }
+  },
   "chat_io": {
     "request_input": "請求輸入",
     "response_output": "回應輸出",
@@ -120,5 +170,20 @@
     "fetch_failed": "取得會話日誌失敗",
     "io_not_found": "未找到會話記錄，IO 記錄可能未啟用。",
     "empty": "(空)"
-  }
+  },
+  "auto_refresh": {
+    "label": "自動重新整理",
+    "off": "不自動",
+    "every": "每 {{sec}} 秒"
+  },
+  "compare": {
+    "select_all": "全選本頁可比較項",
+    "select_row": "選擇 #{{id}} 用於對比",
+    "selected": "已選 {{count}}/{{max}} 項",
+    "limit": "最多對比 {{max}} 項",
+    "remove": "移除 #{{id}}",
+    "clear": "清除選擇",
+    "open": "對比"
+  },
+  "retry": "重試"
 }

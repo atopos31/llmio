@@ -1,22 +1,112 @@
 {
-  "title": "系統概覽",
-  "refresh": "重新整理概覽",
-  "loading": "載入系統概覽",
-  "loading_chart": "載入圖表...",
+  "title": "系統總覽",
+  "refresh": "重新整理",
+  "loading": "正在載入系統總覽",
+  "loading_chart": "正在載入圖表...",
+  "in_flight": "在途請求",
+  "in_flight_hint": "此刻仍在處理中的請求",
+  "range": {
+    "label": "時間範圍",
+    "today": "今天",
+    "last_24h": "近 24 小時",
+    "last_7d": "近 7 天",
+    "last_30d": "近 30 天",
+    "custom": "自訂"
+  },
+  "granularity": "分桶",
+  "granularity_auto": "自動",
+  "truncated_warning": "資料量超過單次掃描上限，統計可能不完整；請縮小時間範圍。",
+  "kpi": {
+    "requests": "請求數",
+    "success_rate": "成功率",
+    "success_rate_hint": "成功 /（成功+失敗），不含在途",
+    "tokens": "Token",
+    "tokens_hint": "輸入 {{prompt}} · 輸出 {{completion}}",
+    "cache_hit": "快取命中率",
+    "cache_hit_hint": "命中 {{cached}} / 輸入 {{prompt}}",
+    "retries": "重試次數",
+    "retries_hint": "平均每請求 {{avg}} 次",
+    "avg_tps": "平均 TPS",
+    "first_chunk_p50": "首包 P50",
+    "cost": "成本",
+    "cost_hint": "依請求時的價格快照累計"
+  },
+  "trend": {
+    "title": "趨勢",
+    "requests": "請求趨勢",
+    "tokens": "Token 消耗趨勢",
+    "success": "成功",
+    "error": "失敗",
+    "running": "在途",
+    "input": "非快取輸入",
+    "cached": "快取讀取",
+    "output": "輸出"
+  },
+  "latency": {
+    "title": "首包耗時分佈",
+    "count": "請求數",
+    "p50": "P50",
+    "p90": "P90",
+    "p95": "P95",
+    "p99": "P99",
+    "percentile_note": "分位數為最近秩（非插值），小樣本下 P90/95/99 可能同值"
+  },
+  "errors": {
+    "title": "錯誤分析",
+    "empty": "此時間範圍內沒有失敗請求",
+    "count": "{{count}} 次",
+    "affected_providers": "受影響供應商",
+    "affected_models": "受影響模型",
+    "samples": "樣本",
+    "view_log": "檢視請求詳情"
+  },
+  "breakdown": {
+    "title": "分佈",
+    "by_model": "依模型",
+    "by_provider": "依供應商",
+    "by_key": "依金鑰",
+    "by_ua": "依用戶端",
+    "name": "名稱",
+    "requests": "請求",
+    "success_rate": "成功率",
+    "tps": "TPS（平均 / 峰值）",
+    "first_chunk": "首包（平均 / P95）",
+    "cache": "快取命中",
+    "retries": "重試",
+    "cost": "成本",
+    "more": "還有 {{count}} 項未顯示"
+  },
+  "top": {
+    "tps": "TPS 榜首",
+    "slowest": "最慢首包",
+    "recent_errors": "最近失敗",
+    "empty": "暫無資料",
+    "first_chunk": "首包",
+    "tokens": "輸出 Token"
+  },
+  "empty": {
+    "no_data": "此時間範圍內沒有請求",
+    "no_data_hint": "換一個時間範圍，或確認閘道是否已有流量"
+  },
+  "error": {
+    "load": "讀取統計失敗",
+    "stale": "這次沒取到，下面是上一次的結果"
+  },
   "cards": {
     "today_requests": "今日請求",
     "today_requests_desc": "今日處理的請求總數",
     "today_tokens": "今日 Tokens",
     "today_tokens_desc": "今日處理的 Tokens 總數",
     "monthly_requests": "本月請求",
-    "monthly_requests_desc": "最近30天處理的請求總數",
+    "monthly_requests_desc": "最近 30 天處理的請求總數",
     "monthly_tokens": "本月 Tokens",
-    "monthly_tokens_desc": "最近30天處理的 Tokens 總數"
+    "monthly_tokens_desc": "最近 30 天處理的 Tokens 總數"
   },
-  "errors": {
+  "errors_legacy": {
     "today_metrics": "取得今日指標失敗: {{message}}",
-    "total_metrics": "取得總計指標失敗: {{message}}",
+    "total_metrics": "取得總指標失敗: {{message}}",
     "model_counts": "取得模型呼叫統計失敗: {{message}}",
     "project_counts": "取得專案呼叫統計失敗: {{message}}"
-  }
+  },
+  "retry": "重試"
 }

@@ -4,6 +4,8 @@ import { useFieldArray, useForm } from "react-hook-form";
 import { z } from "zod";
 import { createModelProvider, updateModelProvider } from "@/lib/api";
 import type { Model, ModelWithProvider, ProviderModel } from "@/lib/api";
+import { termsFormToPayload, termsToForm, validateTermsForm } from "@/lib/peak";
+import type { PeakTermsForm } from "@/lib/peak";
 import { toast } from "sonner";
 
 const headerPairSchema = z.object({
@@ -48,6 +50,17 @@ export const useModelProviderForm = ({
   const [open, setOpen] = useState(false);
   const [editingAssociation, setEditingAssociation] = useState<ModelWithProvider | null>(null);
   const [showProviderModels, setShowProviderModels] = useState(false);
+  /**
+   * 峰谷条款，null = 这条关联没配（后端那一列落 NULL，按基础价计费）。
+   *
+   * 与 RHF 那份表单并列放在这里而不是塞进 modelProviderFormSchema：条款是
+   * 可增删的时段数组，zod schema 给它只能编成一串嵌套字段，而校验要报的是
+   * "第几段"（见 lib/peak.ts 的 validateTermsForm），渲染时又得从字段路径
+   * 翻译回去。存成独立的 state，校验结论原样就是界面要的字。
+   */
+  const [peakTerms, setPeakTerms] = useState<PeakTermsForm | null>(null);
+  /** 保存被条款校验拦下的次数。>0 时条款编辑器才开始显示红色（它据此判断"用户试过了"）。 */
+  const [peakSubmitAttempt, setPeakSubmitAttempt] = useState(0);
 
   const getDefaultFormValues = (overrideModelId?: number): ModelProviderFormValues => {
     const fallbackModelId = overrideModelId ?? selectedModelId ?? models[0]?.ID ?? 0;
@@ -88,7 +101,7 @@ export const useModelProviderForm = ({
     setShowProviderModels(false);
   }, [selectedProviderId, loadProviderModels]);
 
-  const buildPayload = (values: ModelProviderFormValues) => {
+  const buildPayload = (values: ModelProviderFormValues, peak: PeakTermsForm | null) => {
     const headers: Record<string, string> = {};
     (values.customer_headers || []).forEach(({ key, value }) => {
       const trimmedKey = key.trim();
@@ -121,6 +134,15 @@ export const useModelProviderForm = ({
       cache_read_price: values.cache_read_price ?? 0,
       output_price: values.output_price ?? 0,
       currency: values.currency ?? "CNY",
+      /**
+       * 无条件带上 peak，null 也带。
+       *
+       * 更新接口把"省略 peak"和"peak: null"都当作清空（后端在结构体更新之外
+       * 补了一次显式清空，否则 GORM 会跳过 nil 指针、旧条款一直留在行上），
+       * 所以这两者在这里没有区别；但显式传 null 让"移除峰谷配置"这条路径在
+       * 请求体里就看得见，而不是要读一遍后端代码才知道省略等于清空。
+       */
+      peak: peak ? termsFormToPayload(peak) : null,
     };
   };
 
@@ -150,28 +172,47 @@ export const useModelProviderForm = ({
       output_price: association.OutputPrice ?? 0,
       currency: (association.Currency as "CNY" | "USD") || "CNY",
     });
+    // 条款跟着这条关联走：没配就是 null（三态里的"未配置"），配了才回填。
+    // 用 termsToForm 而不是直接塞 association.Peak：乘数在表单里是字符串
+    // （见 lib/peak.ts 的 PeakPeriodForm），"8:30" 也要顺手归一成 "08:30"。
+    setPeakTerms(association.Peak ? termsToForm(association.Peak) : null);
+    // 上一次保存被拦下的红色不能跟着飘到这一次打开：用户会以为新打开的这一条
+    // 就有问题
+    setPeakSubmitAttempt(0);
     setOpen(true);
   };
 
   const openCreateDialog = (modelId?: number) => {
     setEditingAssociation(null);
     form.reset(getDefaultFormValues(modelId));
+    setPeakTerms(null);
+    setPeakSubmitAttempt(0);
     setOpen(true);
   };
 
   const submit = async (values: ModelProviderFormValues) => {
+    if (peakTerms) {
+      const issues = validateTermsForm(peakTerms);
+      if (issues.length > 0) {
+        // 记一次尝试，条款编辑器据此把问题列出来并滚进视野；
+        // 这里只负责拦，文案与呈现都在那边（它才知道是哪一段）
+        setPeakSubmitAttempt((n) => n + 1);
+        return;
+      }
+    }
     try {
       if (editingAssociation) {
-        await updateModelProvider(editingAssociation.ID, buildPayload(values));
+        await updateModelProvider(editingAssociation.ID, buildPayload(values, peakTerms));
         toast.success("关联管理更新成功");
         setEditingAssociation(null);
       } else {
-        await createModelProvider(buildPayload(values));
+        await createModelProvider(buildPayload(values, peakTerms));
         toast.success("关联管理创建成功");
       }
 
       setOpen(false);
       form.reset(getDefaultFormValues());
+      setPeakTerms(null);
       await onReload(values.model_id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -209,6 +250,9 @@ export const useModelProviderForm = ({
     appendHeader,
     removeHeader,
     selectedProviderId,
+    peakTerms,
+    setPeakTerms,
+    peakSubmitAttempt,
     openEditDialog,
     openCreateDialog,
     submit,

@@ -51,6 +51,17 @@ func CleanLogsByDays(ctx context.Context, days int) (int64, error) {
 		return 0, fmt.Errorf("days must be greater than 0")
 	}
 
+	// 与压缩迁移互斥（见 log_compress.go 的 maintenanceMu）。迁移是**每批**
+	// 取放锁，所以这里等的时间上界是一批，不是一整轮。
+	//
+	// 用 TryLock 而不是 Lock：清理是周期任务，抢不到就下一轮，不值得为它
+	// 排一个队。但**抢不到要如实报错**——手动点一下清理却静默什么都没做，
+	// 比报一句"正忙"糟糕得多。
+	if !maintenanceMu.TryLock() {
+		return 0, ErrMaintenanceBusy
+	}
+	defer maintenanceMu.Unlock()
+
 	cutoffTime := time.Now().AddDate(0, 0, -days)
 	var deletedCount int64
 

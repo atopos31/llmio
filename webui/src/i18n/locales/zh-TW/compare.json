@@ -1,0 +1,45 @@
+{
+  "title": "請求對比（{{count}} 條）",
+  "back": "返回日誌",
+  "reload": "重新載入",
+  "more": "還有 {{count}} 項未顯示",
+  "empty": {
+    "no_ids": "沒有選擇要對比的請求",
+    "go_logs": "去日誌頁選擇"
+  },
+  "partial": "有 {{total}} 條中 {{ok}} 條缺少請求內容記錄，前綴分析只基於有內容的部分。",
+  "prefix": {
+    "title": "快取公共前綴",
+    "length": "公共前綴條目數",
+    "composition": "其中 工具 {{tools}} · 系統提示 {{system}} · 訊息 {{messages}}",
+    "none": "這些請求沒有任何公共前綴——第一個條目就不同，快取無法重用。",
+    "note": "前綴依快取的實際渲染順序計算：工具 → 系統提示 → 訊息。前綴中任何一處變化都會使其後全部失效。"
+  },
+  "diverge": {
+    "title": "各請求的分叉點"
+  },
+  "table": {
+    "id": "ID",
+    "status": "狀態",
+    "model": "模型",
+    "diverge": "起分叉處",
+    "cache": "快取命中",
+    "tokens": "Token",
+    "tps": "TPS",
+    "first_chunk": "首包",
+    "missing": "不存在",
+    "load_failed": "載入失敗",
+    "no_diverge": "完整包含公共前綴",
+    "from_entry": "第 {{n}} 項起"
+  },
+  "entry": {
+    "tool": "工具 {{name}}",
+    "system": "系統提示",
+    "message": "訊息 {{role}}"
+  },
+  "detail": {
+    "contains_prefix": "該請求完整包含公共前綴，沒有分叉。",
+    "no_content": "該請求沒有記錄請求內容（需成功且開啟 IO 記錄）。",
+    "share": "與其餘請求共享前 {{n}} 項，共 {{total}} 項；以下是從分叉處開始的條目。"
+  }
+}

@@ -1,22 +1,112 @@
 {
-  "title": "Dashboard",
-  "refresh": "Refresh Overview",
+  "title": "Overview",
+  "refresh": "Refresh overview",
   "loading": "Loading overview",
   "loading_chart": "Loading chart...",
-  "cards": {
-    "today_requests": "Today's Requests",
-    "today_requests_desc": "Total requests processed today",
-    "today_tokens": "Today's Tokens",
-    "today_tokens_desc": "Total tokens processed today",
-    "monthly_requests": "Monthly Requests",
-    "monthly_requests_desc": "Total requests in the last 30 days",
-    "monthly_tokens": "Monthly Tokens",
-    "monthly_tokens_desc": "Total tokens in the last 30 days"
+  "in_flight": "In flight",
+  "in_flight_hint": "Requests still being processed right now",
+  "range": {
+    "label": "Time range",
+    "today": "Today",
+    "last_24h": "Last 24 hours",
+    "last_7d": "Last 7 days",
+    "last_30d": "Last 30 days",
+    "custom": "Custom"
+  },
+  "granularity": "Bucket",
+  "granularity_auto": "Auto",
+  "truncated_warning": "Scan limit reached; figures may be incomplete. Narrow the time range.",
+  "kpi": {
+    "requests": "Requests",
+    "success_rate": "Success rate",
+    "success_rate_hint": "success / (success + failed), excludes in-flight",
+    "tokens": "Tokens",
+    "tokens_hint": "in {{prompt}} · out {{completion}}",
+    "cache_hit": "Cache hit",
+    "cache_hit_hint": "{{cached}} of {{prompt}} input tokens",
+    "retries": "Retries",
+    "retries_hint": "{{avg}} per request on average",
+    "avg_tps": "Avg TPS",
+    "first_chunk_p50": "First chunk P50",
+    "cost": "Cost",
+    "cost_hint": "Summed from per-request price snapshots"
+  },
+  "trend": {
+    "title": "Trend",
+    "requests": "Requests",
+    "tokens": "Token consumption",
+    "success": "Success",
+    "error": "Failed",
+    "running": "In flight",
+    "input": "Uncached input",
+    "cached": "Cache read",
+    "output": "Output"
+  },
+  "latency": {
+    "title": "First-chunk distribution",
+    "count": "Requests",
+    "p50": "P50",
+    "p90": "P90",
+    "p95": "P95",
+    "p99": "P99",
+    "percentile_note": "Percentiles are nearest-rank (not interpolated); P90/95/99 can coincide on small samples"
   },
   "errors": {
-    "today_metrics": "Failed to fetch today's metrics: {{message}}",
-    "total_metrics": "Failed to fetch total metrics: {{message}}",
-    "model_counts": "Failed to fetch model usage stats: {{message}}",
-    "project_counts": "Failed to fetch project usage stats: {{message}}"
-  }
+    "title": "Errors",
+    "empty": "No failed requests in this range",
+    "count": "{{count}}x",
+    "affected_providers": "Providers affected",
+    "affected_models": "Models affected",
+    "samples": "Samples",
+    "view_log": "View request detail"
+  },
+  "breakdown": {
+    "title": "Breakdown",
+    "by_model": "By model",
+    "by_provider": "By provider",
+    "by_key": "By key",
+    "by_ua": "By client",
+    "name": "Name",
+    "requests": "Requests",
+    "success_rate": "Success",
+    "tps": "TPS (avg / peak)",
+    "first_chunk": "First chunk (avg / P95)",
+    "cache": "Cache hit",
+    "retries": "Retries",
+    "cost": "Cost",
+    "more": "{{count}} more not shown"
+  },
+  "top": {
+    "tps": "Top TPS",
+    "slowest": "Slowest first chunk",
+    "recent_errors": "Recent failures",
+    "empty": "No data",
+    "first_chunk": "First chunk",
+    "tokens": "Output tokens"
+  },
+  "empty": {
+    "no_data": "No requests in this range",
+    "no_data_hint": "Try another range, or check whether the gateway has traffic yet"
+  },
+  "error": {
+    "load": "Failed to load stats",
+    "stale": "This refresh failed — showing the previous result"
+  },
+  "cards": {
+    "today_requests": "Today's requests",
+    "today_requests_desc": "Requests handled today",
+    "today_tokens": "Today's tokens",
+    "today_tokens_desc": "Tokens handled today",
+    "monthly_requests": "Monthly requests",
+    "monthly_requests_desc": "Requests handled in the last 30 days",
+    "monthly_tokens": "Monthly tokens",
+    "monthly_tokens_desc": "Tokens handled in the last 30 days"
+  },
+  "errors_legacy": {
+    "today_metrics": "Failed to load today's metrics: {{message}}",
+    "total_metrics": "Failed to load totals: {{message}}",
+    "model_counts": "Failed to load model counts: {{message}}",
+    "project_counts": "Failed to load project counts: {{message}}"
+  },
+  "retry": "Retry"
 }

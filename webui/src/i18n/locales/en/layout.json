@@ -1,20 +1,34 @@
 {
   "nav": {
     "home": "Dashboard",
+    "analytics": "Analytics",
     "quickstart": "Developer Quickstart",
     "providers": "Providers",
     "models": "Models",
     "logs": "Request Logs",
     "auth_keys": "API Keys",
-    "config": "System Config"
+    "config": "System Config",
+    "group_observe": "Observe",
+    "group_config": "Configure",
+    "primary_label": "Primary navigation",
+    "compare": "Compare",
+    "quota": "Quota"
   },
   "sidebar": {
-    "collapse": "Collapse Menu"
+    "collapse": "Collapse Menu",
+    "open": "Open navigation",
+    "close": "Close navigation"
   },
   "header": {
     "current_version": "Current Version",
     "new_version_hint": "New version {{version}} available",
-    "logout": "Logout"
+    "logout": "Logout",
+    "theme_label": "Appearance",
+    "theme_light": "Light",
+    "theme_dark": "Dark",
+    "theme_system": "System",
+    "language_label": "Language",
+    "skip_to_content": "Skip to content"
   },
   "update_dialog": {
     "title": "New Version Available: {{version}}",

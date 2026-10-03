@@ -1,5 +1,10 @@
 {
   "title": "密钥管理",
+  "list_title": "API Key 列表",
+  "count": "共 {{total}} 个",
+  "no_match": "没有符合筛选条件的 API Key",
+  "load_failed": "API Key 列表加载失败",
+  "retry": "重试",
   "loading": "加载 API Key 列表",
   "no_data": "暂无 API Key",
   "filters": {
@@ -27,7 +32,8 @@
     "all_models": "全部模型",
     "specified_models": "指定模型",
     "never_expire": "永久有效",
-    "not_used": "未使用"
+    "not_used": "未使用",
+    "expired": "已过期"
   },
   "mobile": {
     "key_section": "Key",
@@ -51,7 +57,8 @@
     "select_date": "选择日期",
     "saving": "保存中...",
     "save": "保存",
-    "cancel": "取消"
+    "cancel": "取消",
+    "models_load_failed": "模型列表加载失败"
   },
   "delete_dialog": {
     "title": "确认删除这个 API Key？",

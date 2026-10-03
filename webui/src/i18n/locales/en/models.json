@@ -6,6 +6,9 @@
   "no_models_filtered": "No models match the current filters",
   "no_associations": "This model has no associated providers",
   "no_associations_filtered": "No associations match the current filters",
+  "load_failed_models": "Failed to load models and providers",
+  "load_failed_associations": "Failed to load associations",
+  "retry": "Retry",
   "filters": {
     "search": "Search",
     "search_placeholder": "Search by name",
@@ -28,7 +31,14 @@
     "back_to_list": "Back to Model List",
     "add_association": "Add Association",
     "add_model": "Add Model",
+    "delete_model": "Delete model",
     "refresh_status": "Refresh Status"
+  },
+  "order": {
+    "hint": "Drag, or press Alt+↑ / Alt+↓ to reorder models",
+    "moved": "\"{{name}}\" moved to position {{position}}",
+    "at_edge": "Already at the start or end of the list",
+    "blocked_by_filter": "Cannot reorder while filters are active — clear them first"
   },
   "model_table": {
     "id": "ID",
@@ -51,6 +61,8 @@
     "structured_output": "Structured Output",
     "vision": "Vision",
     "with_header": "Header Passthrough",
+    "supported": "Supported",
+    "unsupported": "Not supported",
     "weight": "Weight",
     "enabled": "Enabled",
     "status": "Status",
@@ -58,9 +70,13 @@
     "no_data": "No data",
     "success": "Success",
     "failed": "Failed",
+    "recent_summary": "{{success}}/{{total}} ok",
     "active": "Active",
     "inactive": "Inactive",
+    "toggle_status": "Toggle enabled state",
     "unknown_provider": "Unknown Provider",
+    "delete_title": "Delete this association?",
+    "delete_desc": "This cannot be undone. The association will be permanently deleted.",
     "mobile": {
       "provider_type": "Provider Type",
       "provider_id": "Provider ID",
@@ -93,6 +109,8 @@
     "timeout": "Timeout (s)",
     "io_log": "IO Log",
     "breaker": "Circuit Breaker",
+    "prefer_direct": "Prefer the same protocol",
+    "prefer_direct_desc": "Pick providers that speak the client's protocol first, and fall back to convertible ones (e.g. an OpenAI client with an Anthropic upstream) only when there are none. Turn it off to let both protocols compete by weight.",
     "strategy": "Load Balancing Strategy",
     "strategy_lottery_title": "Lottery",
     "strategy_lottery_desc": "Randomly selects based on weight. Best for spreading traffic randomly.",
@@ -162,8 +180,6 @@
     "description": "This action cannot be undone. The association will be permanently deleted."
   },
   "toast": {
-    "fetch_models_failed": "Failed to fetch models: {{message}}",
-    "fetch_providers_failed": "Failed to fetch providers: {{message}}",
     "model_save_failed": "Save failed: {{message}}",
     "model_created": "Model {{name}} created successfully",
     "model_updated": "Model {{name}} updated successfully",

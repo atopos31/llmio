@@ -3,16 +3,20 @@ package models
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 
 	"github.com/atopos31/llmio/consts"
-	"github.com/atopos31/llmio/pkg/env"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
 var DB *gorm.DB
+
+// DBPath 是当前库文件的位置。压缩状态页要报库文件大小与 freelist，
+// 前者只能从文件系统量（SQLite 的 page_count*page_size 不含 WAL 与页头开销）。
+var DBPath string
 
 func Init(ctx context.Context, path string) {
 	if err := ensureDBFile(path); err != nil {
@@ -23,6 +27,17 @@ func Init(ctx context.Context, path string) {
 		panic(err)
 	}
 	DB = db
+	DBPath = path
+	// 组缓存只按组 id 索引，而组 id 只在单个库文件内才有意义。走到这里说明
+	// 进程要开始用（可能是另一个）库了，旧缓存一律作废——否则会读到别的库里
+	// 同号的组，症状是"长度对得上、内容全错"，而且不报任何错。
+	blockStore.Reset()
+	// 存储层：空库要在**第一张表建出来之前**设 auto_vacuum，ptrmap 才会跟着
+	// 表一起长出来（既有库在这里一个字节都不会动，见 PrepareEmptyStorage）。
+	// 它失败只记日志：一项存储层的优化没资格让服务起不来。
+	if _, err := PrepareEmptyStorage(db); err != nil {
+		slog.Error("storage: 设 auto_vacuum 失败", "error", err)
+	}
 	if err := db.AutoMigrate(
 		&Provider{},
 		&Model{},
@@ -32,6 +47,10 @@ func Init(ctx context.Context, path string) {
 		&Config{},
 		&AuthKey{},
 		&LogCleanupRecord{},
+		// 块表只服务 chat_ios.input 一列（见 docs/db-compression-phase0.md）。
+		// 两张都是新表，AutoMigrate 只做 CREATE TABLE，不会碰既有的 7 GB 大表。
+		&Block{},
+		&BlockGroup{},
 	); err != nil {
 		panic(err)
 	}
@@ -62,6 +81,9 @@ func Init(ctx context.Context, path string) {
 	if err := ensureLogCleanupPolicyConfig(ctx); err != nil {
 		panic(err)
 	}
+	if err := MigratePeakTermsToAssociations(ctx); err != nil {
+		panic(err)
+	}
 	zero := 0.0
 	if _, err := gorm.G[ModelWithProvider](DB).Where("input_price IS NULL").Update(ctx, "input_price", &zero); err != nil {
 		panic(err)
@@ -76,12 +98,11 @@ func Init(ctx context.Context, path string) {
 		panic(err)
 	}
 
-	if env.GetWithDefault("DB_VACUUM", false) {
-		// 启动时执行 VACUUM 回收空间
-		if err := db.Exec("VACUUM").Error; err != nil {
-			panic(err)
-		}
-	}
+	// `DB_VACUUM` 的启动期 VACUUM **搬去 service.PrepareStorage 了**（main 里、
+	// 监听端口之前调用）。搬家的理由是它原先 `panic(err)`，而且连磁盘够不够都
+	// 没看过：VACUUM 要一份和库等大的副本，在 7 GiB 的库上磁盘不够就是启动失败。
+	// 现在它与 auto_vacuum 转换合并成一次动作、动手前预检、失败只跳过。
+	// 顺带解掉一个分层问题：`diskFree` 在 service 包里，models 不能反向依赖它。
 }
 
 func ensureModelDisplayOrder(ctx context.Context) error {

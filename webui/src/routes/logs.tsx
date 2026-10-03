@@ -1,681 +1,689 @@
-import { useState, useEffect, type ReactNode } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { useTranslation } from "react-i18next";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useNavigate, useSearchParams } from "react-router-dom"
+import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
+import { AlertTriangle, ChevronLeft, ChevronRight, Eye, GitCompareArrows, MessageSquare, RefreshCw, Search, Trash2, X } from "lucide-react"
+
+import { MultiSelectFilter, type FilterOption } from "@/components/multi-select-filter"
+import { StatusMark } from "@/components/status-mark"
+import { ErrorState } from "@/components/state-views"
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow
-} from "@/components/ui/table";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import Loading from "@/components/loading";
-import { getLogs, getProviders, getModelOptions, getAuthKeysList, type ChatLog, type Provider, type Model, type AuthKeyItem, getProviderTemplates, cleanLogs } from "@/lib/api";
-import { ChevronLeft, ChevronRight, RefreshCw, Trash2, Eye, MessageSquare, Search } from "lucide-react";
+  cleanLogs,
+  getAuthKeysList,
+  getLogs,
+  getModelOptions,
+  getProviderTemplates,
+  getProviders,
+  type AuthKeyItem,
+  type ChatLog,
+  type Model,
+  type Provider,
+} from "@/lib/api"
+import { compactNumber, formatBytes, formatCost, formatDurationNs, formatFull, formatNumber } from "@/lib/format"
+import {
+  activeMultiCount,
+  joinMulti,
+  parseMulti,
+  readMultiFilter,
+  toggleMulti,
+  type LogsMultiKey,
+} from "@/lib/logs"
+import { cn } from "@/lib/utils"
 
-// 格式化时间显示
-const formatTime = (nanoseconds: number): string => {
-  if (nanoseconds < 1000) return `${nanoseconds.toFixed(2)} ns`;
-  if (nanoseconds < 1000000) return `${(nanoseconds / 1000).toFixed(2)} μs`;
-  if (nanoseconds < 1000000000) return `${(nanoseconds / 1000000).toFixed(2)} ms`;
-  return `${(nanoseconds / 1000000000).toFixed(2)} s`;
-};
+/** 对比上限。与后端一次返回的详情体积、以及人眼能同时比较的条数都有关。 */
+const MAX_COMPARE = 6
 
-// 格式化字节大小显示
-const formatBytes = (bytes: number): string => {
-  if (bytes === 0) return '0 B';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-};
+/** 自动刷新档位（秒）。0 表示关闭。 */
+const REFRESH_OPTIONS = [0, 5, 10, 30, 60]
 
-type DetailCardProps = {
-  label: string;
-  value: ReactNode;
-  mono?: boolean;
-};
+/** 请求状态到 i18n 键的映射。后端的 status 是固定的三个英文值。 */
+function statusKey(status: string): "success" | "error" | "running" | "unknown" {
+  return status === "success" || status === "error" || status === "running" ? status : "unknown"
+}
 
-const DetailCard = ({ label, value, mono = false }: DetailCardProps) => (
-  <div className="rounded-md border bg-muted/20 p-3 space-y-1">
-    <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</p>
-    <div className={`text-sm break-words ${mono ? 'font-mono text-xs' : ''}`}>
-      {value ?? '-'}
-    </div>
-  </div>
-);
-
-const formatDurationValue = (value?: number) => (typeof value === "number" ? formatTime(value) : "-");
-const formatTokenValue = (value?: number) => (typeof value === "number" ? value.toLocaleString() : "-");
-const formatTpsValue = (value?: number) => (typeof value === "number" ? value.toFixed(2) : "-");
-const getStatusTextClass = (status: string) => {
-  switch (status) {
-    case "success":
-      return "text-green-500";
-    case "running":
-      return "text-amber-500";
-    default:
-      return "text-red-500";
-  }
-};
-
-const getStatusPillClass = (status: string) => {
-  switch (status) {
-    case "success":
-      return "bg-green-100 text-green-700";
-    case "running":
-      return "bg-amber-100 text-amber-700";
-    default:
-      return "bg-red-100 text-red-700";
-  }
-};
-
-const getStatusDetailClass = (status: string) => {
-  switch (status) {
-    case "success":
-      return "text-green-600";
-    case "running":
-      return "text-amber-600";
-    default:
-      return "text-red-600";
-  }
-};
+/** 缓存命中率（%）。输入为 0 时返回 null，表示"不适用"而非 0%。 */
+function cacheRate(log: ChatLog): number | null {
+  const prompt = log.prompt_tokens ?? 0
+  if (prompt <= 0) return null
+  return ((log.prompt_tokens_details?.cached_tokens ?? 0) / prompt) * 100
+}
 
 export default function LogsPage() {
-  const { t } = useTranslation(['logs', 'common']);
-  const [logs, setLogs] = useState<ChatLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [total, setTotal] = useState(0);
-  const [pages, setPages] = useState(0);
-  const [providers, setProviders] = useState<Provider[]>([]);
-  const [models, setModels] = useState<Model[]>([]);
-  const [authKeys, setAuthKeys] = useState<AuthKeyItem[]>([]);
-  const [availableStyles, setAvailableStyles] = useState<string[]>([]);
-  const navigate = useNavigate();
-  // URL 同步的筛选和分页状态（浏览器返回时自动恢复）
-  const [searchParams, setSearchParams] = useSearchParams();
-  const page = Math.max(1, Number(searchParams.get('page')) || 1);
-  const pageSize = Math.max(1, Number(searchParams.get('pageSize')) || 20);
-  const providerNameFilter = searchParams.get('providerName') ?? 'all';
-  const modelFilter = searchParams.get('model') ?? 'all';
-  const statusFilter = searchParams.get('status') ?? 'all';
-  const styleFilter = searchParams.get('style') ?? 'all';
-  const authKeyFilter = searchParams.get('authKey') ?? 'all';
-  const traceIdFilter = searchParams.get('traceId') ?? '';
-  const sessionIdFilter = searchParams.get('sessionId') ?? '';
-  const idFilter = searchParams.get('id') ?? '';
+  const { t } = useTranslation(["logs", "common"])
+  const navigate = useNavigate()
 
-  const patchParams = (patch: Record<string, string | number>) => {
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev);
-      for (const [k, v] of Object.entries(patch)) {
-        const s = String(v);
-        const isDefault =
-          s === '' ||
-          (['providerName', 'model', 'status', 'style', 'authKey'].includes(k) && s === 'all') ||
-          (k === 'page' && s === '1') ||
-          (k === 'pageSize' && s === '20');
-        if (isDefault) next.delete(k);
-        else next.set(k, s);
-      }
-      return next;
-    }, { replace: true });
-  };
-  const setProviderNameFilter = (v: string) => patchParams({ providerName: v, page: 1 });
-  const setModelFilter = (v: string) => patchParams({ model: v, page: 1 });
-  const setStatusFilter = (v: string) => patchParams({ status: v, page: 1 });
-  const setStyleFilter = (v: string) => patchParams({ style: v, page: 1 });
-  const setAuthKeyFilter = (v: string) => patchParams({ authKey: v, page: 1 });
-  const setTraceIdFilter = (v: string) => patchParams({ traceId: v, page: 1 });
-  const setSessionIdFilter = (v: string) => patchParams({ sessionId: v, page: 1 });
-  const setIdFilter = (v: string) => patchParams({ id: v, page: 1 });
-  // 详情弹窗
-  const [selectedLog, setSelectedLog] = useState<ChatLog | null>(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [logs, setLogs] = useState<ChatLog[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [total, setTotal] = useState(0)
+  const [pages, setPages] = useState(0)
+  const [providers, setProviders] = useState<Provider[]>([])
+  const [models, setModels] = useState<Model[]>([])
+  const [authKeys, setAuthKeys] = useState<AuthKeyItem[]>([])
+  const [availableStyles, setAvailableStyles] = useState<string[]>([])
+
+  // 筛选与分页状态同步到 URL，浏览器返回时自动恢复，链接也可分享
+  const [searchParams, setSearchParams] = useSearchParams()
+  const page = Math.max(1, Number(searchParams.get("page")) || 1)
+  const pageSize = Math.max(1, Number(searchParams.get("pageSize")) || 20)
+  /**
+   * 五个多选维度。URL 里的取值是逗号拼接的一串（与后端 splitCSV + IN 同口径），
+   * 页面只认这一份**解析后**的结果：控件的取值、发给后端的参数、有没有在筛选，
+   * 全部由它派生。若某处直接读原始串，就会出现"界面上没筛、请求里却带着 all"
+   * 这种两处口径不一——而它不会报错，只会筛出意料之外的东西。
+   */
+  const multiFilter = useMemo(() => readMultiFilter((k) => searchParams.get(k)), [searchParams])
+  const traceIdFilter = searchParams.get("traceId") ?? ""
+  const sessionIdFilter = searchParams.get("sessionId") ?? ""
+  const idFilter = searchParams.get("id") ?? ""
+
+  const patchParams = useCallback(
+    (patch: Record<string, string | number>) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          for (const [k, v] of Object.entries(patch)) {
+            const s = String(v)
+            // 空串对每个参数都等于"没筛"：多选全取消后拼出来的正是空串，
+            // 于是这个参数从 URL 上消失（旧版是写回 "all" 哨兵值）
+            const isDefault =
+              s === "" || (k === "page" && s === "1") || (k === "pageSize" && s === "20")
+            if (isDefault) next.delete(k)
+            else next.set(k, s)
+          }
+          return next
+        },
+        { replace: true }
+      )
+    },
+    [setSearchParams]
+  )
+
+  /** 任一筛选变化都回到第 1 页——否则会停在一个可能已不存在的页码上。 */
+  const setFilter = useCallback(
+    (key: string, value: string) => patchParams({ [key]: value, page: 1 }),
+    [patchParams]
+  )
+
+  /**
+   * 多选维度上的一次勾选。
+   *
+   * 读写都发生在 `setSearchParams` 的函数式更新里，而不是"先读当前数组、
+   * 算好新串、再写回去"：连点两下复选框时，后者两次都基于同一份旧 URL 计算，
+   * 第二次会把第一次的结果覆盖掉——表现是"点了两下只选上了一个"。
+   */
+  const toggleMultiFilter = useCallback(
+    (key: LogsMultiKey, value: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          const csv = joinMulti(toggleMulti(parseMulti(next.get(key)), value))
+          if (csv) next.set(key, csv)
+          else next.delete(key)
+          next.delete("page")
+          return next
+        },
+        { replace: true }
+      )
+    },
+    [setSearchParams]
+  )
+
+  const hasActiveFilter =
+    activeMultiCount(multiFilter) > 0 ||
+    traceIdFilter !== "" ||
+    sessionIdFilter !== "" ||
+    idFilter !== ""
+
+  const clearFilters = useCallback(() => {
+    setSearchParams(new URLSearchParams(), { replace: true })
+  }, [setSearchParams])
+
+  // 详情抽屉
+  const [detailLog, setDetailLog] = useState<ChatLog | null>(null)
+
   // 清理弹窗
-  const [cleanType, setCleanType] = useState<'count' | 'days'>('count');
-  const [cleanValue, setCleanValue] = useState<string>('1000');
-  const [isCleanDialogOpen, setIsCleanDialogOpen] = useState(false);
-  const [cleanLoading, setCleanLoading] = useState(false);
-  // 获取数据
-  const fetchProviders = async () => {
-    try {
-      const providerList = await getProviders();
-      setProviders(providerList);
-      const templates = await getProviderTemplates();
-      const styleTypes = templates.map(template => template.type);
-      setAvailableStyles(styleTypes);
-    } catch (error) {
-      console.error("Error fetching providers:", error);
-    }
-  };
-  const fetchModels = async () => {
-    try {
-      const modelList = await getModelOptions();
-      setModels(modelList);
-    } catch (error) {
-      console.error("Error fetching models:", error);
-    }
-  };
-  const fetchAuthKeys = async () => {
-    try {
-      const authKeyList = await getAuthKeysList();
-      setAuthKeys(authKeyList);
-    } catch (error) {
-      console.error("Error fetching auth keys:", error);
-    }
-  };
-  const fetchLogs = async () => {
-    setLoading(true);
-    try {
-      const result = await getLogs(page, pageSize, {
-        providerName: providerNameFilter === "all" ? undefined : providerNameFilter,
-        name: modelFilter === "all" ? undefined : modelFilter,
-        status: statusFilter === "all" ? undefined : statusFilter,
-        style: styleFilter === "all" ? undefined : styleFilter,
-        authKeyId: authKeyFilter === "all" ? undefined : authKeyFilter,
-        traceId: traceIdFilter.trim() || undefined,
-        sessionId: sessionIdFilter.trim() || undefined,
-        id: idFilter.trim() || undefined,
-      });
-      setLogs(result.data);
-      setTotal(result.total);
-      setPages(result.pages);
-    } catch (error) {
-      console.error("Error fetching logs:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [cleanType, setCleanType] = useState<"count" | "days">("count")
+  const [cleanValue, setCleanValue] = useState("1000")
+  const [isCleanDialogOpen, setIsCleanDialogOpen] = useState(false)
+  const [cleanLoading, setCleanLoading] = useState(false)
+
+  /**
+   * 对比选中项。用 Map 而非 Set 保存整条记录：
+   * 选中需要跨页/跨筛选存活，而翻页后原记录已不在当前列表里，
+   * 只留 ID 就没法再展示它的模型名等信息。
+   */
+  const [selected, setSelected] = useState<Map<number, ChatLog>>(new Map())
+
+  // 自动刷新
+  const [refreshSec, setRefreshSec] = useState(0)
+
+  const fetchOptions = useCallback(async () => {
+    // 筛选下拉的选项来源与日志本身无关，失败只影响可选范围，不阻断列表
+    const [p, m, a, tpl] = await Promise.allSettled([
+      getProviders(),
+      getModelOptions(),
+      getAuthKeysList(),
+      getProviderTemplates(),
+    ])
+    if (p.status === "fulfilled") setProviders(p.value)
+    if (m.status === "fulfilled") setModels(m.value)
+    if (a.status === "fulfilled") setAuthKeys(a.value)
+    if (tpl.status === "fulfilled") setAvailableStyles(tpl.value.map((x) => x.type))
+  }, [])
+
+  const fetchLogs = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true)
+      try {
+        const result = await getLogs(page, pageSize, {
+          // 空列表即"没筛"：拼出来是空串，于是这个参数根本不发
+          providerName: joinMulti(multiFilter.providerName) || undefined,
+          name: joinMulti(multiFilter.model) || undefined,
+          status: joinMulti(multiFilter.status) || undefined,
+          style: joinMulti(multiFilter.style) || undefined,
+          authKeyId: joinMulti(multiFilter.authKey) || undefined,
+          traceId: traceIdFilter.trim() || undefined,
+          sessionId: sessionIdFilter.trim() || undefined,
+          id: idFilter.trim() || undefined,
+        })
+        setLogs(result.data)
+        setTotal(result.total)
+        setPages(result.pages)
+        setLoadError(null)
+        // 静默刷新（自动刷新）失败不落成页面上的错误：一次网络瞬断就把整页
+        // 换成失败态，比保留上一次的结果更打扰人。手动的取数失败则必须说出来。
+      } catch (err) {
+        if (!silent) {
+          setLoadError(err instanceof Error ? err.message : String(err))
+        }
+      } finally {
+        if (!silent) setLoading(false)
+      }
+    },
+    [page, pageSize, multiFilter, traceIdFilter, sessionIdFilter, idFilter]
+  )
+
   useEffect(() => {
-    fetchProviders();
-    fetchModels();
-    fetchAuthKeys();
-    fetchLogs();
-  }, [page, pageSize, providerNameFilter, modelFilter, statusFilter, styleFilter, authKeyFilter, traceIdFilter, sessionIdFilter, idFilter]);
-  const handlePageChange = (newPage: number) => {
-    if (newPage >= 1 && newPage <= pages) patchParams({ page: newPage });
-  };
-  const handlePageSizeChange = (size: number) => {
-    if (size === pageSize) return;
-    patchParams({ pageSize: size, page: 1 });
-  };
-  const handleRefresh = () => {
-    fetchLogs();
-  };
-  const handleCleanTypeChange = (type: 'count' | 'days') => {
-    setCleanType(type);
-    setCleanValue(type === 'count' ? '1000' : '30');
-  };
-  const handleCleanLogs = async () => {
-    const value = parseInt(cleanValue);
-    if (isNaN(value) || value <= 0) return;
+    void fetchOptions()
+  }, [fetchOptions])
 
-    setCleanLoading(true);
-    try {
-      const result = await cleanLogs({ type: cleanType, value });
-      toast.success(t('clean.success', { count: result.deleted_count }));
-      fetchLogs();
-    } catch (error) {
-      console.error("Error cleaning logs:", error);
-      toast.error(t('clean.failed'));
-    } finally {
-      setCleanLoading(false);
-      setIsCleanDialogOpen(false);
+  useEffect(() => {
+    void fetchLogs()
+  }, [fetchLogs])
+
+  // 自动刷新：标签页隐藏时跳过（省资源），回到前台立即补一次
+  useEffect(() => {
+    if (refreshSec <= 0) return
+    const tick = () => {
+      if (document.hidden) return
+      void fetchLogs(true)
     }
-  };
-  const openDetailDialog = (log: ChatLog) => {
-    setSelectedLog(log);
-    setIsDialogOpen(true);
-  };
-  const canViewChatIO = (log: ChatLog) => log.Status === 'success' && log.ChatIO;
-  const handleViewChatIO = (log: ChatLog) => {
-    if (!canViewChatIO(log)) return;
-    navigate(`/logs/${log.ID}/chat-io`);
-  };
-  // 布局开始
-  return (
-    <div className="h-full min-h-0 flex flex-col gap-2 p-1">
-      {/* 顶部标题和刷新 */}
-      <div className="flex flex-col gap-2 flex-shrink-0">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0 flex-wrap">
-            <h2 className="text-2xl font-bold tracking-tight shrink-0">{t('title')}</h2>
-            <div className="relative">
-              <Search className="size-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder={t('id_placeholder')}
-                value={idFilter}
-                onChange={(e) => setIdFilter(e.target.value)}
-                className="h-8 text-xs w-44 lg:w-64 pl-7"
-              />
-            </div>
-            <div className="relative">
-              <Search className="size-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder={t('trace_id_placeholder')}
-                value={traceIdFilter}
-                onChange={(e) => setTraceIdFilter(e.target.value)}
-                className="h-8 text-xs w-44 lg:w-64 pl-7"
-              />
-            </div>
-            <div className="relative">
-              <Search className="size-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder={t('session_id_placeholder')}
-                value={sessionIdFilter}
-                onChange={(e) => setSessionIdFilter(e.target.value)}
-                className="h-8 text-xs w-44 lg:w-64 pl-7"
-              />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              onClick={() => setIsCleanDialogOpen(true)}
-              variant="outline"
-              size="icon"
-              className="shrink-0"
-              aria-label={t('clean.tooltip')}
-              title={t('clean.tooltip')}
-            >
-              <Trash2 className="size-4" />
-            </Button>
-            <Button
-              onClick={handleRefresh}
-              variant="outline"
-              size="icon"
-              className="shrink-0"
-              aria-label={t('common:actions.refresh')}
-              title={t('common:actions.refresh')}
-            >
-              <RefreshCw className="size-4" />
-            </Button>
-          </div>
-        </div>
-      </div>
-      {/* 筛选区域 */}
-      <div className="flex flex-col gap-2 flex-shrink-0">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 lg:gap-4">
-          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.model')}</Label>
-            <Select value={modelFilter} onValueChange={setModelFilter}>
-              <SelectTrigger className="h-8 text-xs w-full px-2">
-                <SelectValue placeholder={t('filters.model_placeholder')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('common:status.all')}</SelectItem>
-                {models.map((model) => (
-                  <SelectItem key={model.ID} value={model.Name}>{model.Name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.project')}</Label>
-            <Select value={authKeyFilter} onValueChange={setAuthKeyFilter}>
-              <SelectTrigger className="h-8 text-xs w-full px-2">
-                <SelectValue placeholder={t('filters.project_placeholder')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('common:status.all')}</SelectItem>
-                {authKeys.map((key) => (
-                  <SelectItem key={key.id} value={key.id.toString()}>{key.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.status')}</Label>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="h-8 text-xs w-full px-2">
-                <SelectValue placeholder={t('filters.status')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('common:status.all')}</SelectItem>
-                <SelectItem value="success">{t('filters.status_success')}</SelectItem>
-                <SelectItem value="running">{t('filters.status_running')}</SelectItem>
-                <SelectItem value="error">{t('filters.status_error')}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1 text-xs lg:min-w-0">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.type')}</Label>
-            <Select value={styleFilter} onValueChange={setStyleFilter}>
-              <SelectTrigger className="h-8 text-xs w-full px-2">
-                <SelectValue placeholder={t('filters.type')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('common:status.all')}</SelectItem>
-                {availableStyles.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="col-span-2 flex flex-col gap-1 text-xs lg:min-w-0 sm:col-span-1">
-            <Label className="text-[11px] text-muted-foreground uppercase tracking-wide">{t('filters.provider')}</Label>
-            <Select value={providerNameFilter} onValueChange={setProviderNameFilter}>
-              <SelectTrigger className="h-8 text-xs w-full px-2">
-                <SelectValue placeholder={t('filters.provider_placeholder')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('common:status.all')}</SelectItem>
-                {providers.map((p) => (
-                  <SelectItem key={p.ID} value={p.Name}>{p.Name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </div>
-      {/* 列表区域 */}
-      <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
-        {loading ? (
-          <div className="flex h-full items-center justify-center">
-            <Loading message={t('loading')} />
-          </div>
-        ) : logs?.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-muted-foreground">
-            {t('no_data')}
-          </div>
-        ) : (
-          <div className="h-full flex flex-col">
-            <div className="flex-1 overflow-y-auto">
-              <div className="hidden sm:block w-full">
-                <Table className="min-w-[1250px]">
-                  <TableHeader className="z-10 sticky top-0 bg-secondary/90 backdrop-blur text-secondary-foreground">
-                    <TableRow className="hover:bg-secondary/90">
-                      <TableHead>{t('table.id')}</TableHead>
-                      <TableHead>{t('table.time')}</TableHead>
-                      <TableHead>{t('table.model')}</TableHead>
-                      <TableHead>{t('table.project')}</TableHead>
-                      <TableHead>{t('table.status')}</TableHead>
-                      <TableHead>{t('table.tokens')}</TableHead>
-                      <TableHead>{t('table.size')}</TableHead>
-                      <TableHead>{t('table.duration')}</TableHead>
-                      <TableHead>{t('table.provider_model')}</TableHead>
-                      <TableHead>{t('table.type')}</TableHead>
-                      <TableHead>{t('table.provider')}</TableHead>
-                      <TableHead>{t('table.actions')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {logs?.map((log) => (
-                      <TableRow key={log.ID}>
-                        <TableCell className="font-mono text-xs text-muted-foreground">{log.ID}</TableCell>
-                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                          {new Date(log.CreatedAt).toLocaleString()}
-                        </TableCell>
-                        <TableCell className="font-medium">{log.Name}</TableCell>
-                        <TableCell className="text-xs">{log.key_name || '-'}</TableCell>
-                        <TableCell>
-                          <span className={`inline-flex items-center px-2 py-1 ${getStatusTextClass(log.Status)}`}>
-                            {log.Status}
-                          </span>
-                        </TableCell>
-                        <TableCell>{log.total_tokens}</TableCell>
-                        <TableCell className="text-xs">
-                          {log.Size ? formatBytes(log.Size) : '-'}
-                        </TableCell>
-                        <TableCell>{formatTime(log.ChunkTime + log.FirstChunkTime + log.ProxyTime)}</TableCell>
-                        <TableCell className="max-w-[120px] truncate text-xs" title={log.ProviderModel}>{log.ProviderModel}</TableCell>
-                        <TableCell className="text-xs">{log.Style}</TableCell>
-                        <TableCell className="text-xs">{log.ProviderName}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openDetailDialog(log)}>
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => handleViewChatIO(log)}
-                              disabled={!canViewChatIO(log)}
-                            >
-                              <MessageSquare className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="sm:hidden px-2 py-3 divide-y divide-border">
-                {logs?.map((log) => (
-                  <div key={log.ID} className="py-3 space-y-2 my-1 px-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <h3 className="font-semibold text-sm truncate">{log.Name}</h3>
-                        <p className="text-[11px] text-muted-foreground">
-                          <span className="font-mono mr-2">#{log.ID}</span>
-                          {new Date(log.CreatedAt).toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${getStatusPillClass(log.Status)}`}
-                        >
-                          {log.Status}
-                        </span>
-                        <div className="flex gap-1.5">
-                          <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => openDetailDialog(log)}>
-                            <Eye className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => handleViewChatIO(log)}
-                            disabled={!canViewChatIO(log)}
-                          >
-                            <MessageSquare className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      <div className="space-y-1">
-                        <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{t('mobile.tokens')}</p>
-                        <p className="font-medium">{log.total_tokens}</p>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{t('mobile.duration')}</p>
-                        <p className="font-medium">{formatTime(log.ChunkTime + log.FirstChunkTime + log.ProxyTime)}</p>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{t('mobile.provider')}</p>
-                        <p className="truncate">{log.ProviderName}</p>
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{t('mobile.type')}</p>
-                        <p>{log.Style || '-'}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-      {/* 分页区域 */}
+    const timer = window.setInterval(tick, refreshSec * 1000)
+    const onVisible = () => {
+      if (!document.hidden) tick()
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [refreshSec, fetchLogs])
 
-      <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0 border-t pt-2">
-        <div className="text-sm text-muted-foreground whitespace-nowrap">
-          {t('common:pagination.summary', { total, page, pages })}
+  const toggleSelect = useCallback(
+    (log: ChatLog) => {
+      setSelected((prev) => {
+        const next = new Map(prev)
+        if (next.has(log.ID)) {
+          next.delete(log.ID)
+          return next
+        }
+        if (next.size >= MAX_COMPARE) {
+          // 达到上限时明确告知，而不是静默忽略点击
+          toast.warning(t("compare.limit", { max: MAX_COMPARE }))
+          return prev
+        }
+        next.set(log.ID, log)
+        return next
+      })
+    },
+    [t]
+  )
+
+  const compareIds = useMemo(() => [...selected.keys()].join(","), [selected])
+
+  const handleCleanLogs = async () => {
+    const value = parseInt(cleanValue, 10)
+    if (Number.isNaN(value) || value <= 0) return
+
+    setCleanLoading(true)
+    try {
+      const result = await cleanLogs({ type: cleanType, value })
+      toast.success(t("clean.success", { count: result.deleted_count }))
+      void fetchLogs()
+    } catch {
+      toast.error(t("clean.failed"))
+    } finally {
+      setCleanLoading(false)
+      setIsCleanDialogOpen(false)
+    }
+  }
+
+  const canViewChatIO = (log: ChatLog) => log.Status === "success" && log.ChatIO
+
+  /** 只有成功请求可参与对比——失败请求没有可比较的输出内容。 */
+  const selectable = (log: ChatLog) => log.Status === "success"
+  const allOnPageSelected = logs.length > 0 && logs.filter(selectable).every((l) => selected.has(l.ID))
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2 p-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="mr-auto text-xl font-semibold tracking-tight">{t("title")}</h2>
+
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder={t("id_placeholder")}
+            value={idFilter}
+            onChange={(e) => setFilter("id", e.target.value)}
+            className="h-8 w-40 pl-7 text-xs"
+          />
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Select value={String(pageSize)} onValueChange={(value) => handlePageSizeChange(Number(value))}>
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder={t('common:pagination.per_page')} />
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder={t("trace_id_placeholder")}
+            value={traceIdFilter}
+            onChange={(e) => setFilter("traceId", e.target.value)}
+            className="h-8 w-44 pl-7 text-xs"
+          />
+        </div>
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder={t("session_id_placeholder")}
+            value={sessionIdFilter}
+            onChange={(e) => setFilter("sessionId", e.target.value)}
+            className="h-8 w-44 pl-7 text-xs"
+          />
+        </div>
+      </div>
+
+      {/* 筛选行在内容之上一整行，作用于其下的表格与分页。
+          五个维度都是**多选**：看日志时的诉求多数是"这几个供应商/模型放在一起看"，
+          单选时代只能一个一个来回切，切一次还得重看一遍上下文。 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <DimensionFilter
+          label={t("filters.model")}
+          selected={multiFilter.model}
+          onToggle={(v) => toggleMultiFilter("model", v)}
+          options={models.map((m) => ({ value: m.Name, label: m.Name }))}
+        />
+        <DimensionFilter
+          label={t("filters.project")}
+          selected={multiFilter.authKey}
+          onToggle={(v) => toggleMultiFilter("authKey", v)}
+          options={authKeys.map((k) => ({ value: String(k.id), label: k.name }))}
+        />
+        <DimensionFilter
+          label={t("filters.status")}
+          selected={multiFilter.status}
+          onToggle={(v) => toggleMultiFilter("status", v)}
+          options={[
+            { value: "success", label: t("common:status.success") },
+            { value: "running", label: t("common:status.running") },
+            { value: "error", label: t("common:status.error") },
+          ]}
+        />
+        <DimensionFilter
+          label={t("filters.type")}
+          selected={multiFilter.style}
+          onToggle={(v) => toggleMultiFilter("style", v)}
+          options={availableStyles.map((s) => ({ value: s, label: s }))}
+        />
+        <DimensionFilter
+          label={t("filters.provider")}
+          selected={multiFilter.providerName}
+          onToggle={(v) => toggleMultiFilter("providerName", v)}
+          options={providers.map((p) => ({ value: p.Name, label: p.Name }))}
+        />
+
+        <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <RefreshCw className="size-3.5 text-muted-foreground" aria-hidden="true" />
+            <Select value={String(refreshSec)} onValueChange={(v) => setRefreshSec(Number(v))}>
+              <SelectTrigger className="h-8 w-[104px] text-xs" aria-label={t("auto_refresh.label")}>
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {[10, 20, 50].map((size) => (
-                  <SelectItem key={size} value={String(size)}>
-                    {size}
+                {REFRESH_OPTIONS.map((s) => (
+                  <SelectItem key={s} value={String(s)}>
+                    {s === 0 ? t("auto_refresh.off") : t("auto_refresh.every", { sec: s })}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
+
+          {hasActiveFilter && (
+            <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs" onClick={clearFilters}>
+              <X className="size-3.5" aria-hidden="true" />
+              {t("filters.clear")}
+            </Button>
+          )}
+
+          <Button
+            onClick={() => void fetchLogs()}
+            variant="outline"
+            size="icon"
+            className="size-8"
+            aria-label={t("common:actions.refresh")}
+            title={t("common:actions.refresh")}
+          >
+            <RefreshCw className="size-4" />
+          </Button>
+          <Button
+            onClick={() => setIsCleanDialogOpen(true)}
+            variant="outline"
+            size="icon"
+            className="size-8"
+            aria-label={t("clean.tooltip")}
+            title={t("clean.tooltip")}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* 已经有行时失败不清屏——保留上一次的结果，但要说清"这次没取到"，
+          否则翻页失败后页码变了、行还是上一页的，读者会以为那是新一页。 */}
+      {loadError && logs.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-status-critical/40 bg-status-critical/5 px-3 py-2 text-sm">
+          <AlertTriangle className="size-4 shrink-0 text-status-critical-ink" aria-hidden="true" />
+          <span className="text-status-critical-ink">{t("error.stale")}</span>
+          <span className="reading min-w-0 flex-1 truncate text-xs text-muted-foreground" title={loadError}>
+            {loadError}
+          </span>
+          <Button variant="outline" size="sm" className="h-7" onClick={() => void fetchLogs()}>
+            {t("retry")}
+          </Button>
+        </div>
+      )}
+
+      {selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-border bg-accent/40 px-3 py-2">
+          <span className="text-sm">
+            {t("compare.selected", { count: selected.size, max: MAX_COMPARE })}
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {[...selected.values()].map((l) => (
+              <span
+                key={l.ID}
+                className="inline-flex items-center gap-1 rounded-sm bg-background px-1.5 py-0.5 text-xs"
+              >
+                <span className="reading text-muted-foreground">#{l.ID}</span>
+                <span className="max-w-[120px] truncate" title={l.Name}>
+                  {l.Name}
+                </span>
+                <button
+                  type="button"
+                  className="rounded-sm text-muted-foreground hover:text-foreground"
+                  onClick={() => toggleSelect(l)}
+                  aria-label={t("compare.remove", { id: l.ID })}
+                >
+                  <X className="size-3" aria-hidden="true" />
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="ml-auto flex gap-2">
+            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setSelected(new Map())}>
+              {t("compare.clear")}
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => navigate(`/compare?ids=${compareIds}`)}
+            >
+              <GitCompareArrows className="size-3.5" aria-hidden="true" />
+              {t("compare.open")}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="min-h-0 flex-1 rounded-md border border-border bg-background">
+        <div className="h-full overflow-auto">
+          <Table className="min-w-[1400px]">
+            <TableHeader className="sticky top-0 z-10 bg-muted">
+              <TableRow className="hover:bg-muted">
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allOnPageSelected}
+                    onCheckedChange={(v) => {
+                      if (v) {
+                        setSelected((prev) => {
+                          const next = new Map(prev)
+                          for (const l of logs) {
+                            if (selectable(l) && next.size < MAX_COMPARE) next.set(l.ID, l)
+                          }
+                          return next
+                        })
+                      } else {
+                        setSelected((prev) => {
+                          const next = new Map(prev)
+                          for (const l of logs) next.delete(l.ID)
+                          return next
+                        })
+                      }
+                    }}
+                    aria-label={t("compare.select_all")}
+                  />
+                </TableHead>
+                {/* 冻结 ID 列：横向滚动时保持可见，否则右移后就认不出是哪条 */}
+                <TableHead className="sticky left-0 z-20 w-20 bg-muted">{t("table.id")}</TableHead>
+                <TableHead>{t("table.time")}</TableHead>
+                <TableHead>{t("table.model")}</TableHead>
+                <TableHead>{t("table.project")}</TableHead>
+                <TableHead>{t("table.status")}</TableHead>
+                <TableHead>{t("table.tokens")}</TableHead>
+                <TableHead>{t("table.cache")}</TableHead>
+                <TableHead>{t("table.size")}</TableHead>
+                <TableHead>{t("table.duration")}</TableHead>
+                <TableHead>{t("table.provider_model")}</TableHead>
+                <TableHead>{t("table.type")}</TableHead>
+                <TableHead>{t("table.provider")}</TableHead>
+                <TableHead className="w-24">{t("table.actions")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {logs.map((log) => {
+                const rate = cacheRate(log)
+                const isSelected = selected.has(log.ID)
+                return (
+                  <TableRow
+                    key={log.ID}
+                    data-state={isSelected ? "selected" : undefined}
+                    className={cn("cursor-pointer", isSelected && "bg-accent/50")}
+                    onClick={() => setDetailLog(log)}
+                  >
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={isSelected}
+                        disabled={!selectable(log)}
+                        onCheckedChange={() => toggleSelect(log)}
+                        aria-label={t("compare.select_row", { id: log.ID })}
+                      />
+                    </TableCell>
+                    <TableCell className="reading sticky left-0 z-10 bg-background text-xs text-muted-foreground">
+                      {log.ID}
+                    </TableCell>
+                    <TableCell className="reading whitespace-nowrap text-xs text-muted-foreground">
+                      {formatFull(new Date(log.CreatedAt).getTime())}
+                    </TableCell>
+                    <TableCell className="max-w-[160px] truncate font-medium" title={log.Name}>
+                      {log.Name}
+                    </TableCell>
+                    <TableCell className="max-w-[120px] truncate text-xs" title={log.key_name}>
+                      {log.key_name || "-"}
+                    </TableCell>
+                    <TableCell>
+                      <StatusMark status={log.Status} label={t(`common:status.${statusKey(log.Status)}` as never)} />
+                    </TableCell>
+                    <TableCell className="reading">{formatNumber(log.total_tokens)}</TableCell>
+                    <TableCell className="reading text-xs">
+                      {rate === null ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        t("table.cache_value", { percent: rate.toFixed(0), tokens: compactNumber(log.prompt_tokens_details?.cached_tokens ?? 0) })
+                      )}
+                    </TableCell>
+                    <TableCell className="reading text-xs text-muted-foreground">
+                      {log.Size ? formatBytes(log.Size) : "-"}
+                    </TableCell>
+                    <TableCell className="reading text-xs">
+                      {formatDurationNs(log.ChunkTime + log.FirstChunkTime + log.ProxyTime)}
+                    </TableCell>
+                    <TableCell className="max-w-[140px] truncate text-xs" title={log.ProviderModel}>
+                      {log.ProviderModel}
+                    </TableCell>
+                    <TableCell className="text-xs">{log.Style}</TableCell>
+                    <TableCell className="max-w-[120px] truncate text-xs" title={log.ProviderName}>
+                      {log.ProviderName}
+                    </TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          onClick={() => setDetailLog(log)}
+                          aria-label={t("detail.title", { id: log.ID })}
+                          title={t("table.detail")}
+                        >
+                          <Eye className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          onClick={() => navigate(`/logs/${log.ID}/chat-io`)}
+                          disabled={!canViewChatIO(log)}
+                          aria-label={t("table.view_io")}
+                          title={canViewChatIO(log) ? t("table.view_io") : t("table.io_unavailable")}
+                        >
+                          <MessageSquare className="size-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+
+          {loading && (
+            <div role="status" aria-busy="true" className="p-8 text-center text-sm text-muted-foreground">
+              {t("loading")}
+            </div>
+          )}
+          {!loading && loadError && logs.length === 0 && (
+            /* 失败用失败态而不是空态：空态那句"暂无请求日志"是关于服务端事实的
+               断言，不该由一次失败的请求替它说 */
+            <ErrorState
+              title={t("error.load")}
+              message={loadError}
+              retryLabel={t("retry")}
+              onRetry={() => void fetchLogs()}
+            />
+          )}
+          {!loading && !loadError && logs.length === 0 && (
+            <div className="flex flex-col items-center gap-1 p-16 text-center">
+              <p className="text-sm font-medium">{t("no_data")}</p>
+              {hasActiveFilter && (
+                <button type="button" className="text-xs text-primary underline-offset-2 hover:underline" onClick={clearFilters}>
+                  {t("filters.clear")}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border pt-2">
+        <div className="text-sm whitespace-nowrap text-muted-foreground">
+          {t("common:pagination.summary", { total, page, pages })}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Select value={String(pageSize)} onValueChange={(v) => patchParams({ pageSize: Number(v), page: 1 })}>
+            <SelectTrigger className="h-8 w-[92px] text-xs" aria-label={t("common:pagination.per_page")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[10, 20, 50, 100].map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <div className="flex gap-2">
             <Button
               variant="outline"
               size="icon"
-              onClick={() => handlePageChange(page - 1)}
-              disabled={page === 1}
-              aria-label={t('common:pagination.prev')}
+              className="size-8"
+              onClick={() => patchParams({ page: page - 1 })}
+              disabled={page <= 1}
+              aria-label={t("common:pagination.prev")}
             >
               <ChevronLeft className="size-4" />
             </Button>
             <Button
               variant="outline"
               size="icon"
-              onClick={() => handlePageChange(page + 1)}
-              disabled={page === pages}
-              aria-label={t('common:pagination.next')}
+              className="size-8"
+              onClick={() => patchParams({ page: page + 1 })}
+              disabled={page >= pages}
+              aria-label={t("common:pagination.next")}
             >
               <ChevronRight className="size-4" />
             </Button>
           </div>
         </div>
       </div>
-      {/* 详情弹窗 */}
-      {selectedLog && (
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="p-0 w-[92vw] sm:w-auto sm:max-w-2xl max-h-[95vh] flex flex-col">
-            <div className="p-4 border-b flex-shrink-0">
-              <DialogHeader className="p-0">
-                <DialogTitle>{t('detail.title', { id: selectedLog.ID })}</DialogTitle>
-              </DialogHeader>
-            </div>
-            <div className="overflow-y-auto p-3 flex-1">
-              <div className="space-y-6 text-sm">
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <div className="text-sm">
-                      <span className="text-muted-foreground">{t('detail.created_at')}</span>
-                      <span>{new Date(selectedLog.CreatedAt).toLocaleString()}</span>
-                    </div>
-                    {selectedLog.TraceID && (
-                      <div className="text-sm">
-                        <span className="text-muted-foreground">{t('detail.trace_id')}</span>
-                        <span className="font-mono text-xs break-all">{selectedLog.TraceID}</span>
-                      </div>
-                    )}
-                    {selectedLog.SessionID && (
-                      <div className="text-sm">
-                        <span className="text-muted-foreground">{t('detail.session_id')}</span>
-                        <span className="font-mono text-xs break-all">{selectedLog.SessionID}</span>
-                      </div>
-                    )}
-                    <div className="text-sm">
-                      <span className="text-muted-foreground">{t('detail.status')}</span>
-                      <span className={getStatusDetailClass(selectedLog.Status)}>
-                        {selectedLog.Status}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                {selectedLog.Error && (
-                  <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
-                    <p className="text-xs text-destructive uppercase tracking-wide mb-1">{t('detail.error_title')}</p>
-                    <div className="text-destructive whitespace-pre-wrap break-words text-sm">
-                      {selectedLog.Error}
-                    </div>
-                  </div>
-                )}
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('detail.basic_info')}</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <DetailCard label={t('detail.model_name')} value={selectedLog.Name} />
-                    <DetailCard label={t('detail.provider')} value={selectedLog.ProviderName || '-'} />
-                    <DetailCard label={t('detail.provider_model')} value={selectedLog.ProviderModel || '-'} mono />
-                    <DetailCard label={t('detail.type')} value={selectedLog.Style || '-'} />
-                    <DetailCard label={t('detail.size')} value={selectedLog.Size ? formatBytes(selectedLog.Size) : '-'} />
-                    <DetailCard label={t('detail.remote_ip')} value={selectedLog.RemoteIP || '-'} mono />
-                    <DetailCard label={t('detail.io_log')} value={selectedLog.ChatIO ? t('detail.io_yes') : t('detail.io_no')} />
-                    <DetailCard label={t('detail.retry')} value={selectedLog.Retry ?? 0} />
-                  </div>
-                  <div className="grid grid-cols-1 gap-4">
-                    <DetailCard label={t('detail.user_agent')} value={selectedLog.UserAgent || '-'} mono />
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('detail.performance')}</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <DetailCard label={t('detail.proxy_time')} value={formatDurationValue(selectedLog.ProxyTime)} />
-                    <DetailCard label={t('detail.first_chunk_time')} value={formatDurationValue(selectedLog.FirstChunkTime)} />
-                    <DetailCard label={t('detail.chunk_time')} value={formatDurationValue(selectedLog.ChunkTime)} />
-                    <DetailCard label={t('detail.tps')} value={formatTpsValue(selectedLog.Tps)} />
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('detail.token_usage')}</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                    <DetailCard label={t('detail.input')} value={formatTokenValue(selectedLog.prompt_tokens)} />
-                    <DetailCard label={t('detail.cached')} value={formatTokenValue(selectedLog.prompt_tokens_details.cached_tokens)} />
-                    <DetailCard label={t('detail.output')} value={formatTokenValue(selectedLog.completion_tokens)} />
-                    <DetailCard label={t('detail.total')} value={formatTokenValue(selectedLog.total_tokens)} />
-                  </div>
-                </div>
-                {(() => {
-                  const hasPricing = (selectedLog.input_price ?? 0) > 0 || (selectedLog.output_price ?? 0) > 0;
-                  const sym = selectedLog.currency === "USD" ? "$" : "¥";
-                  const cached = selectedLog.prompt_tokens_details?.cached_tokens ?? 0;
-                  const inputTokens = Math.max(0, selectedLog.prompt_tokens - cached);
-                  const fmtCost = (tokens: number, price: number) =>
-                    hasPricing && price > 0 ? `${sym}${(tokens / 1_000_000 * price).toFixed(6)}` : "-";
-                  const totalCost = inputTokens / 1e6 * (selectedLog.input_price ?? 0)
-                    + cached / 1e6 * (selectedLog.cache_read_price ?? 0)
-                    + selectedLog.completion_tokens / 1e6 * (selectedLog.output_price ?? 0);
-                  return (
-                    <div className="space-y-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('detail.billing')}</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                        <DetailCard label={t('detail.billing_input')} value={fmtCost(inputTokens, selectedLog.input_price ?? 0)} />
-                        <DetailCard label={t('detail.billing_cache')} value={fmtCost(cached, selectedLog.cache_read_price ?? 0)} />
-                        <DetailCard label={t('detail.billing_output')} value={fmtCost(selectedLog.completion_tokens, selectedLog.output_price ?? 0)} />
-                        <DetailCard label={t('detail.billing_total')} value={hasPricing ? `${sym}${totalCost.toFixed(6)}` : "-"} />
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
-      {/* 清理日志弹窗 */}
+
+      <LogDetailSheet log={detailLog} onClose={() => setDetailLog(null)} />
+
       <Dialog open={isCleanDialogOpen} onOpenChange={setIsCleanDialogOpen}>
-        <DialogContent className="w-[92vw] sm:max-w-md">
+        {/* 只有标题没有说明文字，显式声明"没有描述"：不写的话 Radix 会
+            在控制台告警，而告警多了就没人看了。 */}
+        <DialogContent className="w-[92vw] sm:max-w-md" aria-describedby={undefined}>
           <DialogHeader>
-            <DialogTitle>{t('clean.title')}</DialogTitle>
+            <DialogTitle>{t("clean.title")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="flex gap-2">
-              <Button
-                variant={cleanType === 'count' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleCleanTypeChange('count')}
-                className="flex-1"
-              >
-                {t('clean.by_count')}
-              </Button>
-              <Button
-                variant={cleanType === 'days' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleCleanTypeChange('days')}
-                className="flex-1"
-              >
-                {t('clean.by_days')}
-              </Button>
+              {(["count", "days"] as const).map((type) => (
+                <Button
+                  key={type}
+                  variant={cleanType === type ? "default" : "outline"}
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => {
+                    setCleanType(type)
+                    setCleanValue(type === "count" ? "1000" : "30")
+                  }}
+                >
+                  {type === "count" ? t("clean.by_count") : t("clean.by_days")}
+                </Button>
+              ))}
             </div>
             <div className="flex items-center gap-2">
               <Input
@@ -683,28 +691,243 @@ export default function LogsPage() {
                 min="1"
                 value={cleanValue}
                 onChange={(e) => setCleanValue(e.target.value)}
-                placeholder={cleanType === 'count' ? t('clean.count_placeholder') : t('clean.days_placeholder')}
-                className="h-10"
+                placeholder={cleanType === "count" ? t("clean.count_placeholder") : t("clean.days_placeholder")}
               />
-              <span className="text-sm text-muted-foreground whitespace-nowrap">
-                {cleanType === 'count' ? t('clean.count_unit') : t('clean.days_unit')}
+              <span className="text-sm whitespace-nowrap text-muted-foreground">
+                {cleanType === "count" ? t("clean.count_unit") : t("clean.days_unit")}
               </span>
             </div>
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setIsCleanDialogOpen(false)}>
-              {t('clean.cancel')}
+              {t("clean.cancel")}
             </Button>
             <Button
               variant="destructive"
               onClick={handleCleanLogs}
-              disabled={cleanLoading || !cleanValue || parseInt(cleanValue) <= 0}
+              disabled={cleanLoading || !cleanValue || parseInt(cleanValue, 10) <= 0}
             >
-              {cleanLoading ? t('clean.confirming') : t('clean.confirm')}
+              {cleanLoading ? t("clean.confirming") : t("clean.confirm")}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
     </div>
-  );
+  )
+}
+
+/**
+ * 一个多选筛选维度。
+ *
+ * 共享组件只认字符串，翻译留在这一层（本页的文案在 `logs` 命名空间里）。
+ * 触发器上的无障碍名字带上已选计数：`getByRole("button", {name})` 因此能
+ * 区分"供应商"和"供应商（已选 2 个）"，读屏用户也听得到筛了几项。
+ */
+function DimensionFilter({
+  label,
+  selected,
+  onToggle,
+  options,
+}: {
+  label: string
+  selected: string[]
+  onToggle: (value: string) => void
+  options: FilterOption[]
+}) {
+  const { t } = useTranslation("logs")
+  return (
+    <MultiSelectFilter
+      label={label}
+      options={options}
+      selected={selected}
+      onToggle={onToggle}
+      emptyText={t("filters.empty")}
+      ariaLabel={
+        selected.length > 0
+          ? t("filters.active", { label, count: selected.length })
+          : label
+      }
+    />
+  )
+}
+
+function DetailField({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[11px] tracking-wide text-muted-foreground uppercase">{label}</div>
+      <div className={cn("text-sm break-words", mono && "reading text-xs")}>{value ?? "-"}</div>
+    </div>
+  )
+}
+
+/**
+ * 单条日志详情。
+ *
+ * 用右侧抽屉而非弹窗：读者要在列表与详情之间来回比对（看这条是不是刚才那条），
+ * 遮住整页反而妨碍操作。关闭后焦点由 Radix 归还到触发行。
+ */
+function LogDetailSheet({ log, onClose }: { log: ChatLog | null; onClose: () => void }) {
+  const { t } = useTranslation(["logs", "common"])
+  const navigate = useNavigate()
+
+  const cached = log?.prompt_tokens_details?.cached_tokens ?? 0
+  const hasPricing = (log?.input_price ?? 0) > 0 || (log?.output_price ?? 0) > 0
+  // 上游协议与客户端协议不同 = 这次请求走了一层协议转换。直连时后端写入的
+  // upstream_style 与 Style 相同，转换时才分叉
+  const bridged = !!log?.upstream_style && log.upstream_style !== log.Style
+  const bridgeCodes = (log?.bridge_notes ?? "")
+    .split(",")
+    .map((code) => code.trim())
+    .filter(Boolean)
+  const totalCost = log
+    ? (Math.max(0, (log.prompt_tokens ?? 0) - cached) / 1e6) * (log.input_price ?? 0) +
+      (cached / 1e6) * (log.cache_read_price ?? 0) +
+      ((log.completion_tokens ?? 0) / 1e6) * (log.output_price ?? 0)
+    : 0
+
+  return (
+    <Sheet open={log !== null} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent>
+        <SheetHeader>
+          <SheetTitle>{log ? t("logs:detail.title", { id: log.ID }) : ""}</SheetTitle>
+          {log && (
+            <SheetDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <StatusMark status={log.Status} label={t(`common:status.${statusKey(log.Status)}` as never)} />
+              <span className="reading">{formatFull(new Date(log.CreatedAt).getTime())}</span>
+              <span>{log.Name}</span>
+            </SheetDescription>
+          )}
+        </SheetHeader>
+
+        {log && (
+          <SheetBody className="space-y-5">
+            {log.Error && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
+                <p className="mb-1 text-[11px] tracking-wide text-status-critical-ink uppercase">
+                  {t("logs:detail.error_title")}
+                </p>
+                <div className="text-sm break-words whitespace-pre-wrap text-status-critical-ink">{log.Error}</div>
+              </div>
+            )}
+
+            <Section title={t("logs:detail.basic_info")}>
+              <div className="grid grid-cols-2 gap-3">
+                <DetailField label={t("logs:detail.model_name")} value={log.Name} />
+                <DetailField label={t("logs:detail.provider")} value={log.ProviderName || "-"} />
+                <DetailField label={t("logs:detail.provider_model")} value={log.ProviderModel || "-"} mono />
+                <DetailField label={t("logs:detail.type")} value={log.Style || "-"} />
+                {bridged && (
+                  <DetailField
+                    label={t("logs:bridge.upstream_type")}
+                    value={<span className="reading text-xs">{log.upstream_style}</span>}
+                  />
+                )}
+                <DetailField label={t("logs:detail.size")} value={log.Size ? formatBytes(log.Size) : "-"} />
+                <DetailField label={t("logs:detail.remote_ip")} value={log.RemoteIP || "-"} mono />
+                <DetailField
+                  label={t("logs:detail.io_log")}
+                  value={log.ChatIO ? t("logs:detail.io_yes") : t("logs:detail.io_no")}
+                />
+                <DetailField label={t("logs:detail.retry")} value={log.Retry ?? 0} />
+                <DetailField
+                  label={t("logs:detail.trace_id")}
+                  value={log.TraceID ? <span className="reading break-all">{log.TraceID}</span> : "-"}
+                />
+                <DetailField
+                  label={t("logs:detail.session_id")}
+                  value={log.SessionID ? <span className="reading break-all">{log.SessionID}</span> : "-"}
+                />
+              </div>
+              <div className="mt-3">
+                <DetailField label={t("logs:detail.user_agent")} value={log.UserAgent || "-"} mono />
+              </div>
+            </Section>
+
+            {bridged && (
+              <Section title={t("logs:bridge.title")}>
+                <div className="grid grid-cols-2 gap-3">
+                  <DetailField
+                    label={t("logs:bridge.direction")}
+                    value={<span className="reading text-xs">{log.Style} → {log.upstream_style}</span>}
+                  />
+                </div>
+                <div className="mt-3 space-y-1.5">
+                  <div className="text-[11px] tracking-wide text-muted-foreground uppercase">
+                    {bridgeCodes.length > 0 ? t("logs:bridge.changed") : t("logs:bridge.clean")}
+                  </div>
+                  {bridgeCodes.map((code) => (
+                    <div key={code} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <code className="reading rounded bg-muted px-1.5 py-0.5 text-[11px]">{code}</code>
+                      <span className="text-xs text-muted-foreground">
+                        {t(`logs:bridge.notes.${code}` as never, { defaultValue: t("logs:bridge.unknown_note") })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            <Section title={t("logs:detail.performance")}>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <DetailField label={t("logs:detail.proxy_time")} value={formatDurationNs(log.ProxyTime)} />
+                <DetailField label={t("logs:detail.first_chunk_time")} value={formatDurationNs(log.FirstChunkTime)} />
+                <DetailField label={t("logs:detail.chunk_time")} value={formatDurationNs(log.ChunkTime)} />
+                <DetailField label={t("logs:detail.tps")} value={log.Tps ? log.Tps.toFixed(2) : "-"} />
+              </div>
+            </Section>
+
+            <Section title={t("logs:detail.token_usage")}>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <DetailField label={t("logs:detail.input")} value={formatNumber(log.prompt_tokens)} />
+                <DetailField label={t("logs:detail.cached")} value={formatNumber(cached)} />
+                <DetailField label={t("logs:detail.output")} value={formatNumber(log.completion_tokens)} />
+                <DetailField label={t("logs:detail.total")} value={formatNumber(log.total_tokens)} />
+              </div>
+            </Section>
+
+            <Section title={t("logs:detail.billing")}>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <DetailField
+                  label={t("logs:detail.billing_input")}
+                  value={hasPricing ? formatCost((Math.max(0, log.prompt_tokens - cached) / 1e6) * log.input_price, log.currency) : "-"}
+                />
+                <DetailField
+                  label={t("logs:detail.billing_cache")}
+                  value={hasPricing ? formatCost((cached / 1e6) * log.cache_read_price, log.currency) : "-"}
+                />
+                <DetailField
+                  label={t("logs:detail.billing_output")}
+                  value={hasPricing ? formatCost((log.completion_tokens / 1e6) * log.output_price, log.currency) : "-"}
+                />
+                <DetailField
+                  label={t("logs:detail.billing_total")}
+                  value={hasPricing ? formatCost(totalCost, log.currency) : "-"}
+                />
+              </div>
+            </Section>
+
+            {canView(log) && (
+              <Button variant="outline" size="sm" className="w-full" onClick={() => navigate(`/logs/${log.ID}/chat-io`)}>
+                <MessageSquare className="mr-1.5 size-3.5" aria-hidden="true" />
+                {t("logs:table.view_io")}
+              </Button>
+            )}
+          </SheetBody>
+        )}
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+function canView(log: ChatLog) {
+  return log.Status === "success" && log.ChatIO
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{title}</h3>
+      {children}
+    </section>
+  )
 }

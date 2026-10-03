@@ -4,6 +4,10 @@
   "session_id_placeholder": "Search Session ID...",
   "id_placeholder": "Search ID...",
   "loading": "Loading logs",
+  "error": {
+    "load": "Failed to load logs",
+    "stale": "This refresh failed — showing the previous result"
+  },
   "no_data": "No request logs",
   "clean": {
     "tooltip": "Clean Logs",
@@ -31,7 +35,10 @@
     "provider_placeholder": "Select provider",
     "status_success": "Success",
     "status_running": "Running",
-    "status_error": "Error"
+    "status_error": "Error",
+    "empty": "No values available",
+    "active": "{{label}}, {{count}} selected",
+    "clear": "Clear filters"
   },
   "table": {
     "id": "ID",
@@ -45,7 +52,12 @@
     "provider_model": "Provider Model",
     "type": "Type",
     "provider": "Provider",
-    "actions": "Actions"
+    "actions": "Actions",
+    "cache": "Cache",
+    "cache_value": "{{percent}}% ({{tokens}})",
+    "detail": "View details",
+    "view_io": "View request content",
+    "io_unavailable": "No body recorded (requires success and IO logging enabled)"
   },
   "mobile": {
     "tokens": "Tokens",
@@ -88,6 +100,44 @@
     "billing_output": "Output",
     "billing_total": "Total"
   },
+  "bridge": {
+    "title": "Protocol Bridge",
+    "upstream_type": "Upstream Protocol",
+    "direction": "Direction",
+    "clean": "Every field mapped one to one; nothing was left behind",
+    "changed": "What the conversion changed",
+    "unknown_note": "Unknown note",
+    "notes": {
+      "reordered_tool_result": "Tool results were moved to the front of the message (Anthropic requires it)",
+      "filled_missing_tool_result": "A failed result was added for a tool call that had none",
+      "dropped_orphan_tool_result": "A tool result with no matching tool call was dropped",
+      "dropped_empty_text": "An empty text block was dropped",
+      "dropped_empty_message": "A message left empty by the conversion was dropped",
+      "defaulted_max_tokens": "max_tokens was missing, so a default was filled in (output may be truncated)",
+      "dropped_seed": "The seed parameter was dropped",
+      "dropped_user": "The user parameter was dropped",
+      "dropped_top_k": "The top_k parameter was dropped",
+      "dropped_thinking": "Thinking settings were dropped",
+      "dropped_metadata": "metadata was dropped",
+      "dropped_image_detail": "The image detail level was dropped",
+      "image_by_url": "The image was passed by URL instead (needs a recent upstream)",
+      "flattened_content_order": "The order of text, images and tool calls could not be preserved",
+      "defaulted_input_schema": "A tool had no parameter schema, so an empty one was filled in",
+      "dropped_tool_strict": "The tool's strict flag was dropped",
+      "prefixed_tool_error": "A failed tool result was prefixed with [tool_error]",
+      "dropped_extra_choices": "The upstream returned several choices; only the first was kept",
+      "unparsable_tool_arguments": "Tool call arguments were not valid JSON; an empty object was used",
+      "unparsable_content": "The response content had an unknown shape and was passed through as text",
+      "unknown_finish_reason": "The upstream sent an unknown finish reason; a fallback was used",
+      "content_filtered": "The upstream stopped for content filtering; the reason was mapped across",
+      "paused_turn": "The upstream paused a long-running turn; the reason became stop",
+      "dropped_refusal": "The refusal text was dropped (no matching block in the target protocol)",
+      "dropped_unknown_block": "A content block the target protocol cannot hold was dropped",
+      "skipped_chunk": "A chunk in the stream could not be parsed and was skipped",
+      "dropped_unknown_event": "An unknown event in the stream was skipped",
+      "dropped_reasoning": "The reasoning content was dropped"
+    }
+  },
   "chat_io": {
     "request_input": "Request Input",
     "response_output": "Response Output",
@@ -120,5 +170,20 @@
     "fetch_failed": "Failed to fetch session log",
     "io_not_found": "No session record found. IO logging may not be enabled.",
     "empty": "(empty)"
-  }
+  },
+  "auto_refresh": {
+    "label": "Auto refresh",
+    "off": "Off",
+    "every": "Every {{sec}}s"
+  },
+  "compare": {
+    "select_all": "Select all comparable rows on this page",
+    "select_row": "Select #{{id}} for comparison",
+    "selected": "{{count}}/{{max}} selected",
+    "limit": "You can compare at most {{max}}",
+    "remove": "Remove #{{id}}",
+    "clear": "Clear selection",
+    "open": "Compare"
+  },
+  "retry": "Retry"
 }

@@ -5,6 +5,16 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * 在多选列表里切换一个取值（有就去掉，没有就补上）。
+ *
+ * 放在这里而不是某个页面自己的 lib 里：分析页与日志页都用它，
+ * 而它对"筛选的是什么"一无所知——那正是通用工具与业务逻辑的分界。
+ */
+export function toggleValue(list: string[], value: string): string[] {
+  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
+}
+
 // 复制文本到剪贴板，非安全上下文（HTTP）下降级为 execCommand
 export async function copyToClipboard(text: string): Promise<void> {
   if (navigator.clipboard && window.isSecureContext) {

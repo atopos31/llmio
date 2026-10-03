@@ -36,6 +36,9 @@ type ModelRequest struct {
 	TimeOut  int    `json:"time_out"`
 	Strategy string `json:"strategy"`
 	Breaker  bool   `json:"breaker"`
+	// PreferDirect 优先匹配相同协议。指针是为了区分"没传"（nil，按开处理，老客户端
+	// 不改行为）与"明确关掉"（false）
+	PreferDirect *bool `json:"prefer_direct"`
 }
 
 type ModelOrderRequest struct {
@@ -58,6 +61,8 @@ type ModelWithProviderRequest struct {
 	CacheReadPrice   float64           `json:"cache_read_price"`
 	OutputPrice      float64           `json:"output_price"`
 	Currency         string            `json:"currency"`
+	// Peak 这一条关联自己的峰谷条款，nil 表示没配（按基础价计费）。
+	Peak *models.PeakTerms `json:"peak"`
 }
 
 // ModelProviderStatusRequest represents the request body for updating provider status
@@ -326,6 +331,7 @@ func CreateModel(c *gin.Context) {
 		TimeOut:      req.TimeOut,
 		Strategy:     strategy,
 		Breaker:      &req.Breaker,
+		PreferDirect: req.PreferDirect,
 		DisplayOrder: maxDisplayOrder + 1,
 	}
 
@@ -370,12 +376,13 @@ func UpdateModel(c *gin.Context) {
 
 	// Update fields
 	updates := models.Model{
-		Name:     req.Name,
-		Remark:   req.Remark,
-		MaxRetry: req.MaxRetry,
-		TimeOut:  req.TimeOut,
-		Strategy: strategy,
-		Breaker:  &req.Breaker,
+		Name:         req.Name,
+		Remark:       req.Remark,
+		MaxRetry:     req.MaxRetry,
+		TimeOut:      req.TimeOut,
+		Strategy:     strategy,
+		Breaker:      &req.Breaker,
+		PreferDirect: req.PreferDirect,
 	}
 
 	if _, err := gorm.G[models.Model](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {
@@ -616,6 +623,7 @@ func CreateModelProvider(c *gin.Context) {
 		CacheReadPrice:   &req.CacheReadPrice,
 		OutputPrice:      &req.OutputPrice,
 		Currency:         req.Currency,
+		Peak:             req.Peak,
 	}
 
 	defaultStatus := true
@@ -682,11 +690,23 @@ func UpdateModelProvider(c *gin.Context) {
 		CacheReadPrice:   &req.CacheReadPrice,
 		OutputPrice:      &req.OutputPrice,
 		Currency:         req.Currency,
+		Peak:             req.Peak,
 	}
 
 	if _, err := gorm.G[models.ModelWithProvider](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {
 		common.InternalServerError(c, "Failed to update model-provider association: "+err.Error())
 		return
+	}
+
+	// 结构体更新会跳过零值，指针为 nil 正是"没配峰谷"的表达，因此它会被
+	// 整条跳过——用户把峰谷关掉后旧条款仍留在库里，下次开启会拿回一份陈年配置。
+	// 这里补一次显式清空。
+	if req.Peak == nil {
+		if _, err := gorm.G[models.ModelWithProvider](models.DB).Where("id = ?", id).
+			Update(c.Request.Context(), "peak", nil); err != nil {
+			common.InternalServerError(c, "Failed to clear peak terms: "+err.Error())
+			return
+		}
 	}
 
 	// Get updated model-provider association
@@ -788,24 +808,38 @@ func GetRequestLogs(c *gin.Context) {
 	// 构建查询条件
 	query := models.DB.Model(&models.ChatLog{})
 
-	if providerName != "" {
-		query = query.Where("provider_name = ?", providerName)
+	// 前五个维度是**多值**的：逗号分隔表示"任一命中"，与 /api/metrics/stats
+	// 的口径一致（那里也是 splitCSV + IN）。维度本身就是一组取值
+	// （模型、供应商、状态、协议、密钥），看日志时最常见的诉求是"这几个一起看"。
+	//
+	// trace_id / session_id / id 保持精确匹配：它们是"某一次具体请求"的标识，
+	// 多选没有语义；它们各自的取值也长，拼成查询串不便于人写。
+	if values := splitCSV(providerName); len(values) > 0 {
+		query = query.Where("provider_name IN ?", values)
 	}
 
-	if name != "" {
-		query = query.Where("name = ?", name)
+	if values := splitCSV(name); len(values) > 0 {
+		query = query.Where("name IN ?", values)
 	}
 
-	if status != "" {
-		query = query.Where("status = ?", status)
+	if values := splitCSV(status); len(values) > 0 {
+		query = query.Where("status IN ?", values)
 	}
 
-	if style != "" {
-		query = query.Where("style = ?", style)
+	if values := splitCSV(style); len(values) > 0 {
+		query = query.Where("style IN ?", values)
 	}
 
-	if authKeyID != "" {
-		query = query.Where("auth_key_id = ?", authKeyID)
+	// 密钥 id 走数字解析而不是当成字符串塞进 IN：列是整型，让 SQLite 逐个
+	// 做隐式转换虽然也判得对，但 "abc" 这种输入会静默变成"查不到"，
+	// 用户看到的是空列表而不是"你的筛选值不合法"。
+	keyIDs, err := parseUintCSV(authKeyID)
+	if err != nil {
+		common.BadRequest(c, "Invalid auth_key_id: "+err.Error())
+		return
+	}
+	if len(keyIDs) > 0 {
+		query = query.Where("auth_key_id IN ?", keyIDs)
 	}
 
 	if traceID != "" {
@@ -878,12 +912,15 @@ func GetChatIO(c *gin.Context) {
 	}
 
 	common.Success(c, gin.H{
-		"ID":            chatIO.ID,
-		"CreatedAt":     chatIO.CreatedAt,
-		"UpdatedAt":     chatIO.UpdatedAt,
-		"DeletedAt":     chatIO.DeletedAt,
-		"LogId":         chatIO.LogId,
-		"Input":         chatIO.Input,
+		"ID":        chatIO.ID,
+		"CreatedAt": chatIO.CreatedAt,
+		"UpdatedAt": chatIO.UpdatedAt,
+		"DeletedAt": chatIO.DeletedAt,
+		"LogId":     chatIO.LogId,
+		// 必须显式转成 string：Input 是 []byte 的具名类型，直接塞进 gin.H 会被
+		// encoding/json 当成二进制编成 base64，前端收到的就是一串乱码。
+		// 到这里为止 input 已经由 AfterFind 还原成原始请求体了。
+		"Input":         string(chatIO.Input),
 		"OfString":      chatIO.OfString,
 		"OfStringArray": chatIO.OfStringArray,
 		"Style":         style,
@@ -965,6 +1002,11 @@ func UpdateConfigByKey(c *gin.Context) {
 			common.InternalServerError(c, "Failed to update config: "+err.Error())
 			return
 		}
+	}
+
+	// 写入后让相关缓存失效，否则新配置要等 TTL 过期才生效
+	if key == models.KeyPeakCalendar {
+		service.InvalidatePeakCalendar()
 	}
 
 	common.Success(c, map[string]string{

@@ -1,0 +1,95 @@
+name: test
+
+# 与另外两条 workflow 的分工：
+#   test.yml     每次 push 与 PR 都跑——lint、单测、覆盖率门禁、构建自检
+#   releaser.yml 仅 tag 触发——goreleaser 发 Release
+#   cicd.yml     仅 tag 触发——构建并推送 Docker 镜像
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同一分支连推多次时取消上一轮：省 runner，也免得旧提交的红叉盖住新的结果
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 20
+  # 必须与 releaser.yml、Dockerfile 用同一个大版本：pnpm 11 把"未批准的构建脚本"
+  # 当成致命错误（ERR_PNPM_IGNORED_BUILDS），与本仓 pnpm-workspace.yaml 里
+  # allowBuilds 的写法不兼容，v0.8.15 为此中断过一次镜像构建
+  PNPM_VERSION: 10
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: webui/pnpm-lock.yaml
+
+      - name: 安装前端依赖
+        working-directory: webui
+        run: pnpm install --frozen-lockfile
+
+      - name: 前端 lint
+        working-directory: webui
+        run: pnpm run lint
+
+      # 覆盖率门禁在 vitest.config.ts 里（A 层 100%），低于阈值这一步就红
+      - name: 前端单测 + 覆盖率门禁
+        working-directory: webui
+        run: pnpm run test:coverage
+
+      # 必须排在所有 Go 步骤之前：main.go 用 //go:embed webui/dist 引用前端产物，
+      # 而 dist 不入库，缺了它 go vet / go build 连编译都过不去
+      # （那不是测试失败，是编译失败，报错信息也看不出缺的是前端产物）
+      - name: 构建前端（tsc -b + vite build，顺带做类型检查）
+        working-directory: webui
+        run: pnpm run build
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          # 版本只从 go.mod 取，免得和 releaser.yml 各写一份、日久走样
+          go-version-file: go.mod
+          cache: true
+
+      # 注意这条只在 CI 上说得通：检出的是 LF，gofmt 干净就是真干净。
+      # Windows 本地仓库 core.autocrlf=true，检出即 CRLF，这条会把几乎所有
+      # 文件都列出来——那是行尾差异，不是格式问题，本地别拿它当判据
+      - name: 格式检查
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "以下文件没有 gofmt："
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # -count=1 关掉结果缓存：CI 上本来就是新检出，留着缓存只会在
+      # "本地绿、远端红"时多一层要排查的东西
+      - name: go test
+        run: go test -count=1 ./...
+
+      # 发布形态是 CGO_ENABLED=0 的单二进制，这里按同样方式构建一次：
+      # "测试全绿但打不出包"这类问题不该留到发版那天才发现
+      - name: 单二进制构建自检
+        run: CGO_ENABLED=0 go build -o /tmp/llmio .

@@ -1,0 +1,45 @@
+{
+  "title": "Compare requests ({{count}})",
+  "back": "Back to logs",
+  "reload": "Reload",
+  "more": "{{count}} more not shown",
+  "empty": {
+    "no_ids": "No requests selected for comparison",
+    "go_logs": "Pick some on the logs page"
+  },
+  "partial": "{{ok}} of {{total}} requests have no recorded body; prefix analysis uses only those that do.",
+  "prefix": {
+    "title": "Shared cache prefix",
+    "length": "Shared prefix entries",
+    "composition": "of which tools {{tools}} · system {{system}} · messages {{messages}}",
+    "none": "These requests share no prefix at all - the very first entry differs, so nothing can be reused.",
+    "note": "The prefix follows the cache's actual render order: tools, then system, then messages. Any change inside the prefix invalidates everything after it."
+  },
+  "diverge": {
+    "title": "Where each request diverges"
+  },
+  "table": {
+    "id": "ID",
+    "status": "Status",
+    "model": "Model",
+    "diverge": "Diverges at",
+    "cache": "Cache hit",
+    "tokens": "Tokens",
+    "tps": "TPS",
+    "first_chunk": "First chunk",
+    "missing": "missing",
+    "load_failed": "load failed",
+    "no_diverge": "Fully contains the prefix",
+    "from_entry": "from entry {{n}}"
+  },
+  "entry": {
+    "tool": "tool {{name}}",
+    "system": "system",
+    "message": "message {{role}}"
+  },
+  "detail": {
+    "contains_prefix": "This request fully contains the shared prefix; it does not diverge.",
+    "no_content": "No body recorded for this request (requires success and IO logging enabled).",
+    "share": "Shares the first {{n}} of {{total}} entries; entries from the divergence point follow."
+  }
+}

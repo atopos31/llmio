@@ -18,6 +18,8 @@ import { RefreshCw } from "lucide-react";
 import type { Model, Provider, ProviderModel } from "@/lib/api";
 import type { ModelWithProvider } from "@/lib/api";
 import type { ModelProviderFormValues } from "./use-model-provider-form";
+import { PeakTermsEditor } from "./peak-terms-editor";
+import type { PeakTermsForm } from "@/lib/peak";
 
 type ModelProviderFormDialogProps = {
   open: boolean;
@@ -37,6 +39,9 @@ type ModelProviderFormDialogProps = {
   providerModelsLoading: Record<number, boolean>;
   sortProviderModels: (providerId: number, query: string) => ProviderModel[];
   loadProviderModels: (providerId: number, force?: boolean) => Promise<void>;
+  peakTerms: PeakTermsForm | null;
+  setPeakTerms: (next: PeakTermsForm | null) => void;
+  peakSubmitAttempt: number;
 };
 
 function PriceInput({ value, onChange, onBlur, name }: {
@@ -98,11 +103,16 @@ export function ModelProviderFormDialog({
   providerModelsLoading,
   sortProviderModels,
   loadProviderModels,
+  peakTerms,
+  setPeakTerms,
+  peakSubmitAttempt,
 }: ModelProviderFormDialogProps) {
   const { t } = useTranslation(['models', 'common']);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] flex flex-col">
+      {/* 只有标题没有说明文字，显式声明"没有描述"：不写的话 Radix 会
+          在控制台告警，而告警多了就没人看了。 */}
+      <DialogContent className="max-h-[85vh] flex flex-col" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>
             {editingAssociation ? t('association_form.edit_title') : t('association_form.add_title')}
@@ -382,7 +392,7 @@ export function ModelProviderFormDialog({
                                 </Button>
                               </div>
                               {errorMsg && (
-                                <p className="text-sm text-red-500">
+                                <p className="text-sm text-destructive">
                                   {errorMsg}
                                 </p>
                               )}
@@ -486,6 +496,17 @@ export function ModelProviderFormDialog({
                   )}
                 />
               </div>
+
+              {/*
+                峰谷条款跟在价格后面，是同一笔账的另一半：价格说"每千 token
+                多少钱"，条款说"哪几个钟头按几折"。放在这里而不是另开一页，
+                是因为它属于这条关联——换一条上游就要重写一份。
+              */}
+              <PeakTermsEditor
+                value={peakTerms}
+                onChange={setPeakTerms}
+                submitAttempt={peakSubmitAttempt}
+              />
             </div>
 
             <DialogFooter>

@@ -83,7 +83,7 @@ export function ProviderModelsDialog({
         ) : (
           <div className="max-h-96 overflow-y-auto">
             {filteredProviderModels.length === 0 ? (
-              <div className="text-center text-gray-500 py-8">
+              <div className="text-center text-muted-foreground py-8">
                 {providerModels.length === 0 ? t('models_dialog.no_data') : t('models_dialog.no_match')}
               </div>
             ) : (

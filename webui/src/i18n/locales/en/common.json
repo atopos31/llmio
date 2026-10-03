@@ -22,13 +22,14 @@
   },
   "status": {
     "success": "Success",
-    "running": "Running",
-    "error": "Error",
+    "running": "In flight",
+    "error": "Failed",
     "enabled": "Enabled",
     "disabled": "Disabled",
     "active": "Active",
     "inactive": "Inactive",
-    "all": "All"
+    "all": "All",
+    "unknown": "Unknown"
   },
   "pagination": {
     "summary": "Total {{total}}, Page {{page}} / {{pages}}",
@@ -42,5 +43,9 @@
   "unknown": "Unknown",
   "yes": "Yes",
   "no": "No",
-  "cannot_undo": "This action cannot be undone."
+  "cannot_undo": "This action cannot be undone.",
+  "table": {
+    "view": "View",
+    "no_data": "No data"
+  }
 }

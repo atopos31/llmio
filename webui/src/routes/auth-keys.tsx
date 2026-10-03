@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
@@ -46,6 +46,7 @@ import {
 import {
   Copy,
   Plus,
+  RefreshCw,
   Search,
   Trash2,
   Pencil,
@@ -54,7 +55,9 @@ import {
   ChevronDownIcon,
   Eye
 } from "lucide-react";
-import Loading from "@/components/loading";
+import { Panel } from "@/components/panel";
+import { ErrorState, ListSkeleton } from "@/components/state-views";
+import { MobileInfoItem } from "@/components/mobile-info-item";
 import { toast } from "sonner";
 import { cn, copyToClipboard } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
@@ -93,20 +96,49 @@ const defaultFormValues: AuthKeyFormValues = {
   expires_at: null,
 };
 
-type MobileInfoItemProps = {
-  label: string;
-  value: ReactNode;
-  mono?: boolean;
-};
+/**
+ * 一条 Key 的派生展示值。
+ *
+ * 桌面表格与手机卡片是两套并行实现（同一个 Key 在 DOM 里出现两次），
+ * 原先这段派生逻辑在两边各写了一遍——两处一旦有一处改动，同一份数据
+ * 在两个断点下就会给出不同说法。提出来是为了让它们只有一个来源。
+ */
+function describeKey(item: AuthKey) {
+  const models = item.Models ?? [];
+  return {
+    models,
+    /** 只列前三个，其余折成 +N */
+    overflow: Math.max(models.length - 3, 0),
+    expired: item.ExpiresAt ? new Date(item.ExpiresAt) < new Date() : false,
+    /** 只留尾部六位：整串 Key 不在列表里展示，要看请点"显示" */
+    displayKey: item.Key.length > 6 ? `...${item.Key.slice(-6)}` : item.Key,
+  };
+}
 
-const MobileInfoItem = ({ label, value, mono = false }: MobileInfoItemProps) => (
-  <div className="space-y-1">
-    <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</p>
-    <div className={cn("text-sm font-medium break-words", mono ? "font-mono text-xs" : "")}>
-      {value}
-    </div>
-  </div>
-);
+
+/**
+ * 有效期。过期不只把日期染红——颜色单独承载含义时色盲用户读不到，
+ * 因此同时给出"已过期"三个字（与 StatusMark 同一条规矩）。
+ */
+function ExpiryValue({ item }: { item: AuthKey }) {
+  const { t } = useTranslation('auth-keys');
+  const { expired } = describeKey(item);
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <span className={cn("text-sm", expired && "font-medium text-status-critical-ink")}>
+        {item.ExpiresAt ? new Date(item.ExpiresAt).toLocaleDateString() : t('table.never_expire')}
+      </span>
+      {expired && (
+        <Badge
+          variant="outline"
+          className="border-status-critical/40 bg-status-critical/5 text-status-critical-ink"
+        >
+          {t('table.expired')}
+        </Badge>
+      )}
+    </span>
+  );
+}
 
 
 export default function AuthKeysPage() {
@@ -114,6 +146,8 @@ export default function AuthKeysPage() {
   const [authKeys, setAuthKeys] = useState<AuthKey[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -140,46 +174,25 @@ export default function AuthKeysPage() {
 
   const allowAll = form.watch("allow_all");
 
-  useEffect(() => {
-    fetchModels();
-  }, []);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setSearchTerm(searchInput.trim());
-      setPage(1);
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [searchInput]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [statusFilter, allowAllFilter]);
-
-  useEffect(() => {
-    fetchAuthKeys();
-  }, [page, pageSize, statusFilter, allowAllFilter, searchTerm]);
-
-
-  const filteredModels = useMemo(() => {
-    if (!modelSearch) return models;
-    return models.filter((model) =>
-      model.Name.toLowerCase().includes(modelSearch.toLowerCase())
-    );
-  }, [models, modelSearch]);
-
-  const fetchModels = async () => {
+  const fetchModels = useCallback(async () => {
     try {
+      setModelsError(null);
       const list = await getModelOptions();
       setModels(list);
     } catch (error) {
+      // 模型列表只在新建/编辑对话框里用到，但失败不能静默：那样"无匹配模型"
+      // 会把"没取到"说成"没有"，与列表页是同一处缺陷
       console.error(error);
+      setModelsError(error instanceof Error ? error.message : String(error));
     }
-  };
+  }, []);
 
-  const fetchAuthKeys = async () => {
+  // 列表取数：依赖项就是查询条件本身。用 useCallback 收口，下面的副作用
+  // 才能如实声明"条件变了就重取"，而不是把整套条件藏进空依赖里。
+  const fetchAuthKeys = useCallback(async () => {
     setLoading(true);
     try {
+      setLoadError(null);
       const response = await getAuthKeys({
         page,
         page_size: pageSize,
@@ -196,11 +209,42 @@ export default function AuthKeysPage() {
       setTotal(response.total);
       setPages(response.pages);
     } catch (error) {
+      // 失败要留在面板上。原先只 console.error，正文照旧显示"暂无 API Key"—
+      // 于是"一个 Key 都没有"和"没取到"在页面上长得一模一样
       console.error(error);
+      setLoadError(error instanceof Error ? error.message : String(error));
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, pageSize, statusFilter, allowAllFilter, searchTerm]);
+
+  useEffect(() => {
+    fetchModels();
+  }, [fetchModels]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchTerm(searchInput.trim());
+      setPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [statusFilter, allowAllFilter]);
+
+  useEffect(() => {
+    fetchAuthKeys();
+  }, [fetchAuthKeys]);
+
+
+  const filteredModels = useMemo(() => {
+    if (!modelSearch) return models;
+    return models.filter((model) =>
+      model.Name.toLowerCase().includes(modelSearch.toLowerCase())
+    );
+  }, [models, modelSearch]);
 
   const handleDialogOpenChange = (open: boolean) => {
     setDialogOpen(open);
@@ -332,14 +376,22 @@ export default function AuthKeysPage() {
     setPageSize(size);
   };
 
+  /**
+   * 判"筛过"用输入框原文而不是防抖后的词：敲下第一个字符时列表还没重取，
+   * 此时说"暂无数据"是错的，说"没有符合筛选条件"才对。
+   */
+  const hasFilter =
+    searchInput.trim() !== "" || statusFilter !== "all" || allowAllFilter !== "all";
+
   return (
     <div className="h-full min-h-0 flex flex-col gap-2 p-1">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-2xl font-bold tracking-tight">{t('title')}</h2>
+          <h2 className="text-xl font-semibold tracking-tight">{t('title')}</h2>
         </div>
-        <Button onClick={handleCreate} className="shrink-0">
-          <Plus className="size-4 " />
+        <Button onClick={handleCreate} className="shrink-0 gap-1.5">
+          <Plus className="size-4" aria-hidden="true" />
+          {t('form.create_title')}
         </Button>
       </div>
 
@@ -386,14 +438,25 @@ export default function AuthKeysPage() {
         </div>
       </div>
 
-        <div className="flex-1 min-h-0 border rounded-md bg-background shadow-sm">
+        {loadError ? (
+          <ErrorState
+            title={t('load_failed')}
+            message={loadError}
+            retryLabel={t('retry')}
+            onRetry={() => void fetchAuthKeys()}
+          />
+        ) : (
+        <Panel
+          title={t('list_title')}
+          note={t('count', { total })}
+          className="flex min-h-0 flex-1 flex-col"
+          bodyClassName="flex min-h-0 flex-1 flex-col p-0"
+        >
           {loading ? (
-            <div className="flex h-full items-center justify-center">
-                <Loading message={t('loading')} />
-            </div>
+            <ListSkeleton label={t('loading')} />
           ) : authKeys.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-muted-foreground">
-              {t('no_data')}
+            <div className="flex h-full items-center justify-center text-muted-foreground text-sm text-center px-6">
+              {hasFilter ? t('no_match') : t('no_data')}
             </div>
           ) : (
             <div className="h-full flex flex-col">
@@ -415,11 +478,8 @@ export default function AuthKeysPage() {
                     </TableHeader>
                     <TableBody>
                       {authKeys.map((item) => {
-                        const modelsToShow = item.Models ?? [];
-                        const hasMoreModels = modelsToShow.length > 3;
-                        const expired = item.ExpiresAt ? new Date(item.ExpiresAt) < new Date() : false;
+                        const { displayKey, models, overflow } = describeKey(item);
                         const toggleDisabled = toggleLoadingId === item.ID;
-                        const displayKey = item.Key.length > 6 ? `...${item.Key.slice(-6)}` : item.Key;
                         return (
                           <TableRow key={item.ID}>
                             <TableCell>
@@ -444,6 +504,7 @@ export default function AuthKeysPage() {
                                   variant="ghost"
                                   className="size-8"
                                   onClick={() => handleCopyKey(item.Key)}
+                                  aria-label={t('aria.copy_key')}
                                 >
                                   <Copy className="size-4" />
                                 </Button>
@@ -454,13 +515,13 @@ export default function AuthKeysPage() {
                                 <Badge>{t('table.all_models')}</Badge>
                               ) : (
                                 <div>
-                                  {modelsToShow.slice(0, 3).map((model) => (
+                                  {models.slice(0, 3).map((model) => (
                                     <Badge key={model} variant="outline">
                                       {model}
                                     </Badge>
                                   ))}
-                                  {hasMoreModels && (
-                                    <Badge variant="outline">+{modelsToShow.length - 3}</Badge>
+                                  {overflow > 0 && (
+                                    <Badge variant="outline">+{overflow}</Badge>
                                   )}
                                 </div>
                               )}
@@ -471,12 +532,7 @@ export default function AuthKeysPage() {
                               </Badge>
                             </TableCell>
                             <TableCell>
-                              <span className={cn(
-                                "text-sm",
-                                expired ? "text-destructive font-medium" : ""
-                              )}>
-                                {item.ExpiresAt ? new Date(item.ExpiresAt).toLocaleDateString() : t('table.never_expire')}
-                              </span>
+                              <ExpiryValue item={item} />
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-col">
@@ -498,7 +554,12 @@ export default function AuthKeysPage() {
                             </TableCell>
                             <TableCell>
                               <div className="flex gap-2">
-                                <Button variant="outline" size="icon" onClick={() => handleEdit(item)}>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() => handleEdit(item)}
+                                  aria-label={t('common:actions.edit')}
+                                >
                                   <Pencil />
                                 </Button>
                                 <Button
@@ -506,6 +567,7 @@ export default function AuthKeysPage() {
                                   size="icon"
                                   className="text-destructive"
                                   onClick={() => setPendingDelete(item)}
+                                  aria-label={t('common:actions.delete')}
                                 >
                                   <Trash2 />
                                 </Button>
@@ -520,11 +582,8 @@ export default function AuthKeysPage() {
               </div>
               <div className="sm:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 divide-y divide-border">
                 {authKeys.map((item) => {
-                  const modelsToShow = item.Models ?? [];
-                  const hasMoreModels = modelsToShow.length > 3;
-                  const expired = item.ExpiresAt ? new Date(item.ExpiresAt) < new Date() : false;
+                  const { displayKey, models, overflow } = describeKey(item);
                   const toggleDisabled = toggleLoadingId === item.ID;
-                  const displayKey = item.Key.length > 6 ? `...${item.Key.slice(-6)}` : item.Key;
 
                   return (
                     <div key={item.ID} className="py-3 space-y-3">
@@ -534,7 +593,12 @@ export default function AuthKeysPage() {
                           <p className="text-[11px] text-muted-foreground">ID: {item.ID}</p>
                         </div>
                         <span
-                          className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${item.Status ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}
+                          className={cn(
+                            "text-[11px] font-medium px-2 py-0.5 rounded-full",
+                            item.Status
+                              ? "bg-status-good/10 text-status-good-ink"
+                              : "bg-status-critical/10 text-status-critical-ink"
+                          )}
                         >
                           {item.Status ? t('filters.status_active') : t('filters.status_inactive')}
                         </span>
@@ -578,23 +642,19 @@ export default function AuthKeysPage() {
                         />
                         <MobileInfoItem
                           label={t('mobile.expires_at')}
-                          value={
-                            <span className={expired ? "text-destructive font-medium" : ""}>
-                              {item.ExpiresAt ? new Date(item.ExpiresAt).toLocaleDateString() : t('table.never_expire')}
-                            </span>
-                          }
+                          value={<ExpiryValue item={item} />}
                         />
                         <MobileInfoItem label={t('mobile.usage_count')} value={item.UsageCount} />
                         <MobileInfoItem label={t('mobile.last_used')} value={item.LastUsedAt ? new Date(item.LastUsedAt).toLocaleString() : t('table.not_used')} />
                       </div>
-                      {!item.AllowAll && modelsToShow.length > 0 && (
+                      {!item.AllowAll && models.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
-                          {modelsToShow.slice(0, 3).map((model) => (
+                          {models.slice(0, 3).map((model) => (
                             <Badge key={model} variant="outline">
                               {model}
                             </Badge>
                           ))}
-                          {hasMoreModels && <Badge variant="outline">+{modelsToShow.length - 3}</Badge>}
+                          {overflow > 0 && <Badge variant="outline">+{overflow}</Badge>}
                         </div>
                       )}
                       <div className="flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
@@ -633,7 +693,8 @@ export default function AuthKeysPage() {
               </div>
             </div>
           )}
-        </div>
+        </Panel>
+        )}
 
         <div className="flex flex-wrap items-center justify-between gap-3 flex-shrink-0 border-t pt-2">
           <div className="text-sm text-muted-foreground whitespace-nowrap">
@@ -678,7 +739,8 @@ export default function AuthKeysPage() {
       </div>
 
       <Dialog open={previewKey !== null} onOpenChange={(open) => !open && setPreviewKey(null)}>
-        <DialogContent className="max-w-xl">
+        {/* 只有标题没有说明文字，显式声明"没有描述"，否则 Radix 会在控制台告警 */}
+        <DialogContent className="max-w-xl" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>{previewKey?.Name}</DialogTitle>
           </DialogHeader>
@@ -689,7 +751,9 @@ export default function AuthKeysPage() {
       </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
-        <DialogContent className="max-w-2xl">
+        {/* 这个对话框只有标题没有说明文字，显式声明"没有描述"。
+            不写的话 Radix 会在控制台告警，而告警多了就没人看了。 */}
+        <DialogContent className="max-w-2xl" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>{editingKey ? t('form.edit_title') : t('form.create_title')}</DialogTitle>
           </DialogHeader>
@@ -759,7 +823,18 @@ export default function AuthKeysPage() {
                           "border rounded-md p-3 h-48 overflow-y-auto space-y-2",
                           allowAll ? "opacity-50 pointer-events-none" : ""
                         )}>
-                          {filteredModels.length === 0 ? (
+                          {modelsError ? (
+                            // 取模型失败时说"无匹配模型"是把失败说成了没有，
+                            // 而且这里正等着勾选，更不能让人以为自己没找到
+                            <div className="flex flex-col items-start gap-2">
+                              <p className="text-sm text-status-critical-ink">{t('form.models_load_failed')}</p>
+                              <p className="reading break-all text-xs text-muted-foreground">{modelsError}</p>
+                              <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => void fetchModels()}>
+                                <RefreshCw className="size-3.5" aria-hidden="true" />
+                                {t('retry')}
+                              </Button>
+                            </div>
+                          ) : filteredModels.length === 0 ? (
                             <p className="text-sm text-muted-foreground">{t('form.no_model_match')}</p>
                           ) : (
                             filteredModels.map((model) => {

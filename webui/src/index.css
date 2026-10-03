@@ -1,13 +1,38 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./assets/fonts/fonts.css";
 
+/* ---------------------------------------------------------------------------
+   设计系统 · 见 .impeccable.md
+   气质：仪器感 / 有生命 / 不喧哗。科幻感来自精密与实时，不来自霓虹与发光。
+
+   关于本文件的维护约定：
+   - 中性色用 OKLCH 书写（感知均匀，明暗步进看起来才等距）
+   - 序列色 / 状态色用 hex 原值书写，因为它们是跑过 dataviz 验证器的**确切值**，
+     转成 OKLCH 会引入漂移，使验证结果失效
+   - 深色 token 出现两次（系统偏好 + 显式 data-theme）。这两块必须完全一致，
+     由 src/lib/design-tokens.test.ts 强制校验，改一处漏一处会红
+--------------------------------------------------------------------------- */
+
+/* dark 变体以 data-theme 为准，与 theme-provider 的实现保持一致。
+   注意：原先这里声明 data-theme 而 provider 加的是 .dark 类，两者不匹配，
+   深色样式实际靠变量覆盖在兜——该缺陷已在本次重设中修正。 */
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
 @theme {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  /* 字体：拉丁部分自托管（离线可用），中文回退系统 CJK 栈。
+     中文不打包——子集化不现实且体积收益为负，系统字体的中文渲染质量更好。 */
+  --font-sans: "Chivo", system-ui, -apple-system, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-mono: "Azeret Mono", ui-monospace, "Cascadia Code", Consolas,
+    "Courier New", monospace;
+
+  /* 半径：仪器感的界面用较紧的圆角，圆角越大越像消费级应用 */
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -26,11 +51,34 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
+
+  /* 图表序列色（分类，固定顺序，永不循环；超 8 项必须折叠为"其他"或分面） */
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --color-series-3: var(--series-3);
+  --color-series-4: var(--series-4);
+  --color-series-5: var(--series-5);
+  --color-series-6: var(--series-6);
+  --color-series-7: var(--series-7);
+  --color-series-8: var(--series-8);
+
+  /* 顺序色阶（量级/热力），铜金单色相 */
+  --color-seq-1: var(--seq-1);
+  --color-seq-2: var(--seq-2);
+  --color-seq-3: var(--seq-3);
+  --color-seq-4: var(--seq-4);
+  --color-seq-5: var(--seq-5);
+
+  /* 状态色（固定，不随主题走，且必须配图标+文字，绝不单靠颜色） */
+  --color-status-good: var(--status-good);
+  --color-status-warning: var(--status-warning);
+  --color-status-serious: var(--status-serious);
+  --color-status-critical: var(--status-critical);
+  --color-status-good-ink: var(--status-good-ink);
+  --color-status-warning-ink: var(--status-warning-ink);
+  --color-status-serious-ink: var(--status-serious-ink);
+  --color-status-critical-ink: var(--status-critical-ink);
+
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -41,83 +89,210 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* ---------------------------------------------------------------------------
+   浅色（默认）
+   中性色向品牌色相（靛紫 ~274°）微调，chroma 0.002–0.018。
+   极低的 chroma 已足以产生潜意识的整体感，过高会让界面发脏。
+--------------------------------------------------------------------------- */
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --chart-6: oklch(0.488 0.243 264.376);
-  --chart-7: oklch(0.696 0.17 162.48);
-  --chart-8: oklch(0.627 0.265 303.9);
-  --chart-9: oklch(0.645 0.246 16.439);
-  --chart-10: oklch(0.488 0.243 264.376);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  color-scheme: light;
+  --radius: 0.5rem;
+
+  --background: oklch(0.984 0.003 274);
+  --foreground: oklch(0.235 0.018 274);
+  --card: oklch(0.997 0.002 274);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.999 0.001 274);
+  --popover-foreground: var(--foreground);
+
+  /* 铜金：全站唯一的强调色。文字压在其上需 ≥4.5:1，故比序列用的铜色略深 */
+  --primary: #b25500;
+  --primary-foreground: #fffbf4;
+
+  --secondary: oklch(0.955 0.005 274);
+  --secondary-foreground: oklch(0.30 0.02 274);
+  --muted: oklch(0.955 0.005 274);
+  --muted-foreground: oklch(0.52 0.014 274);
+  --accent: oklch(0.945 0.008 60);
+  --accent-foreground: oklch(0.28 0.02 274);
+  --destructive: #b02a2a;
+
+  --border: oklch(0.90 0.006 274);
+  --input: oklch(0.90 0.006 274);
+  --ring: #b25500;
+
+  /* 序列色：dataviz 验证器实测（surface #fefeff）
+     相邻 CVD ΔE 11.5 · 常视觉 ΔE 19.0 · 对比度全 ≥3:1 —— 全项通过 */
+  --series-1: #3b5fdc;
+  --series-2: #c2631c;
+  --series-3: #0d9488;
+  --series-4: #b5830c;
+  --series-5: #cf4585;
+  --series-6: #167a37;
+  --series-7: #6b48c2;
+  --series-8: #cf4444;
+
+  /* 顺序色阶（铜金，浅→深），浅端在浅色面上仍需 ≥2:1 才可辨 */
+  --seq-1: #e2a066;
+  --seq-2: #d07d33;
+  --seq-3: #b5631c;
+  --seq-4: #8f4b12;
+  --seq-5: #6b3710;
+
+  /* 状态填充色（标记用）。浅色面上 warning / serious 低于 3:1 是**刻意的**，
+     补偿手段是它们必须与图标+文字一同出现——见 .status-mark 的用法约定。 */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  /* 状态文字色：作为正文时的对比度必须 ≥4.5:1（实测 6.26–6.87） */
+  --status-good-ink: #0a6b0a;
+  --status-warning-ink: #7a5200;
+  --status-serious-ink: #97441c;
+  --status-critical-ink: #b02a2a;
+
+  --sidebar: oklch(0.968 0.004 274);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: oklch(0.935 0.008 274);
+  --sidebar-accent-foreground: oklch(0.28 0.02 274);
+  --sidebar-border: oklch(0.90 0.006 274);
+  --sidebar-ring: var(--ring);
+
+  /* 图表表面（验证器用的就是卡片面） */
+  --chart-surface: var(--card);
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --chart-6: oklch(0.398 0.07 227.392);
-  --chart-7: oklch(0.6 0.118 184.704);
-  --chart-8: oklch(0.646 0.222 41.116);
-  --chart-9: oklch(0.577 0.245 27.325);
-  --chart-10: oklch(0.488 0.243 264.376);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+/* ---------------------------------------------------------------------------
+   深色 —— 两块必须完全一致（系统偏好 / 显式选择）
+   显式选择要双向胜出：OS 深色 + 用户选浅色 → 浅色；OS 浅色 + 用户选深色 → 深色。
+   因此媒体查询用 :not([data-theme="light"]) 守卫，而属性选择器无条件生效。
+--------------------------------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --background: oklch(0.192 0.012 268);
+    --foreground: oklch(0.958 0.008 274);
+    --card: oklch(0.235 0.014 271);
+    --card-foreground: var(--foreground);
+    --popover: oklch(0.252 0.014 271);
+    --popover-foreground: var(--foreground);
+
+    --primary: #da8844;
+    --primary-foreground: #190f09;
+
+    --secondary: oklch(0.285 0.014 271);
+    --secondary-foreground: oklch(0.945 0.008 274);
+    --muted: oklch(0.285 0.014 271);
+    --muted-foreground: oklch(0.700 0.016 274);
+    --accent: oklch(0.305 0.020 60);
+    --accent-foreground: oklch(0.955 0.012 60);
+    --destructive: #e57272;
+
+    --border: oklch(0.320 0.014 271);
+    --input: oklch(0.345 0.014 271);
+    --ring: #da8844;
+
+    /* 序列色：dataviz 验证器实测（surface #1c1e25）
+       相邻 CVD ΔE 8.3 · 常视觉 ΔE 20.1 · 对比度全 ≥3:1 —— 全项通过 */
+    --series-1: #6789f0;
+    --series-2: #d9743a;
+    --series-3: #16a99b;
+    --series-4: #b87f00;
+    --series-5: #d4529b;
+    --series-6: #2aa85e;
+    --series-7: #8d76e0;
+    --series-8: #e26a6a;
+
+    --seq-1: #f0d2a8;
+    --seq-2: #dfae72;
+    --seq-3: #c98a49;
+    --seq-4: #ad6a2c;
+    --seq-5: #8a4f1c;
+
+    /* 状态填充色固定不随主题走，两种模式同一组值 */
+    --status-good: #0ca30c;
+    --status-warning: #fab219;
+    --status-serious: #ec835a;
+    --status-critical: #d03b3b;
+    /* 状态文字色：深色面上实测 5.53–9.48 */
+    --status-good-ink: #4cc44c;
+    --status-warning-ink: #e2b355;
+    --status-serious-ink: #e8946e;
+    --status-critical-ink: #e57272;
+
+    --sidebar: oklch(0.215 0.013 271);
+    --sidebar-foreground: var(--foreground);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: oklch(0.285 0.014 271);
+    --sidebar-accent-foreground: oklch(0.955 0.012 60);
+    --sidebar-border: oklch(0.320 0.014 271);
+    --sidebar-ring: var(--ring);
+
+    --chart-surface: var(--card);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: oklch(0.192 0.012 268);
+  --foreground: oklch(0.958 0.008 274);
+  --card: oklch(0.235 0.014 271);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.252 0.014 271);
+  --popover-foreground: var(--foreground);
+
+  --primary: #da8844;
+  --primary-foreground: #190f09;
+
+  --secondary: oklch(0.285 0.014 271);
+  --secondary-foreground: oklch(0.945 0.008 274);
+  --muted: oklch(0.285 0.014 271);
+  --muted-foreground: oklch(0.700 0.016 274);
+  --accent: oklch(0.305 0.020 60);
+  --accent-foreground: oklch(0.955 0.012 60);
+  --destructive: #e57272;
+
+  --border: oklch(0.320 0.014 271);
+  --input: oklch(0.345 0.014 271);
+  --ring: #da8844;
+
+  --series-1: #6789f0;
+  --series-2: #d9743a;
+  --series-3: #16a99b;
+  --series-4: #b87f00;
+  --series-5: #d4529b;
+  --series-6: #2aa85e;
+  --series-7: #8d76e0;
+  --series-8: #e26a6a;
+
+  --seq-1: #f0d2a8;
+  --seq-2: #dfae72;
+  --seq-3: #c98a49;
+  --seq-4: #ad6a2c;
+  --seq-5: #8a4f1c;
+
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  --status-good-ink: #4cc44c;
+  --status-warning-ink: #e2b355;
+  --status-serious-ink: #e8946e;
+  --status-critical-ink: #e57272;
+
+  --sidebar: oklch(0.215 0.013 271);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: oklch(0.285 0.014 271);
+  --sidebar-accent-foreground: oklch(0.955 0.012 60);
+  --sidebar-border: oklch(0.320 0.014 271);
+  --sidebar-ring: var(--ring);
+
+  --chart-surface: var(--card);
 }
 
 @layer base {
@@ -125,37 +300,128 @@
     @apply border-border outline-ring/50;
   }
 
-  body {
-    @apply bg-background text-foreground;
+  html {
+    -webkit-text-size-adjust: 100%;
   }
 
-  /* Custom scrollbar styles */
+  /* 文档本身永不滚动：视口内的一切滚动都由应用外壳（Layout）与各页面自己负责。
+     两条理由，都踩过：
+     1. 各页已经有一个自己的滚动区（`flex-1 overflow-y-auto`）。若文档也能滚，
+        右边缘就会出现两条并排的滚动条——外层那条滚的是整个外壳，
+        连侧边栏一起滚走，看着像"侧边栏在滚"。
+     2. Tailwind 的 sr-only 是 `position: absolute`。它若没有定位祖先，
+        包含块就是初始包含块，于是既不被滚动容器裁剪、又会把文档撑高。
+        实测总览页因此多出 672px 可滚动区域与 10px 的滚动条宽度占位。
+        锁死文档后这个逃逸不再产生任何可见后果。 */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    /* 亮字压暗底会显得更轻，需要多一点行距 */
+    line-height: 1.55;
+    text-rendering: optimizeLegibility;
+  }
+
+  :root[data-theme="dark"] body {
+    line-height: 1.6;
+  }
+
+  /* 焦点环必须始终可见——键盘可用性是一等要求，不随鼠标操作而隐藏 */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--primary) 28%, transparent);
+  }
+
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-muted;
+    background: transparent;
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-border rounded-full;
+    background: color-mix(in oklch, var(--foreground) 18%, transparent);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-foreground/30;
+    background: color-mix(in oklch, var(--foreground) 32%, transparent);
+    background-clip: content-box;
   }
 
-  /* For Firefox */
   * {
     scrollbar-width: thin;
-    scrollbar-color: var(--border) var(--muted);
+    scrollbar-color: color-mix(in oklch, var(--foreground) 20%, transparent) transparent;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  /* 尊重减弱动效偏好：进场动画与过渡全部关闭 */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
+/* ---------------------------------------------------------------------------
+   工具类
+--------------------------------------------------------------------------- */
 
-/* Form spacing */
+/* 数值列对齐用。只用于表格列与轴刻度——大号独立数字用比例数字更自然，
+   等宽数字会让 121 这类数看起来松散。 */
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 遥测读数：等宽 + 等宽数字，用于 ID / TraceID / 耗时等需要纵向对齐的值 */
+@utility reading {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 图表序列色按索引取用。索引从 0 开始，超过 7 会回落到灰——
+   这是刻意的硬上限：分类色板只有 8 槽，超出的系列必须折叠为"其他"或分面，
+   绝不能生成第 9 个色相（在色盲模拟下与已有槽位无法区分）。 */
+@utility series-0 { color: var(--series-1); }
+@utility series-1 { color: var(--series-2); }
+@utility series-2 { color: var(--series-3); }
+@utility series-3 { color: var(--series-4); }
+@utility series-4 { color: var(--series-5); }
+@utility series-5 { color: var(--series-6); }
+@utility series-6 { color: var(--series-7); }
+@utility series-7 { color: var(--series-8); }
+
+/* 发丝分隔线：一个色阶差，绝不用虚线（虚线会被读成"预测"或"阈值"） */
+@utility hairline {
+  border-color: var(--border);
+  border-width: 1px;
+  border-style: solid;
+}
+
+/* 表单间距（沿用既有页面使用的辅助类，改为 token 化） */
 .form-group {
   @apply mb-4;
 }
@@ -167,10 +433,10 @@
 .form-input,
 .form-select,
 .form-textarea {
-  @apply px-3 py-2 border border-gray-300 rounded-md shadow-sm;
+  @apply px-3 py-2 border border-border rounded-md shadow-sm bg-background;
 }
 
-/* Loading animation */
+/* 加载指示：用当前色而非硬编码蓝，便于在任意底色上使用 */
 .loading-dots {
   display: inline-block;
   position: relative;
@@ -184,7 +450,7 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #007bff;
+  background: currentColor;
   animation-timing-function: cubic-bezier(0, 1, 1, 0);
 }
 
@@ -235,12 +501,5 @@
 
   100% {
     transform: translate(24px, 0);
-  }
-}
-
-@layer base {
-  button:not(:disabled),
-  [role="button"]:not(:disabled) {
-    cursor: pointer;
   }
 }

@@ -16,7 +16,16 @@ require (
 
 require github.com/gin-contrib/cors v1.7.6
 
-require golang.org/x/sync v0.19.0
+require (
+	github.com/dop251/goja v0.0.0-20260926152631-39ec2650adc9
+	golang.org/x/sync v0.19.0
+)
+
+require (
+	github.com/dlclark/regexp2/v2 v2.5.2 // indirect
+	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
+	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e // indirect
+)
 
 require (
 	github.com/bytedance/sonic v1.13.3 // indirect

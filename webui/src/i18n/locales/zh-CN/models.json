@@ -6,6 +6,9 @@
   "no_models_filtered": "没有符合筛选条件的模型",
   "no_associations": "该模型还没有关联的提供商",
   "no_associations_filtered": "当前筛选条件暂无关联",
+  "load_failed_models": "模型与提供商加载失败",
+  "load_failed_associations": "关联列表加载失败",
+  "retry": "重试",
   "filters": {
     "search": "搜索",
     "search_placeholder": "按名称搜索",
@@ -28,7 +31,14 @@
     "back_to_list": "返回模型列表",
     "add_association": "添加关联",
     "add_model": "添加模型",
+    "delete_model": "删除模型",
     "refresh_status": "刷新状态"
+  },
+  "order": {
+    "hint": "拖拽或用 Alt+↑ / Alt+↓ 调整模型顺序",
+    "moved": "「{{name}}」已移到第 {{position}} 位",
+    "at_edge": "已经在列表的开头或结尾",
+    "blocked_by_filter": "筛选状态下不能调整顺序，请先清空筛选"
   },
   "model_table": {
     "id": "ID",
@@ -51,6 +61,8 @@
     "structured_output": "结构化输出",
     "vision": "视觉",
     "with_header": "请求头透传",
+    "supported": "支持",
+    "unsupported": "不支持",
     "weight": "权重",
     "enabled": "启用",
     "status": "状态",
@@ -58,9 +70,13 @@
     "no_data": "无数据",
     "success": "成功",
     "failed": "失败",
+    "recent_summary": "成功 {{success}}/{{total}}",
     "active": "已启用",
     "inactive": "已停用",
+    "toggle_status": "切换启用状态",
     "unknown_provider": "未知提供商",
+    "delete_title": "确定要删除这个关联吗？",
+    "delete_desc": "此操作无法撤销。这将永久删除该关联管理。",
     "mobile": {
       "provider_type": "提供商类型",
       "provider_id": "提供商 ID",
@@ -93,6 +109,8 @@
     "timeout": "超时时间(秒)",
     "io_log": "IO 记录",
     "breaker": "熔断",
+    "prefer_direct": "优先匹配相同协议",
+    "prefer_direct_desc": "候选池里先挑说客户端协议的提供商，一个都没有才退回可转换的（如 OpenAI 客户端配 Anthropic 上游）。关掉则本协议与可转换协议的上游一起按权重摇。",
     "strategy": "负载均衡策略",
     "strategy_lottery_title": "Lottery",
     "strategy_lottery_desc": "按权重概率抽取, 适合随机分散流量.",
@@ -162,8 +180,6 @@
     "description": "此操作无法撤销。这将永久删除该关联管理。"
   },
   "toast": {
-    "fetch_models_failed": "获取模型失败: {{message}}",
-    "fetch_providers_failed": "获取提供商失败: {{message}}",
     "model_save_failed": "保存失败: {{message}}",
     "model_created": "模型 {{name}} 创建成功",
     "model_updated": "模型 {{name}} 更新成功",

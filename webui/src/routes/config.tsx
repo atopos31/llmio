@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
@@ -23,9 +23,13 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import Loading from '@/components/loading';
+import { ErrorState, ListSkeleton } from '@/components/state-views';
+import { AlertTriangle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { configAPI, type AnthropicCountTokens, type LogCleanupPolicy, type LogCleanupRecord, getCleanupHistory, testCountTokens } from '@/lib/api';
+import { PeakCalendarCard } from '@/routes/peak-calendar';
+import { CompressionCard } from '@/routes/compression-card';
 import {
   Table,
   TableBody,
@@ -59,6 +63,7 @@ const defaultLogCleanupConfig: LogCleanupPolicy = {
 export default function ConfigPage() {
   const { t } = useTranslation(['config', 'common']);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [anthropicOpen, setAnthropicOpen] = useState(false);
   const [logCleanupOpen, setLogCleanupOpen] = useState(false);
   const [anthropicConfig, setAnthropicConfig] = useState<AnthropicCountTokens | null>(null);
@@ -67,6 +72,7 @@ export default function ConfigPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<LogCleanupRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyTotal, setHistoryTotal] = useState(0);
 
@@ -84,39 +90,51 @@ export default function ConfigPage() {
     defaultValues: defaultLogCleanupConfig,
   });
 
-  useEffect(() => {
-    const fetchConfig = async () => {
-      try {
-        setLoading(true);
-        const [anthropicResponse, logCleanupResponse] = await Promise.all([
-          configAPI.getConfig('anthropic_count_tokens'),
-          configAPI.getConfig('log_cleanup_policy'),
-        ]);
+  /**
+   * 读取现有配置。
+   *
+   * 两种"没有配置"要分开：某个 key 不存在时后端返回 200 + 空 value，这是正常的
+   * 新装状态，界面照旧说"未配置"即可；而请求失败（或存进去的 JSON 坏了）是另一回事
+   * ——那时界面上的"未配置"是在替一个未知状态作断言。原先两者共用同一个 catch
+   * 且都不出声，等于把失败说成了"没配过"。
+   *
+   * 这里不把整页换成失败态：卡片上显示的是默认值，编辑与保存本身不依赖这次读取，
+   * 因此失败只作提示——但必须说清"下面显示的可能不是已保存的值"。
+   */
+  const loadConfig = useCallback(async () => {
+    try {
+      setLoading(true);
+      setLoadError(null);
+      const [anthropicResponse, logCleanupResponse] = await Promise.all([
+        configAPI.getConfig('anthropic_count_tokens'),
+        configAPI.getConfig('log_cleanup_policy'),
+      ]);
 
-        if (anthropicResponse.value) {
-          const nextAnthropicConfig = JSON.parse(anthropicResponse.value) as AnthropicCountTokens;
-          setAnthropicConfig(nextAnthropicConfig);
-        }
-
-        if (logCleanupResponse.value) {
-          const nextLogCleanupConfig = {
-            ...defaultLogCleanupConfig,
-            ...(JSON.parse(logCleanupResponse.value) as Partial<LogCleanupPolicy>),
-          };
-          setLogCleanupConfig(nextLogCleanupConfig);
-        } else {
-          setLogCleanupConfig(defaultLogCleanupConfig);
-        }
-      } catch (error) {
-        console.error('Failed to load config:', error);
-        // 配置不存在是正常的，不显示错误提示
-      } finally {
-        setLoading(false);
+      if (anthropicResponse.value) {
+        const nextAnthropicConfig = JSON.parse(anthropicResponse.value) as AnthropicCountTokens;
+        setAnthropicConfig(nextAnthropicConfig);
       }
-    };
 
-    fetchConfig();
+      if (logCleanupResponse.value) {
+        const nextLogCleanupConfig = {
+          ...defaultLogCleanupConfig,
+          ...(JSON.parse(logCleanupResponse.value) as Partial<LogCleanupPolicy>),
+        };
+        setLogCleanupConfig(nextLogCleanupConfig);
+      } else {
+        setLogCleanupConfig(defaultLogCleanupConfig);
+      }
+    } catch (error) {
+      console.error('Failed to load config:', error);
+      setLoadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadConfig();
+  }, [loadConfig]);
 
   const openAnthropicDialog = () => {
     anthropicForm.reset({
@@ -173,19 +191,23 @@ export default function ConfigPage() {
   const fetchHistory = async (page: number = 1) => {
     try {
       setHistoryLoading(true);
+      setHistoryError(null);
       const response = await getCleanupHistory({ page, page_size: 10 });
       setHistory(response.data);
       setHistoryTotal(response.total);
       setHistoryPage(response.page);
     } catch (error) {
+      // 同样不能静默：失败之后这张表会说"暂无数据"，而那是一句关于
+      // 服务端事实的断言，不该由一次失败的请求替它说
       console.error('Failed to load cleanup history:', error);
+      setHistoryError(error instanceof Error ? error.message : String(error));
     } finally {
       setHistoryLoading(false);
     }
   };
 
   if (loading) {
-    return <Loading />;
+    return <Loading message={t('common:loading')} />;
   }
 
   return (
@@ -193,16 +215,30 @@ export default function ConfigPage() {
       <div className="flex flex-col gap-2 flex-shrink-0">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <h2 className="text-2xl font-bold tracking-tight">{t('title')}</h2>
+            <h2 className="text-xl font-semibold tracking-tight">{t('title')}</h2>
           </div>
         </div>
       </div>
 
+      {loadError ? (
+        <div className="flex flex-wrap items-start gap-2 rounded-md border border-status-warning/40 bg-status-warning/5 px-3 py-2">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-status-warning-ink" aria-hidden="true" />
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <p className="text-sm font-medium text-status-warning-ink">{t('load_failed')}</p>
+            <p className="text-xs text-muted-foreground">{t('load_failed_hint')}</p>
+            <p className="reading break-all text-xs text-muted-foreground">{loadError}</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => void loadConfig()}>
+            {t('retry')}
+          </Button>
+        </div>
+      ) : null}
+
       <div className="flex-1 min-h-0 overflow-y-auto">
         <Card>
           <CardHeader>
-            <CardTitle>{t('anthropic.title')}</CardTitle>
-              <CardDescription>
+            <CardTitle className="text-sm font-medium">{t('anthropic.title')}</CardTitle>
+              <CardDescription className="text-[11px]">
                 {t('anthropic.desc')}
               </CardDescription>
           </CardHeader>
@@ -257,8 +293,8 @@ export default function ConfigPage() {
 
         <Card className="mt-4">
           <CardHeader>
-            <CardTitle>{t('log_cleanup.title')}</CardTitle>
-            <CardDescription>{t('log_cleanup.desc')}</CardDescription>
+            <CardTitle className="text-sm font-medium">{t('log_cleanup.title')}</CardTitle>
+            <CardDescription className="text-[11px]">{t('log_cleanup.desc')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -283,6 +319,27 @@ export default function ConfigPage() {
             </Button>
           </CardFooter>
         </Card>
+
+        {/*
+          峰谷的工作日日历自带一个端点与四种状态，因此它是一张自带取数的卡片，
+          而不是并进上面 loadConfig 的那一次 Promise.all——并进去的话，它读失败
+          会把整页说成"读取现有配置失败"，而另外两张卡其实好着。
+          时段与乘数不在这里：那是每条上游自己的商务条款，配在「模型 × 上游」。
+        */}
+        <div className="mt-4">
+          <PeakCalendarCard />
+        </div>
+
+        {/*
+          数据库压缩。与上面两张卡一样是一张自带取数的卡片，而且理由更硬：
+          它的状态接口里有一个全表扫 typeof 的读数（还没迁的行数），
+          并进 loadConfig 那次 Promise.all 就等于让配置页每次打开都打一遍全表。
+          要 VACUUM 才能真正把空间还给磁盘这件事也必须在这一页说清楚——
+          否则用户看完"省了 5.6 GiB"再去看文件还是 7 GiB，会以为功能是坏的。
+        */}
+        <div className="mt-4">
+          <CompressionCard />
+        </div>
       </div>
 
       <Dialog open={anthropicOpen} onOpenChange={setAnthropicOpen}>
@@ -412,7 +469,14 @@ export default function ConfigPage() {
 
           <div className="flex-1 min-h-0 overflow-auto">
             {historyLoading ? (
-              <Loading />
+              <ListSkeleton label={t('common:loading')} rows={4} />
+            ) : historyError ? (
+              <ErrorState
+                title={t('log_cleanup.history_load_failed')}
+                message={historyError}
+                retryLabel={t('retry')}
+                onRetry={() => void fetchHistory(historyPage)}
+              />
             ) : history.length === 0 ? (
               <p className="text-center text-muted-foreground py-8">{t('common:no_data')}</p>
             ) : (

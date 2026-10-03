@@ -1,8 +1,8 @@
 import { useRef, useState } from "react";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
-import { testModelProvider } from "@/lib/api";
+import { testModelProvider, type ConnectivityTestResult } from "@/lib/api";
 
-type TestResultState = Record<number, { loading: boolean; result: any }>;
+type TestResultState = Record<number, { loading: boolean; result: ConnectivityTestResult | null }>;
 
 type ReactTestState = {
   loading: boolean;

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/atopos31/llmio/balancers"
+	"github.com/atopos31/llmio/bridge"
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/pkg/token"
@@ -21,7 +22,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func BalanceChat(ctx context.Context, start time.Time, style string, before Before, providersWithMeta ProvidersWithMeta, reqMeta models.ReqMeta) (*http.Response, *models.ChatLog, error) {
+func BalanceChat(ctx context.Context, start time.Time, style string, before Before, providersWithMeta ProvidersWithMeta, reqMeta models.ReqMeta, bridgeNotes *BridgeNotes) (*http.Response, *models.ChatLog, error) {
 	slog.Info("request", "model", before.Model, "stream", before.Stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
 
 	providerMap := providersWithMeta.ProviderMap
@@ -100,6 +101,27 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 			slog.Info("using provider", "provider", provider.Name, "model", modelWithProvider.ProviderModel)
 
+			// 每换一家上游，记账从头计：上一家的记账若留着，最终那条日志就会记着
+			// 产出这次响应的那家**没做过**的改写
+			bridgeNotes.reset()
+
+			// 客户端协议与上游协议不同时插一层翻译。候选池里可能混着两种协议的上游
+			// （见 ProvidersWithMetaBymodelsName），所以每次 Pop 之后重新判一次方向
+			translator := TranslatorFor(style, provider.Type)
+			if translator != nil {
+				slog.Info("bridging protocols", "from", style, "to", provider.Type, "provider", provider.Name)
+			}
+
+			// 分时段计价：按请求发起时刻 + **这一条关联的**峰谷条款解析出
+			// 生效单价并快照进日志。快照的是实际生效价，因此历史成本不会被
+			// 后来的时段配置改动所改写。
+			inputPrice, cacheReadPrice, outputPrice, peakPeriod := ResolvePricingFor(
+				ctx, start, modelWithProvider.Peak,
+				lo.FromPtrOr(modelWithProvider.InputPrice, 0),
+				lo.FromPtrOr(modelWithProvider.CacheReadPrice, 0),
+				lo.FromPtrOr(modelWithProvider.OutputPrice, 0),
+			)
+
 			log := models.ChatLog{
 				Name:           before.Model,
 				TraceID:        traceID,
@@ -107,6 +129,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				ProviderName:   provider.Name,
 				Status:         consts.StatusRunning,
 				Style:          style,
+				UpstreamStyle:  provider.Type,
 				UserAgent:      reqMeta.UserAgent,
 				RemoteIP:       reqMeta.RemoteIP,
 				AuthKeyID:      authKeyID,
@@ -114,10 +137,17 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				ChatIO:         authKeyIOLog,
 				Retry:          retry,
 				ProxyTime:      time.Since(start),
-				InputPrice:     lo.FromPtrOr(modelWithProvider.InputPrice, 0),
-				CacheReadPrice: lo.FromPtrOr(modelWithProvider.CacheReadPrice, 0),
-				OutputPrice:    lo.FromPtrOr(modelWithProvider.OutputPrice, 0),
+				InputPrice:     inputPrice,
+				CacheReadPrice: cacheReadPrice,
+				OutputPrice:    outputPrice,
 				Currency:       modelWithProvider.Currency,
+				PeakPeriod:     peakPeriod,
+			}
+			// 这次尝试失败的记录。记账要在这里快照：下一次尝试开头会把盒子清空，
+			// 而"这一家失败时我们丢了什么"正是排查重试时要看的东西
+			fail := func(err error) {
+				log.BridgeNotes = bridgeNotes.String()
+				retryLog <- log.WithError(err)
 			}
 			// 根据请求原始请求头 是否透传请求头 自定义请求头 构建新的请求头
 			withHeader := lo.FromPtrOr(modelWithProvider.WithHeader, false)
@@ -130,16 +160,33 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				AuthKeyID:     authKeyID,
 			})
 
-			rawBody, err := buildUpstreamBody(before.raw, modelWithProvider.ExtraBody)
+			// 请求体：先按上游协议翻译，再套上关联行的 extra_body。
+			// 顺序不能反——extra_body 挂在这一条关联上，是按**上游协议**写的；先套再翻
+			// 的话，翻译层会把这些键当不认识的字段丢掉
+			reqBody := before.raw
+			if translator != nil {
+				converted, notes, err := translator.Request(reqBody, bridge.Options{})
+				if err != nil {
+					// 翻不过去 = 这家上游服务不了。与 BuildReq 失败同一条路：记账、
+					// 移出待选、换下一家
+					fail(fmt.Errorf("bridge request: %w", err))
+					balancer.Delete(id)
+					continue
+				}
+				bridgeNotes.record(notes)
+				reqBody = converted
+			}
+
+			rawBody, err := buildUpstreamBody(reqBody, modelWithProvider.ExtraBody)
 			if err != nil {
-				retryLog <- log.WithError(err)
+				fail(err)
 				balancer.Delete(id)
 				continue
 			}
 
 			req, err := chatModel.BuildReq(ctx, headers, modelWithProvider.ProviderModel, rawBody)
 			if err != nil {
-				retryLog <- log.WithError(err)
+				fail(err)
 				// 构建请求失败 移除待选
 				balancer.Delete(id)
 				continue
@@ -147,7 +194,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 			res, err := client.Do(req)
 			if err != nil {
-				retryLog <- log.WithError(err)
+				fail(err)
 				// 请求失败 移除待选
 				balancer.Delete(id)
 				continue
@@ -158,7 +205,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				if err != nil {
 					slog.Error("read body error", "error", err)
 				}
-				retryLog <- log.WithError(fmt.Errorf("status: %d, body: %s", res.StatusCode, string(byteBody)))
+				fail(fmt.Errorf("status: %d, body: %s", res.StatusCode, string(byteBody)))
 
 				if res.StatusCode == http.StatusTooManyRequests {
 					// 达到RPM限制 降低权重
@@ -177,20 +224,32 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				if !strings.Contains(contentType, "text/event-stream") {
 					byteBody, err := io.ReadAll(res.Body)
 					if err != nil {
-						retryLog <- log.WithError(fmt.Errorf("read body failed: %w", err))
+						fail(fmt.Errorf("read body failed: %w", err))
 						balancer.Delete(id)
 						res.Body.Close()
 						continue
 					}
 
 					if matched, sample := matchProviderBodyError(string(byteBody), provider.ErrorMatcher); matched {
-						retryLog <- log.WithError(fmt.Errorf("response matched provider error sample %q, body: %s", sample, string(byteBody)))
+						fail(fmt.Errorf("response matched provider error sample %q, body: %s", sample, string(byteBody)))
 						balancer.Delete(id)
 						res.Body.Close()
 						continue
 					}
 
 					res.Body = io.NopCloser(bytes.NewReader(byteBody))
+				}
+			}
+
+			// 响应体：翻成客户端协议之后再交出去。必须在转发与记录**之前**——
+			// 客户端看到的和 ChatLog 记的都得是客户端协议（记录用的 processer 是按
+			// 客户端协议选的）
+			if translator != nil {
+				if err := bridgeResponse(translator, res, before.Stream, bridgeNotes); err != nil {
+					fail(fmt.Errorf("bridge response: %w", err))
+					balancer.Delete(id)
+					res.Body.Close()
+					continue
 				}
 			}
 
@@ -230,12 +289,14 @@ func RecordRetryLog(ctx context.Context, retryLog chan models.ChatLog) {
 	}
 }
 
-func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, processer Processer, logId uint, before Before, ioLog bool) {
+func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, processer Processer, logId uint, before Before, ioLog bool, bridgeNotes *BridgeNotes) {
 	recordFunc := func() error {
 		defer reader.Close()
 		if ioLog {
+			// BodyBytes 不做拷贝：before.raw 由本请求独占，而 Create 是同步的，
+			// 等它读完才会继续往下走。真正的分块与压缩都在 BeforeCreate 里发生。
 			if err := gorm.G[models.ChatIO](models.DB).Create(ctx, &models.ChatIO{
-				Input: string(before.raw),
+				Input: models.BodyBytes(before.raw),
 				LogId: logId,
 			}); err != nil {
 				return err
@@ -246,6 +307,8 @@ func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, pr
 			return err
 		}
 		log.Status = consts.StatusSuccess
+		// 协议互转的记账：响应侧要到流读完才完整，所以在这里（日志落库前）取
+		log.BridgeNotes = bridgeNotes.String()
 		if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, *log); err != nil {
 			return err
 		}
@@ -361,11 +424,17 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 
 	providers, err := gorm.G[models.Provider](models.DB).
 		Where("id IN ?", lo.Map(modelWithProviders, func(mp models.ModelWithProvider, _ int) uint { return mp.ProviderID })).
-		Where("type = ?", style).
+		Where("type IN ?", ServableTypes(style)).
 		Find(ctx)
 	if err != nil {
 		return nil, err
 	}
+
+	// 直连优先，转换为兜底：只要这个模型下有一个说客户端话的上游，候选池就只有它们。
+	// 转换只在该模型下"没人说客户端的话"时启用，行为可预期；现有部署（上游与客户端
+	// 同协议）的候选集也因此与转换功能上线前完全一致。
+	// 模型上可以把这条关掉（PreferDirect），关掉就是整池按权重摇
+	providers = poolFor(providers, style, model.PreferDirect)
 
 	providerMap := lo.KeyBy(providers, func(p models.Provider) uint { return p.ID })
 

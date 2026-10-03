@@ -835,6 +835,14 @@ export interface CompressionDBStats {
   page_size: number;
   page_count: number;
   freelist_count: number;
+  /**
+   * disk_free_bytes 是库所在卷的空闲字节数。给界面**提前算**重整（VACUUM）够不够：
+   * 它要 2 倍库大小的可用空间（见 VACUUM_NEED_FACTOR），而这个数只有服务端问得到。
+   *
+   * 0 表示量不到（不是"满了"）。判"够不够"时它算不够——那个方向的错是"按钮禁用 +
+   * 说明原因"，反过来把量不到当空间充足，用户就会白点一次、或者写盘写到一半满。
+   */
+  disk_free_bytes: number;
   auto_vacuum: number;
   rows: number;
   // pending_rows / framed_rows 数的是**行**，判据取三列（请求体 + 响应体两列）
@@ -872,6 +880,13 @@ export interface CompressionStatus {
   // 可以一个在跑另一个不在。
   reclaiming: boolean;
   /**
+   * reclaiming_kind 是**此刻在跑的**是回收还是重整（reclaim / vacuum / 空串=没在跑）。
+   *
+   * 不能用 reclaim.kind 顶替：那是一份回执，写的是**上一次跑完**的那趟任务
+   * （running 记录要等收工才落库），正在跑的时候它是张冠李戴的旧值。
+   */
+  reclaiming_kind: ReclaimKind;
+  /**
    * reclaim_stopping 是"按了停止、但那批还没跑完"的中间态。
    *
    * 停止在批间生效，所以按下之后到真正退出之间有一段（最多一批，约 1–4 秒）。
@@ -895,6 +910,17 @@ export interface ReclaimPolicy {
 /** 一次空间回收的记录。字段全是后端实测值，不是估算。 */
 export interface ReclaimState {
   status: 'idle' | 'running' | 'done' | 'failed';
+  /**
+   * kind 是这一次**做的是什么**：
+   *
+   *   reclaim —— 增量回收：一条语句放一页，慢慢把洞收掉。不需要额外磁盘。
+   *   vacuum  —— 重整：整库重写一遍，一次把 freelist 还干净。要 2 倍空闲磁盘。
+   *   ''      —— 加这个字段之前写下的记录（那时只有增量回收这一条路），按 reclaim 看待。
+   *
+   * 与 source 正交：source 说"谁发起"，kind 说"做了什么"。同样是 startup 发起的，
+   * 一次转换（VACUUM）和它之后接着跑的增量回收是两件事。
+   */
+  kind: ReclaimKind;
   /** startup = 启动期做的（转换/VACUUM），manual = 手动点的，scheduled = 定时回收起的 */
   source: 'startup' | 'manual' | 'scheduled' | '';
   /**
@@ -912,6 +938,14 @@ export interface ReclaimState {
   freelist_before: number;
   freelist_after: number;
   calls: number;
+  /**
+   * batch_size 是这一趟**最后收敛到的**批量（一个事务里连打几条语句）。
+   *
+   * 它是诊断读数而不是配置：批量由后端按每批实测耗时自己走，落在 16–512 之间。
+   * 记下来是因为"这台机器上一批能收多少"直接决定"收完这个洞要几轮"，而它随库的
+   * 形态走，事先算不出来。
+   */
+  batch_size: number;
   duration_ms: number;
   started_at: string;
   finished_at: string;
@@ -941,6 +975,12 @@ export interface ReclaimState {
     | '';
   last_error: string;
 }
+
+/**
+ * 空间回收的两条路。只在 Go 侧是常量，前端拿到的就是字符串——
+ * 加一个没见过的取值不该让老前端崩掉（所以取值用 `| string` 兜住）。
+ */
+export type ReclaimKind = 'reclaim' | 'vacuum' | '' | (string & {});
 
 export async function getCompression(): Promise<CompressionStatus> {
   return apiRequest<CompressionStatus>('/logs/compression');
@@ -1007,9 +1047,12 @@ export async function rollbackCompression(): Promise<{ started: boolean }> {
  *   - `continuous=false`（默认）：跑满一轮（90 秒）就收工，剩下的下次再放。
  *     这 90 秒里写请求的 5 秒耐心必然耗尽 ⇒ **会失败**。
  *   - `continuous=true`：一路放到没有空洞为止，但切成"一批一轮 + 批间松手 0.1 秒"
- *     ⇒ 一把写锁最多被握一批的时间（实测最坏 4.4 秒 < 5 秒）⇒ 写请求
- *     **排队但成功**。代价是松手那点纯等待：真机那趟 2,628 批，约 4–5 分钟
- *     （在 15 分钟的搬运之上），不是数量级的变化。
+ *     ⇒ 一把写锁最多被握一批的时间 ⇒ 写请求**排队但成功**。代价是松手那点纯等待：
+ *     真机那趟 2,628 批，约 4–5 分钟（在 15 分钟的搬运之上），不是数量级的变化。
+ *
+ * 那个"一批的时间"**不是某个常数**：库的形态一变，同样 512 条能从 1.1 秒变成 8.9 秒
+ * （真机两份库的对照），而 8.9 秒越过了写请求 5 秒的耐心——线上就是这么成片 500 的。
+ * 所以后端按每批实测耗时自己调批量（16–512），见 service.nextBatchSize。
  *
  * 库没开 auto_vacuum 时这是个空操作，后端会如实回 `no_auto_vacuum`。
  */
@@ -1025,6 +1068,36 @@ export async function reclaimStorage(
 /** 请求停止持续回收。**批间生效**，返回成功不等于已经停了。 */
 export async function stopReclaim(): Promise<{ stopping: boolean }> {
   return apiRequest('/logs/compression/reclaim/stop', { method: 'POST' });
+}
+
+/**
+ * 重整（VACUUM）：整库重写一遍，一次把 freelist 还干净。
+ *
+ * 它是增量回收的**对症版本**，两者不是快慢之分而是分工：
+ *
+ *   大空洞（迁移、回滚、批量删除之后）→ 重整，一次还干净
+ *   小的、经常性的那部分            → 增量回收，不必额外磁盘、不必停服务
+ *
+ * 代价的形状与回收**不同**，界面上必须说清：回收是"写请求排队、多半成功"，
+ * 而重整全程持 EXCLUSIVE —— 那几十秒里**连读都进不来**，写请求直接失败。
+ * 换来的是一次到位：同一份 7 GiB 的库，实测重整 55–59 秒，增量回收要 881 秒。
+ *
+ * 后端在动手之前**同步**预检磁盘（要 2 倍库大小 + 余量），不够就拒。所以调用方
+ * 应该用 `db.file_size` 与 `db.disk_free_bytes` 提前算出够不够、把按钮禁掉，
+ * 而不是让用户点了才看到失败。
+ */
+export async function vacuumStorage(): Promise<{ started: boolean; plan: VacuumPlan }> {
+  return apiRequest('/logs/compression/vacuum', { method: 'POST' });
+}
+
+/** 重整动手之前能算出来的那几个数，也是拒绝时用来说明"差多少"的那三个。 */
+export interface VacuumPlan {
+  /** 库文件当前大小。 */
+  file_size: number;
+  /** 库所在卷的空闲字节数。 */
+  free_bytes: number;
+  /** 这一次重整要的空闲字节：2 × 库大小 + 余量。 */
+  need_bytes: number;
 }
 
 export async function updateReclaimPolicy(policy: ReclaimPolicy): Promise<ReclaimPolicy> {

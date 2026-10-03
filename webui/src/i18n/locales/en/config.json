@@ -93,7 +93,7 @@
       "title": "Reclaim free pages in the database",
       "desc": "Return the free pages already released inside the database file to the filesystem. This does not modify data; it can be run repeatedly and can be interrupted.",
       "flow_title": "What it does",
-      "step_1": "512 reclaim statements per batch, one transaction per batch",
+      "step_1": "Several reclaim statements per batch, one transaction per batch; the service tunes the batch size from the measured time of the previous batch (16–512 statements), aiming for about 2.5 seconds per batch",
       "step_2": "Each round runs for at most 90 seconds and leaves the remainder for next time, so several rounds may be needed and one click may not finish it",
       "eta": "Estimated from the {{size}} reclaimable right now: about {{rounds}} rounds, roughly {{eta}} in total. The database frees one page at a time; measured at about 1,500 pages/s on average, slower in the early rounds.",
       "cost_title": "Impact",
@@ -103,10 +103,11 @@
       "continuous": "Reclaim continuously until finished",
       "continuous_hint": "When off, only one round runs (90 seconds at most).",
       "continuous_help": "For 5 GiB of free space, having this off means running it a dozen times or more to clear it. When on, the service pauses for 0.1 seconds between batches, so write requests queue and then succeed; when off, there is no pause and write requests during those 90 seconds fail outright.",
-      "step_continuous": "512 reclaim statements per batch, one transaction per batch; a 0.1-second pause between batches, running until finished (or until you press Stop)",
+      "step_continuous": "One transaction per batch with a 0.1-second pause between batches, running until finished (or until you press Stop). The service tunes the batch size from the measured time (16–512 statements), aiming for about 2.5 seconds per batch",
       "eta_continuous": "Estimated from the {{size}} reclaimable right now: about {{rounds}} batches, roughly {{eta}} in total, including the pauses between batches. Later batches are faster; this is an average.",
-      "warn_continuous": "Writes to the database are blocked while it runs, but there is a 0.1-second pause between batches: write requests queue and slow down rather than fail — the longest wait is about one batch (measured 0.3–4.4 seconds, under the 5-second timeout). Reads are unaffected.",
+      "warn_continuous": "Writes to the database are blocked while it runs, but there is a 0.1-second pause between batches: write requests queue and slow down rather than fail — the longest wait is about one batch, and the service keeps a batch near 2.5 seconds, under the 5-second timeout. Reads are unaffected.",
       "rounds": "{{rounds}} batches",
+      "batch": "last batch: {{size}} statements",
       "stop": "Stop",
       "stopping": "Stopping…",
       "auto_on": "Auto reclaim: when reclaimable space exceeds {{size}}, checked every {{min}} minutes",
@@ -143,8 +144,30 @@
       "blocked": {
         "busy_migration": "A migration task is running and reclaim must wait — they share the same maintenance lock.",
         "no_stats": "The database status cannot be read right now, so it cannot be confirmed whether any free space exists.",
-        "no_auto_vacuum": "This database has auto_vacuum=0, so reclaim has no effect (measured: 0 seconds, file size unchanged). To shrink the file, run VACUUM once on the whole database; or start once with DB_AUTO_VACUUM_REBUILD=on to convert it to INCREMENTAL.",
+        "no_auto_vacuum": "This database has auto_vacuum=0, so reclaim has no effect (measured: 0 seconds, file size unchanged). To shrink the file, use \"Compact now\"; or start once with DB_AUTO_VACUUM_REBUILD=on to convert it to INCREMENTAL.",
         "nothing": "There is no space to reclaim — the database contains no free pages."
+      }
+    },
+    "vacuum": {
+      "button": "Compact now",
+      "running": "Compacting",
+      "cost": "The database is completely unavailable during compaction (no reads, no writes); measured at about 57 seconds for a 7 GiB database.",
+      "how": "Triggered by: {{source}} · Stopped because: {{reason}} · Took {{duration}}",
+      "title": "Compact the database (VACUUM)",
+      "desc": "Rewrite the whole database once, returning every free page to the filesystem in one go. The data itself does not change, but every page is rewritten, including indexes and block tables.",
+      "flow_title": "What it does",
+      "step_1": "Write a temporary copy the size of the database file next to it, copy the live pages into it in order, then swap it in — which is why it needs free disk space twice the size of the database file",
+      "step_2": "The database is held exclusively for the whole run: reads and writes cannot get in, and write requests fail outright (a write gives up once its 5-second busy timeout runs out — measured at 5.2 seconds on a real database)",
+      "eta": "Estimated from the {{size}} database file: about {{eta}}; it needs {{need}} free and {{free}} is available. Measured at about 57 seconds for a 7 GiB database — the speed of a sequential rewrite does not depend on how scattered the holes are.",
+      "cost_title": "Impact",
+      "warn": "The database is held completely exclusively during compaction: no reads and no writes get in, and write requests fail outright. It usually takes under a minute, but it is genuine service unavailability, not slowness.",
+      "why": "Why take this route: on the same 7 GiB database, compaction measured 57 seconds while gradual reclaim takes 881 seconds (16×). Reclaim moves the file's last page into each hole it frees, which is heavy random I/O. The price is free space twice the database size plus a window of exclusive access. So: use it to clear the big holes left by a migration, a rollback or a bulk delete in one go, and use reclaim for the small, frequent part.",
+      "unstoppable": "Once started it cannot be stopped midway: it is a single VACUUM statement, so there is no between-batches moment.",
+      "backup_hint": "Copy the database file first if you can — it rewrites the whole database in place, and running out of disk midway would leave the database in an unclear state (the disk pre-check before it starts tries to rule that out).",
+      "confirm": "Start compaction",
+      "blocked": {
+        "no_stats": "The database status cannot be read right now, so it cannot be confirmed that there is enough disk space.",
+        "no_space": "There is not enough free disk space for this compaction: it needs twice the size of the database file (plus a small margin). Free up some space, or use reclaim instead — that route needs no extra space."
       }
     },
     "backup": {
@@ -217,7 +240,9 @@
       "reclaim_started": "Reclaim started and is running in the background",
       "reclaim_failed": "Reclaim failed: {{message}}",
       "reclaim_stopped": "Stop requested; it stops once the current batch finishes",
-      "reclaim_stop_failed": "Failed to stop reclaim: {{message}}"
+      "reclaim_stop_failed": "Failed to stop reclaim: {{message}}",
+      "vacuum_started": "Compaction started, running in the background",
+      "vacuum_failed": "Compaction failed: {{message}}"
     }
   },
   "toast": {

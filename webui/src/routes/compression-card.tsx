@@ -6,6 +6,7 @@ import {
   Database,
   HardDrive,
   Loader2,
+  Minimize2,
   Pause,
   Play,
   RotateCcw,
@@ -46,14 +47,19 @@ import {
   stopReclaim,
   updateCompressionPolicy,
   updateReclaimPolicy,
+  vacuumStorage,
   type CompressionStatus,
+  type ReclaimKind,
   type ReclaimPolicy,
 } from "@/lib/api"
 import {
   estimateReclaim,
   estimateRowsSec,
+  estimateVacuumSec,
+  hasRoomForVacuum,
   MIGRATE_ROWS_PER_SEC,
   ROLLBACK_ROWS_PER_SEC,
+  vacuumNeedBytes,
 } from "@/lib/compression"
 import { formatBytes, formatDurationMs } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -314,13 +320,15 @@ export function CompressionCard() {
   const [runOpen, setRunOpen] = useState(false)
   const [rollbackOpen, setRollbackOpen] = useState(false)
   const [reclaimOpen, setReclaimOpen] = useState(false)
+  const [vacuumOpen, setVacuumOpen] = useState(false)
   const [reclaimPolicyOpen, setReclaimPolicyOpen] = useState(false)
   /**
    * 回收弹窗里那个「持续到放完」开关。默认**打开**：
    *
    *   - 它点一次就把活干完（否则一个 5 GiB 的洞要点十次），
    *   - 而且它**对写请求更好**——持续模式一批一轮、批间松手，写锁最多被握一批
-   *     的时间（实测最坏 4.4 秒 < busy_timeout 的 5 秒），写请求是排队而不是失败。
+   *     的时间，写请求是排队而不是失败。那个"一批的时间"由后端按实测耗时自己
+   *     收着（原先写死 512 条，在另一份库上要 8.9 秒，越过了 5 秒的耐心）。
    *
    * 所以这不是"更凶"的那一档，是更温和的那一档，只是总耗时更长。
    */
@@ -445,6 +453,25 @@ export function CompressionCard() {
   }
 
   /**
+   * 重整（VACUUM）。与回收共用"有一趟在飞"的轮询，但**不共用停止**——
+   * 它是一条语句，没有批间这个时机，后端会明确拒绝停止（见 service.StopReclaim）。
+   */
+  const onVacuum = async () => {
+    try {
+      setBusy(true)
+      await vacuumStorage()
+      setWatchingReclaim(true)
+      toast.success(t("compression.toast.vacuum_started"))
+      setVacuumOpen(false)
+      await load()
+    } catch (err) {
+      toast.error(t("compression.toast.vacuum_failed", { message: errorText(err) }))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
    * 请求停止持续回收。
    *
    * 它**不**把 `watchingReclaim` 放掉：停止在批间生效，真正退出之前状态接口
@@ -506,6 +533,30 @@ export function CompressionCard() {
         })
       : ""
 
+  // ── 重整（VACUUM）那几个估算 ──
+  //
+  // 与回收不同，它的耗时基准挂在**文件大小**上（顺序重写整库），不是 freelist：
+  // 空洞是散是密不影响它，那正是它比回收稳的原因。
+  const vacuumEta =
+    db !== null && db.file_size > 0
+      ? t("compression.vacuum.eta", {
+          size: formatBytes(db.file_size),
+          eta: formatDurationMs(estimateVacuumSec(db.file_size) * 1000),
+          need: formatBytes(vacuumNeedBytes(db.file_size)),
+          free: formatBytes(db.disk_free_bytes),
+        })
+      : ""
+
+  // 空间够不够。**预判在界面这一侧**是为了"别让用户白点"：后端也会拒（那是
+  // 权威），但那时他已经点进弹窗、读完代价、按了确认。判据与后端同一套
+  // （见 lib/compression.ts），量不到空闲磁盘时算不够。
+  const vacuumBlocked: string | null =
+    db === null
+      ? "no_stats"
+      : hasRoomForVacuum(db.file_size, db.disk_free_bytes)
+        ? null
+        : "no_space"
+
   return (
     <Card>
       <CardHeader>
@@ -532,6 +583,8 @@ export function CompressionCard() {
             onEdit={() => setEditOpen(true)}
             reclaiming={watchingReclaim || status.reclaiming}
             onReclaim={() => setReclaimOpen(true)}
+            onVacuum={() => setVacuumOpen(true)}
+            vacuumBlocked={vacuumBlocked}
             onStop={() => void onStopReclaim()}
             onEditPolicy={() => setReclaimPolicyOpen(true)}
           />
@@ -719,6 +772,37 @@ export function CompressionCard() {
         busy={busy}
         onConfirm={() => void onReclaim()}
       />
+
+      {/* 重整也要过一次确认，而且**更该过**：它的代价与回收不是一回事。
+          回收是"写请求排队、多半能成功"，重整是"这几十秒里连读都进不来、
+          写请求直接失败"——一句话概括就是"服务会短暂不可用"。
+          换来的是一次到位（同一份库 57 秒 vs 881 秒），所以它是大空洞的正解；
+          但也正因为它快而霸道，说清"什么时候用、多久、期间什么样"比什么都重要。 */}
+      <ActionDialog
+        open={vacuumOpen}
+        onOpenChange={setVacuumOpen}
+        title={t("compression.vacuum.title")}
+        desc={t("compression.vacuum.desc")}
+        flowTitle={t("compression.vacuum.flow_title")}
+        flow={[t("compression.vacuum.step_1"), t("compression.vacuum.step_2"), vacuumEta]}
+        costTitle={t("compression.vacuum.cost_title")}
+        cost={[t("compression.vacuum.warn"), t("compression.vacuum.why")]}
+        warningTone="critical"
+        warning={
+          <p>
+            {t("compression.vacuum.unstoppable")}
+            {/* 快照备份是重整唯一的退路：它原地重写整库，磁盘不够时中途失败会留下
+                一个说不清的状态。而这句话与迁移那条备份门槛是同一个道理，所以
+                说在同一个位置——确认按钮之上。 */}
+            {" "}
+            {t("compression.vacuum.backup_hint")}
+          </p>
+        }
+        confirmLabel={t("compression.vacuum.confirm")}
+        confirmVariant="destructive"
+        busy={busy}
+        onConfirm={() => void onVacuum()}
+      />
     </Card>
   )
 }
@@ -731,6 +815,8 @@ function CompressionBody({
   status,
   onEdit,
   onReclaim,
+  onVacuum,
+  vacuumBlocked,
   onStop,
   onEditPolicy,
   reclaiming,
@@ -738,6 +824,9 @@ function CompressionBody({
   status: CompressionStatus
   onEdit: () => void
   onReclaim: () => void
+  onVacuum: () => void
+  /** 重整点不动的原因（null = 可以点）。理由由调用方算，见那边。 */
+  vacuumBlocked: string | null
   onStop: () => void
   onEditPolicy: () => void
   reclaiming: boolean
@@ -906,10 +995,13 @@ function CompressionBody({
         reclaim={reclaim}
         policy={status.reclaim_policy}
         reclaiming={reclaiming}
+        reclaimKind={status.reclaiming_kind}
         stopping={status.reclaim_stopping}
         blocked={reclaimBlocked}
         freelistBytes={freelistBytes}
+        vacuumBlocked={vacuumBlocked}
         onReclaim={onReclaim}
+        onVacuum={onVacuum}
         onStop={onStop}
         onEditPolicy={onEditPolicy}
       />
@@ -992,20 +1084,27 @@ function ReclaimBlock({
   reclaim,
   policy,
   reclaiming,
+  reclaimKind,
   stopping,
   blocked,
   freelistBytes,
+  vacuumBlocked,
   onReclaim,
+  onVacuum,
   onStop,
   onEditPolicy,
 }: {
   reclaim: CompressionStatus["reclaim"]
   policy: ReclaimPolicy
   reclaiming: boolean
+  /** 此刻在跑的是回收还是重整。见 CompressionStatus.reclaiming_kind。 */
+  reclaimKind: ReclaimKind
   stopping: boolean
   blocked: string | null
   freelistBytes: number | null
+  vacuumBlocked: string | null
   onReclaim: () => void
+  onVacuum: () => void
   onStop: () => void
   onEditPolicy: () => void
 }) {
@@ -1017,6 +1116,21 @@ function ReclaimBlock({
     ran && reclaim.file_size_before > 0 && reclaim.file_size_after > 0
       ? reclaim.file_size_after < reclaim.file_size_before
       : false
+
+  /**
+   * 正在跑的是哪一趟。**必须分开说**，因为两条路的界面行为不一样：
+   *
+   *   - 重整停不了（一条语句，没有批间这个时机），所以那一趟**不画「停止」**；
+   *   - 文案也不一样（"回收中"与"重整中"），否则用户点完重整会以为点错了。
+   *
+   * 判据用 `reclaiming_kind` 而不是 `reclaim.kind`：后者是**回执**，写的是上一次
+   * 跑完的那趟（running 记录要等收工才落库），正在跑的时候是张冠李戴的旧值。
+   */
+  const vacuuming = reclaiming && reclaimKind === "vacuum"
+  const reclaimingNow = reclaiming && !vacuuming
+  // 回执那一行按 kind 分两套说法：重整没有"执行了几条语句"这回事（它是整库重写），
+  // 而回收那套里的批量读数正是它的诊断价值所在。老记录没有 kind，按回收看待。
+  const lastWasVacuum = reclaim.kind === "vacuum"
 
   return (
     <div className="space-y-2 border-t border-dashed border-border pt-2">
@@ -1038,7 +1152,11 @@ function ReclaimBlock({
             {reclaiming && (
               <span className="flex items-center gap-1 text-status-good-ink">
                 <Loader2 className="size-3 animate-spin" />
-                {stopping ? t("compression.reclaim.stopping") : t("compression.reclaim.running")}
+                {vacuuming
+                  ? t("compression.vacuum.running")
+                  : stopping
+                    ? t("compression.reclaim.stopping")
+                    : t("compression.reclaim.running")}
               </span>
             )}
             {/* 定时回收开着就挂个小标：它是**后台自己会动**的状态，不显示的话
@@ -1054,22 +1172,38 @@ function ReclaimBlock({
           </div>
           {ran && (
             <p className="reading text-[11px] break-all text-muted-foreground">
-              {t("compression.reclaim.how", {
-                reason: t(`compression.reclaim.reason.${reclaim.stop_reason}` as never, {
-                  defaultValue: reclaim.stop_reason,
-                }),
-                source: t(`compression.reclaim.source.${reclaim.source}` as never, {
-                  defaultValue: reclaim.source,
-                }),
-                duration: formatDurationMs(reclaim.duration_ms),
-                calls: reclaim.calls,
-              })}
+              {lastWasVacuum
+                ? t("compression.vacuum.how", {
+                    reason: t(`compression.reclaim.reason.${reclaim.stop_reason}` as never, {
+                      defaultValue: reclaim.stop_reason,
+                    }),
+                    source: t(`compression.reclaim.source.${reclaim.source}` as never, {
+                      defaultValue: reclaim.source,
+                    }),
+                    duration: formatDurationMs(reclaim.duration_ms),
+                  })
+                : t("compression.reclaim.how", {
+                    reason: t(`compression.reclaim.reason.${reclaim.stop_reason}` as never, {
+                      defaultValue: reclaim.stop_reason,
+                    }),
+                    source: t(`compression.reclaim.source.${reclaim.source}` as never, {
+                      defaultValue: reclaim.source,
+                    }),
+                    duration: formatDurationMs(reclaim.duration_ms),
+                    calls: reclaim.calls,
+                  })}
               {/* 持续那一趟要额外说"几轮"：同一个库，`1 轮` 和 `37 轮` 是两次
                   完全不同的运维动作，光看耗时看不出来（一次是到点收工，
                   一次是一路放到底）。 */}
-              {reclaim.continuous &&
+              {!lastWasVacuum &&
+                reclaim.continuous &&
                 " · " +
                   t("compression.reclaim.rounds", { rounds: reclaim.rounds.toLocaleString() })}
+              {/* 批量是**诊断读数**：它由后端按每批实测耗时自己收敛（16–512），
+                  而这个数直接决定"这个洞要收几轮"。真机上正是它把 8.9 秒一批
+                  的库收了回来，所以值得露出来一个数。 */}
+              {!lastWasVacuum && reclaim.batch_size > 0 &&
+                " · " + t("compression.reclaim.batch", { size: reclaim.batch_size })}
               {shrank &&
                 " · " +
                   t("compression.reclaim.file_change", {
@@ -1090,13 +1224,25 @@ function ReclaimBlock({
               {t(`compression.reclaim.blocked.${blocked}` as never, { defaultValue: blocked })}
             </p>
           )}
+          {/* 重整点不动的原因**单独一行**：它与上面那条说的往往不是同一条路
+              （最常见的情形正是"回收点不动（没开 auto_vacuum）但重整可以"，
+              反过来也有）。合成一条会让用户以为两条路一起坏了。 */}
+          {vacuumBlocked && (
+            <p className="text-[11px] text-muted-foreground">
+              {t(`compression.vacuum.blocked.${vacuumBlocked}` as never, {
+                defaultValue: vacuumBlocked,
+              })}
+            </p>
+          )}
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          {/* 「停止」只在真有一趟在跑时出现。持续回收可能跑十几分钟，
+          {/* 「停止」只在真有一趟**能停的**在跑时出现。持续回收可能跑十几分钟，
               没有这个按钮，用户唯一能做的就是等——而它偏偏是"我现在不想让它
-              继续占库了"这种最常见的念头。 */}
-          {reclaiming && (
+              继续占库了"这种最常见的念头。
+              重整那一趟**不画它**：VACUUM 是一条语句，没有批间这个时机，后端也会
+              明确拒绝。画一个按下去必然报错的按钮，不如不画。 */}
+          {reclaimingNow && (
             <Button variant="outline" size="sm" onClick={onStop} disabled={stopping}>
               {stopping ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
               {stopping ? t("compression.reclaim.stopping") : t("compression.reclaim.stop")}
@@ -1108,7 +1254,7 @@ function ReclaimBlock({
             onClick={onReclaim}
             disabled={reclaiming || blocked !== null}
           >
-            {reclaiming ? (
+            {reclaimingNow ? (
               <>
                 <Loader2 className="size-4 animate-spin" />
                 {t("compression.reclaim.running")}
@@ -1122,6 +1268,29 @@ function ReclaimBlock({
               </>
             )}
           </Button>
+          {/* 「立即重整」与「回收」并排，因为它们是同一个目标的**两条路**：
+              大的空洞走它（一次还干净，代价是 2 倍磁盘 + 一个排他窗口），
+              小的、经常性的那部分走回收。只用其中一个的话，第一条路上的用户
+              面对一个 6 GB 的 freelist 只能按 57 页/秒慢慢等。
+              它的禁用判据**独立于回收**：那一条要求开了 auto_vacuum，这一条不要求。 */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onVacuum}
+            disabled={reclaiming || vacuumBlocked !== null}
+          >
+            {vacuuming ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                {t("compression.vacuum.running")}
+              </>
+            ) : (
+              <>
+                <Minimize2 className="size-4" />
+                {t("compression.vacuum.button")}
+              </>
+            )}
+          </Button>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
@@ -1129,6 +1298,11 @@ function ReclaimBlock({
             而噪音会让真正的警告失效。 */}
         {blocked === null && freelistBytes !== null && freelistBytes > 0 && (
           <span className="text-status-warning-ink">{t("compression.reclaim.cost")}</span>
+        )}
+        {/* 重整那一条是**更重的一档**（连读都进不来），所以用更重的颜色。
+            两条并排不是重复：它们说的是一件事的两种代价，用户要据此选一条。 */}
+        {vacuumBlocked === null && freelistBytes !== null && freelistBytes > 0 && (
+          <span className="text-status-critical-ink">{t("compression.vacuum.cost")}</span>
         )}
         <Button variant="link" size="sm" className="h-auto px-0 text-[11px]" onClick={onEditPolicy}>
           {t("compression.reclaim.policy_edit")}

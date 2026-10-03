@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"go/ast"
 	"go/parser"
@@ -257,6 +258,61 @@ func TestReclaimStorage_StartsAsynchronously(t *testing.T) {
 	}
 }
 
+// 重整的门比回收多一道**磁盘预检**，而且那道门在 service 里、动手之前（同步）。
+// 这里钉的是接口那一侧的形状：`started` 为真，且预估数随响应一起回去——
+// 磁盘不够时前端要拿那三个数说清"差多少"。
+//
+// 磁盘不够那种情形**没法在这条用例里真造**：临时目录所在卷的可用空间是几十 GiB，
+// 要凑出"库比空闲的两倍还大"得先写几十 GiB 的文件。所以拒绝那一支由
+// service.TestStorage_InsufficientDiskIsSkipped 钉判据、这里只钉分发。
+func TestVacuumStorage_StartsAsynchronously(t *testing.T) {
+	setupCompressHandlerDB(t)
+
+	code, env := postJSON(t, VacuumStorage, "/api/logs/compression/vacuum", "")
+	if code != http.StatusOK {
+		t.Fatalf("重整的业务码是 %d，期望 200（msg=%v）", code, env["message"])
+	}
+	data, _ := env["data"].(map[string]any)
+	if started, _ := data["started"].(bool); !started {
+		t.Fatalf("响应里没写 started：%v", env["data"])
+	}
+	plan, _ := data["plan"].(map[string]any)
+	if plan == nil {
+		t.Fatalf("响应里没带预估数——磁盘不够时前端就说不清差多少：%v", env["data"])
+	}
+	for _, k := range []string{"file_size", "free_bytes", "need_bytes"} {
+		if _, ok := plan[k]; !ok {
+			t.Fatalf("预估数缺了 %s：%v", k, plan)
+		}
+	}
+	// 互斥（第二次点被挡）不在这里钉：那条路要**第一次还在飞**才看得到，而空库上
+	// 重整几毫秒就跑完了，断言谁赢都是抛硬币。占位是不是在响应之前落下，
+	// 由 service.TestStorage_VacuumPlaceholderIsTakenBeforeReturn 同步地钉住。
+}
+
+// humanBytes 只服务错误文案，但它写错了不会有任何东西报错——而"需要 6.1 GB、
+// 当前可用 4.2 GB"这句话里的全部内容就是它。所以位数、进位与小数位都钉一下。
+func TestHumanBytes(t *testing.T) {
+	cases := []struct {
+		n    int64
+		want string
+	}{
+		{0, "0 B"},
+		{512, "512 B"},
+		{1024, "1.0 KB"},
+		{1536, "1.5 KB"},
+		{1 << 20, "1.0 MB"},
+		{3 << 30, "3.0 GB"},
+		{7<<30 + 500<<20, "7.5 GB"},
+		{1 << 50, "1.0 PB"},
+	}
+	for _, c := range cases {
+		if got := humanBytes(c.n); got != c.want {
+			t.Errorf("humanBytes(%d) = %q，期望 %q", c.n, got, c.want)
+		}
+	}
+}
+
 func TestRollbackCompression_RequiresLiteralConfirm(t *testing.T) {
 	setupCompressHandlerDB(t)
 
@@ -289,6 +345,159 @@ func TestRollbackCompression_RequiresFull(t *testing.T) {
 	msg, _ := env["message"].(string)
 	if !bytes.Contains([]byte(msg), []byte("full")) {
 		t.Fatalf("拒绝理由没说清是 full 的问题：%q", msg)
+	}
+}
+
+// ── 状态接口在"库被自己占住"时还活着 ──────────────────────────────────────
+//
+// 这一组是**真机量出来的**：7 GiB 的库上整库重整要跑 57 秒，而那 57 秒里它持
+// EXCLUSIVE，`configs` 一句都读不出来。状态页每 2 秒轮询一次，于是每一次都等满
+// busy_timeout 然后 500 `database is locked (5) (SQLITE_BUSY)`——用户点完
+// 「立即重整」，卡片立刻变成一片报错，连"正在重整"都看不到。
+//
+// 两条用例各钉一条路：重整在跑时（先手绕开库）、以及别的任务占了锁时
+// （读撞锁后退回上一次的数）。
+
+// statusJSON 跑一次状态接口，返回业务码与 **data 那一层**。
+//
+// 剥掉信封再返回：下面断言的全是 data 里的字段（db / reclaiming / policy…），
+// 拿着整封信封去取会一律取到 nil——而 nil 与"这一块真没给"是两回事，
+// 断言会以"前置条件不成立"这种指错方向的话红掉，让人去查锁、查时序，
+// 其实只是取错了一层。
+func statusJSON(t *testing.T) (int, map[string]any) {
+	t.Helper()
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/logs/compression", nil)
+	GetCompressionStatus(c)
+
+	var env map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+		t.Fatalf("响应不是 JSON（HTTP %d）：%s", w.Code, w.Body.String())
+	}
+	code, _ := env["code"].(float64)
+	data, _ := env["data"].(map[string]any)
+	return int(code), data
+}
+
+// holdExclusiveLock 用另一条连接把库**整个按住**。
+//
+// 用 `BEGIN EXCLUSIVE` 而不是 `BEGIN IMMEDIATE`：回滚日志模式下 RESERVED 只挡写，
+// 读照样进得来，而这里要复现的正是"读也进不来"——真机上那句
+// `database is locked (5) (SQLITE_BUSY)` 就是这么来的。
+//
+// 连接池钉死为 1 条：`BEGIN` 与 `ROLLBACK` 必须落在同一条连接上，否则回滚的是
+// 另一条什么都没开的连接，锁一直挂着，后面的用例会在一个谁也不认识的锁上等满 5 秒。
+func holdExclusiveLock(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("打开第二条连接失败：%v", err)
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`PRAGMA busy_timeout = 5000`); err != nil {
+		t.Fatalf("设 busy_timeout 失败：%v", err)
+	}
+	if _, err := db.Exec(`BEGIN EXCLUSIVE`); err != nil {
+		t.Fatalf("按住写锁失败：%v", err)
+	}
+	return db
+}
+
+func TestGetCompressionStatus_SurvivesAVacuumHoldingTheLock(t *testing.T) {
+	setupCompressHandlerDB(t)
+	seedRow(t, []byte(`{"a":1}`))
+
+	// 先正常读一次。真机上也是这个次序：用户得先看见卡片，才点得动那个按钮。
+	code, first := statusJSON(t)
+	if code != http.StatusOK {
+		t.Fatalf("头一次读就失败了：%v", first)
+	}
+	if first["db"] == nil {
+		t.Fatal("前置条件不成立：头一次读应当量得到库的现状")
+	}
+	firstRows := first["db"].(map[string]any)["rows"]
+
+	lock := holdExclusiveLock(t, models.DBPath)
+	defer func() {
+		_, _ = lock.Exec(`ROLLBACK`)
+		lock.Close()
+	}()
+
+	// 锁被按住的时候重整起不来（它自己也读不了库），但**占位在返回之前就落下**：
+	// 于是"此刻正在重整"变成一个能按住的状态，而不是一次抛硬币。
+	if _, err := service.StartVacuum(context.Background()); err != nil {
+		t.Fatalf("重整没能开始（磁盘不够时这条用例没意义）：%v", err)
+	}
+	if service.ReclaimingKind() != models.ReclaimKindVacuum {
+		t.Fatalf("占位没落下，此刻报的是 %q", service.ReclaimingKind())
+	}
+
+	started := time.Now()
+	code, second := statusJSON(t)
+	took := time.Since(started)
+
+	if code != http.StatusOK {
+		t.Fatalf("重整期间状态接口报了 %d：%v——界面这时候全在轮询它", code, second["message"])
+	}
+	if second["reclaiming"] != true {
+		t.Fatal("重整期间没报 reclaiming——界面据此说「重整中」并且不画「停止」")
+	}
+	if second["reclaiming_kind"] != models.ReclaimKindVacuum {
+		t.Fatalf("reclaiming_kind 报的是 %v，期望 vacuum", second["reclaiming_kind"])
+	}
+	// **这条判据是"先手绕开库"的全部意义**：库被独占着，真去读要等满
+	// busy_timeout（5 秒）。而状态页是 2 秒轮询的——一次等 5 秒，请求会叠成一片。
+	if took > time.Second {
+		t.Fatalf("重整期间状态接口用了 %s——它还在真去读库，等满 busy_timeout 才回来", took)
+	}
+	// 库里那几块退回上一次那一份，并且**如实标成旧的**：刚重整完的人不该看到
+	// 一个"新鲜"的旧文件大小。
+	db, _ := second["db"].(map[string]any)
+	if db == nil {
+		t.Fatal("退路把库的现状整块丢掉了——它只是旧，不是没有")
+	}
+	if db["stale"] != true {
+		t.Fatalf("退回的那份没标 stale：%v", db)
+	}
+	if db["rows"] != firstRows {
+		t.Fatalf("退回的那份不是上一次读到的：rows=%v 期望 %v", db["rows"], firstRows)
+	}
+	if second["policy"] == nil || second["reclaim"] == nil {
+		t.Fatal("退路把策略/回执丢了——它们在这几十秒里一个字都不会变，没有理由不給")
+	}
+}
+
+// 别的任务占着锁（迁移的批、回收的批、日志清理）：读会撞上 BUSY，这时同样要
+// 退回上一次那一份，而不是把 500 甩给界面。
+//
+// 这条要等满一次 busy_timeout（5 秒），是这段测试里唯一一个慢用例——值，
+// 因为"迁移跑着的时候点开始迁移会 500"就是这一类。
+func TestGetCompressionStatus_ServesLastKnownWhenTheReadHitsBusy(t *testing.T) {
+	setupCompressHandlerDB(t)
+
+	code, first := statusJSON(t)
+	if code != http.StatusOK || first["db"] == nil {
+		t.Fatalf("前置条件不成立：%v", first)
+	}
+
+	lock := holdExclusiveLock(t, models.DBPath)
+	defer func() {
+		_, _ = lock.Exec(`ROLLBACK`)
+		lock.Close()
+	}()
+
+	code, second := statusJSON(t)
+	if code != http.StatusOK {
+		t.Fatalf("撞上写锁就报了 %d：%v——这一次在真机上就是那个 500",
+			code, second["message"])
+	}
+	if second["running"] != false || second["reclaiming"] != false {
+		t.Fatal("没有任何一轮在跑，退路却报了个在跑")
+	}
+	db, _ := second["db"].(map[string]any)
+	if db == nil || db["stale"] != true {
+		t.Fatalf("退回的那份没标 stale：%v", second["db"])
 	}
 }
 

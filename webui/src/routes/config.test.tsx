@@ -6,9 +6,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import ConfigPage from "@/routes/config"
 import {
   estimateReclaim,
+  estimateVacuumSec,
+  hasRoomForVacuum,
   RECLAIM_BUDGET_SEC,
   RECLAIM_PAGES_PER_BATCH,
   RECLAIM_PAGES_PER_SEC,
+  vacuumNeedBytes,
+  VACUUM_BYTES_PER_SEC,
+  VACUUM_DISK_MARGIN,
 } from "@/lib/compression"
 import {
   configAPI,
@@ -22,6 +27,7 @@ import {
   stopReclaim,
   updateCompressionPolicy,
   updateReclaimPolicy,
+  vacuumStorage,
   type AnthropicCountTokens,
   type CompressionDBStats,
   type CompressionStatus,
@@ -50,6 +56,7 @@ vi.mock("@/lib/api", () => ({
   reclaimStorage: vi.fn(),
   stopReclaim: vi.fn(),
   updateReclaimPolicy: vi.fn(),
+  vacuumStorage: vi.fn(),
 }))
 
 const mocked = {
@@ -65,6 +72,7 @@ const mocked = {
   reclaimStorage: vi.mocked(reclaimStorage),
   stopReclaim: vi.mocked(stopReclaim),
   updateReclaimPolicy: vi.mocked(updateReclaimPolicy),
+  vacuumStorage: vi.mocked(vacuumStorage),
 }
 
 /**
@@ -160,6 +168,10 @@ function compressionStatus(over: Partial<CompressionStatus> = {}): CompressionSt
       page_size: 4096,
       page_count: 0,
       freelist_count: 0,
+      // 默认给一个"空间充足"的空闲量。用 0 的话，所有拿默认库现状的用例都会
+      // 撞上「重整」的磁盘预判（0 表示量不到，一律算不够），于是那条路上的
+      // 用例测的就不是它们想测的东西了。
+      disk_free_bytes: 1 << 40,
       auto_vacuum: 0,
       rows: 0,
       pending_rows: 0,
@@ -172,12 +184,14 @@ function compressionStatus(over: Partial<CompressionStatus> = {}): CompressionSt
     },
     running: false,
     reclaiming: false,
+    reclaiming_kind: "",
     reclaim_stopping: false,
     // 默认关着。定时回收会自己占写锁，所以"默认"这一档必须是关——
     // 用例要测自动回收时显式打开，免得某天默认值被改反了还没人发现。
     reclaim_policy: { enabled: false, min_bytes: 256 * 1024 ** 2, check_interval_sec: 3600 },
     reclaim: {
       status: "idle",
+      kind: "",
       source: "",
       continuous: false,
       rounds: 0,
@@ -189,6 +203,7 @@ function compressionStatus(over: Partial<CompressionStatus> = {}): CompressionSt
       freelist_before: 0,
       freelist_after: 0,
       calls: 0,
+      batch_size: 0,
       duration_ms: 0,
       started_at: "",
       finished_at: "",
@@ -1157,6 +1172,217 @@ describe("系统配置页 · 数据库压缩", () => {
           check_interval_sec: 1800,
         })
       )
+    })
+  })
+
+  describe("重整（VACUUM）", () => {
+    /**
+     * 重整与回收是同一个目标的**两条路**，判据完全独立：
+     *
+     *   - 回收要库开 auto_vacuum（否则是一条 0.000 秒的空操作），重整**不要求**；
+     *   - 重整要 2 倍库大小的可用磁盘，回收不需要。
+     *
+     * 所以这张卡上不能只有一个"能不能点"的结论——最常见的现场恰好是
+     * "回收点不动（no_auto_vacuum）但重整可以"。这条用例钉的就是两句话各说各的。
+     */
+    it("库没开 auto_vacuum 时回收点不动，但重整照常可点", async () => {
+      withCompression({
+        db: dbStats({
+          auto_vacuum: 0,
+          freelist_count: 336_000,
+          file_size: 1024 ** 3,
+          disk_free_bytes: 8 * 1024 ** 3,
+        }),
+      })
+
+      renderPage()
+
+      // 回收那条路断在 auto_vacuum 上。
+      expect(await screen.findByText(/回收不會產生任何效果|回收不会产生任何效果/)).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /^回收 / })).toBeDisabled()
+      // 重整这条路与它无关。空闲 8 GiB 对 1 GiB 的库绰绰有余（要 2 GiB + 余量）。
+      expect(screen.getByRole("button", { name: "立即重整" })).toBeEnabled()
+    })
+
+    it("磁盘不够时说清差多少，并把按钮禁掉而不是让人白点", async () => {
+      withCompression({
+        db: dbStats({
+          auto_vacuum: 2,
+          freelist_count: 336_000,
+          file_size: 6 * 1024 ** 3,
+          // 6 GiB 的库要 12 GiB + 余量，只给 8 GiB。
+          disk_free_bytes: 8 * 1024 ** 3,
+        }),
+      })
+
+      renderPage()
+
+      // 理由要写出来：一个灰着的按钮不写原因，只会被当成故障。
+      expect(await screen.findByText(/可用磁碟空間不夠這一次重整|可用磁盘空间不够这一次重整/)).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "立即重整" })).toBeDisabled()
+      // 同一条路走不通不该连坐另一条：回收不需要额外磁盘，照样可点。
+      expect(screen.getByRole("button", { name: /^回收 / })).toBeEnabled()
+    })
+
+    it("状态量不到时不猜空间够不够，一律禁掉这条重路", async () => {
+      // db 为 null 是后端如实说的"量不到"（迁移正在写库时这一读会撞锁）。
+      withCompression({ db: null })
+
+      renderPage()
+
+      // db 为 null 是后端如实说的"量不到"（迁移正在写库时这一读会撞锁）。
+      // 判据取重整自己那一句：库里另有两处"量不到"的说明，混在一起会找到多个。
+      expect(await screen.findByText(/無法確認磁碟空間是否夠用|无法确认磁盘空间是否够用/)).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: "立即重整" })).toBeDisabled()
+    })
+
+    it("点重整要过一次确认，代价与回收分开说清", async () => {
+      const user = userEvent.setup()
+      withCompression({
+        db: dbStats({
+          auto_vacuum: 2,
+          freelist_count: 336_000,
+          file_size: 7 * 1024 ** 3,
+          disk_free_bytes: 32 * 1024 ** 3,
+        }),
+      })
+      mocked.vacuumStorage.mockResolvedValue({
+        started: true,
+        plan: { file_size: 7 * 1024 ** 3, free_bytes: 32 * 1024 ** 3, need_bytes: 14 * 1024 ** 3 },
+      })
+
+      renderPage()
+      await user.click(await screen.findByRole("button", { name: "立即重整" }))
+
+      const dialog = await screen.findByRole("dialog")
+      // 它的代价与回收**不是一回事**：回收期间写入排队但多半成功，重整期间读写
+      // 都进不来。说成"变慢"就是把一次真实的不可用轻描淡写了。
+      expect(within(dialog).getByText(/不是「變慢」|不是「变慢」/)).toBeInTheDocument()
+      // 停不了这件事必须在按下之前说：它没有"批次之间"这个时机。
+      expect(within(dialog).getByText(/無法中途停止|无法中途停止/)).toBeInTheDocument()
+      expect(mocked.vacuumStorage).not.toHaveBeenCalled()
+
+      await user.click(within(dialog).getByRole("button", { name: "开始重整" }))
+      await waitFor(() => expect(mocked.vacuumStorage).toHaveBeenCalledTimes(1))
+    })
+
+    /**
+     * 重整在跑时的界面与回收**必须分得开**：
+     *
+     *   - 文案是"重整中"（用户点了重整，看到"回收中"会以为点错了）；
+     *   - **不画「停止」**——VACUUM 是一条语句，没有批间这个时机，后端也会明确
+     *     拒绝。画一个按下去必然报错的按钮，不如不画。
+     *
+     * 判据取 `reclaiming_kind` 而**不是**回执里的 `reclaim.kind`：后者写的是上一次
+     * 跑完的那趟（running 记录要等收工才落库），正在跑的时候它是张冠李戴的旧值。
+     * 这条用例特意把两者**设成相反的**，谁用错了立刻就会红。
+     */
+    it("重整在跑时说的是重整中，而且不画「停止」", async () => {
+      withCompression({
+        reclaiming: true,
+        reclaiming_kind: "vacuum",
+        // 回执是上一次**回收**留下的：拿它当"正在干什么"是错的。
+        reclaim: reclaimState({ status: "done", kind: "reclaim", stop_reason: "empty" }),
+        db: dbStats({ auto_vacuum: 2, freelist_count: 336_000 }),
+      })
+
+      renderPage()
+
+      // 两处「重整中」：读数行一处、按钮一处。用 findAllByText 是因为它们说的是
+      // 同一句话——这正是想要的形状（按钮自己报"我在重整中"，而不是回到"立即重整"）。
+      expect((await screen.findAllByText("重整中")).length).toBeGreaterThan(0)
+      expect(screen.queryByRole("button", { name: "停止" })).not.toBeInTheDocument()
+      // 重整期间两条路都不该能再点：库被整个独占着。
+      // 重整那颗按钮的文案此刻是「重整中」，所以判据取它而不是「立即重整」。
+      expect(screen.getByRole("button", { name: "重整中" })).toBeDisabled()
+      expect(screen.getByRole("button", { name: /^回收 / })).toBeDisabled()
+    })
+
+    it("回收在跑时照旧给「停止」，且不把上一次的重整回执说成正在重整", async () => {
+      withCompression({
+        reclaiming: true,
+        reclaiming_kind: "reclaim",
+        reclaim: reclaimState({ status: "done", kind: "vacuum", stop_reason: "vacuumed" }),
+        db: dbStats({ auto_vacuum: 2, freelist_count: 336_000 }),
+      })
+
+      renderPage()
+
+      // 同上：读数行与按钮都写着「回收中」。
+      expect((await screen.findAllByText("回收中")).length).toBeGreaterThan(0)
+      expect(screen.getByRole("button", { name: "停止" })).toBeInTheDocument()
+    })
+
+    // 回执那一行按 kind 分两套说法：重整没有"执行了几条语句"这回事（它是整库重写），
+    // 而回收那套里的批量读数正是它的诊断价值所在。混着说的话，一次重整会显示成
+    // "执行 0 条语句"，看起来像什么事都没干。
+    it("重整的回执不说「执行了几条语句」", async () => {
+      withCompression({
+        reclaim: reclaimState({
+          status: "done",
+          kind: "vacuum",
+          source: "manual",
+          stop_reason: "vacuumed",
+          file_size_before: 7 * 1024 ** 3,
+          file_size_after: 128 * 1024 ** 2,
+          duration_ms: 57_000,
+          calls: 0,
+        }),
+        db: dbStats({ auto_vacuum: 2, freelist_count: 0 }),
+      })
+
+      renderPage()
+
+      // 回执行要出现（说明这一趟确实被读出来了）……
+      // 耗时由 formatDurationMs 给，单位是**拉丁 s**（`57s` 而非「57 秒」）——
+      // 那句 "实测 7 GiB 的库约 57 秒" 是估算行的说明文案，不是这里要判的读数。
+      expect(await screen.findByText(/耗[時时] 57s/)).toBeInTheDocument()
+      // ……但它说的是重整那一套：不写"执行 0 条语句"（整库重写没有这个数），
+      // 也不写"末批几条语句"。
+      expect(screen.queryByText(/執行 0 條語句|执行 0 条语句/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/條語句$|条语句$/)).not.toBeInTheDocument()
+    })
+  })
+
+  // ── 重整那几个纯函数 ──
+  //
+  // 它们是"能被算错而不会报错"的那一类：算错了界面照样渲染，只是给出的
+  // "约多久 / 够不够"是错的。所以判据单独钉一遍。
+  describe("重整的估算", () => {
+    it("耗时按库文件大小折算，实测基准是 7.06 GiB / 57 秒", () => {
+      // 基准点自己：7.06 GiB 应当落在 55–59 秒那一档。
+      const sevenGiB = 7.06 * 1024 ** 3
+      const sec = estimateVacuumSec(sevenGiB)
+      expect(sec).toBeGreaterThanOrEqual(55)
+      expect(sec).toBeLessThanOrEqual(59)
+      // 常量本身要贴着这个基准：取整到秒会差几百字节，所以用相对误差判，
+      // 钉的是"它就是 7.06 GiB / 57 秒"这件事，不是某一位小数。
+      expect(VACUUM_BYTES_PER_SEC).toBeCloseTo(sevenGiB / 57, -6)
+
+      // 空库与坏值不给假时间。
+      expect(estimateVacuumSec(0)).toBe(0)
+      expect(estimateVacuumSec(Number.NaN)).toBe(0)
+      // 再小也至少 1 秒：界面上给一个 0 秒的"预计"和没给一样。
+      expect(estimateVacuumSec(1)).toBe(1)
+    })
+
+    it("要的磁盘是 2 倍库大小加余量，与后端 enoughDisk 同一套算术", () => {
+      const oneGiB = 1024 ** 3
+      expect(vacuumNeedBytes(oneGiB)).toBe(2 * oneGiB + VACUUM_DISK_MARGIN)
+      expect(vacuumNeedBytes(0)).toBe(0)
+
+      expect(hasRoomForVacuum(oneGiB, 2 * oneGiB + VACUUM_DISK_MARGIN)).toBe(true)
+      // 差一个字节也算不够：这条判据错了的后果是 VACUUM 中途磁盘满，
+      // 而那是唯一能把库留在说不清状态的做法。
+      expect(hasRoomForVacuum(oneGiB, 2 * oneGiB + VACUUM_DISK_MARGIN - 1)).toBe(false)
+    })
+
+    it("空闲磁盘量不到（0）时一律算不够，不把未知当充足", () => {
+      // 后端量不到时给 0。把它当"空间无限"的代价是让用户白点一次、
+      // 甚至写盘写到一半满；反过来误禁的代价只是这条路暂时不能用。
+      expect(hasRoomForVacuum(1024 ** 2, 0)).toBe(false)
+      expect(hasRoomForVacuum(1024 ** 2, -1)).toBe(false)
+      expect(hasRoomForVacuum(1024 ** 2, Number.NaN)).toBe(false)
     })
   })
 })

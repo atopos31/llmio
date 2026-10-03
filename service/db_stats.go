@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -63,13 +64,20 @@ const (
 // `auto_vacuum=0` 与 `freelist_count=0` 都是有确切含义的值（前者意味着文件永不
 // 缩小，界面据此画橙色警告线），拿 0 去表示"不知道"会把警告画错。
 type DBStats struct {
-	Path       string `json:"path"`
-	FileSize   int64  `json:"file_size"`
-	PageSize   int64  `json:"page_size"`
-	PageCount  int64  `json:"page_count"`
-	Freelist   int64  `json:"freelist_count"`
-	AutoVacuum int64  `json:"auto_vacuum"`
-	Rows       int64  `json:"rows"`
+	Path      string `json:"path"`
+	FileSize  int64  `json:"file_size"`
+	PageSize  int64  `json:"page_size"`
+	PageCount int64  `json:"page_count"`
+	Freelist  int64  `json:"freelist_count"`
+	// DiskFree 是库所在卷的空闲字节数。给界面用来**提前算**重整（VACUUM）
+	// 够不够——它要 2× 库大小的可用空间，而这个数只有服务端问得到。
+	// 不提前给的话，用户点下去才被拒，而"差多少"还得再问一次。
+	//
+	// 它是一次 Windows API / statfs，比这组里任何一个 SQL 都便宜，
+	// 加进来不会让这条本来就是"常数量级"的读变贵。
+	DiskFree   int64 `json:"disk_free_bytes"`
+	AutoVacuum int64 `json:"auto_vacuum"`
+	Rows       int64 `json:"rows"`
 	// PendingRows / FramedRows 数的是**行**，判据取三列的并集：一行里只要还有
 	// 一列是明文就算待迁，只要有一列是帧就算已压。按单列数会让"input 迁完了、
 	// 响应体还没"这种最常见的中间态读成"待迁移 0 行"，而那正是真机上发生过的
@@ -158,8 +166,15 @@ func ReadDBStats(ctx context.Context) *DBStats {
 
 // cachedDBStats 取缓存。maxAge<=0 表示"多老都要"。
 // 返回副本：调用方（handler）会往上写 Stale，不该改到缓存本体。
+//
+// **换了库就不算数。** 这份缓存是进程级的，而这组数说的是**某一个库文件**的
+// 事：某一行的三列，某个 freelist 的页数。库路径一旦换了还接着用，症状是
+// "形状都对、内容全是另一个库的"——它不会报错，只会让界面说假话。
+// 生产里路径是写死的（`./db/llmio.db`），这条判断不花什么代价；测试里每个
+// 用例一份 TempDir 下的库，正是靠它互不串味。`models/block.go` 的组缓存
+// 出于同样的理由在 Init 时整个丢掉。
 func cachedDBStats(maxAge time.Duration) (*DBStats, bool) {
-	if dbStatsCache == nil {
+	if dbStatsCache == nil || dbStatsCache.Path != models.DBPath {
 		return nil, false
 	}
 	if maxAge > 0 && time.Since(dbStatsAt) > maxAge {
@@ -200,20 +215,23 @@ func readDBStatsWithRetry(ctx context.Context) (*DBStats, error) {
 		}
 		last = err
 		// 不是撞锁就别重试了：重试解决不了语法错、表不存在这类问题。
-		if !isBusyErr(err) {
+		if !IsBusyErr(err) {
 			return nil, err
 		}
 	}
 	return nil, last
 }
 
-// isBusyErr 判"这一句是不是撞上别人的写锁了"。
+// IsBusyErr 判"这一句是不是撞上别人的写锁了"。
 //
 // 两手准备：驱动的 `*Error` 带错误码，先看码；码认不出来（错误被包装过、
 // 或换过驱动）就退回看文本。文本兜底不是偷懒——真机上报出来的原话就是
 // `database is locked (5) (SQLITE_BUSY)`，而它一旦认不出，后果是"不重试"
 // 而不是"重试错了"，退化方向是安全的。
-func isBusyErr(err error) bool {
+//
+// 导出是给 handler 用的：状态接口在这条错上有一条退路（拿上一次的数顶一顶），
+// 判据必须与这里的重试判据**同一套**——分头写迟早会漂。
+func IsBusyErr(err error) bool {
 	var coder interface{ Code() int }
 	if errors.As(err, &coder) {
 		if code := coder.Code(); code == sqliteBusy || code == sqliteLocked {
@@ -229,6 +247,14 @@ func readDBStatsOnce(ctx context.Context) (*DBStats, error) {
 
 	if size, err := DBFileSize(); err == nil {
 		stats.FileSize = size
+	}
+
+	// 空闲磁盘：一次 statfs，比上面任何一句 SQL 都便宜，所以和它们一样每轮真读。
+	// 量不到就留 0——**界面据此判"重整够不够"，0 的含义是"不够/不知道"，
+	// 那个方向的错是"按钮禁用"，而不是"点了才发现"**。反过来把量不到当成
+	// "空间充足"才会让人白点一次，还可能在写盘中途满盘。
+	if free, err := diskFree(filepath.Dir(models.DBPath)); err == nil {
+		stats.DiskFree = free
 	}
 
 	for _, q := range []struct {

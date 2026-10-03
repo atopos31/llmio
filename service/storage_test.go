@@ -373,27 +373,213 @@ func TestStorage_ReclaimClearsInFlightAfterFinishing(t *testing.T) {
 	}
 }
 
+// ── 重整（VACUUM）────────────────────────────────────────────────────────
+//
+// 这一组盯的是**运行时那条路**（控制台上点「立即重整」）。启动期那条路
+// （PrepareStorage 里的转换 / DB_VACUUM）上面已经测过，两者共用
+// vacuumOnOneConnection 与 finishReclaim，差别只在占位与回执。
+
+// 重整的回执必须与增量回收分得开：同一个库上，"点了一次重整"与"点了一次回收"
+// 在界面上是两套说法（耗时、能不能停、要不要额外磁盘都不一样）。回执里混起来，
+// 事后就再也分不出哪一次是哪一个。
+//
+// 顺带钉住"文件真的小了"——这才是重整存在的理由。增量回收那组用例能拿
+// FreedPages 当结果，重整不行：它放掉的页数与文件缩掉的字节数常常对不上
+// （整库重写会重排页、合并空洞），所以判据只能落在**文件大小**上。
+func TestStorage_VacuumIsRecordedAsVacuum(t *testing.T) {
+	path := makeOldDatabase(t, 60, 16<<10)
+	ctx := context.Background()
+
+	// 删掉种子行留出一堆空洞。VACUUM 要有东西可收，否则这条用例测的是"没事发生"。
+	if err := models.DB.WithContext(ctx).Exec(`DELETE FROM seed`).Error; err != nil {
+		t.Fatalf("删行失败：%v", err)
+	}
+	before, err := readStorageCounters()
+	if err != nil {
+		t.Fatalf("量起始状态失败：%v", err)
+	}
+	if before.freelist == 0 {
+		t.Fatal("现场没造对：freelist 是空的，重整无从收")
+	}
+
+	rec, err := vacuumStorage(ctx)
+	if err != nil {
+		t.Fatalf("重整失败：%v", err)
+	}
+	if rec.Kind != models.ReclaimKindVacuum {
+		t.Fatalf("回执的 kind 是 %q，期望 %q", rec.Kind, models.ReclaimKindVacuum)
+	}
+	if rec.Source != "manual" {
+		t.Fatalf("手动点的重整应当记 source=manual，实得 %q", rec.Source)
+	}
+	if rec.Status != "done" || rec.StopReason != "vacuumed" {
+		t.Fatalf("重整收尾应当是 done/vacuumed，实得 %s/%s", rec.Status, rec.StopReason)
+	}
+	if rec.FreelistAfter != 0 {
+		t.Fatalf("重整之后 freelist 应当是 0，实得 %d", rec.FreelistAfter)
+	}
+	if after := fileSizeOf(t, path); after >= before.fileSize {
+		t.Fatalf("重整没让文件变小：%d → %d", before.fileSize, after)
+	}
+
+	// 落库的那一份也要是同一件事：界面读的是它，不是上面这个返回值。
+	saved, err := GetLogReclaimState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Kind != models.ReclaimKindVacuum || saved.StopReason != "vacuumed" {
+		t.Fatalf("落库的回执对不上：kind=%q reason=%q", saved.Kind, saved.StopReason)
+	}
+	if saved.DurationMs != rec.DurationMs {
+		t.Fatalf("落库的耗时 %d 与返回的 %d 不一致", saved.DurationMs, rec.DurationMs)
+	}
+}
+
+// 占位（"有一趟在飞"）必须**在 StartVacuum 返回之前**成立。
+//
+// 这不是洁癖，是两个真问题：接口答的 `started: true` 得是真的（否则连点两下
+// 两个都成功，第二下把第一下的结果覆盖掉）；以及界面要在响应之后立刻显示
+// "重整中"，留空档就得靠一个额外的客户端标志兜住。
+func TestStorage_VacuumPlaceholderIsTakenBeforeReturn(t *testing.T) {
+	setupLogCompressTestDB(t)
+
+	plan, err := StartVacuum(context.Background())
+	if err != nil {
+		t.Fatalf("重整没能开始：%v", err)
+	}
+	if plan == nil {
+		t.Fatal("StartVacuum 没给回预估数——磁盘不够时界面就说不清'差多少'")
+	}
+	// 预检要的三个数是同一份算术：2× 库 + 余量。算错了的后果是"以为够"。
+	if plan.Need != 2*plan.FileSize+reclaimDiskMargin {
+		t.Fatalf("需要量算错了：%d，期望 %d", plan.Need, 2*plan.FileSize+reclaimDiskMargin)
+	}
+	if !enoughDisk(plan.Free, plan.FileSize) {
+		t.Skip("这台机器上临时目录所在卷放不下 2 倍库大小，跳过（预检会正确拒绝）")
+	}
+	if !ReclaimRunning() {
+		t.Fatal("StartVacuum 已经返回，占位却没落下——response 里的 started 是假的")
+	}
+	if _, err := StartVacuum(context.Background()); !errors.Is(err, ErrReclaimRunning) {
+		t.Fatalf("第二次点应当被挡（ErrReclaimRunning），实得 %v", err)
+	}
+
+	waitUntil(t, 30*time.Second, func() bool { return !ReclaimRunning() }, "重整没有收工")
+}
+
+// 「此刻在跑的是哪一条路」。界面据此决定画不画「停止」、说"回收中"还是"重整中"。
+//
+// 判据必须是**此刻**的，不能拿回执里那份 kind 顶替：跑着的时候回执还是上一次
+// 跑完的那趟（running 记录要等收工才落库），拿它当"正在干什么"是张冠李戴。
+func TestReclaimingKind(t *testing.T) {
+	setupLogCompressTestDB(t)
+	t.Cleanup(func() {
+		reclaimInFlight.Store(false)
+		reclaimStopRequested.Store(false)
+	})
+
+	if got := ReclaimingKind(); got != "" {
+		t.Fatalf("没有任务在跑时应当是空串，实得 %q", got)
+	}
+
+	if err := beginReclaim(models.ReclaimKindVacuum); err != nil {
+		t.Fatal(err)
+	}
+	if got := ReclaimingKind(); got != models.ReclaimKindVacuum {
+		t.Fatalf("在跑重整时报的是 %q", got)
+	}
+	// 重整停不了：它是一条语句，没有批间这个时机。答 true 等于骗用户按了个
+	// 没用的按钮——标志设了没人读，界面还会显示"正在停止"。
+	if StopReclaim() {
+		t.Fatal("重整期间不该接受停止请求")
+	}
+
+	reclaimInFlight.Store(false)
+	if err := beginReclaim(models.ReclaimKindReclaim); err != nil {
+		t.Fatal(err)
+	}
+	if got := ReclaimingKind(); got != models.ReclaimKindReclaim {
+		t.Fatalf("在跑回收时报的是 %q", got)
+	}
+	// beginReclaim 顺带清掉上一趟的停止标志。不清的话，前一趟的「停止」会
+	// 立刻作用在这一趟上——刚点开始就自己停了。
+	if reclaimStopRequested.Load() {
+		t.Fatal("beginReclaim 没清掉上一趟留下的停止标志")
+	}
+	if !StopReclaim() {
+		t.Fatal("回收期间应当接受停止请求")
+	}
+
+	reclaimInFlight.Store(false)
+	// 认不出的取值按增量回收答：加一个没见过的 kind 不该让界面显示成空白。
+	reclaimInFlight.Store(true)
+	reclaimKind.Store("something-new")
+	if got := ReclaimingKind(); got != models.ReclaimKindReclaim {
+		t.Fatalf("认不出的 kind 应当退化成 %q，实得 %q", models.ReclaimKindReclaim, got)
+	}
+}
+
 // ── 批的大小 ──────────────────────────────────────────────────────────────
 
 // `reclaimNextBatch` 的两条分支：打满，或者只打剩下的。
 //
 // 这一条不是形式主义。真机上量出来的事实是**一条 `incremental_vacuum` 恰好放
-// 一页**（参数被驱动忽略，见 reclaimPagesPerTx），所以"这一批打多少条"就等于
+// 一页**（参数被驱动忽略，见 reclaimBatchMax），所以"这一批打多少条"就等于
 // "这一批放多少页"——多打的部分是纯粹的**空转**，而空转也发生在写事务里。
 func TestReclaimNextBatch(t *testing.T) {
+	// 额定大小由 nextBatchSize 给，这里随便挑一个"不是边界值"的，免得
+	// 测试跟着上下限一起动。
+	const size = 256
 	cases := []struct {
 		freelist int64
 		want     int
 	}{
 		{-1, 0}, {0, 0}, {1, 1},
-		{reclaimPagesPerTx - 1, reclaimPagesPerTx - 1},
-		{reclaimPagesPerTx, reclaimPagesPerTx},
-		{reclaimPagesPerTx + 1, reclaimPagesPerTx},
-		{10 * reclaimPagesPerTx, reclaimPagesPerTx},
+		{size - 1, size - 1},
+		{size, size},
+		{size + 1, size},
+		{10 * size, size},
 	}
 	for _, c := range cases {
-		if got := reclaimNextBatch(c.freelist); got != c.want {
-			t.Errorf("reclaimNextBatch(%d) = %d，期望 %d", c.freelist, got, c.want)
+		if got := reclaimNextBatch(c.freelist, size); got != c.want {
+			t.Errorf("reclaimNextBatch(%d, %d) = %d，期望 %d", c.freelist, size, got, c.want)
+		}
+	}
+}
+
+// 批量按上一批的实测耗时外推：慢了就缩、快了就涨，而**缩得比涨快**。
+//
+// 这一条**就是那个线上故障的对策本身**（起因见 reclaimBatchMax）：批量定死
+// 512 时，一份 freelist 1.83M 页的库上一批要 8.9 秒，越过 busy_timeout 的
+// 5 秒，那个窗口里的聊天请求成片 500。所以这里钉的不只是"方向对"，还有
+// **那条不对称阻尼**——没有它，一次 I/O 尖峰就能把批量甩到底、再一步弹回顶，
+// 而弹回顶的那一批正好握满写锁。
+func TestNextBatchSize(t *testing.T) {
+	const (
+		size = 512
+		fast = reclaimBatchTarget / 2
+		half = reclaimBatchTarget * 2
+	)
+	cases := []struct {
+		name  string
+		size  int
+		batch int
+		took  time.Duration
+		want  int
+	}{
+		{"正合目标：不动", size, 512, reclaimBatchTarget, 512},
+		{"慢一倍：缩一半（缩是止损）", size, 512, half, 256},
+		{"慢得再多也只缩一半", size, 512, 8 * reclaimBatchTarget, 256},
+		{"快一倍：涨一半（涨是试探）", size, 512, fast, 512},
+		{"快得多也只涨一半", 128, 128, reclaimBatchTarget / 4, 192},
+		{"慢到极点也只缩到下限", reclaimBatchMin, reclaimBatchMin, 100 * reclaimBatchTarget, reclaimBatchMin},
+		{"没打满：不参与调整", size, 100, 10 * reclaimBatchTarget, 512},
+		{"量到 0：不参与调整", size, 512, 0, 512},
+	}
+	for _, c := range cases {
+		if got := nextBatchSize(c.size, c.batch, c.took); got != c.want {
+			t.Errorf("%s：nextBatchSize(%d, %d, %s) = %d，期望 %d",
+				c.name, c.size, c.batch, c.took, got, c.want)
 		}
 	}
 }
@@ -424,7 +610,7 @@ func TestReclaimVerdict(t *testing.T) {
 }
 
 // **一条语句恰好放一页**——这条驱动行为是整个回收设计的承重事实：
-// `reclaimPagesPerTx` 的解释、90 秒预算折出来的吞吐（前 9 个满轮实测约 472 MiB/轮）、
+// `reclaimBatchMax` 的解释、90 秒预算折出来的吞吐（前 9 个满轮实测约 472 MiB/轮）、
 // 以及"大 freelist 该用 VACUUM 而不是增量回收"这个结论，全都建立在它上面。
 //
 // 它同时是一道**告警**：换驱动、或驱动升级后这个 pragma 又开始认参数了，
@@ -459,7 +645,7 @@ func TestReclaimBatchFreesExactlyOnePagePerStatement(t *testing.T) {
 	}
 	if freed := before.freelist - after.freelist; freed != int64(batch) {
 		t.Fatalf("打了 %d 条语句却放掉 %d 页——一条一页这条事实变了，"+
-			"reclaimPagesPerTx / reclaimBudget 都要按新的数重新推", batch, freed)
+			"reclaimBatch* / reclaimBudget 都要按新的数重新推", batch, freed)
 	}
 }
 
@@ -563,9 +749,13 @@ func TestReclaimBatchesPerRound(t *testing.T) {
 
 // 持续回收的正面证据：**同一个库，一直放到 freelist 空**，而且轮数与批数对得上。
 //
-// 现场刻意造得比一批（512 页）大好几倍，这样"轮"这件事才真的发生。若哪天有人把
+// 现场刻意造得比一批大好几倍，这样"轮"这件事才真的发生。若哪天有人把
 // 轮循环写回单轮（比如把 continuous 参数丢掉），Rounds 会停在 1、freelist 还剩
 // 一大截，这一条就会红。
+//
+// 轮数**没有定值**：批量是自适应的（见 nextBatchSize），同一个库跑两遍轮数
+// 都可以不一样。所以这里钉的是上下界——每轮至少放 reclaimBatchMin 页、
+// 至多放 reclaimBatchMax 页。
 func TestStorage_ContinuousReclaimDrainsInManyRounds(t *testing.T) {
 	models.Init(context.Background(), filepath.Join(t.TempDir(), "continuous.db"))
 	t.Cleanup(closeTestDB)
@@ -580,8 +770,8 @@ func TestStorage_ContinuousReclaimDrainsInManyRounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantRounds := int((before.freelist + reclaimPagesPerTx - 1) / reclaimPagesPerTx)
-	if wantRounds < 3 {
+	minRounds := int((before.freelist + reclaimBatchMax - 1) / reclaimBatchMax)
+	if minRounds < 3 {
 		t.Fatalf("现场没造对：freelist 只有 %d 页，凑不出几轮", before.freelist)
 	}
 
@@ -599,9 +789,10 @@ func TestStorage_ContinuousReclaimDrainsInManyRounds(t *testing.T) {
 	if rec.FreelistAfter != 0 {
 		t.Fatalf("跑到 empty 了 freelist 却不是 0：%d", rec.FreelistAfter)
 	}
-	if rec.Rounds != wantRounds {
-		t.Fatalf("起始 %d 页、一批 %d 页，应当恰好 %d 轮，实得 %d 轮",
-			before.freelist, reclaimPagesPerTx, wantRounds, rec.Rounds)
+	maxRounds := int((before.freelist + reclaimBatchMin - 1) / reclaimBatchMin)
+	if rec.Rounds < minRounds || rec.Rounds > maxRounds {
+		t.Fatalf("起始 %d 页，轮数应当落在 %d–%d 之间（每轮放 %d–%d 页），实得 %d 轮",
+			before.freelist, minRounds, maxRounds, reclaimBatchMin, reclaimBatchMax, rec.Rounds)
 	}
 	if rec.Calls != int(rec.FreedPages) {
 		t.Fatalf("语句数 %d 与实际放掉的 %d 页对不上（有一条一页这条事实在，两者应当恒等）",
@@ -692,13 +883,12 @@ func TestStorage_ContinuousReclaimStopsOnRequest(t *testing.T) {
 	if got.rec.FreelistAfter >= before.freelist {
 		t.Fatalf("叫停之前跑的那几批应当有成效：%d → %d", before.freelist, got.rec.FreelistAfter)
 	}
-	// 光看上面两条还不够：**跑到 empty 再报 stopped** 也能满足它们（只要 freelist
-	// 恰好没归零）。这条钉的是"它是被叫停的，不是自己跑完的"。
-	wantRounds := int((before.freelist + reclaimPagesPerTx - 1) / reclaimPagesPerTx)
-	if got.rec.Rounds >= wantRounds {
-		t.Fatalf("起始 %d 页要 %d 轮才放得完，却跑了 %d 轮——这不是被叫停，是跑完了",
-			before.freelist, wantRounds, got.rec.Rounds)
-	}
+	// 早先这里还要数一遍轮数（"要 ceil(freelist/512) 轮才放得完，跑到这个数
+	// 就说明它是跑完而不是被叫停"）。批量自适应之后那个数没有定值了——同样的
+	// freelist，批量收到 128 时的轮数就是 512 时的四倍——而**上面两条已经够**：
+	// reclaimVerdict 的优先级里 `empty` 压过一切，freelist 归零的那一批之后
+	// verdict 必然是 empty，循环里那句 `stopped` 根本轮不到。所以"报 stopped
+	// 且 freelist 还剩着"，只可能是被叫停的。
 	if ReclaimRunning() || ReclaimStopping() {
 		t.Fatal("退出来了却还报在跑/正在停——界面会永远停在「回收中」")
 	}
@@ -721,7 +911,7 @@ func TestStorage_ContinuousReclaimYieldsMaintenanceLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.freelist <= reclaimPagesPerTx {
+	if before.freelist <= reclaimBatchMax {
 		t.Fatalf("现场没造对：freelist 只有 %d 页，跑不满两轮", before.freelist)
 	}
 
@@ -745,7 +935,8 @@ func TestStorage_ContinuousReclaimYieldsMaintenanceLock(t *testing.T) {
 			return false
 		}
 		counters, err := readStorageCounters()
-		if err != nil || counters.freelist > before.freelist-reclaimPagesPerTx {
+		// 第一批恰好是 reclaimBatchStart 页（每趟从起点重来，见那里）。
+		if err != nil || counters.freelist > before.freelist-reclaimBatchStart {
 			return false
 		}
 		if !maintenanceMu.TryLock() {

@@ -70,6 +70,32 @@ func TestDBStats_ReadsTheRealNumbersAndCaches(t *testing.T) {
 	}
 }
 
+// 空闲磁盘那一项：界面拿它**提前算**重整够不够（VACUUM 要 2 倍库大小的可用空间），
+// 所以它必须在状态里，而且必须是真的（一次 statfs，不是估算）。
+//
+// 判据取"大于 0 且小于等于库所在卷的总量"这种弱形状，是因为测试机上的可用空间
+// 是个一直在动的数：钉死具体值只会得到一条时灵时不灵的用例。真正要钉的是
+// **它有没有被填上**——留 0 的话界面会把每一次重整都判成"空间不够"，
+// 而那条路上的用户看到的会是一个永远点不动的按钮。
+func TestDBStats_ReportsFreeDiskSpace(t *testing.T) {
+	setupLogCompressTestDB(t)
+	resetDBStatsCache()
+
+	stats := ReadDBStats(context.Background())
+	if stats == nil {
+		t.Fatal("量得到却给了 nil")
+	}
+	if stats.DiskFree <= 0 {
+		t.Fatalf("空闲磁盘没量到（%d）——界面据此判重整的空间够不够，0 会把每一次都判成不够",
+			stats.DiskFree)
+	}
+	// 它必须够放得下这份刚建出来的小库：这条用例自己就活在同一个卷上。
+	if !enoughDisk(stats.DiskFree, stats.FileSize) {
+		t.Fatalf("同一卷上量出的空闲 %d 放不下库 %d——这两个数里有一个不是这个卷的",
+			stats.DiskFree, stats.FileSize)
+	}
+}
+
 // 撞锁要重试。这里不真去制造 SQLITE_BUSY（那要另一条连接持写锁，慢且脆），
 // 而是直接验判据本身：判错了的后果是"不重试"，退化方向是安全的。
 func TestDBStats_BusyErrorDetection(t *testing.T) {
@@ -87,8 +113,8 @@ func TestDBStats_BusyErrorDetection(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := isBusyErr(c.err); got != c.want {
-				t.Fatalf("isBusyErr(%v) = %v，期望 %v", c.err, got, c.want)
+			if got := IsBusyErr(c.err); got != c.want {
+				t.Fatalf("IsBusyErr(%v) = %v，期望 %v", c.err, got, c.want)
 			}
 		})
 	}

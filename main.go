@@ -174,6 +174,8 @@ func main() {
 		api.POST("/logs/compression/reclaim", handler.ReclaimStorage)
 		api.POST("/logs/compression/reclaim/stop", handler.StopReclaim)
 		api.PUT("/logs/compression/reclaim/policy", handler.UpdateReclaimPolicy)
+		// 重整（VACUUM）：与增量回收平级的另一条路，大空洞用它。
+		api.POST("/logs/compression/vacuum", handler.VacuumStorage)
 
 		// Auth key management
 		api.GET("/auth-keys", handler.GetAuthKeys)

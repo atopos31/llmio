@@ -111,9 +111,10 @@ type LogCompressState struct {
 // 写锁**，那是一段写请求会被排队的真实时间。"这台机器什么时候可以占用库"是运维
 // 判断而不是技术判断，默认替用户做主，就等于把一个会被感知到的动作变成默认行为。
 //
-// 与迁移策略不同，这里没有"每批多大"这一档：回收的批次大小（512 条语句/事务）
-// 是**被 busy_timeout 推出来的**（见 service.reclaimPagesPerTx），不是能按偏好
-// 调的旋钮——调大它换来的吞吐会被"一次锁窗口超过 5 秒、写请求直接失败"吃掉。
+// 与迁移策略不同，这里没有"每批多大"这一档：回收的批次大小是**被 busy_timeout
+// 推出来的**，而且现在由 service.nextBatchSize 按每批的实测耗时自己走
+// （16–512 条语句/事务）。真机上就栽在"把 512 定死"上：换一份形态更散的库，
+// 同样 512 条要 8.9 秒，越过 5 秒的写请求耐心，成片 500。它不是能按偏好调的旋钮。
 type LogReclaimPolicy struct {
 	// Enabled 打开后，服务会按 CheckIntervalSec 定期看一眼，够条件就自动跑一趟。
 	// 手动点「回收」不看它（与迁移、日志清理的语义一致）。
@@ -126,6 +127,17 @@ type LogReclaimPolicy struct {
 	CheckIntervalSec int `json:"check_interval_sec"`
 }
 
+// LogReclaimState.Kind 的两个取值。只在 Go 侧用，前端拿到的仍是字符串——
+// 加一个没见过的取值不该让老前端崩掉。
+const (
+	// ReclaimKindReclaim 是增量回收：一个事务里连打若干条 `PRAGMA incremental_vacuum`，
+	// 一条放一页，慢慢把洞收掉。不需要额外磁盘，也不必停服务。
+	ReclaimKindReclaim = "reclaim"
+	// ReclaimKindVacuum 是重整：整库重写一遍，一次把 freelist 还干净。
+	// 快得多，但要 2× 库大小的空闲磁盘和一个全程排他的窗口。
+	ReclaimKindVacuum = "vacuum"
+)
+
 // LogReclaimState 是**空间回收**的运行记录。
 //
 // 与迁移的状态机不同，它没有水位：回收是一次一次独立的动作，跑到哪算哪，
@@ -134,6 +146,16 @@ type LogReclaimPolicy struct {
 type LogReclaimState struct {
 	// Status: idle / running / done / failed。`done` 里再分跑完没跑完，见 StopReason。
 	Status string `json:"status"`
+	// Kind 是这一次**做的是什么**：
+	//   reclaim —— 增量回收：一条语句放一页，慢慢把洞收掉
+	//   vacuum  —— 重整：整库重写一遍，把 freelist 一次还干净
+	//   ""      —— 加这个字段之前写下的记录，一律当 reclaim（那时只有那一条路）
+	//
+	// 与 Source 正交，两者都需要：Source 说"谁发起"，Kind 说"做了什么"。
+	// 同样是 startup 发起的，一次转换（VACUUM）和它之后可能接着跑的增量回收
+	// 是两件事，界面上要给两套说法；手动那条路上更明显——「立即重整」和
+	// 「开始回收」在记录里必须分得开。
+	Kind string `json:"kind"`
 	// Source 是这一次是谁发起的：
 	//   startup   —— 启动期转换/VACUUM（在监听端口之前跑）
 	//   manual    —— 用户在控制台点的
@@ -161,8 +183,14 @@ type LogReclaimState struct {
 	FreelistBefore int64 `json:"freelist_before"`
 	FreelistAfter  int64 `json:"freelist_after"`
 	// Calls 是这一次打了几条 `PRAGMA incremental_vacuum`。它是**页数的同义词**：
-	// 生产驱动忽略参数、每条恰好放一页（见 service.reclaimPagesPerTx）。
-	Calls      int    `json:"calls"`
+	// 生产驱动忽略参数、每条恰好放一页（见 service.reclaimBatchMax）。
+	Calls int `json:"calls"`
+	// BatchSize 是这一趟**最后收敛到的**批量（一个事务里连打几条语句）。
+	//
+	// 它是诊断读数而不是配置：批量由 service.nextBatchSize 按每批实测耗时自己
+	// 走，起点与边界见那边的 reclaimBatch*。记下来是因为"这台机器上一批能收到
+	// 多少"直接决定"收完这个洞要几轮"，而它随库的形态走，事先算不出来。
+	BatchSize  int    `json:"batch_size"`
 	DurationMs int64  `json:"duration_ms"`
 	StartedAt  string `json:"started_at"`
 	FinishedAt string `json:"finished_at"`
@@ -174,10 +202,14 @@ type LogReclaimState struct {
 	//   busy           —— 持续模式的轮间松手之后，维护锁被别的任务抢走了，让给它
 	//   no_auto_vacuum —— 库的 auto_vacuum 不是 INCREMENTAL，这句 PRAGMA 是空操作
 	//   stalled        —— 放了一批 freelist 却没少（引擎行为反常），主动收工并记 LastError
-	// 启动期（startup）：
-	//   converted            —— 转成了 auto_vacuum=INCREMENTAL（转换本身就是一次 VACUUM）
-	//   vacuumed             —— 只做了启动期 VACUUM（DB_VACUUM=true）
-	//   insufficient_space   —— 磁盘不够，**跳过**（不是失败：服务照常起）
+	// 重整（vacuum，见 Kind）：
+	//   vacuumed           —— 整库重写了一遍
+	//   converted          —— 顺带把 auto_vacuum 转成了 INCREMENTAL（转换本身就是一次 VACUUM）
+	//   insufficient_space —— 磁盘不够，**跳过**（不是失败：启动期服务照常起）
+	//
+	// 三条对 manual 与 startup 都成立，只有 `insufficient_space` 例外：手动那次
+	// 走的是 StartVacuum 的**预检**，磁盘不够时压根不会开始（见 ErrVacuumNoSpace），
+	// 不会留下一条"跑了但跳过"的记录。
 	//
 	// 两者共有：failed —— 出错。
 	StopReason string `json:"stop_reason"`

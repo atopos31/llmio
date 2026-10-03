@@ -289,13 +289,17 @@ export interface QuotaConfigResponse {
  * 状态，拿它当表单初值等于让用户把 path、headers、字段映射、env 全部重填
  * 一遍——而保存走的是"整份替换"，没重填的那些就被静默清掉了。
  *
+ * 第一个参数只要求"展示形状的那几个字段"，而不是整个 `QuotaSourceResult`：
+ * 停用源没有取数结果（服务端不跑它），它进编辑器时手上只有配置那一份
+ * （`QuotaSource`）。两者的共同子集恰好就是这里真正用到的部分。
+ *
  * config 找不到时（两次读取之间配置被别处改过）退回展示形状已知的那几个
  * 字段，且**不猜** builtin：这里以前按名称反推适配器 id，名字里没有
  * "scnet" / "opencode" 字样就落到 deepseek——把超算源悄悄改成另一个适配器，
  * 比让用户自己选一次糟得多。
  */
 export function editableSource(
-  result: QuotaSourceResult,
+  result: Pick<QuotaSource, "id" | "name" | "enabled" | "type" | "note">,
   config: QuotaSource | undefined
 ): QuotaSource {
   if (config) return { ...config }
@@ -306,6 +310,55 @@ export function editableSource(
     type: result.type,
     note: result.note,
   }
+}
+
+// ---------------------------------------------------------------------------
+// 卡片列表：取数结果 + 配置里被停用的源
+// ---------------------------------------------------------------------------
+
+/**
+ * 网格里的一张卡。
+ *
+ * 两种形态合在一个列表里而不是分两处渲染，是为了让**展示偏好**
+ * （`overrides` 里的 hidden / 改名 / 样式）对两者一视同仁：
+ * 一个源停用后再启用，不该丢掉用户此前给它起的显示名或挑的图表样式。
+ */
+export type QuotaCardEntry =
+  | { kind: "result"; result: QuotaSourceResult }
+  | { kind: "disabled"; source: QuotaSource }
+
+/**
+ * 合成网格要渲染的卡片列表：跑过一轮的源在前，配置里停用的源在后。
+ *
+ * 停用源必须从**配置**里取，这是这个函数的全部理由。取数结果只包含启用源
+ * （`service.QuotaStore.RunAll` 把 `!Enabled` 整个跳过），于是"卡片 = 取数结果"
+ * 这条渲染路径上，一个源一旦被停用就从页面上彻底消失：看不到、点不到，
+ * 也就再没有一处能把它打开——只能去 shell 里改 db/quota.config.json。
+ *
+ * 取数结果里已出现的 id 一律不算停用：结果才是"这个源这一轮真的跑了"的
+ * 权威，配置与结果不一致时（两次读取之间配置被别处改过）以结果为准，
+ * 免得同一个源同时渲染成两张卡。
+ */
+export function quotaCardEntries(
+  results: QuotaSourceResult[],
+  config: QuotaConfig | undefined
+): QuotaCardEntry[] {
+  const out: QuotaCardEntry[] = results.map((result) => ({ kind: "result", result }))
+  const ran = new Set(results.map((r) => r.id))
+  for (const source of config?.sources ?? []) {
+    if (!source.enabled && !ran.has(source.id)) out.push({ kind: "disabled", source })
+  }
+  return out
+}
+
+/** 卡片的 id。两种卡都有，且是 overrides 的键。 */
+export function cardEntryId(entry: QuotaCardEntry): string {
+  return entry.kind === "result" ? entry.result.id : entry.source.id
+}
+
+/** 卡片的名称（**未**套用改名覆盖的那一份，与"已隐藏"那一条的既有口径一致）。 */
+export function cardEntryName(entry: QuotaCardEntry): string {
+  return entry.kind === "result" ? entry.result.name : entry.source.name
 }
 
 /**

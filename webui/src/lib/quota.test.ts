@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 
 import {
   applyOverride,
+  cardEntryId,
+  cardEntryName,
   CHART_STYLES,
   clearSourceOverrides,
   DEFAULT_QUOTA_VIEW,
@@ -18,6 +20,7 @@ import {
   QUOTA_VIEW_STORAGE_KEY,
   QUOTA_VIEW_VERSION,
   itemStyleOf,
+  quotaCardEntries,
   ringLayout,
   queryToText,
   quotaStatusTone,
@@ -32,6 +35,7 @@ import {
   unitKindOf,
   windowLabel,
   worstLabel,
+  type QuotaCardEntry,
   type QuotaItem,
   type QuotaSource,
   type QuotaSourceResult,
@@ -807,6 +811,71 @@ describe("editableSource", () => {
       note: "国家超算",
     })
     expect(got.builtin).toBeUndefined()
+  })
+})
+
+function sourceOf(over: Partial<QuotaSource> = {}): QuotaSource {
+  return { id: "s1", name: "超算", enabled: true, type: "builtin", ...over }
+}
+
+describe("quotaCardEntries", () => {
+  it("配置里被停用的源照样进卡片列表", () => {
+    // 这是这组用例存在的理由：取数结果只含启用源（服务端把 !Enabled 整个跳过），
+    // 于是"卡片 = 取数结果"的时候，一个源一被停用就从页面上彻底消失——
+    // 看不到也就点不开，只能去 shell 里改 db/quota.config.json。
+    const entries = quotaCardEntries([resultOf({ id: "s1" })], {
+      refreshInterval: 60,
+      warningAt: 80,
+      sources: [sourceOf({ id: "s1" }), sourceOf({ id: "s2", name: "opencode", enabled: false })],
+    })
+
+    expect(entries).toEqual([
+      { kind: "result", result: resultOf({ id: "s1" }) },
+      { kind: "disabled", source: sourceOf({ id: "s2", name: "opencode", enabled: false }) },
+    ])
+  })
+
+  it("结果里出现过的 id 不当停用，同一个源不会渲染成两张卡", () => {
+    // 配置与结果不一致是可能的（两次读取之间配置被别处改过），
+    // 这时以结果为准：它才是"这一轮真的跑了"的权威。
+    const entries = quotaCardEntries([resultOf({ id: "s1" })], {
+      refreshInterval: 60,
+      warningAt: 80,
+      sources: [sourceOf({ id: "s1", enabled: false })],
+    })
+
+    expect(entries).toHaveLength(1)
+    expect(entries[0].kind).toBe("result")
+  })
+
+  it("配置还没读到（或一个源都没有）时只有取数结果", () => {
+    expect(quotaCardEntries([resultOf()], undefined)).toHaveLength(1)
+    expect(
+      quotaCardEntries([], { refreshInterval: 60, warningAt: 80, sources: [] })
+    ).toEqual([])
+  })
+
+  it("启用的源不在结果里也不补卡片：它该由取数那一轮给出", () => {
+    // 补一张"启用但没数据"的卡会把"这一轮没跑它"伪装成"它在跑但没读数"。
+    const entries = quotaCardEntries([], {
+      refreshInterval: 60,
+      warningAt: 80,
+      sources: [sourceOf({ id: "s9" })],
+    })
+    expect(entries).toEqual([])
+  })
+})
+
+describe("cardEntryId / cardEntryName", () => {
+  it("两种卡都取得到 id 与名称", () => {
+    const result: QuotaCardEntry = { kind: "result", result: resultOf({ id: "r1", name: "结果源" }) }
+    const disabled: QuotaCardEntry = { kind: "disabled", source: sourceOf({ id: "d1", name: "停用源" }) }
+
+    expect(cardEntryId(result)).toBe("r1")
+    expect(cardEntryName(result)).toBe("结果源")
+    expect(cardEntryId(disabled)).toBe("d1")
+    // 停用源的名字只能来自配置：取数结果里根本没有它
+    expect(cardEntryName(disabled)).toBe("停用源")
   })
 })
 

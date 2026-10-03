@@ -18,12 +18,14 @@
     "sources_ok": "{{ok}}/{{total}} sources healthy",
     "items": "{{count}} items total",
     "fails": "{{count}} sources failing",
+    "disabled": "{{count}} disabled",
     "gen_time": "as of {{time}}"
   },
   "chart_style_label": "Chart",
   "show_meta": "Show period info",
   "hidden_sources": "Hidden sources:",
   "restore": "Restore",
+  "all_disabled": "Every data source is disabled, so there is no quota to show right now.",
   "chartStyle": {
     "progress": "Bars",
     "progress_desc": "One row per item, most information",
@@ -48,6 +50,9 @@
   "card": {
     "cached": "cached",
     "hidden_items": "{{count}} hidden",
+    "disabled": "Disabled",
+    "enable": "Enable",
+    "disabled_hint": "This source is disabled and is not queried.",
     "latency": "{{ms}}ms",
     "no_items": "This source has no enabled quota items",
     "no_percent": "These items have no total, so no percentage can be computed",

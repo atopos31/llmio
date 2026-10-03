@@ -18,12 +18,14 @@
     "sources_ok": "{{ok}}/{{total}} 个数据源正常",
     "items": "共 {{count}} 条余量",
     "fails": "{{count}} 个数据源异常",
+    "disabled": "{{count}} 个数据源已停用",
     "gen_time": "统计于 {{time}}"
   },
   "chart_style_label": "图表",
   "show_meta": "显示周期信息",
   "hidden_sources": "已隐藏数据源：",
   "restore": "恢复显示",
+  "all_disabled": "所有数据源都已停用，这一页暂时没有可展示的余量。",
   "chartStyle": {
     "progress": "进度条",
     "progress_desc": "每条一行，信息最全",
@@ -48,6 +50,9 @@
   "card": {
     "cached": "缓存",
     "hidden_items": "隐藏 {{count}} 条",
+    "disabled": "已停用",
+    "enable": "启用",
+    "disabled_hint": "该数据源已停用，不参与取数。",
     "latency": "{{ms}}ms",
     "no_items": "该数据源没有启用的余量条目",
     "no_percent": "这些条目没有总量，算不出百分比",

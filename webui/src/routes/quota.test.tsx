@@ -3,7 +3,7 @@ import { userEvent } from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import QuotaPage from "@/routes/quota"
-import { getQuotaConfig, runQuotaSources } from "@/lib/api"
+import { getQuotaConfig, runQuotaSources, updateQuotaSource } from "@/lib/api"
 import {
   QUOTA_VIEW_STORAGE_KEY,
   QUOTA_VIEW_VERSION,
@@ -11,6 +11,7 @@ import {
   type QuotaConfigResponse,
   type QuotaItem,
   type QuotaRunResult,
+  type QuotaSource,
   type QuotaSourceResult,
   type QuotaViewPrefs,
 } from "@/lib/quota"
@@ -31,6 +32,7 @@ vi.mock("@/lib/api", () => ({
 const mocked = {
   getQuotaConfig: vi.mocked(getQuotaConfig),
   runQuotaSources: vi.mocked(runQuotaSources),
+  updateQuotaSource: vi.mocked(updateQuotaSource),
 }
 
 /**
@@ -371,5 +373,132 @@ describe("额度页 · 编辑入口", () => {
 
     expect(screen.getByDisplayValue("https://api.example.com/usage")).toBeInTheDocument()
     expect(screen.getByDisplayValue("45")).toBeInTheDocument()
+  })
+})
+
+describe("额度页 · 停用的数据源", () => {
+  /** 配置里的一条源。默认就是"停用"，这一组用例关心的正是这种。 */
+  function configSource(over: Partial<QuotaSource> = {}): QuotaSource {
+    return {
+      id: "s2",
+      name: "备用的超算",
+      enabled: false,
+      type: "http",
+      url: "https://api.example.com/usage",
+      timeout: 45,
+      ...over,
+    }
+  }
+
+  /** 一个停用源的配置（默认没有启用的源，取数结果为空）。 */
+  function withDisabled(...sources: QuotaSource[]): QuotaConfigResponse {
+    return config({ config: { refreshInterval: 60, warningAt: 80, sources } })
+  }
+
+  it("停用源仍然是一张卡，而不是从页面上消失", async () => {
+    // 修的就是这一条：停用源不进取数结果（服务端只跑启用源），原先卡片
+    // 是从结果渲染的，于是它整个从页面上消失——看不见也就点不开，
+    // 想再启用只能去 shell 里改 db/quota.config.json。
+    mocked.getQuotaConfig.mockResolvedValue(withDisabled(configSource()))
+    mocked.runQuotaSources.mockResolvedValue(runResult([]))
+    render(<QuotaPage />)
+
+    expect(await screen.findByText("备用的超算")).toBeInTheDocument()
+    expect(screen.getByText("已停用")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "启用" })).toBeInTheDocument()
+    // 空态会说"还没有配置数据源"，可这里明明有一个，只是关着
+    expect(screen.queryByText("还没有配置数据源")).not.toBeInTheDocument()
+  })
+
+  it("一个都没启用时说清是「全停了」，而不是说「还没配置」", async () => {
+    mocked.getQuotaConfig.mockResolvedValue(withDisabled(configSource()))
+    mocked.runQuotaSources.mockResolvedValue(runResult([]))
+    render(<QuotaPage />)
+
+    expect(await screen.findByText(/所有数据源都已停用/)).toBeInTheDocument()
+    // 0/0 个数据源正常这种读数没有意义，摘要条整条不出现
+    expect(screen.queryByText(/个数据源正常/)).not.toBeInTheDocument()
+  })
+
+  it("点「启用」发出的是配置里那一份完整源，而不是只有 id 与开关", async () => {
+    // 更新端点是整份替换：只发 id + enabled 会把 url、超时、密钥一并抹掉，
+    // 而且服务端不会报错——用户再打开编辑器才会发现配置没了。
+    const src = configSource()
+    mocked.getQuotaConfig.mockResolvedValue(withDisabled(src))
+    mocked.runQuotaSources.mockResolvedValue(runResult([]))
+    mocked.updateQuotaSource.mockResolvedValue({ ...src, enabled: true })
+    const user = userEvent.setup()
+    render(<QuotaPage />)
+
+    await user.click(await screen.findByRole("button", { name: "启用" }))
+
+    await waitFor(() =>
+      expect(mocked.updateQuotaSource).toHaveBeenCalledWith({ ...src, enabled: true })
+    )
+  })
+
+  it("启用后连配置一起重取，卡片当场变成正常卡", async () => {
+    // 只重取结果不够：enabled 在配置与结果里各有一份，配置还是旧的
+    // 就仍会把它当成停用，这个开关会看起来时灵时不灵。
+    const src = configSource()
+    mocked.getQuotaConfig
+      .mockResolvedValueOnce(withDisabled(src))
+      .mockResolvedValue(withDisabled({ ...src, enabled: true }))
+    mocked.runQuotaSources
+      .mockResolvedValueOnce(runResult([]))
+      .mockResolvedValue(runResult([source({ id: "s2", name: "备用的超算" })]))
+    mocked.updateQuotaSource.mockResolvedValue({ ...src, enabled: true })
+    const user = userEvent.setup()
+    render(<QuotaPage />)
+
+    await user.click(await screen.findByRole("button", { name: "启用" }))
+
+    // 变成正常卡：读数与"只刷新这一个数据源"的入口都在了
+    expect(await screen.findByText("12ms")).toBeInTheDocument()
+    expect(screen.queryByText("已停用")).not.toBeInTheDocument()
+    // 重取走的是缓存口径（不带 force）：其余源不该因为这一次开关被重打
+    expect(mocked.runQuotaSources).toHaveBeenLastCalledWith({ force: undefined })
+  })
+
+  it("停用源的展示自定义不会被取数那一轮顺手清掉", async () => {
+    // 清理覆盖原先按"取数结果里的 id"算，停用源不在结果里，于是它一停用，
+    // 用户给起的显示名与挑的样式就一起没了——再启用也回不来。
+    localStorage.setItem(
+      QUOTA_VIEW_STORAGE_KEY,
+      saveQuotaView({
+        chartStyle: "progress",
+        showMeta: true,
+        version: QUOTA_VIEW_VERSION,
+        overrides: { s2: { name: "我的超算" } },
+      })
+    )
+    mocked.getQuotaConfig.mockResolvedValue(withDisabled(configSource()))
+    mocked.runQuotaSources.mockResolvedValue(runResult([]))
+    render(<QuotaPage />)
+
+    // 卡片上就用的改名，说明这一份覆盖还在
+    expect(await screen.findByText("我的超算")).toBeInTheDocument()
+    const saved = JSON.parse(localStorage.getItem(QUOTA_VIEW_STORAGE_KEY)!)
+    expect(saved.overrides.s2).toEqual({ name: "我的超算" })
+  })
+
+  it("摘要条把停用的数量一并报出来", async () => {
+    mocked.getQuotaConfig.mockResolvedValue(withDisabled(configSource()))
+    render(<QuotaPage />)
+
+    // 默认那个 mock 会返回一个启用的源 s1，于是摘要条在、停用数也在
+    expect(await screen.findByText(/1 个数据源已停用/)).toBeInTheDocument()
+  })
+
+  it("只读模式下停用卡不摆启用按钮：改了也不会生效", async () => {
+    mocked.getQuotaConfig.mockResolvedValue({
+      ...withDisabled(configSource()),
+      writeEnabled: false,
+    })
+    mocked.runQuotaSources.mockResolvedValue(runResult([]))
+    render(<QuotaPage />)
+
+    expect(await screen.findByText("备用的超算")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "启用" })).not.toBeInTheDocument()
   })
 })

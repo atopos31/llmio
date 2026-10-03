@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next"
-import { Brush, Loader2, PencilLine, RefreshCw, Settings2 } from "lucide-react"
+import { Brush, Loader2, PencilLine, Power, RefreshCw, Settings2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -17,6 +17,7 @@ import {
   windowLabel,
   type QuotaChartStyle,
   type QuotaItem,
+  type QuotaSource,
   type QuotaSourceResult,
   type QuotaViewPrefs,
 } from "@/lib/quota"
@@ -189,6 +190,101 @@ export function QuotaCard({
           <div className="mt-0.5 border-t border-dashed border-border pt-1.5 text-xs text-muted-foreground">
             {note || t("last_updated", { time: clockTime(source.updatedAt) })}
           </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * 已停用数据源的卡片。
+ *
+ * 它存在的理由是**别处都没有它的落点**：停用源不进取数结果（服务端只跑
+ * 启用源），于是卡片、条目、摘要条上都没有它。停用本身是个可逆的开关，
+ * 界面上就必须留着一条走回去的路——否则用户只能去 shell 里改
+ * db/quota.config.json，而那正是这张卡要消掉的事。
+ *
+ * 与正常卡的差别刻意做成"看得出、但不像坏掉"：虚线边框 + 中性徽标，
+ * 不用红色——停用是用户的意图，不是故障。
+ */
+export function QuotaDisabledCard({
+  source,
+  prefs,
+  editable,
+  busy,
+  onEnable,
+  onEdit,
+}: {
+  source: QuotaSource
+  prefs: QuotaViewPrefs
+  editable: boolean
+  busy: boolean
+  onEnable: (source: QuotaSource) => void
+  onEdit: (source: QuotaSource) => void
+}) {
+  const { t } = useTranslation(["quota", "common"])
+  // 改名覆盖与正常卡同一口径：停用不该把用户起的显示名丢回原名
+  const srcName = prefs.overrides[source.id]?.name || source.name
+
+  return (
+    <Card
+      data-slot="quota-disabled-card"
+      className="flex min-w-0 flex-col gap-2 border-dashed py-3"
+    >
+      <CardHeader className="gap-1.5 px-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <span
+            className="min-w-0 truncate text-sm font-semibold text-muted-foreground"
+            title={srcName}
+          >
+            {srcName}
+          </span>
+          {/* 状态靠文字而不是靠"整张卡发灰"：灰度对读屏与色觉障碍都不成立 */}
+          <Badge variant="secondary" className="font-normal">
+            {t("card.disabled")}
+          </Badge>
+          <Badge variant="outline" className="font-normal">
+            {t(`quota:${sourceTypeKey(source.type)}` as never, { defaultValue: source.type })}
+          </Badge>
+
+          {editable && (
+            <div className="ml-auto flex shrink-0 items-center gap-0.5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7"
+                disabled={busy}
+                onClick={() => onEnable(source)}
+              >
+                {busy ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Power className="size-3.5" />
+                )}
+                {t("card.enable")}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                aria-label={t("card.source_settings")}
+                title={t("card.source_settings")}
+                disabled={busy}
+                onClick={() => onEdit(source)}
+              >
+                <Settings2 className="size-3.5" />
+              </Button>
+            </div>
+          )}
+        </div>
+      </CardHeader>
+
+      <CardContent className="flex flex-col gap-2 px-3">
+        <p className="text-xs text-muted-foreground">{t("card.disabled_hint")}</p>
+        {source.note && (
+          <p className="border-t border-dashed border-border pt-1.5 text-xs text-muted-foreground">
+            {source.note}
+          </p>
         )}
       </CardContent>
     </Card>

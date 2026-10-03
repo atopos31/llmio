@@ -10,7 +10,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
-import { QuotaCard, QuotaStatusBadge } from "@/routes/quota-card"
+import { QuotaCard, QuotaDisabledCard, QuotaStatusBadge } from "@/routes/quota-card"
 import { QuotaEditorDialog } from "@/routes/quota-editor"
 import { QuotaItemDialog } from "@/routes/quota-item-dialog"
 import { QuotaSettingsDialog } from "@/routes/quota-settings"
@@ -29,6 +29,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import {
   CHART_STYLES,
+  cardEntryId,
+  cardEntryName,
   clearSourceOverrides,
   DEFAULT_QUOTA_VIEW,
   editableSource,
@@ -36,8 +38,10 @@ import {
   loadQuotaView,
   pruneOverrides,
   QUOTA_VIEW_STORAGE_KEY,
+  quotaCardEntries,
   saveQuotaView,
   statusRank,
+  type QuotaCardEntry,
   type QuotaChartStyle,
   type QuotaItem,
   type QuotaOverridePatch,
@@ -46,7 +50,12 @@ import {
   type QuotaViewPrefs,
   type QuotaConfigResponse,
 } from "@/lib/quota"
-import { getQuotaConfig, runQuotaSources, refreshQuotaSource } from "@/lib/api"
+import {
+  getQuotaConfig,
+  runQuotaSources,
+  refreshQuotaSource,
+  updateQuotaSource,
+} from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 /** 自动刷新档位（秒）。0 = 关闭。余量接口普遍较慢，因而起点比日志页高。 */
@@ -73,9 +82,11 @@ export default function QuotaPage() {
     }
   })
 
-  const [editing, setEditing] = useState<QuotaSourceResult | null>(null)
+  const [editing, setEditing] = useState<QuotaSourceResult | QuotaSource | null>(null)
   const [editorOpen, setEditorOpen] = useState(false)
   const [viewing, setViewing] = useState<QuotaSourceResult | null>(null)
+  // 正在启用/停用的那一个源：按钮要禁用，免得点两下发出两次写请求
+  const [busyId, setBusyId] = useState<string | null>(null)
   const [itemCtx, setItemCtx] = useState<{
     source: QuotaSourceResult
     item: QuotaItem
@@ -103,11 +114,15 @@ export default function QuotaPage() {
    *
    * silent 用于自动刷新：失败时不弹 toast（网络瞬断就弹一次会让面板
    * 一直在冒泡），但**仍要**把错误留在页面上。
+   *
+   * quiet 用于"这只是个附带动作"的重取（启用/停用之后、保存之后）：不摆
+   * 骨架屏。骨架说的是"这一页还没数据"，而这些时候页面上本来就有数据，
+   * 把整页闪成占位块只会让人觉得刚才那一下把页面弄丢了。
    */
   const load = useCallback(
-    async (opts: { force?: boolean; silent?: boolean } = {}) => {
+    async (opts: { force?: boolean; silent?: boolean; quiet?: boolean } = {}) => {
       if (opts.force) setRefreshing(true)
-      else setLoading(true)
+      else if (!opts.quiet) setLoading(true)
       try {
         const [conf, res] = await Promise.all([
           getQuotaConfig(),
@@ -117,13 +132,16 @@ export default function QuotaPage() {
         setSources(res.sources ?? [])
         setUpdatedAt(res.generatedAt)
         setLoadError(null)
-        // 数据源被删掉后清理它的展示覆盖：不清理的话重建同名源会"继承"旧设置
-        persist(
-          pruneOverrides(
-            prefsRef.current,
-            (res.sources ?? []).map((s) => s.id)
-          )
-        )
+        // 展示覆盖按"配置里的源 ∪ 这一轮跑过的源"清，而不是只按取数结果清：
+        // 停用源不在结果里，只按结果清会把它的显示名与图表样式一并抹掉——
+        // 那意味着"停用一下再启用，这张卡就变回原样了"。配置才是"这个源还在
+        // 不在"的权威，保留结果那一份是反过来兜底：两份名单不一致时
+        // （配置被别处改过）宁可多留几条覆盖，也不要一次清空用户设置。
+        const keep = new Set([
+          ...conf.config.sources.map((s) => s.id),
+          ...(res.sources ?? []).map((s) => s.id),
+        ])
+        persist(pruneOverrides(prefsRef.current, [...keep]))
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         setLoadError(msg)
@@ -243,15 +261,27 @@ export default function QuotaPage() {
     }
   }, [sources])
 
-  const { visible, hidden } = useMemo(() => {
-    const vis: QuotaSourceResult[] = []
-    const hid: QuotaSourceResult[] = []
-    for (const s of sources) {
-      if (prefs.overrides[s.id]?.hidden) hid.push(s)
-      else vis.push(s)
+  /**
+   * 网格里的全部卡片：跑过一轮的源 + 配置里停用的源。
+   *
+   * 停用源必须并进来，否则它在这页上就没有落点（见 `quotaCardEntries`）。
+   * 它不进 `sources`——摘要条与"最差"都只该看真的取到了数的那几个源。
+   */
+  const entries = useMemo(() => quotaCardEntries(sources, cfg?.config), [sources, cfg])
+
+  const { visible, hidden, disabledCount } = useMemo(() => {
+    const vis: QuotaCardEntry[] = []
+    const hid: QuotaCardEntry[] = []
+    for (const e of entries) {
+      if (prefs.overrides[cardEntryId(e)]?.hidden) hid.push(e)
+      else vis.push(e)
     }
-    return { visible: vis, hidden: hid }
-  }, [sources, prefs.overrides])
+    return {
+      visible: vis,
+      hidden: hid,
+      disabledCount: entries.filter((e) => e.kind === "disabled").length,
+    }
+  }, [entries, prefs.overrides])
 
   const editable = cfg?.writeEnabled !== false
 
@@ -259,10 +289,38 @@ export default function QuotaPage() {
     setEditing(null)
     setEditorOpen(true)
   }
-  const openEdit = useCallback((s: QuotaSourceResult) => {
+  const openEdit = useCallback((s: QuotaSourceResult | QuotaSource) => {
     setEditing(s)
     setEditorOpen(true)
   }, [])
+
+  /**
+   * 启用 / 停用一个已保存的源。
+   *
+   * 写入走的是**整份替换**的更新端点，因此必须带上配置里那一份完整源
+   * （密钥是掩码，服务端会还原），不能只发 id 与 enabled——
+   * 那会把 url、headers、env 通通抹掉。
+   *
+   * 写完之后重取一轮配置：`enabled` 在两个地方各有一份（配置说这个源是否
+   * 启用，取数结果说它这一轮跑没跑），只更新结果的话，页面会拿旧配置继续
+   * 把它当成停用（反之亦然），这个开关就会看起来时灵时不灵。
+   */
+  const setSourceEnabled = useCallback(
+    async (source: QuotaSource, enabled: boolean) => {
+      setBusyId(source.id)
+      try {
+        await updateQuotaSource({ ...source, enabled })
+        await load({ quiet: true })
+      } catch (err) {
+        toast.error(t("error.save"), {
+          description: err instanceof Error ? err.message : String(err),
+        })
+      } finally {
+        setBusyId(null)
+      }
+    },
+    [load, t]
+  )
 
   /**
    * 交给编辑器的初值。
@@ -282,20 +340,22 @@ export default function QuotaPage() {
     [editing, cfg]
   )
 
-  const onSaved = useCallback(
-    (saved: QuotaSource, deleted?: boolean) => {
-      setEditorOpen(false)
-      if (deleted) {
-        // 删掉后整轮重跑：被删的源要立刻从网格里消失，
-        // 而不是等下一次刷新（那期间点它还会打开一个已不存在的源）
-        void load({ silent: true })
-        return
-      }
-      // 保存后立刻重取这一条，让卡片马上反映新配置
-      void refreshOne(saved.id)
-    },
-    [load, refreshOne]
-  )
+  /**
+   * 编辑器保存/删除之后重取一轮。
+   *
+   * 保存后必须**连配置一起重取**，不能只重取这一个源：`enabled` 两处都有
+   * （配置那份决定它进不进网格，结果那份决定卡片画什么），只更新结果的话，
+   * 在编辑器里把开关一关，页面会拿旧配置继续把它当成启用的——卡片照旧
+   * 画着上一轮的读数，直到下次整页刷新才消失。这条路径与停用卡片上的
+   * "启用"是同一个道理。
+   *
+   * 不走 force：其余源命中缓存，只有刚动过的那一个（服务端在保存时已把
+   * 它的缓存清了）会重新取数，因此"保存后立刻看到新结果"仍然成立。
+   */
+  const onSaved = useCallback(() => {
+    setEditorOpen(false)
+    void load({ quiet: true })
+  }, [load])
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-1">
@@ -421,12 +481,28 @@ export default function QuotaPage() {
               {t("summary.fails", { count: summary.failCount, defaultValue: "{{count}} failing" })}
             </span>
           )}
+          {disabledCount > 0 && (
+            <span className="text-muted-foreground">
+              ·{" "}
+              {t("summary.disabled", {
+                count: disabledCount,
+                defaultValue: "{{count}} disabled",
+              })}
+            </span>
+          )}
           {updatedAt > 0 && (
             <span className="text-xs text-muted-foreground">
               · {t("summary.gen_time", { time: clock(updatedAt), defaultValue: "{{time}}" })}
             </span>
           )}
         </div>
+      )}
+
+      {/* 一个启用的源都没有时，摘要条整条不出现（0/0 个数据源正常没有意义）。
+          但"没有可比数字"不等于"什么都没发生"：这页上有停用源，就得说出来，
+          否则用户看到的是一片空，而空态又只在真的一个源都没配时才该出现。 */}
+      {!loading && !loadError && sources.length === 0 && disabledCount > 0 && (
+        <p className="text-sm text-muted-foreground">{t("all_disabled")}</p>
       )}
 
       {/* ---- 内容 ---- */}
@@ -449,7 +525,10 @@ export default function QuotaPage() {
             retryLabel={t("refresh")}
             onRetry={() => void load({ force: true })}
           />
-        ) : sources.length === 0 ? (
+        ) : entries.length === 0 ? (
+          /* 空态的门槛是"一个源都没有"，而不是"一张卡都没有"：只剩停用源时
+             这一页仍然有东西可看、有事可做（把它们打开），给一句"还没有配置
+             数据源"会让人以为配置丢了——他明明刚把它关掉。 */
           <EmptyState
             title={t("empty.title")}
             hint={t("empty.desc")}
@@ -465,32 +544,44 @@ export default function QuotaPage() {
         ) : (
           <div className="flex flex-col gap-3">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {visible.map((s) => (
-                <QuotaCard
-                  key={s.id}
-                  source={s}
-                  prefs={prefs}
-                  editable={editable}
-                  refreshing={refreshingId === s.id}
-                  onRefresh={(id) => void refreshOne(id)}
-                  onEdit={openEdit}
-                  onView={setViewing}
-                  onEditItem={(source, item) => setItemCtx({ source, item })}
-                />
-              ))}
+              {visible.map((entry) =>
+                entry.kind === "result" ? (
+                  <QuotaCard
+                    key={entry.result.id}
+                    source={entry.result}
+                    prefs={prefs}
+                    editable={editable}
+                    refreshing={refreshingId === entry.result.id}
+                    onRefresh={(id) => void refreshOne(id)}
+                    onEdit={openEdit}
+                    onView={setViewing}
+                    onEditItem={(source, item) => setItemCtx({ source, item })}
+                  />
+                ) : (
+                  <QuotaDisabledCard
+                    key={entry.source.id}
+                    source={entry.source}
+                    prefs={prefs}
+                    editable={editable}
+                    busy={busyId === entry.source.id}
+                    onEnable={(s) => void setSourceEnabled(s, true)}
+                    onEdit={openEdit}
+                  />
+                )
+              )}
             </div>
 
             {hidden.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                 <span>{t("hidden_sources")}</span>
-                {hidden.map((s) => (
+                {hidden.map((entry) => (
                   <button
-                    key={s.id}
+                    key={cardEntryId(entry)}
                     type="button"
                     className="rounded-sm border border-border px-1.5 py-0.5 hover:bg-accent"
-                    onClick={() => setOverride(s.id, { hidden: false })}
+                    onClick={() => setOverride(cardEntryId(entry), { hidden: false })}
                   >
-                    {s.name} · {t("restore")}
+                    {cardEntryName(entry)} · {t("restore")}
                   </button>
                 ))}
               </div>

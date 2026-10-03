@@ -24,7 +24,7 @@ LLMIO is a Go-based LLM load‑balancing gateway that provides a unified REST AP
 - **Log retention**: The Settings page sets the retention window and the scheduled-cleanup switch (checked hourly in the background); the log page also offers a manual cleanup, and past runs are listed in a cleanup history.
 - **Rate limiting & failure handling**: Built‑in rate‑limit fallback, a per-model circuit breaker, and provider connectivity checks for fault isolation.
 - **Local persistence**: Pure Go SQLite (`db/llmio.db`) for config and request logs, ready to use out of the box.
-- **Database compression & space reclamation**: Request bodies are content-defined chunked and globally deduplicated; historical rows can be migrated in place, paused, resumed, and rolled back. Freed space can be returned to the filesystem while the service keeps running. Measured on a copy of a production database: 7.06 GiB → 1.47 GiB. See [Database Compression & Space Reclamation](#database-compression--space-reclamation).
+- **Database compression & space reclamation**: Request bodies are content-defined chunked and globally deduplicated; historical rows can be migrated in place, paused, resumed, and rolled back. Freed space can be returned to the filesystem while the service keeps running, and a large hole can be reclaimed in one pass with a full rebuild (which needs an offline window and about twice the database size on disk). Measured on a copy of a production database: 7.06 GiB → 1.47 GiB. See [Database Compression & Space Reclamation](#database-compression--space-reclamation).
 - **Session tracking**: Pass `session_id` in any request body (works with `extra_body` in OpenAI SDK) to tag logs with a session identifier. Filter and search by `session_id` in the admin UI or via `GET /api/logs?session_id=`.
 - **Observability**: Every request is recorded with TraceID, latency breakdown (proxy / first-chunk / completion time), TPS, token usage (input / cached / output), and optional full IO logging. Per-request cost is calculated from configurable per-million-token prices (CNY / USD) and shown in the log detail view alongside provider and model metadata.
 
@@ -179,37 +179,54 @@ deduplication**: identical content is stored once.
 ### Space reclamation: returning freed pages to the filesystem
 
 Deleting rows in SQLite only returns pages to the free list; with the default configuration
-(`auto_vacuum=0`) the file never shrinks. Reclamation requires the database to be in
-`auto_vacuum=INCREMENTAL` (value 2):
+(`auto_vacuum=0`) the file never shrinks. There are two ways to give those pages back to the filesystem,
+and they need different things:
 
-- **New databases**: Set to INCREMENTAL before any table is created, at no extra cost.
-- **Existing databases**: Left **untouched** by default. To convert, set `DB_AUTO_VACUUM_REBUILD=on`; the
-  service then runs a single VACUUM before it starts listening (about 1 minute for a 7 GiB database on the
-  development machine). The conversion holds an exclusive write lock and needs free disk of about 2× the
-  database size; if disk space is insufficient it is skipped and the reason is recorded, without
-  preventing the service from starting.
-- **Incremental reclamation**: Returns free pages to the filesystem one at a time. It does not modify data
-  and can be repeated or interrupted. A single round runs for at most 90 seconds and leaves the remainder
-  for the next round; in continuous mode every batch is followed by a 0.1 second pause, so write requests
-  queue and slow down rather than fail. Reads are unaffected, writes are slower while it runs.
+- **Incremental reclamation** needs the database to be in `auto_vacuum=INCREMENTAL` (value 2). On a
+  database with `auto_vacuum=0` it is a no-op, so its controls are shown **disabled** with that reason.
+  - **New databases**: Set to INCREMENTAL before any table is created, at no extra cost.
+  - **Existing databases**: Left **untouched** by default. To convert, set `DB_AUTO_VACUUM_REBUILD=on`; the
+    service then runs a single VACUUM before it starts listening (about 1 minute for a 7 GiB database on the
+    development machine). The conversion holds an exclusive write lock and needs free disk of about 2× the
+    database size; if disk space is insufficient it is skipped and the reason is recorded, without
+    preventing the service from starting.
+  - **What a round does**: Returns free pages to the filesystem one at a time (the driver ignores the
+    argument the pragma is given, so a "batch" is a number of statements inside one transaction). A batch
+    starts at 64 statements and adapts between 16 and 512 to stay near 2.5 seconds — batches must follow
+    the database, because the same 512 statements took 1.1 seconds on one database and 8.9 seconds on
+    another, and anything past 5 seconds makes write requests fail. It does not modify data and can be
+    repeated or interrupted. A single round runs for at most 90 seconds and leaves the remainder for the
+    next round; in continuous mode every batch is followed by a 0.1 second pause, so write requests queue
+    and slow down rather than fail. Reads are unaffected, writes are slower while it runs.
+- **Full rebuild (VACUUM)**: Needs no `auto_vacuum` setting. Rewrites the whole database in one statement
+  and returns every free page at once. It is much faster than incremental reclamation (measured on the same
+  7 GiB database: 895 ms against a file that was almost entirely free pages, 56 seconds against 7 GiB of
+  live pages — the time follows the **live data**, not the file size), but it holds the database
+  exclusively for the whole run: reads and writes cannot get in, and a write request fails once its
+  5-second busy timeout runs out. It needs free disk of about 2× the database size (checked before it
+  starts) and **cannot be stopped once started**, because a single statement has no point at which to stop.
+  Use it after the holes are large (a migration, a rollback, a bulk delete).
 - **Choosing between the two**: Use VACUUM for a large amount of free space (one pass, but requires
   downtime and 2× disk); use incremental reclamation for the small holes that accumulate day to day
-  (online, no extra disk).
+  (online, no extra disk, but it needs the conversion above).
 
 ### Console
 
 The **Database Compression** card on the Settings page shows migration progress and compression ratio,
-database file size and reclaimable space, and provides four actions: "Start migration", "Pause", "Revert to
-plaintext", and "Reclaim space". Migration policy (background auto-advance, rows per batch, bytes per batch,
-pause between batches, quiescence window) is configured under "Adjust policy", and reclamation policy
-(background auto-reclaim, minimum reclaimable space, check interval) under "Reclaim policy". The "?" next
-to each field label shows the accepted range and out-of-range behaviour on hover or keyboard focus.
+database file size and reclaimable space, and provides five actions: "Start migration", "Pause", "Revert to
+plaintext", "Reclaim space", and "Vacuum now". Each of the two reclamation actions states its own cost
+before it is confirmed: reclamation says write requests queue and slow down, a rebuild says reads and
+writes cannot get in and write requests fail. Migration policy (background auto-advance, rows per batch,
+bytes per batch, pause between batches, quiescence window) is configured under "Adjust policy", and
+reclamation policy (background auto-reclaim, minimum reclaimable space, check interval) under "Reclaim
+policy". The "?" next to each field label shows the accepted range and out-of-range behaviour on hover or
+keyboard focus.
 
 ### Admin endpoints
 
 | Path | Method | Description |
 |---|---|---|
-| `/api/logs/compression` | GET | Migration status and progress, migration policy, reclamation policy, database statistics, last reclamation result |
+| `/api/logs/compression` | GET | Migration status and progress, migration policy, reclamation policy, database statistics, the last reclamation result, and which maintenance task is running right now |
 | `/api/logs/compression/policy` | PUT | Set migration policy (batch size, pause between batches, quiescence window, background auto-advance) |
 | `/api/logs/compression/run` | POST | Start migration |
 | `/api/logs/compression/pause` | POST | Pause migration (takes effect after the current batch completes) |
@@ -218,6 +235,7 @@ to each field label shows the accepted range and out-of-range behaviour on hover
 | `/api/logs/compression/reclaim` | POST | Reclaim space. Body `{"continuous": true}` reclaims until finished; an empty body runs a single round (up to 90 seconds) |
 | `/api/logs/compression/reclaim/stop` | POST | Stop reclamation (takes effect after the current batch completes) |
 | `/api/logs/compression/reclaim/policy` | PUT | Set reclamation policy (minimum reclaimable space, check interval) |
+| `/api/logs/compression/vacuum` | POST | Rebuild the whole database (VACUUM) in the background. Rejected before it starts unless free disk is at least 2× the database size, and while another reclamation is running |
 
 All of these require console authentication (`Authorization: Bearer <TOKEN>`). Out-of-range values are
 clamped to the accepted range instead of being rejected:
@@ -251,8 +269,10 @@ set of measurements and trade-offs is in [docs/db-compression-phase0.md](docs/db
 (read-path baseline), [docs/db-compression-phase3.md](docs/db-compression-phase3.md) (chunk table and
 deduplication), [docs/db-compression-phase4.md](docs/db-compression-phase4.md) (migration and scheduling),
 [docs/db-compression-phase5.md](docs/db-compression-phase5.md) (storage layer and incremental
-reclamation), and [docs/db-compression-safety.md](docs/db-compression-safety.md) (frame format and safety
-boundaries).
+reclamation), [docs/db-compression-phase6.md](docs/db-compression-phase6.md) (backfilling the two response
+body columns), [docs/db-compression-phase7.md](docs/db-compression-phase7.md) (rebuild, adaptive
+reclamation batches, and what a rebuild costs concurrent write requests), and
+[docs/db-compression-safety.md](docs/db-compression-safety.md) (frame format and safety boundaries).
 
 ## Quota & Balance
 
@@ -372,7 +392,10 @@ python e2e/run_matrix.py --upstream stub
   upstream by default and needs no external credentials; `--upstream opencode` runs a smaller matrix
   against a real upstream (consuming quota). `e2e/check_compression.py` does not trust what the API reports
   about itself — it opens the database file and checks that the compressed form and `auto_vacuum` really
-  landed on disk.
+  landed on disk. `e2e/check_vacuum.py` measures what a rebuild costs concurrent traffic: it copies a
+  database, deletes rows to open a hole, rebuilds it, and counts how many write requests failed and how
+  long the longest one waited. It refuses to point at a database under the repository and only ever writes
+  to its own copy (`--leave` prepares an instance with an un-rebuilt hole for manual testing).
 - CI is `.github/workflows/test.yml`: on every push and pull request it runs the frontend lint, the
   frontend tests with the coverage gate, the frontend build, a `gofmt` check, `go vet`, `go test` and a
   single-binary build check.

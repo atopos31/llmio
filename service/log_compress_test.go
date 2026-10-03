@@ -609,7 +609,156 @@ func TestLogCompress_RejectsConcurrentRun(t *testing.T) {
 	defer compressInFlight.Store(false)
 
 	if _, err := RunLogCompress(ctx, false); !errors.Is(err, ErrCompressRunning) {
-		t.Fatalf("已经有一轮在跑时应当报 ErrCompressRunning，得到 %v", err)
+		t.Fatalf("已经有一轮在跑时迁移应当报 ErrCompressRunning，得到 %v", err)
+	}
+	// 回滚走的是同一个位：迁移在跑的时候它也必须拒绝——否则两条路会同时改
+	// 同一批行的形态，那是最难查的一类损坏。
+	if _, err := RunLogDecompress(ctx, true); !errors.Is(err, ErrCompressRunning) {
+		t.Fatalf("已经有一轮在跑时回滚应当报 ErrCompressRunning，得到 %v", err)
+	}
+}
+
+// ── 后台入口：占位必须在返回之前 ─────────────────────────────────────────
+
+// 后台入口的契约：**返回时位已经占上**。
+//
+// 这不是实现细节，它是响应可信的前提：响应写着 `started: true`，状态接口就必须
+// 说在跑；否则前端把"开始迁移"放回可点，并发进来的第二个请求也能透过去。
+//
+// 这里用维护锁把后台那一轮按住（它一定会走到取锁那一步，那是 applyCompressBatch
+// 的第一件事），所以断言不必抢时间：只要占位在返回之前完成，读到的一定是 true。
+//
+// 但它测不出"占位被推到响应之后"那一种旧形状——那条 goroutine 会被异步抢占在
+// 断言之前唤醒，光看时序分不出来（实测：把旧形状放回来，这条用例照样绿）。
+// 那件事由 handler 侧的源码守卫钉住，见 TestLogCompressHandlersSpawnNoGoroutines。
+func TestStartLogCompress_ReservesBeforeReturning(t *testing.T) {
+	ctx := context.Background()
+	setupLogCompressTestDB(t)
+	seedPlaintextRows(t, ctx, [][]byte{[]byte(`{"messages":[{"role":"user","content":"hi"}]}`)}, time.Hour)
+
+	maintenanceMu.Lock()
+	if err := StartLogCompress(ctx, false); err != nil {
+		maintenanceMu.Unlock()
+		t.Fatalf("后台起一轮迁移失败：%v", err)
+	}
+	if !CompressRunning() {
+		maintenanceMu.Unlock()
+		t.Fatal("StartLogCompress 已经返回，但 CompressRunning() 还是 false——占位发生在返回之后")
+	}
+	maintenanceMu.Unlock()
+
+	awaitCompressIdleForTest(t)
+}
+
+// 回滚那条路同一条规矩。它动的是"把库变大"，更不能出现"响应说 started、
+// 状态说没在跑"。
+func TestStartLogDecompress_ReservesBeforeReturning(t *testing.T) {
+	ctx := context.Background()
+	setupLogCompressTestDB(t)
+	seedPlaintextRows(t, ctx, [][]byte{[]byte(`{"messages":[{"role":"user","content":"hi"}]}`)}, time.Hour)
+	if _, err := RunLogCompress(ctx, false); err != nil {
+		t.Fatalf("先把行压起来失败：%v", err)
+	}
+
+	maintenanceMu.Lock()
+	if err := StartLogDecompress(ctx, true); err != nil {
+		maintenanceMu.Unlock()
+		t.Fatalf("后台起一轮回滚失败：%v", err)
+	}
+	if !CompressRunning() {
+		maintenanceMu.Unlock()
+		t.Fatal("StartLogDecompress 已经返回，但 CompressRunning() 还是 false——占位发生在返回之后")
+	}
+	maintenanceMu.Unlock()
+
+	awaitCompressIdleForTest(t)
+}
+
+// 被拒的那一次**不许**把别人的占位放掉。
+//
+// "先 defer 释放、再判断占得上占不上"是个一眼看不出的写法错误，而它的后果是
+// 那个位在整个迁移期间被清掉：并发请求能透过去、暂停与状态读数一起失真。
+func TestStartLogCompress_RefusedStartKeepsReservation(t *testing.T) {
+	resetCompressSignals(t)
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	compressInFlight.Store(true)
+
+	for _, start := range []struct {
+		name string
+		call func() error
+	}{
+		{"迁移", func() error { return StartLogCompress(ctx, false) }},
+		{"回滚", func() error { return StartLogDecompress(ctx, true) }},
+	} {
+		if err := start.call(); !errors.Is(err, ErrCompressRunning) {
+			t.Fatalf("%s：已经有一轮在跑时应当报 ErrCompressRunning，得到 %v", start.name, err)
+		}
+		if !CompressRunning() {
+			t.Fatalf("%s：被拒的那一次把位放掉了——别人的占位没了", start.name)
+		}
+	}
+}
+
+// 半途而废只能是"进程被 kill"，不能是"用户关了个标签页"。
+//
+// 请求的 ctx 在响应写完那一刻就被取消，后台那一轮必须照跑完。
+func TestStartLogCompress_OutlivesRequestContext(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// 够大才一定会换形态：小行"压不动就存明文"，用它们验不出"跑没跑成"。
+	ids := seedPlaintextRows(t, ctx, [][]byte{bigRow(1, 64<<10)}, time.Hour)
+	if err := StartLogCompress(ctx, false); err != nil {
+		t.Fatalf("后台起一轮迁移失败：%v", err)
+	}
+	cancel() // 响应写完，请求 ctx 作废
+
+	awaitCompressIdleForTest(t)
+
+	if typ, _ := colShape(t, ids[0]); typ != "blob" {
+		t.Fatalf("请求 ctx 一取消这一轮就停了：列里的形态是 %q，期望 blob", typ)
+	}
+}
+
+// 后台那一轮失败时，位必须还回来。
+//
+// 入口只负责"占位 + 起后台"，失败记在日志里；唯独不能把位留着——留着的话这个
+// 进程再也起不了一轮迁移，而症状只是"点了开始迁移没反应"，没人会往这里查。
+func TestStartLogCompress_ReleasesReservationWhenRunFails(t *testing.T) {
+	db := setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	// 把库关掉：后台那一轮的第一件事（读策略）就会失败。占位自己不看库，
+	// 所以这一下仍然是"起得来、跑不成"。
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("取 sql.DB 失败：%v", err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatalf("关库失败：%v", err)
+	}
+
+	if err := StartLogCompress(ctx, false); err != nil {
+		t.Fatalf("占位本身不该失败（它不读库）：%v", err)
+	}
+	awaitCompressIdleForTest(t)
+
+	if CompressRunning() {
+		t.Fatal("后台那一轮失败了，位却没还回来——这个进程从此起不了迁移了")
+	}
+}
+
+// awaitCompressIdleForTest 等后台那一轮退出。空库上它下一秒就好，超时说明真有东西卡住了。
+func awaitCompressIdleForTest(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for CompressRunning() {
+		if time.Now().After(deadline) {
+			t.Fatal("后台迁移 5 秒还没退出——有东西卡住了")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

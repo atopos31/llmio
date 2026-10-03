@@ -298,8 +298,12 @@ func resetModeState(ctx context.Context, mode compressMode) error {
 // RunLogCompress 把历史明文行迁成压缩形态，一直跑到没有候选行为止。
 //
 // 阻塞调用：一批几十到几百毫秒，整库（12,483 行 / 5.64 GiB）量级是分钟。
-// 调用方（HTTP handler）应当把它放到 goroutine 里，用状态接口看进度。
+// HTTP 那条路不走这里，走 StartLogCompress——它连"起后台"这件事一起负责。
 func RunLogCompress(ctx context.Context, full bool) (*models.LogCompressState, error) {
+	if err := beginCompress(); err != nil {
+		return nil, fmt.Errorf("%w（%s）", err, modePack)
+	}
+	defer compressInFlight.Store(false)
 	return runCompressMode(ctx, modePack, full)
 }
 
@@ -309,17 +313,60 @@ func RunLogCompress(ctx context.Context, full bool) (*models.LogCompressState, e
 // "压缩整库 → 原样还原 → 与原库逐字节比对"这一趟走通，等于对整库做了一次
 // 完整往返验证，比任何抽样都硬。
 func RunLogDecompress(ctx context.Context, full bool) (*models.LogCompressState, error) {
+	if err := beginCompress(); err != nil {
+		return nil, fmt.Errorf("%w（%s）", err, modeUnpack)
+	}
+	defer compressInFlight.Store(false)
 	return runCompressMode(ctx, modeUnpack, full)
 }
 
-func runCompressMode(ctx context.Context, mode compressMode, full bool) (*models.LogCompressState, error) {
-	if !compressInFlight.CompareAndSwap(false, true) {
-		return nil, fmt.Errorf("%w（%s）", ErrCompressRunning, mode)
-	}
-	defer compressInFlight.Store(false)
-	// 能走到这里就说明这一轮是"被要求跑的"，暂停标志清掉。
-	compressPauseRequested.Store(false)
+// StartLogCompress 占位之后就返回，迁移在后台跑；StartLogDecompress 同理。
+//
+// 与 StartReclaim 同一个形状，而这不是风格问题：**占位必须在返回之前完成**。
+// 反过来（handler 自己 go func，占位在那条 goroutine 里）会留下一个窗口——
+// 响应已经写下 `started: true`，`CompressRunning()` 还是 false：状态接口当场
+// 自相矛盾，前端据此把"开始迁移"放回可点，并发进来的第二个请求也能透过去。
+// 测试里它更难看：用例把 `models.DB` 还原成 nil 之后那条 goroutine 才醒来，
+// 整个包以一个与用例无关的 nil 指针 panic 收场（2026-10-03 的 CI 就是这么红的）。
+func StartLogCompress(ctx context.Context, full bool) error {
+	return startCompressMode(ctx, modePack, full)
+}
 
+// StartLogDecompress 是回滚那条路的后台入口，占位同样在返回之前完成。
+func StartLogDecompress(ctx context.Context, full bool) error {
+	return startCompressMode(ctx, modeUnpack, full)
+}
+
+func startCompressMode(ctx context.Context, mode compressMode, full bool) error {
+	if err := beginCompress(); err != nil {
+		return fmt.Errorf("%w（%s）", err, mode)
+	}
+	go func() {
+		defer compressInFlight.Store(false)
+		// 请求的 ctx 在响应写完之后就被取消。半途而废必须是"进程被 kill"，
+		// 不能是"用户关了个标签页"——所以脱掉取消，只留值。
+		if _, err := runCompressMode(context.WithoutCancel(ctx), mode, full); err != nil {
+			slog.Error("log compress run failed", "error", err, "mode", mode)
+		}
+	}()
+	return nil
+}
+
+// beginCompress 占住"有一轮在跑"这个位，占位与释放都由入口负责。
+//
+// 释放刻意不放在这里：占位必须先于后台 goroutine 存在，谁占谁放，
+// 才不至于把别人的占位顺手放掉（被拒的那一次绝不能清标志）。
+func beginCompress() error {
+	if !compressInFlight.CompareAndSwap(false, true) {
+		return ErrCompressRunning
+	}
+	// 能占上位就说明这一轮是"被要求跑的"，暂停标志清掉。
+	compressPauseRequested.Store(false)
+	return nil
+}
+
+// runCompressMode 是迁移/回滚本身，既不起后台也不占位（占位由上面几个入口负责）。
+func runCompressMode(ctx context.Context, mode compressMode, full bool) (*models.LogCompressState, error) {
 	policy, err := GetLogCompressPolicy(ctx)
 	if err != nil {
 		return nil, err
@@ -791,7 +838,8 @@ func StartLogCompressScheduler(ctx context.Context) {
 			case compressPaused, compressFailed:
 				return
 			}
-			if _, err := runCompressMode(ctx, modePack, false); err != nil {
+			// 这里走阻塞入口：它自己占位，占不上就是"已经有别的入口在跑"。
+			if _, err := RunLogCompress(ctx, false); err != nil {
 				// 已经在跑（另一个入口起的）不算错——这一 tick 让给它。
 				if errors.Is(err, ErrCompressRunning) {
 					return

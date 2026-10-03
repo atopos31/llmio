@@ -3,6 +3,9 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -59,6 +62,11 @@ func setupCompressHandlerDB(t *testing.T) {
 	// 毫秒级就结束，但**必须在下一个用例开始前确认它退出了**——
 	// 否则下一个用例的 CompressRunning() 还是 true，会拿到"已经有一轮在执行"
 	// 这个理由，于是断言"拒绝理由是备份"就变成了一个偶发失败。
+	//
+	// 这条等待可靠的前提是**占位在响应之前就完成了**（service.StartLogCompress）：
+	// 轮询到的 false 只可能是"真的跑完了"，不可能是"还没开始"。占位若发生在响应
+	// 之后，这里就会在 goroutine 醒来之前放行，然后把这个用例的 DB 拆掉——
+	// 症状是一个与用例无关的 nil 指针 panic（见 TestLogCompressHandlersSpawnNoGoroutines）。
 	t.Cleanup(func() {
 		awaitCompressIdle(t)
 		// 回收同样是后台 goroutine，而且它一旦在 models.DB/models.DBPath 被还原
@@ -112,6 +120,37 @@ func postJSON(t *testing.T, h gin.HandlerFunc, path, body string) (int, map[stri
 	}
 	code, _ := env["code"].(float64)
 	return int(code), env
+}
+
+// 后台**不许**在这两个 handler 里起——这条用源码盯住，不靠跑一遍看时序。
+//
+// 理由不是洁癖，是那条 2026-10-03 让 CI 变红的 nil 指针 panic：旧形状里
+// `RunCompression` 自己 `go func() { service.RunLogCompress(...) }`，而占位
+// （那个 CAS 标志）发生在那条 goroutine 里。于是响应已经写下 `started: true`，
+// `CompressRunning()` 还可能读到 false——状态接口当场自相矛盾，前端据此把按钮
+// 放回可点，并发进来的第二个请求也能透过去；测试里更难看：用例把 `models.DB`
+// 还原成 nil 之后那条 goroutine 才醒来，整个包以一个与用例无关的 panic 收场。
+//
+// **为什么不用一条"跑起来看看"的用例**：那个窗口只有微秒级，而 Go 的异步抢占
+// 会让那条 goroutine 常常在断言之前就醒过来——实测把旧形状放回去，服务层那条
+// 时序断言照样是绿的。要判"占位在不在响应之前"，唯一稳的判据是**谁起的后台**：
+// 后台一律走 `service.StartLogCompress` / `StartLogDecompress`。
+func TestLogCompressHandlersSpawnNoGoroutines(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "log_compress.go", nil, 0)
+	if err != nil {
+		t.Fatalf("解析 handler/log_compress.go 失败：%v", err)
+	}
+	ast.Inspect(file, func(n ast.Node) bool {
+		goStmt, ok := n.(*ast.GoStmt)
+		if !ok {
+			return true
+		}
+		t.Errorf("%s：这里起了一个后台 goroutine。后台一律走 service.StartLogCompress / "+
+			"StartLogDecompress——占位必须在响应写回之前完成，handler 自己起就把它推到了响应之后",
+			fset.Position(goStmt.Pos()))
+		return true
+	})
 }
 
 func TestRunCompression_RefusesWithoutBackup(t *testing.T) {

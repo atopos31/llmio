@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"log/slog"
 
 	"github.com/atopos31/llmio/common"
@@ -17,8 +16,9 @@ import (
 //
 //  1. **开跑与回滚都是异步的。** 整库迁移是分钟级的事，挂在 HTTP 请求上会被
 //     网关掐断、被浏览器超时，而**请求的 ctx 一取消，迁移就跑到一半**。
-//     所以这里另起 goroutine 并显式用 `context.Background()`——迁移的半途而废
-//     必须是"进程被 kill"，不能是"用户关了个标签页"。
+//     所以后台由 service.StartLogCompress / StartLogDecompress 起（它们脱掉
+//     取消、只留值）——迁移的半途而废必须是"进程被 kill"，不能是"用户关了个
+//     标签页"。**占位也在那里、在返回之前做完**，见那两个函数的注释。
 //  2. **原地迁移要先确认有备份。** 迁移是形态改写，出事时最省事的路是把备份
 //     盖回去；没有备份就得靠 decompress，而那正是可能一起坏掉的那条路。
 
@@ -194,17 +194,16 @@ func RunCompression(c *gin.Context) {
 	}
 
 	full := req.Full
-	// 异步：迁移是分钟级的，挂在请求上会被网关掐断；更要紧的是请求的 ctx
-	// 一取消迁移就半途而废。这里的 ctx 必须自己起一个。
-	go func() {
-		state, err := service.RunLogCompress(context.Background(), full)
-		if err != nil {
-			slog.Error("log compress run failed", "error", err)
-			return
-		}
-		slog.Info("log compress run finished",
-			"status", state.Status, "scanned", state.Scanned, "packed", state.Packed)
-	}()
+	// 异步：迁移是分钟级的，挂在请求上会被网关掐断。
+	//
+	// **占位由 StartLogCompress 在返回之前做完**，所以这里的 `started: true`
+	// 是可信的：响应写完的那一刻 CompressRunning() 已经是 true，状态接口不会
+	// 出现"响应说在跑、状态说没在跑"的窗口。上面那道预检只是快速路径——
+	// 它是"先看一眼"，真正裁决的是这次占位（两者之间隔着备份门那几步）。
+	if err := service.StartLogCompress(c.Request.Context(), full); err != nil {
+		common.BadRequest(c, "已有一轮迁移在执行，请等它结束或先暂停")
+		return
+	}
 
 	common.Success(c, map[string]any{"started": true, "full": full, "backup": backup})
 }
@@ -249,15 +248,11 @@ func RollbackCompression(c *gin.Context) {
 		return
 	}
 
-	go func() {
-		state, err := service.RunLogDecompress(context.Background(), true)
-		if err != nil {
-			slog.Error("log decompress run failed", "error", err)
-			return
-		}
-		slog.Info("log decompress run finished",
-			"status", state.Status, "packed", state.Packed)
-	}()
+	// 与「开始迁移」同一条规矩：占位在返回之前完成，`started: true` 才可信。
+	if err := service.StartLogDecompress(c.Request.Context(), true); err != nil {
+		common.BadRequest(c, "已有一轮迁移在执行，请先暂停并等它退出")
+		return
+	}
 
 	common.Success(c, map[string]any{"started": true})
 }

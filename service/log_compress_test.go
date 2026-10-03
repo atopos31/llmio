@@ -1314,3 +1314,317 @@ func TestLogCompress_LeavesEmptyInputAlone(t *testing.T) {
 		t.Fatalf("空行被改成了 %q", typ)
 	}
 }
+
+// ── 响应体两列（of_string / of_string_array）───────────────────────────────
+//
+// 三列各有各的接入点——`input` 走钩子与块表，响应体那两列走序列化器——但
+// "迁没迁过"是同一件事。这一段盯的就是判据、水位、形态三处**都得按三列一起算**。
+//
+// 真机上出过的缺口正是"只做了 input 一列"：1.47 GiB 的库里有 1.36 GiB 是响应体
+// 两列的明文，而迁移一个字都没动过它们，界面还一直报"已完成"。所以这里的用例
+// 一律从"请求体已经迁完"这个中间态起跑——那才是真实的起跑线。
+
+// colShapeOf 读任意一列此刻的 storage class 与原始字节。NULL 读回来是空的 raw。
+func colShapeOf(t *testing.T, id uint, column string) (string, []byte) {
+	t.Helper()
+	var (
+		typ string
+		raw []byte
+	)
+	q := fmt.Sprintf(`SELECT typeof(%s), %s FROM chat_ios WHERE id = ?`, column, column)
+	if err := models.DB.Raw(q, id).Row().Scan(&typ, &raw); err != nil {
+		t.Fatalf("读行 %d 的 %s 形态失败：%v", id, column, err)
+	}
+	return typ, raw
+}
+
+// writeRawColumn 裸 SQL 改一列，**不碰 updated_at**。
+//
+// 不碰它是刻意的：`updated_at` 是冷静期过滤器的输入，刷新它等于把这行标记成
+// "刚被写过"，迁移下一轮又会绕开它——而这里恰恰是要给迁移喂一批候选行。
+//
+// value 传 string 落 TEXT、[]byte 落 BLOB、nil 落 NULL，与生产写路径同形。
+func writeRawColumn(t *testing.T, ctx context.Context, id uint, column string, value any) {
+	t.Helper()
+	q := fmt.Sprintf(`UPDATE chat_ios SET %s = ? WHERE id = ?`, column)
+	if err := models.DB.WithContext(ctx).Exec(q, value, id).Error; err != nil {
+		t.Fatalf("写行 %d 的 %s 失败：%v", id, column, err)
+	}
+}
+
+// outputPair 是一行的响应体两列在 Go 侧的样子。
+type outputPair struct {
+	ofString string
+	ofArray  []string
+}
+
+// readBackOutputs 走**生产读路径**（序列化器的 Scan）把响应体两列读回来。
+func readBackOutputs(t *testing.T, ctx context.Context) map[uint]outputPair {
+	t.Helper()
+	rows, err := gorm.G[models.ChatIO](models.DB).Order("id").Find(ctx)
+	if err != nil {
+		t.Fatalf("读回 chat_ios 失败：%v", err)
+	}
+	out := make(map[uint]outputPair, len(rows))
+	for _, r := range rows {
+		out[r.ID] = outputPair{ofString: r.OfString, ofArray: r.OfStringArray}
+	}
+	return out
+}
+
+// 请求体列早迁完、水位停在表尾的库，再跑一轮必须能把响应体两列也压掉。
+func TestLogCompress_MigratesOutputColumns(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	// 前半程：只有请求体列是明文，迁完，状态停在 done。
+	ids := seedPlaintextRows(t, ctx, [][]byte{
+		bigRow(1, 96<<10), bigRow(2, 40<<10), bigRow(3, 72<<10),
+	}, time.Hour)
+	if _, err := RunLogCompress(ctx, false); err != nil {
+		t.Fatalf("第一轮迁移失败：%v", err)
+	}
+	for _, id := range ids {
+		if typ, _ := colShapeOf(t, id, "input"); typ != "blob" {
+			t.Fatalf("前置条件不成立：行 %d 的 input 是 %q，应当是 blob", id, typ)
+		}
+	}
+
+	// 后半程：补上明文的响应体两列。裸 SQL 写 string 落的就是 TEXT，
+	// 与钩子存在之前写下的历史行同形——那正是迁移要处理的东西。
+	text := strings.Repeat("响应体里的大段中文与 emoji 🚀 混排 ", 3000)
+	array := `["` + text + `","第二段"]`
+	writeRawColumn(t, ctx, ids[0], "of_string", text)
+	writeRawColumn(t, ctx, ids[0], "of_string_array", array)
+	writeRawColumn(t, ctx, ids[1], "of_string", text) // 另一列留 NULL
+	writeRawColumn(t, ctx, ids[2], "of_string", "")   // 空串：历史形态，会被归一化成 NULL
+	writeRawColumn(t, ctx, ids[2], "of_string_array", array)
+
+	// done 之后人工再点一次 = 从水位 0 重扫。没有这一条，候选查询在水位之后
+	// 一行都扫不到，这一轮会立刻报 done，上面那三行明文就一直躺着。
+	if !ShouldRescanFromZero(ctx) {
+		t.Fatal("状态是 done，人工续跑应当判定为需要全量重扫")
+	}
+	st, err := RunLogCompress(ctx, true)
+	if err != nil {
+		t.Fatalf("第二轮迁移失败：%v", err)
+	}
+	if st.Status != compressDone {
+		t.Fatalf("第二轮之后状态是 %q", st.Status)
+	}
+
+	// 逐列看形态。**空的 TEXT 要被归一化成 NULL**：判据只剩 `typeof` 之后，
+	// "TEXT"与"非空明文"必须是同一件事，否则真机上那 8,932 行 `of_string=''`
+	// （流式响应）会被永远算成待迁移。NULL 则原样留着——它本来就不是候选。
+	want := []struct {
+		id                uint
+		ofString, ofArray string
+	}{
+		{ids[0], "blob", "blob"},
+		{ids[1], "blob", "null"},
+		{ids[2], "null", "blob"},
+	}
+	for _, w := range want {
+		if typ, _ := colShapeOf(t, w.id, "of_string"); typ != w.ofString {
+			t.Fatalf("行 %d 的 of_string 是 %q，期望 %q", w.id, typ, w.ofString)
+		}
+		if typ, _ := colShapeOf(t, w.id, "of_string_array"); typ != w.ofArray {
+			t.Fatalf("行 %d 的 of_string_array 是 %q，期望 %q", w.id, typ, w.ofArray)
+		}
+	}
+	// 归一化只动形态，不动值：那一列的字节数就是 0（空串与 NULL 在这个意义上
+	// 没差别，读路径也不做区分）。
+	if _, raw := colShapeOf(t, ids[2], "of_string"); len(raw) != 0 {
+		t.Fatalf("空的 of_string 被写进了字节：%d", len(raw))
+	}
+
+	// 读路径要能把压过的两列还原成原值——这才是"迁移没弄坏数据"的证据。
+	got := readBackOutputs(t, ctx)
+	if got[ids[0]].ofString != text {
+		t.Fatalf("行 %d 读回来的 of_string 对不上", ids[0])
+	}
+	if len(got[ids[0]].ofArray) != 2 || got[ids[0]].ofArray[0] != text {
+		t.Fatalf("行 %d 读回来的 of_string_array 对不上：%d 段", ids[0], len(got[ids[0]].ofArray))
+	}
+	if got[ids[1]].ofString != text {
+		t.Fatalf("行 %d 读回来的 of_string 对不上", ids[1])
+	}
+	if got[ids[1]].ofArray != nil {
+		t.Fatalf("行 %d 的 of_string_array 应当是 NULL，读回 %v", ids[1], got[ids[1]].ofArray)
+	}
+	// 归一化对读路径是透明的：`''` 与 NULL 读出来都是 ""。
+	if got[ids[2]].ofString != "" {
+		t.Fatalf("行 %d 的 of_string 应当读回空串，实得 %q", ids[2], got[ids[2]].ofString)
+	}
+
+	// 口径：这两个数必须把响应体那两列算进去。只算 input 的话它们会比一列明文
+	// 还小——真机上界面就是据此给出"几乎不占地方"这个结论的。
+	if st.BytesBefore < int64(len(text)) {
+		t.Fatalf("bytes_before=%d 比一列明文（%d）还小，响应体没算进去", st.BytesBefore, len(text))
+	}
+	if st.BytesTotal < int64(len(text)) {
+		t.Fatalf("bytes_total=%d 比一列明文（%d）还小，响应体没算进去", st.BytesTotal, len(text))
+	}
+}
+
+// 空的 TEXT 必须被**收敛掉**（写成 NULL），不能只是"跳过它"。
+//
+// 判据只剩 `typeof` 之后，空的 TEXT 是唯一会永远赖在候选集里的形态。这一条盯的
+// 是那个最难的中间态：一行三列都已迁完，只有 `of_string` 是历史留下的空串——
+// 它不影响任何数据，却足以让状态页永远报"还有 1 行待迁移"。真机上这个形态有
+// 8,932 行（流式响应的 `of_string` 全是空串，正文在 `of_string_array` 里）。
+//
+// 顺带钉住另一半：**待迁移行数必须能归零**。压不动的行（帧比原文还大）本来就
+// 会留下，但那是几十行；把空串也算成候选就是几千行，界面从"快完了"变成"永远
+// 差一大截"。
+func TestLogCompress_NormalizesEmptyOutputColumn(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	ids := seedPlaintextRows(t, ctx, [][]byte{bigRow(1, 96<<10)}, time.Hour)
+	writeRawColumn(t, ctx, ids[0], "of_string", "")
+	writeRawColumn(t, ctx, ids[0], "of_string_array",
+		`["`+strings.Repeat("分片内容 🚀 ", 2000)+`"]`)
+
+	if _, err := RunLogCompress(ctx, true); err != nil {
+		t.Fatalf("迁移失败：%v", err)
+	}
+
+	if typ, _ := colShapeOf(t, ids[0], "of_string"); typ != "null" {
+		t.Fatalf("空的 of_string 是 %q，期望 null——它会永远被算成待迁移的行", typ)
+	}
+	if typ, _ := colShapeOf(t, ids[0], "input"); typ != "blob" {
+		t.Fatalf("input 是 %q，期望 blob", typ)
+	}
+
+	resetDBStatsCache()
+	if got := ReadDBStats(ctx); got == nil {
+		t.Fatal("量得到却给了 nil")
+	} else if got.PendingRows != 0 {
+		t.Fatalf("待迁移 %d 行，期望 0——有列被永远算成候选", got.PendingRows)
+	}
+}
+
+// 回滚必须把响应体两列还原成**明文 TEXT**，且逐字节相等。
+//
+// 这一条不能拿"迁移后读得回来"替代：读路径只认帧头，是帧就解、不是帧就当明文
+// 读——把明文按 BLOB 写回去，读出来**照样是对的**。于是"列里的格式错了"这件事
+// 会一直躺着，直到下一次迁移拿 `typeof` 当判据、把它当成已迁过而漏掉。
+func TestLogCompress_DecompressRestoresOutputColumns(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	ids := seedPlaintextRows(t, ctx, [][]byte{bigRow(1, 96<<10)}, time.Hour)
+	text := strings.Repeat("回滚这一趟要逐字节比对 🚀 ", 2000)
+	array := `["` + text + `"]`
+	writeRawColumn(t, ctx, ids[0], "of_string", text)
+	writeRawColumn(t, ctx, ids[0], "of_string_array", array)
+
+	if _, err := RunLogCompress(ctx, true); err != nil {
+		t.Fatalf("迁移失败：%v", err)
+	}
+	for _, col := range []string{"input", "of_string", "of_string_array"} {
+		if typ, _ := colShapeOf(t, ids[0], col); typ != "blob" {
+			t.Fatalf("迁移后 %s 是 %q，期望 blob", col, typ)
+		}
+	}
+
+	st, err := RunLogDecompress(ctx, true)
+	if err != nil {
+		t.Fatalf("回滚失败：%v", err)
+	}
+	if st.Status != compressDone {
+		t.Fatalf("回滚后状态是 %q", st.Status)
+	}
+
+	for _, col := range []string{"input", "of_string", "of_string_array"} {
+		if typ, _ := colShapeOf(t, ids[0], col); typ != "text" {
+			t.Fatalf("回滚后 %s 是 %q，期望 text", col, typ)
+		}
+	}
+	if _, raw := colShapeOf(t, ids[0], "of_string"); string(raw) != text {
+		t.Fatalf("回滚后 of_string 与原字节不一致：%d 字节 vs %d", len(raw), len(text))
+	}
+	if _, raw := colShapeOf(t, ids[0], "of_string_array"); string(raw) != array {
+		t.Fatalf("回滚后 of_string_array 与原字节不一致：%d 字节 vs %d", len(raw), len(array))
+	}
+}
+
+// 回归：判据里的长度必须按**字节**量。
+//
+// SQLite 的 `length()` 对 TEXT 数到**第一个 NUL 为止**，而 NUL 打头的请求体在
+// 真实语料里是有的。判据写成 `length(input) > 0` 的话，这些行会被判成"空"而永远
+// 进不了候选集——迁移报"已完成"，它们还是明文。
+//
+// 顺带一提，NUL 又恰好是帧 magic（`\x00LCZ`）的首字节，所以这类行天生就该
+// 多被盯一眼。
+func TestLogCompress_NulLeadingBodyIsStillACandidate(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	// 非法 UTF-8 + 内嵌 NUL，且以 NUL 打头。
+	body := append([]byte{0x00, 0xff, 0xfe}, []byte(strings.Repeat("x\x00y", 5000))...)
+	ids := seedPlaintextRows(t, ctx, [][]byte{body}, time.Hour)
+
+	if _, err := RunLogCompress(ctx, false); err != nil {
+		t.Fatalf("迁移失败：%v", err)
+	}
+	if typ, _ := colShapeOf(t, ids[0], "input"); typ != "blob" {
+		t.Fatalf("NUL 打头的明文行没被迁（typeof=%q）——判据多半用了 length(列)", typ)
+	}
+}
+
+// 「已完成之后再点一次就是全量重扫」这条判据本身。
+//
+// 它只属于**人工入口**：调度器每 30 秒拿 full=false 推一次（done 状态也推），
+// 这条规则要是落进 runCompressMode，就变成每 30 秒一次全表重扫。
+func TestShouldRescanFromZero(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	if ShouldRescanFromZero(ctx) {
+		t.Fatal("从没跑过的库不该判定为需要全量重扫")
+	}
+
+	seedPlaintextRows(t, ctx, [][]byte{bigRow(1, 8<<10)}, time.Hour)
+	if _, err := RunLogCompress(ctx, false); err != nil {
+		t.Fatalf("迁移失败：%v", err)
+	}
+	if !ShouldRescanFromZero(ctx) {
+		t.Fatal("跑完之后应当判定为需要全量重扫（水位已到表尾，而三列的进度未必齐）")
+	}
+
+	// 读不到状态就**不加码**：全量重扫是更贵的那个选择，为一次读失败付它不值当。
+	// 退化方向是安全的——最坏情况是这一次少扫一遍，而不是白扫一遍全表。
+	sqlDB, err := models.DB.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = sqlDB.Close()
+	if ShouldRescanFromZero(ctx) {
+		t.Fatal("读不到状态时不应当要求全量重扫")
+	}
+}
+
+// 响应体列里出现"是我们造的帧、但解不开"时，回滚必须**报错停下**。
+//
+// 静默跳过那一列的后果不是数据损坏（列里的字节没动），而是**账对不上**：
+// 回滚跑完报"全部还原"，而这一列还留在帧形态，且此后没人会再去看它。
+// 这条路径上"我猜它应该是……"的每一次让步，都是一次让缺口永久化的机会。
+func TestLogCompress_DecompressStopsOnCorruptOutputFrame(t *testing.T) {
+	setupLogCompressTestDB(t)
+	ctx := context.Background()
+
+	ids := seedPlaintextRows(t, ctx, [][]byte{bigRow(1, 8<<10)}, time.Hour)
+
+	frame := models.PackColumnValue([]byte(strings.Repeat("响应体明文 ", 500)))
+	if frame == nil {
+		t.Fatal("前置条件不成立：造不出帧")
+	}
+	// 帧头留着、载荷截掉一截：magic 认得出，内容解不开。
+	writeRawColumn(t, ctx, ids[0], "of_string", frame[:len(frame)-3])
+
+	if _, err := RunLogDecompress(ctx, true); err == nil {
+		t.Fatal("坏帧被放过了——回滚会报\"已完成\"，而这一列还留在帧形态")
+	}
+}

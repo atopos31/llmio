@@ -167,7 +167,6 @@ function compressionStatus(over: Partial<CompressionStatus> = {}): CompressionSt
       block_rows: 0,
       block_group_rows: 0,
       block_group_bytes: 0,
-      input_column_bytes: 0,
       stats_at: 0,
       stale: false,
     },
@@ -356,8 +355,8 @@ describe("系统配置页 · 数据库压缩", () => {
     mocked.getCompression.mockResolvedValue(compressionStatus(over))
   }
 
-  it("迁移完成后给出压缩比：原始 ÷ 真正落库", async () => {
-    // 1 GiB 原始，落库 = 8 MiB（input 列）+ 2 MiB（组表）+ 0 块表 = 10 MiB ⇒ 约 102.4×
+  it("迁移完成后给出压缩比：原始 ÷ 实际占用", async () => {
+    // 1 GiB 原始，库文件 10 MiB ⇒ 约 102.4×
     withCompression({
       state: {
         ...compressionStatus().state,
@@ -369,9 +368,7 @@ describe("系统配置页 · 数据库压缩", () => {
       db: dbStats({
         pending_rows: 0,
         framed_rows: 100,
-        input_column_bytes: 8 * 1024 ** 2,
-        block_group_rows: 1,
-        block_group_bytes: 2 * 1024 ** 2,
+        file_size: 10 * 1024 ** 2,
       }),
     })
 
@@ -379,6 +376,44 @@ describe("系统配置页 · 数据库压缩", () => {
 
     expect(await screen.findByText("102.4×")).toBeInTheDocument()
     expect(screen.getByText("原始大小 ÷ 实际占用")).toBeInTheDocument()
+  })
+
+  /**
+   * 这一条是两轮 bug 的回归，方向相反：
+   *
+   *  - 第一轮："实际占用"当时只算请求体列 + 分块组表 + 块表索引，漏掉了体量最大的
+   *    响应体两列（真机上 1.47 GiB 的库，这两列明文占 1.36 GiB，而读数只报 62 MB），
+   *    提示语还把漏掉的那半写成了定义。用户据此得出"压缩效果很好"，而实际几乎没有省。
+   *  - 第二轮：补齐的方式是**逐列把载荷读出来求和**——`length(CAST(列 AS BLOB))`。
+   *    这一句在真机 7.6 GiB 的库上要 4.24 秒，而 `journal_mode=delete` 下读事务挡写，
+   *    聊天写请求等满 5 秒 busy_timeout 后整站 500。
+   *
+   * 现在的口径是**库文件本身**：`file_size` 一次 stat 就拿到，比逐列求和更便宜，
+   * 也比逐列求和更准（页头、空闲页、索引都在里面）。所以这条用例钉的是：
+   * 分母取 `file_size`，而**不**是任何按列相加出来的数。
+   */
+  it("实际占用取库文件大小，不按列相加", async () => {
+    withCompression({
+      state: {
+        ...compressionStatus().state,
+        status: "done",
+        bytes_total: 1024 ** 3,
+        bytes_before: 1024 ** 3,
+      },
+      // 库文件 512 MiB ⇒ 2.0×。若哪天有人改回"逐列相加"（这里没有任何列字节
+      // 字段可加，值会退化成 —／不显示），这条断言就会红。
+      db: dbStats({
+        pending_rows: 0,
+        framed_rows: 100,
+        file_size: 512 * 1024 ** 2,
+      }),
+    })
+
+    renderPage()
+
+    expect(await screen.findByText("2.0×")).toBeInTheDocument()
+    expect(screen.queryByText("102.4×")).not.toBeInTheDocument()
+    expect(screen.getByText(/库文件在磁盘上实际占用的大小/)).toBeInTheDocument()
   })
 
   /**
@@ -402,9 +437,7 @@ describe("系统配置页 · 数据库压缩", () => {
       db: dbStats({
         pending_rows: 15, // 压不动的那几行，永远还是明文
         framed_rows: 12468,
-        input_column_bytes: 8 * 1024 ** 2,
-        block_group_rows: 891,
-        block_group_bytes: 2 * 1024 ** 2,
+        file_size: 10 * 1024 ** 2,
       }),
     })
 
@@ -432,7 +465,7 @@ describe("系统配置页 · 数据库压缩", () => {
       db: dbStats({
         pending_rows: 60, // 还有 60 行是明文，占了分母的大半
         framed_rows: 40,
-        input_column_bytes: 1024 ** 3,
+        file_size: 1024 ** 3,
       }),
     })
 
@@ -448,7 +481,7 @@ describe("系统配置页 · 数据库压缩", () => {
 
   it("还没量过原文合计时如实说没量过，而不是显示一个空比值", async () => {
     withCompression({
-      db: dbStats({ pending_rows: 12483, input_column_bytes: 5 * 1024 ** 3 }),
+      db: dbStats({ pending_rows: 12483, file_size: 5 * 1024 ** 3 }),
     })
 
     renderPage()

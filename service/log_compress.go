@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -188,20 +189,99 @@ func (m compressMode) stateKey() string {
 // TEXT↔数字，不碰 BLOB），所以**形态与 typeof 一一对应**，不需要任何标志列
 // （C1：7 GB 的表上加列 = AutoMigrate 重建全表）。
 //
-// 而且 `typeof` 只读记录的类型头、不读载荷——这一列平均 470 KiB，
+// 而且 `typeof` 只读记录的类型头、不读载荷——`input` 平均 470 KiB，
 // 真去读载荷的话光是筛选就能把迁移拖垮。
+//
+// **判据是三列的并集，不是 `input` 一列。** 三列各有各的接入点（`input` 走
+// 钩子与块表，响应体两列走序列化器），但"迁没迁过"这件事三列是同一件。
+// 只看 `input` 会漏掉整整一类行：一份 `input` 早就迁完的库，响应体那两列
+// 还一个字都没压过（它们没有块表那样的"必须整列重写"的理由），而按 `input`
+// 筛出来的候选集是**空的**——迁移会报"已完成"，那 1.4 GiB 明文一行都不会动。
 func (m compressMode) candidateFilter() string {
 	if m == modeUnpack {
-		return "typeof(input) = 'blob'"
+		return framedFilter
 	}
 	return plaintextFilter
 }
 
-// plaintextFilter 是"这一行还裸着原文"的判据。pack 的候选过滤器就是它。
+// chatIOColumns 是参与压缩的三列，顺序即 SELECT / UPDATE 里的顺序。
 //
-// 单独抽出来是因为它还有第二个用处：量**原文合计**。量原文只能用这一个判据，
-// 不能跟着模式走——unpack 的候选是帧，对它求和得到的是帧的字节数，不是原文。
-const plaintextFilter = "typeof(input) = 'text'"
+// 用数组而不是三处各写一遍列名：这块代码刚补的一次缺口正是"只做了 input 一列"
+// ——响应体那两列在库里躺到 1.4 GiB 明文都没人动，而每一处（SELECT、UPDATE、
+// 候选判据、字节统计）都各自写了一遍 `input`，漏一列不会产生任何编译错误。
+// 数组把"三列"收成一个可以遍历的东西，新加的每一处都只能跟着走完三遍。
+//
+// 列名要与下面六个判据常量里的字面量对齐——判据得是 const（要拼进 SQL），
+// 生成不了，这处重复是剩下的唯一一处。
+var chatIOColumns = [colCount]string{"input", "of_string", "of_string_array"}
+
+const (
+	colInput = iota
+	colOfString
+	colOfArray
+	colCount
+)
+
+// 三列各自的形态判据。
+//
+// **两条路都只读 `typeof`，一个字节的载荷都不碰。** 这不是"顺手优化"，是这套
+// 东西能不能在真机上活下来的前提：状态页拿着同一套判据做全表聚合，而 SQLite 的
+// `typeof` 读的是记录头。实测这份 7.6 GiB 的库，纯 `typeof` 的全表并集 0.076 秒；
+// 一旦掺进任何要碰载荷的东西——`length(CAST(列 AS BLOB))`、`列 <> 空串`——
+// 就变成 2.9～4.2 秒，成正比于要读的字节数。
+//
+// 而 4.2 秒是会要命的：库跑在 `journal_mode=delete`（回滚日志）下，**读事务挡写**，
+// 状态页每 5 秒刷一次量库现状的同时，聊天请求的写等满 5 秒 `busy_timeout` 报
+// `SQLITE_BUSY`——整站 500。这条路径曾经真的长这样。
+//
+// 判据能瘦成 `typeof`，靠的是那条不变量：**这三列里 TEXT 只表示"非空明文"**
+// （空值一律 NULL，见 models/serializer.go 与 models/body.go）。
+// 没有它就必须量长度才能把"空"从"明文"里摘出去——而那个 `length()` 正是
+// 上面那 4.2 秒的全部来源。历史行里那个形态（`of_string` 是空串的 8,932 行）
+// 由迁移自己归一化掉：它读得到载荷，顺手把空的 TEXT 写成 NULL。
+//
+// **三列一律同一口径**，`input` 也不例外。曾经给 `input` 单独留过
+// `length(...) > 0`（怕 NUL 打头的请求体被判成空），现在连它一起不要了：
+// 空串、NUL 打头、正常明文，在 `typeof` 眼里都是 `text`，而**那正是我们要的**
+// ——它们都是"这一列还没迁"。
+const (
+	inputPlain    = "typeof(input) = 'text'"
+	ofStringPlain = "typeof(of_string) = 'text'"
+	ofArrayPlain  = "typeof(of_string_array) = 'text'"
+
+	inputFramed    = "typeof(input) = 'blob'"
+	ofStringFramed = "typeof(of_string) = 'blob'"
+	ofArrayFramed  = "typeof(of_string_array) = 'blob'"
+)
+
+// 两条路的候选过滤器：三列里**任意一列**还没做完，这一行就还是候选。
+//
+// 拼接而不是各写一遍：判据与用它拼出来的筛子必须同步，分开写就多了一处会漂移的地方。
+const (
+	plaintextFilter = "(" + inputPlain + " OR " + ofStringPlain + " OR " + ofArrayPlain + ")"
+	framedFilter    = "(" + inputFramed + " OR " + ofStringFramed + " OR " + ofArrayFramed + ")"
+)
+
+// plaintextBytesExpr 是一行**还没压的那些列**的原文字节合计，逐列判形态。
+//
+// 逐列判而不是"整行有明文就算整行"：迁移跑在混合形态的库上是常态
+// （`input` 早迁完了、响应体还没），整行口径会把已经压过的 `input` 那几 MiB
+// 引用帧当成原文算进合计，于是"省了多少"这一栏当场虚高。
+//
+// `COALESCE` 是必需的，不是保险：NULL 参与算术会让整个表达式变成 NULL，
+// 而 `sum()` 跳过 NULL——一行 `of_string_array` 为空就会让这一行的其余两列
+// 一起从合计里消失（3593 行是这个形态，不是边角）。
+//
+// **这里的 `length()` 是要读载荷的**（实测 1.36 GiB 读 0.80 秒，成正比），
+// 与上面那两条判据不同。它只在 `snapshotCompress` 里跑——一次迁移一趟，
+// 而且本来就是"把还没压的原文量一遍"这件事本身，没有更便宜的做法。
+// 别把这段表达式搬进任何按秒轮询的地方：状态页那条路只许用 typeof。
+const plaintextBytesExpr = "(CASE WHEN " + inputPlain +
+	" THEN COALESCE(length(CAST(input AS BLOB)), 0) ELSE 0 END" +
+	" + CASE WHEN " + ofStringPlain +
+	" THEN COALESCE(length(CAST(of_string AS BLOB)), 0) ELSE 0 END" +
+	" + CASE WHEN " + ofArrayPlain +
+	" THEN COALESCE(length(CAST(of_string_array AS BLOB)), 0) ELSE 0 END)"
 
 // DefaultLogCompressState 是"从没跑过"的状态。
 func DefaultLogCompressState() *models.LogCompressState {
@@ -293,6 +373,30 @@ func resetModeState(ctx context.Context, mode compressMode) error {
 	return saveCompressState(ctx, mode, DefaultLogCompressState())
 }
 
+// ShouldRescanFromZero 报"这次人工发起的迁移该不该从水位 0 重扫"。
+//
+// 规则只有一条——状态是 done 就全量重扫，不管调用方传了什么——但它决定了
+// 这套东西在真机上**能不能跑起来**。
+//
+// 理由是水位与"三列并集"之间的错位。水位记的是"上一轮扫到了哪个 id"，而三列
+// 各有各的进度：请求体列早就迁完、水位停在表尾的库，响应体那两列可能一行都
+// 没压过（真机上 1.36 GiB 明文，而界面报"已完成"）。这时从水位续跑，候选查询
+// 在水位之后一行都扫不到，一轮下来立刻报 done——那两列永远迁不动。而 done
+// 恰恰说明上一轮已经跑到表尾，再点一次就是"整表再确认一遍"。
+//
+// 重扫不会把已经迁过的行压第二遍：候选过滤只挑明文，那些行不是候选。
+//
+// **只给人工入口用。** 调度器每 30 秒拿 full=false 推一次（done 状态也推），
+// 这条规则要是落进 runCompressMode，就变成每 30 秒一次全表重扫。
+func ShouldRescanFromZero(ctx context.Context) bool {
+	state, err := getCompressState(ctx, modePack)
+	if err != nil {
+		// 读不到状态就不加码：全量重扫是更贵的那个选择，为一次读失败付它不值当。
+		return false
+	}
+	return state.Status == compressDone
+}
+
 // ── 跑一轮 ────────────────────────────────────────────────────────────────
 
 // RunLogCompress 把历史明文行迁成压缩形态，一直跑到没有候选行为止。
@@ -377,8 +481,9 @@ func runCompressMode(ctx context.Context, mode compressMode, full bool) (*models
 	}
 
 	if full {
-		// 「从 0 全量重扫」并不等于"把已经迁过的行再压一遍"——候选过滤是
-		// `typeof(input)='text'`，迁过的行已经变成 BLOB 了，扫到也会跳过。
+		// 「从 0 全量重扫」并不等于"把已经迁过的行再压一遍"——候选判据是
+		// `typeof(列)='text'`（三列里任意一列还是明文），迁过的那一列已经
+		// 变成 BLOB 了，扫到也会跳过。
 		// 它的真正用途是"水位不可信了"（手工改过库、从备份恢复），
 		// 以及**回滚路径**：解压必须从 0 开始，因为帧散布在全表。
 		state.LastID = 0
@@ -554,10 +659,12 @@ func sleepBetweenBatches(ctx context.Context, d time.Duration) {
 type compressSnapshot struct {
 	maxID uint  // 本轮起点时的最大 id
 	total int64 // 水位之后、maxID 之前的候选行数
-	// plainBytes 是水位之后、maxID 之前那些**还裸着原文**的行在这一列上的字节合计。
+	// plainBytes 是水位之后、maxID 之前那些**还裸着原文的列**的字节合计
+	// （三列，逐列判形态，见 plaintextBytesExpr）。
 	//
-	// 它和 total 一起量、同一个 WHERE，所以不多一次扫描：`length()` 读的是记录
-	// 头里的长度字段，和 `typeof` 一样不碰载荷（这一列平均 470 KiB）。
+	// 它和 total 一起量、同一个 WHERE，所以不多一次扫描：`length()` 读的是
+	// **载荷**（实测成正比于字节数），但这条路一次迁移只走一趟，而这本来就是
+	// "把还没压的原文量一遍"本身。别把它挪进轮询路径——那条只许用 typeof。
 	plainBytes int64
 }
 
@@ -567,8 +674,9 @@ type compressSnapshot struct {
 // 这个 count 扫到 0 行就返回，调度器每 30 秒空跑一次的代价是常数级。
 // 要是按整表数，一个状态页/一次空跑就得把全表的记录头读一遍。
 //
-// 代价是首次开跑时它确实要把 `id <= maxID` 这一段全扫一遍（只读记录头，
-// 不读载荷）。一次性，且只发生在真要点「开始迁移」的时候。
+// 代价是首次开跑时它确实要把 `id <= maxID` 这一段全扫一遍，而这一句里的
+// `length()` 要读载荷（`total` 那半个是免费的 typeof，`plainBytes` 那半个不是）。
+// 一次性，且只发生在真要点「开始迁移」的时候。
 func snapshotCompress(ctx context.Context, mode compressMode, lastID uint) (compressSnapshot, error) {
 	var snap compressSnapshot
 	if err := models.DB.WithContext(ctx).
@@ -577,13 +685,12 @@ func snapshotCompress(ctx context.Context, mode compressMode, lastID uint) (comp
 		return snap, fmt.Errorf("read max id: %w", err)
 	}
 
-	// 两个筛子刻意分开：count 跟着模式走（unpack 数的是帧），
-	// 原文合计固定用 plaintextFilter（见它的注释）。
-	countQ := fmt.Sprintf(`SELECT count(*),
-		       COALESCE(sum(CASE WHEN %s THEN length(CAST(input AS BLOB)) ELSE 0 END), 0)
+	// 两个筛子刻意分开：count 跟着模式走（unpack 数的是帧），原文合计固定按
+	// "哪几列还是明文"逐列累加（见 plaintextBytesExpr）。
+	countQ := fmt.Sprintf(`SELECT count(*), COALESCE(sum(%s), 0)
 		FROM chat_ios
 		WHERE deleted_at IS NULL AND id > ? AND id <= ? AND %s`,
-		plaintextFilter, mode.candidateFilter())
+		plaintextBytesExpr, mode.candidateFilter())
 	if err := models.DB.WithContext(ctx).Raw(countQ, lastID, snap.maxID).
 		Row().Scan(&snap.total, &snap.plainBytes); err != nil {
 		return snap, fmt.Errorf("count candidates: %w", err)
@@ -591,10 +698,43 @@ func snapshotCompress(ctx context.Context, mode compressMode, lastID uint) (comp
 	return snap, nil
 }
 
-// compressRow 是一条候选行，body 是**列里此刻真实存着的字节**（不是明文）。
+// compressRow 是一条候选行。
+//
+// `stored` 是**列里此刻真实存着的字节**（不是明文），`todo` 标记哪几列还是
+// 本模式的活。两者由同一条 SELECT 一起取回：多要三个 `typeof` 不额外读载荷
+// （它只读记录头），却省掉了"再判一次这列是什么形态"的第二份逻辑。
 type compressRow struct {
-	id   uint
-	body []byte
+	id     uint
+	stored [colCount][]byte
+	todo   [colCount]bool
+}
+
+// candidateBytes 是这一行**还该动的那些列**此刻的字节合计。
+//
+// 只算待动的列，与 bytes_total 的口径（plaintextBytesExpr）严格对齐：把已经
+// 压过的列也算进来的话，`BytesBefore − BytesAfter` 就不再等于"这一批省掉的
+// 字节"，而那是界面上最显眼的一栏。
+func (r compressRow) candidateBytes() int64 {
+	var n int64
+	for i := range r.stored {
+		if r.todo[i] {
+			n += int64(len(r.stored[i]))
+		}
+	}
+	return n
+}
+
+// wantsChange 报"这个 storage class 还是本模式该动的东西"。
+//
+// 只判 storage class、不判长度：压缩路上 `text` 这一档里装着两种东西——
+// **非空明文**（要压）与**历史遗留的空串**（要归一化成 NULL），
+// 两者都由 `packColumn` 处理，判据本身不必把它们分开。
+// 回滚路上 `blob` 这一档只有帧一种，更不必判。
+func (m compressMode) wantsChange(storage string) bool {
+	if m == modeUnpack {
+		return storage == "blob"
+	}
+	return storage == "text"
 }
 
 // fetchCompressCandidates 取一批候选行。
@@ -612,9 +752,12 @@ func fetchCompressCandidates(
 	ctx context.Context, mode compressMode, policy *models.LogCompressPolicy, lastID, maxID uint,
 ) ([]compressRow, error) {
 	cutoff := time.Now().Add(-time.Duration(policy.QuiesceSec) * time.Second)
-	q := fmt.Sprintf(`SELECT id, input FROM chat_ios
+	// 三列名与三个 typeof 都从 chatIOColumns 拼出来，顺序天然与扫描目标对齐。
+	cols := strings.Join(chatIOColumns[:], ", ")
+	types := "typeof(" + strings.Join(chatIOColumns[:], "), typeof(") + ")"
+	q := fmt.Sprintf(`SELECT id, %s, %s FROM chat_ios
 		WHERE deleted_at IS NULL AND id > ? AND id <= ? AND %s AND updated_at <= ?
-		ORDER BY id LIMIT ?`, mode.candidateFilter())
+		ORDER BY id LIMIT ?`, cols, types, mode.candidateFilter())
 
 	rows, err := models.DB.WithContext(ctx).Raw(q, lastID, maxID, cutoff, policy.BatchRows).Rows()
 	if err != nil {
@@ -627,14 +770,32 @@ func fetchCompressCandidates(
 		total int64
 	)
 	for rows.Next() {
-		var r compressRow
-		if err := rows.Scan(&r.id, &r.body); err != nil {
+		var (
+			r       compressRow
+			storage [colCount]string
+		)
+		// 扫描目标必须与 SELECT 的列序严格对齐：先是 id，再是三列的值，
+		// 最后才是三个 typeof。交错着排会让 typeof 落进 []byte 里，
+		// 而 SQLite 的 typeof 永远是文本——错位在第一次扫描就报错，还算走运。
+		dest := make([]any, 0, 1+2*colCount)
+		dest = append(dest, &r.id)
+		for i := range chatIOColumns {
+			dest = append(dest, &r.stored[i])
+		}
+		for i := range chatIOColumns {
+			dest = append(dest, &storage[i])
+		}
+		if err := rows.Scan(dest...); err != nil {
 			return nil, fmt.Errorf("scan candidate: %w", err)
 		}
-		if len(out) > 0 && total+int64(len(r.body)) > policy.BatchBytes {
+		for i := range chatIOColumns {
+			r.todo[i] = mode.wantsChange(storage[i])
+		}
+		n := r.candidateBytes()
+		if len(out) > 0 && total+n > policy.BatchBytes {
 			break
 		}
-		total += int64(len(r.body))
+		total += n
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
@@ -660,27 +821,41 @@ func applyCompressBatch(
 
 	next := *state // 值拷贝：提交成功才生效
 	err := models.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		newBody, err := rewriteBodies(ctx, mode, tx, rows)
+		patches, err := rewriteBodies(ctx, mode, tx, rows)
 		if err != nil {
 			return err
 		}
 		for i, r := range rows {
 			next.LastID = r.id
 			next.Scanned++
-			next.BytesBefore += int64(len(r.body))
-			if newBody[i] == nil {
-				// 形态不用改（压不动就存明文 / 已经是明文）。也要计进 BytesAfter，
-				// 这样 BytesBefore−BytesAfter 恰好是这一列被省掉的字节数。
+			next.BytesBefore += r.candidateBytes()
+			changed := false
+			var after int64
+			for c := range chatIOColumns {
+				patch := patches[i][c]
+				if !patch.set {
+					// 这一列不用动（压不动就存明文 / 已经是这个形态 / 空值）。
+					// 待动的列也要计进 BytesAfter，这样 BytesBefore−BytesAfter
+					// 恰好是这一批省掉的字节数。
+					if r.todo[c] {
+						after += int64(len(r.stored[c]))
+					}
+					continue
+				}
+				if err := setColumn(ctx, tx, chatIOColumns[c], patch.value, r.id); err != nil {
+					return err
+				}
+				changed = true
+				if r.todo[c] {
+					after += int64(len(patch.value))
+				}
+			}
+			if changed {
+				next.Packed++
+			} else {
 				next.Skipped++
-				next.BytesAfter += int64(len(r.body))
-				continue
 			}
-			if err := tx.Exec(`UPDATE chat_ios SET input = ? WHERE id = ?`,
-				models.BodyBytes(newBody[i]), r.id).Error; err != nil {
-				return fmt.Errorf("rewrite chat_io %d: %w", r.id, err)
-			}
-			next.Packed++
-			next.BytesAfter += int64(len(newBody[i]))
+			next.BytesAfter += after
 		}
 		next.Status = compressRunning
 		next.Attempts = 0
@@ -694,38 +869,134 @@ func applyCompressBatch(
 	return nil
 }
 
-// rewriteBodies 算出每一行**该落库的字节**，nil 表示"这一行不用动"。
+// columnValue 是一行里某一列要落库的新值。
 //
-// 传 `models.BodyBytes` 而不是裸 `[]byte`：它是"让内容决定存储类"的那个类型，
-// 明文落 TEXT、帧落 BLOB。回滚这条路尤其不能写错——把明文按 BLOB 写回去，
-// 列里的格式就错了（`typeof` 不再对应形态），而**读路径仍然读得出来**，
-// 于是这个错会一直躺着，直到下一次迁移把它漏掉。
+// `set` 与 `value == nil` 必须分得很开，这是这套 patch 语义的全部：
+//
+//	set=false            这一列不动（压不动就存明文 / 已经是对的那个形态）；
+//	set=true, value=nil  这一列写成 **NULL**（空值归一化，见 packColumn）；
+//	set=true, value=…    这一列写成这些字节（明文落 TEXT、帧落 BLOB，由 BodyBytes 定）。
+//
+// 把前两种混起来是静默损坏：把"写 NULL"当成"不动"，空值就永远归一化不掉，
+// 而判据又只剩 `typeof`——那 8,932 行 `of_string` 的空串就会被永久算成待迁移。
+// 用结构体而不是拿 `[]byte{}` 当哨兵，就是不让这个区别靠"读者记得 nil 和空切片
+// 不一样"来维持。
+type columnValue struct {
+	value []byte
+	set   bool
+}
+
+// columnPatch 是一行里三列各自要落库的新值。
+type columnPatch [colCount]columnValue
+
+// rewriteBodies 算出每一行**该落库的字节**，nil 表示"这一列不用动"。
+//
+// **三列的接入点不同，这一点在这里必须显式分开**：`input` 可能要读写块表
+// （引用序列里的块存在 `chat_io_blocks`），只能走 `models.PackBodies` /
+// `models.UnpackBody`；响应体那两列是纯值变换，走序列化器同款的
+// `PackColumnValue` / `UnpackColumnValue`。喂错函数的后果不是报错而是**解错**：
+// 拿纯值变换去解引用序列，会把块表引用当成一段坏掉的压缩流。
+//
+// 落库的值统一交 `models.BodyBytes` 包（在 setColumn 里）：它是"让内容决定
+// 存储类"的那个类型，明文落 TEXT、帧落 BLOB。回滚这条路尤其不能写错——
+// 把明文按 BLOB 写回去，列里的格式就错了（`typeof` 不再对应形态），
+// 而**读路径仍然读得出来**，于是这个错会一直躺着，直到下一次迁移把它漏掉。
 func rewriteBodies(
 	ctx context.Context, mode compressMode, tx *gorm.DB, rows []compressRow,
-) ([][]byte, error) {
-	plains := make([][]byte, len(rows))
-	for i, r := range rows {
-		plains[i] = r.body
-	}
+) ([]columnPatch, error) {
+	out := make([]columnPatch, len(rows))
+
 	if mode == modePack {
-		return models.PackBodies(ctx, tx, plains)
+		// input 整列先取出来一起过 PackBodies：块要在**这一批内**封组，
+		// 逐行各封各的会让组平均只有 7.70 KiB（阶段 3 真机实测），
+		// 远低于 flate 的 32 KiB 窗口，白省 35.9%。见 models.PackBodies。
+		inputs := make([][]byte, len(rows))
+		for i, r := range rows {
+			inputs[i] = r.stored[colInput]
+		}
+		packed, err := models.PackBodies(ctx, tx, inputs)
+		if err != nil {
+			return nil, err
+		}
+		for i, r := range rows {
+			out[i][colInput] = packColumn(r, colInput, packed[i])
+			for _, c := range []int{colOfString, colOfArray} {
+				out[i][c] = packColumn(r, c, models.PackColumnValue(r.stored[c]))
+			}
+		}
+		return out, nil
 	}
 
-	out := make([][]byte, len(rows))
 	for i, r := range rows {
-		plain, err := models.UnpackBody(ctx, tx, r.body)
-		if err != nil {
-			return nil, fmt.Errorf("unpack chat_io %d: %w", r.id, err)
+		for c := range chatIOColumns {
+			if !r.todo[c] {
+				continue
+			}
+			var (
+				plain []byte
+				err   error
+			)
+			if c == colInput {
+				plain, err = models.UnpackBody(ctx, tx, r.stored[c])
+			} else {
+				plain, err = models.UnpackColumnValue(r.stored[c])
+			}
+			if err != nil {
+				return nil, fmt.Errorf("unpack chat_io %d %s: %w", r.id, chatIOColumns[c], err)
+			}
+			// nil 是空值；和原字节一样说明这一列的 BLOB 根本不是帧（不该发生，
+			// 候选判据只挑 blob，而不变量说 blob 一定是帧）。两种都跳过——
+			// **拿不准就不动它**，这条路径上的每一条"我猜它应该是……"
+			// 都是一次静默损坏的机会。
+			if plain == nil || bytes.Equal(plain, r.stored[c]) {
+				continue
+			}
+			out[i][c] = columnValue{value: plain, set: true}
 		}
-		// nil 是空值；和原字节一样说明这一行的 BLOB 根本不是帧（不该发生，
-		// 候选过滤只挑 BLOB）。两种都跳过——**拿不准就不动它**，
-		// 这条路径上的每一条"我猜它应该是……"都是一次静默损坏的机会。
-		if plain == nil || bytes.Equal(plain, r.body) {
-			continue
-		}
-		out[i] = plain
 	}
 	return out, nil
+}
+
+// packColumn 决定压缩路上一列的新值。
+//
+// `packed` 是编解码器给的结论（nil = 压不动、原样留明文），本函数在它之上补一条
+// **空值归一化**：这一列此刻是空的 TEXT（`todo` 且零字节）就写成 NULL。
+//
+// 为什么非写不可：判据只剩 `typeof` 之后，"TEXT"与"非空明文"必须是同一件事，
+// 否则 `of_string` 那 8,932 行空串（流式响应，正文在 `of_string_array` 里）
+// 会被永远算成待迁移的行，而它们本来无事可做。
+//
+// 写 NULL 而不是"留着不动"是有意的：这一步把历史行里那个形态**收敛掉**，
+// 从此 `typeof` 就是完整判据、状态页的"待迁移行数"也就精确了。读路径完全
+// 不受影响——NULL 与空串读出来都是零长度（见 models/serializer.go 的 Scan）。
+//
+// 只在 `todo` 时归一化：NULL 本来就不是候选（`typeof(NULL)='null'`），
+// 不该被这一趟顺手改一遍。
+func packColumn(r compressRow, c int, packed []byte) columnValue {
+	if !r.todo[c] {
+		return columnValue{}
+	}
+	if len(r.stored[c]) == 0 {
+		return columnValue{set: true} // 空的 TEXT → NULL
+	}
+	return columnValue{value: packed, set: packed != nil}
+}
+
+// setColumn 只改**真正变化的那一列**。
+//
+// 逐列发而不是一条 UPDATE 写三列：这条语料一行 470 KiB，把没变的列一起写回去
+// 意味着凭空重写一遍它的 BLOB——纯粹的 IO 与 WAL 放大。回滚路径上更糟：
+// 那一列此刻是明文，`BodyBytes` 会按内容判形态，值虽然对，但"写回去"这件事
+// 本身是多余的（也正是"拿不准就不动它"想避免的那类动作）。
+//
+// 列名是拼进 SQL 的，但一个用户输入都到不了这里：它只可能是 chatIOColumns
+// 里的常量字符串。值走参数绑定。
+func setColumn(ctx context.Context, tx *gorm.DB, column string, value []byte, id uint) error {
+	q := fmt.Sprintf(`UPDATE chat_ios SET %s = ? WHERE id = ?`, column)
+	if err := tx.WithContext(ctx).Exec(q, models.BodyBytes(value), id).Error; err != nil {
+		return fmt.Errorf("rewrite chat_io %d %s: %w", id, column, err)
+	}
+	return nil
 }
 
 // ── 对外读数 ──────────────────────────────────────────────────────────────

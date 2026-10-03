@@ -68,12 +68,17 @@ var (
 	_ sql.Scanner   = (*BodyBytes)(nil)
 )
 
-// Value 把内存里的字节按"是帧还是明文"分别落成 BLOB / TEXT。
+// Value 把内存里的字节按"是帧还是明文"分别落成 BLOB / TEXT，空值落 NULL。
 //
 // 注意它**不做压缩**：压不压、怎么压是钩子的决定，这里只管按已经定好的形态
 // 落库。两件事混在一起的话，"值可能被取两次"就不再是幂等的了。
+//
+// 空值写 NULL（而不是零长度的字符串）与 `serializer.go` 是同一条不变量：**这三列里
+// TEXT 只表示"非空明文"**，`typeof` 因此成为形态的完整判据。
+// 顺带一个用处：迁移的 patch 用 `nil` 表示"这一列不动"，于是"写成 NULL"
+// 正好落在空切片上（见 service/log_compress.go 的 columnValue）。
 func (b BodyBytes) Value() (driver.Value, error) {
-	if b == nil {
+	if len(b) == 0 {
 		return nil, nil
 	}
 	if compress.LooksLikeFrame(b) {
@@ -129,9 +134,9 @@ func (c *ChatIO) AfterFind(tx *gorm.DB) error {
 // packBody 是写路径。
 func (c *ChatIO) packBody(tx *gorm.DB) error {
 	plain := c.Input
-	// 空值不动：保持 NULL/TEXT 与压缩前一致，别为了"顺便压一下"改变历史行的
-	// typeof 分布。已经是帧也不动——Value 可能被调第二次（GORM 的慢查询日志
-	// 会对 driver.Valuer 再取一次值），幂等要求"同一份输入必得同一份输出"。
+	// 空值不动：`Value` 会把它落成 NULL（见那条不变量），已经是帧也不动——
+	// Value 可能被调第二次（GORM 的慢查询日志会对 driver.Valuer 再取一次值），
+	// 幂等要求"同一份输入必得同一份输出"。
 	if len(plain) == 0 || compress.LooksLikeFrame(plain) {
 		return nil
 	}

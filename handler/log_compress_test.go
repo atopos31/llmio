@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"go/ast"
 	"go/parser"
@@ -206,6 +207,38 @@ func TestRunCompression_AcceptsEmptyBody(t *testing.T) {
 	if msg, _ := env["message"].(string); !bytes.Contains([]byte(msg), []byte("备份")) {
 		t.Fatalf("空 body 没走到备份门，而是 %q——它被当成了格式错误", msg)
 	}
+}
+
+// 「已完成」之后再点一次 = 从水位 0 整表重扫，调用方不用自己记得带 full。
+//
+// 这条判据落在 handler 上（`full` 由 service.ShouldRescanFromZero 补上），
+// 所以从**接口**验一眼它的可观测面：响应回显的 full 必须是 true。
+//
+// 为什么非要在这里判、而不是塞进 runCompressMode：调度器每 30 秒拿 full=false
+// 推一次（done 状态也推），那条规则放进去就变成每 30 秒一次全表重扫。
+func TestRunCompression_RescansFromZeroAfterDone(t *testing.T) {
+	setupCompressHandlerDB(t)
+	ctx := context.Background()
+
+	// 空库上跑一轮，状态就地变成 done——这就是真机上那份库的起点。
+	if _, err := service.RunLogCompress(ctx, false); err != nil {
+		t.Fatalf("跑一轮失败：%v", err)
+	}
+	if st, err := service.GetLogCompressState(ctx); err != nil || st.Status != "done" {
+		t.Fatalf("前置条件不成立：状态是 %q / %v", st.Status, err)
+	}
+
+	code, env := postJSON(t, RunCompression, "/api/logs/compression/run",
+		`{"acknowledge_no_backup":true}`)
+	if code != http.StatusOK {
+		t.Fatalf("请求被拒：%v", env)
+	}
+	data, _ := env["data"].(map[string]any)
+	if full, _ := data["full"].(bool); !full {
+		t.Fatal("done 之后的续跑没有变成整表重扫——水位停在表尾，" +
+			"响应体那两列的明文永远扫不到")
+	}
+	awaitCompressIdle(t)
 }
 
 // 回收的门只有一道：一轮只能有一个。它不像迁移那样还要过备份这一类确认

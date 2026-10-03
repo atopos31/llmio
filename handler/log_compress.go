@@ -193,7 +193,9 @@ func RunCompression(c *gin.Context) {
 		slog.Error("record compression backup failed", "error", err)
 	}
 
-	full := req.Full
+	// 「已完成」之后再点一次 = 整表重扫，不用调用方自己记得带 full。
+	// 判据在 service 里（它知道状态机），理由见 ShouldRescanFromZero。
+	full := req.Full || service.ShouldRescanFromZero(ctx)
 	// 异步：迁移是分钟级的，挂在请求上会被网关掐断。
 	//
 	// **占位由 StartLogCompress 在返回之前做完**，所以这里的 `started: true`

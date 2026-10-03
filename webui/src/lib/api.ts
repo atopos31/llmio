@@ -823,20 +823,31 @@ export interface CompressionBackup {
 
 export interface CompressionDBStats {
   path: string;
+  // file_size 是**库文件在磁盘上实际占用的大小**（os.Stat），也是界面上
+  // 「实际占用」与压缩比的分母。
+  //
+  // 它取代了原先"三列字节相加 + 组表 + 块表索引"那个口径。那个口径要读载荷
+  // （`sum(length(CAST(列 AS BLOB)))`），而这份状态在迁移期间每 2 秒被轮询一次；
+  // 库跑在 `journal_mode=delete` 下读事务挡写，真机上一次 4.24 秒的长读就把
+  // 聊天请求全打成了 500。文件大小更便宜，也更准——它连索引、freelist 与别的
+  // 表一起算进去了。
   file_size: number;
   page_size: number;
   page_count: number;
   freelist_count: number;
   auto_vacuum: number;
   rows: number;
-  // pending_rows 是"还没迁的行数"，全表扫 typeof（只读记录头，不读载荷）。
-  // framed_rows 是已经迁过的行数（含引用帧与逐行帧）。
+  // pending_rows / framed_rows 数的是**行**，判据取三列（请求体 + 响应体两列）
+  // 的并集：一行里只要还有一列是明文就算待迁。全表扫 typeof，只读记录头、
+  // 不读载荷。按单列数会让"请求体迁完了、响应体还没"读成"待迁移 0 行"。
+  //
+  // 判据只靠 typeof 成立的前提是那条不变量：**这三列里 TEXT 只表示非空明文**
+  // （空值一律 NULL），所以历史的空串会被迁移归一化掉，行数也就精确。
   pending_rows: number;
   framed_rows: number;
   block_rows: number;
   block_group_rows: number;
   block_group_bytes: number;
-  input_column_bytes: number;
   // stats_at 是这组数**量出来的时刻**（unix 毫秒），stale 表示它是上一次的。
   // 后端给这一组数带 5 秒冷却：状态页在迁移期间每 2 秒轮询一次，而其中一项是
   // 全表聚合（真库 185 万页）——每次都真扫，等于自己给自己制造锁竞争。

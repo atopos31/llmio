@@ -355,17 +355,24 @@ func TestCompressSerializer_DefensiveBranches(t *testing.T) {
 
 	fresh := func() reflect.Value { return reflect.ValueOf(&ChatIO{}).Elem() }
 
-	// 空值的存储形态不许因为压缩而改变
-	if v, err := ser.Value(ctx, ofString, fresh(), ""); err != nil || v != "" {
-		t.Errorf("空字符串应当原样存 ''，得到 %#v / %v", v, err)
+	// 空值一律落 NULL —— 这一条不再是"与压缩前保持一致"，而是那条不变量的
+	// 一半：**这三列里 TEXT 只表示非空明文**，`typeof` 因此才算得出形态。
+	// 少了它，"挑出还没迁的行"就必须读载荷量长度（真机 4.2 秒），见 Value 的注释。
+	if v, err := ser.Value(ctx, ofString, fresh(), ""); err != nil || v != nil {
+		t.Errorf("空字符串应当存 NULL，得到 %#v / %v", v, err)
 	}
 	if v, err := ser.Value(ctx, ofArray, fresh(), []string(nil)); err != nil || v != nil {
 		t.Errorf("nil 切片应当存 NULL，得到 %#v / %v", v, err)
 	}
-	// 空切片不是 nil，今天存的是 "[]"，压缩后也应当是它
+	// 空切片不是 nil，今天存的是 "[]"，压缩后读回来也应当是它。
+	// **形态不钉**：`"[]"` 只有两字节，压完比原文还大，所以它就该存明文
+	// （见 PackColumnValue 的 `len(frame) >= len(plain)`）。这里钉的是
+	// "值没被弄坏"，不是"它一定是帧"。
 	if v, err := ser.Value(ctx, ofArray, fresh(), []string{}); err != nil {
 		t.Errorf("空切片编码失败：%v", err)
-	} else if plain, _, derr := compress.DecompressBytes(v.([]byte)); derr != nil || string(plain) != "[]" {
+	} else if raw, berr := storedBytes(v); berr != nil {
+		t.Errorf("空切片的存值取不出字节：%v", berr)
+	} else if plain, _, derr := compress.DecompressBytes(raw); derr != nil || string(plain) != "[]" {
 		t.Errorf("空切片应当存成 []，得到 %q / %v", plain, derr)
 	}
 
@@ -417,4 +424,89 @@ func TestCompressSerializer_DefensiveBranches(t *testing.T) {
 	if err := ser.Scan(ctx, ofString, dst, compress.Marshal(head)); err == nil {
 		t.Error("坏帧必须报错，绝不能静默当明文")
 	}
+}
+
+// PackColumnValue / UnpackColumnValue 是序列化器与迁移**共用**的那一份编解码，
+// 它们的分工是这次改动里最容易搞错的一处，所以契约单独钉一遍。
+//
+// 两个函数的返回值只有三种含义，而且必须分得很开：
+//   - 帧 / 明文  —— 编解码成功；
+//   - nil        —— **这一列不用动**（空值、已经是帧、压不动）；
+//   - error      —— 是我们造的帧但解不开，调用方要停下来。
+//
+// 把后两者混起来（或把明文当帧解）都是静默损坏：迁移会拿一个错的形态去覆盖
+// 一列本来好好的数据。
+func TestPackColumnValue(t *testing.T) {
+	plain := []byte(bigText(5))
+	frame := mustFrame(t, plain)
+
+	cases := []struct {
+		name  string
+		plain []byte
+		want  bool // true = 应当产出帧
+	}{
+		{"空值不动", nil, false},
+		{"空串不动", []byte{}, false},
+		{"已经是帧就原样不动", frame, false},
+		{"压完更大就存明文", []byte("x"), false},
+		{"有代表性的响应体产出帧", plain, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := PackColumnValue(c.plain)
+			if (got != nil) != c.want {
+				t.Fatalf("返回 %d 字节（非 nil=%v），期望 want=%v", len(got), got != nil, c.want)
+			}
+			if got != nil && !compress.LooksLikeFrame(got) {
+				t.Fatal("产出不是帧")
+			}
+			if got != nil && len(got) >= len(c.plain) {
+				t.Fatalf("产出的帧（%d）不比原文（%d）小——这正是那条判据要挡的", len(got), len(c.plain))
+			}
+		})
+	}
+}
+
+func TestUnpackColumnValue(t *testing.T) {
+	plain := []byte(bigText(5))
+	frame := mustFrame(t, plain)
+
+	got, err := UnpackColumnValue(frame)
+	if err != nil {
+		t.Fatalf("解帧失败：%v", err)
+	}
+	if !bytes.Equal(got, plain) {
+		t.Fatalf("往返不一致：%d 字节 vs %d 字节", len(got), len(plain))
+	}
+
+	// 明文**不是错误**：nil 表示"这一列不用动"，迁移据此跳过它。
+	// 回滚路径上这一条尤其要紧——历史明文行是常态，不是异常。
+	got, err = UnpackColumnValue([]byte(bigText(1)))
+	if err != nil {
+		t.Fatalf("历史明文不该报错：%v", err)
+	}
+	if got != nil {
+		t.Fatalf("明文应当返回 nil（不用动），实得 %d 字节", len(got))
+	}
+
+	if got, err := UnpackColumnValue(nil); err != nil || got != nil {
+		t.Fatalf("空值应当给 (nil, nil)，实得 (%v, %v)", got, err)
+	}
+
+	// 是我们造的帧、但载荷坏了：必须报错。退回明文等于把二进制垃圾当用户数据
+	// 吐出去，而且迁移下一轮还会把它当成"已经压过的行"。
+	broken := append([]byte(nil), frame[:len(frame)-3]...)
+	if _, err := UnpackColumnValue(broken); err == nil {
+		t.Fatal("被截断的帧应当报错")
+	}
+}
+
+// mustFrame 造一个合法的逐行帧。
+func mustFrame(t *testing.T, plain []byte) []byte {
+	t.Helper()
+	frame, ok := compress.EncodeVerified(plain, compress.TypeRowFrame, compress.LevelWrite)
+	if !ok {
+		t.Fatal("造帧失败")
+	}
+	return frame
 }

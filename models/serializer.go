@@ -25,9 +25,9 @@ func init() {
 //
 // 三条硬规则，顺序即优先级：
 //  1. **压不了就存明文**。压缩是纯优化，丢一个字节就是失败。
-//  2. 明文写成 string（TEXT），只有帧写成 []byte（BLOB）。
-//     于是"库里的 blob 一定是帧"成了一条可审计的不变量——
-//     排查时一条 `typeof(col)` 就能看出哪些行还没迁。
+//  2. 明文写成 string（TEXT）、帧写成 []byte（BLOB）、**空值写成 NULL**。
+//     三者与 `typeof` 一一对应，于是"这一列迁没迁过"是一个**只读记录头**就能
+//     回答的问题（见下面 Value 里那段空值说明）。
 //  3. 读的时候只认帧头：不是帧就当明文，是帧但解不开就**报错**。
 //     退回明文等于把二进制垃圾当成用户数据吐出去。
 type compressSerializer struct{}
@@ -42,12 +42,18 @@ func (compressSerializer) Value(ctx context.Context, field *schema.Field, dst re
 	if err != nil {
 		return nil, fmt.Errorf("compress: %s 列无法序列化: %w", field.DBName, err)
 	}
-	// 空值的存储形态与压缩前完全一致：字符串列存 ''，切片列存 NULL。
-	// 不为了"顺便压一下"去改变空值的类型，否则历史行的 typeof 分布会被搅乱。
+	// 空值一律写 NULL。这不是"与压缩前保持一致"（压缩前字符串列存的是 `''`），
+	// 而是刻意立的一条不变量：**这三列里 TEXT 只表示"非空明文"**，
+	// 于是 `typeof` 一个信号就把明文 / 帧 / 空三者分开了。
+	//
+	// 为什么值得改存储形态：只要 TEXT 还兼着"空"这个含义，"挑出还没迁的行"
+	// 就非得读一遍载荷去量长度不可。真机上 `of_string` 有 8,932 行是 `''`
+	// （流式响应那一批：正文在 `of_string_array` 里），而那条带 `length()` 的
+	// 判据在 7.6 GiB 的库上要跑 4.2 秒——`journal_mode=delete` 下读事务挡写，
+	// 聊天请求等锁 5 秒超时，整站 500。判据换成纯 `typeof` 之后是 0.076 秒。
+	//
+	// 读路径不受影响：`Scan(NULL)` 把字段归零，字符串列读出来仍然是 `""`。
 	if len(plain) == 0 {
-		if field.FieldType.Kind() == reflect.String {
-			return "", nil
-		}
 		return nil, nil
 	}
 	// 已经是帧就原样写回。正常路径不会遇到（内存里的字段值是明文），
@@ -55,12 +61,56 @@ func (compressSerializer) Value(ctx context.Context, field *schema.Field, dst re
 	if compress.LooksLikeFrame(plain) {
 		return plain, nil
 	}
-	frame, ok := compress.EncodeVerified(plain, compress.TypeRowFrame, compress.LevelWrite)
-	if !ok {
-		// INV-3 没过：解回来的和原文对不上。退回明文，绝不写这帧。
-		return string(plain), nil
+	if frame := PackColumnValue(plain); frame != nil {
+		return frame, nil
 	}
-	return frame, nil
+	// 压不动（或 INV-3 没过：解回来的和原文对不上）就存明文。绝不写这帧。
+	return string(plain), nil
+}
+
+// PackColumnValue 把一列的明文编成帧，压不动返回 nil。
+//
+// 它是"明文 → 帧"这件事的**唯一实现**，序列化器（写路径）与迁移（回填历史行）
+// 共用同一份——两处各写一遍的话，"压不动就存明文"这类规则迟早会在其中一侧漂移，
+// 而漂移的方向是数据损坏。
+//
+// 调用方看到 nil 时该做什么，两种场景不同，所以这里不替它们决定：
+//   - 序列化器：退回**明文**（`string(plain)`），因为它的职责是把值写下去；
+//   - 迁移：**这一列不动**，因为列里此刻的字节本来就是可读的。
+//
+// 空值与"已经是帧"都返回 nil。迁移的候选判据已经把这两种排除在外了，
+// 但保留这两道自己判：`BeforeSave` 那条路曾经因为"假设调用方已经判过"
+// 而把零值写回过（见 body.go 顶部），同一类假设不值得再赌一次。
+//
+// `len(frame) >= len(plain)` 这条与 `PackBodies` 里那句**逐字同源**：压完更大
+// 就不压。flate 对一小段随机字节会输出比原文还长的流（光头部就十来字节），
+// 不挡的话库里会凭空多出一批"越压越大"的行。压缩是纯优化，不划算就不做。
+func PackColumnValue(plain []byte) []byte {
+	if len(plain) == 0 || compress.LooksLikeFrame(plain) {
+		return nil
+	}
+	frame, ok := compress.EncodeVerified(plain, compress.TypeRowFrame, compress.LevelWrite)
+	if !ok || len(frame) >= len(plain) {
+		return nil
+	}
+	return frame
+}
+
+// UnpackColumnValue 把一列此刻的字节还原成明文，**不是帧就返回 nil**。
+//
+// nil 的含义是"这一列不用动"，与出错区分得很开：历史明文行是正常情况，
+// 调用方只有拿到 error 才该停下来。这条区分是回滚路径的安全阀——把明文
+// 当帧解、或者把帧当明文写回去，两种都是静默损坏，而它们在这里各有一个
+// 明确的返回值形态挡着。
+func UnpackColumnValue(stored []byte) ([]byte, error) {
+	plain, wasFrame, err := compress.DecompressBytes(stored)
+	if err != nil {
+		return nil, err
+	}
+	if !wasFrame {
+		return nil, nil
+	}
+	return plain, nil
 }
 
 // Scan 把库里的字节还原成字段值。dbValue 可能是 []byte（BLOB）、

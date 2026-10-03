@@ -41,9 +41,6 @@ func TestDBStats_ReadsTheRealNumbersAndCaches(t *testing.T) {
 	if first.Rows != 2 || first.PendingRows != 2 || first.FramedRows != 0 {
 		t.Fatalf("行数不对：rows=%d pending=%d framed=%d", first.Rows, first.PendingRows, first.FramedRows)
 	}
-	if first.ColumnBytes != 10 {
-		t.Fatalf("input 列字节数不对：%d，期望 10", first.ColumnBytes)
-	}
 	if first.PageSize <= 0 || first.PageCount <= 0 {
 		t.Fatalf("页信息不对：page_size=%d page_count=%d", first.PageSize, first.PageCount)
 	}
@@ -197,3 +194,41 @@ type codedErr int
 
 func (e codedErr) Error() string { return fmt.Sprintf("sqlite error (code %d)", int(e)) }
 func (e codedErr) Code() int     { return int(e) }
+
+// 待迁移的行数按**三列**算，不按请求体一列算。
+//
+// 按单列算的话，"请求体迁完了、响应体还没"这种最常见的中间态会读成 0 行——
+// 而它正是真机上发生过的：界面报"已完成"，1.36 GiB 明文一行没动。
+// 这个口径与迁移自己的候选集必须一致：两个数说的是同一件事，分头写迟早会漂。
+func TestDBStats_PendingSpansAllThreeColumns(t *testing.T) {
+	setupLogCompressTestDB(t)
+	resetDBStatsCache()
+	ctx := context.Background()
+
+	ids := seedPlaintextRows(t, ctx, [][]byte{bigRow(1, 8<<10)}, time.Hour)
+	if _, err := RunLogCompress(ctx, false); err != nil {
+		t.Fatalf("迁移失败：%v", err)
+	}
+
+	// 请求体已压成帧、响应体还是明文：只看 input 的话这里 pending 是 0。
+	plain := "响应体明文"
+	writeRawColumn(t, ctx, ids[0], "of_string", plain)
+
+	got := ReadDBStats(ctx)
+	if got == nil {
+		t.Fatal("量得到却给了 nil")
+	}
+	if got.PendingRows != 1 {
+		t.Fatalf("pending_rows=%d，期望 1——响应体那一列没被算进候选", got.PendingRows)
+	}
+	if got.FramedRows != 1 {
+		t.Fatalf("framed_rows=%d，期望 1——请求体那一列已经是帧了", got.FramedRows)
+	}
+	// 「这两列此刻占多少字节」**故意不在这里**：那个数只能靠读载荷算
+	// （`sum(length(CAST(列 AS BLOB)))`，真机 1.36 GiB 要 0.80 秒），
+	// 而这个接口每 2 秒被轮询一次，长读事务在 `journal_mode=delete` 下挡写。
+	// 界面要的"库现在多大"由 file_size 回答。详见 db_stats.go 的字段说明。
+	if got.FileSize <= 0 {
+		t.Fatalf("file_size=%d，界面靠它报「实际占用」", got.FileSize)
+	}
+}

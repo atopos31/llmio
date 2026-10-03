@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -21,6 +22,10 @@ import (
 //  2. **它不许每次轮询都扫全表。** 这一组数里最难的是全表聚合（`pending_rows`
 //     要扫整表 typeof，真库 1 854 000 页）。挂个 2 秒轮询、每次都真扫，
 //     等于自己给自己制造锁竞争——读越慢，下一次撞锁的概率越高。
+//     由此派生出一条硬规矩：**这一句里只许出现 `typeof`**。它读记录头、
+//     不读载荷；任何 `length()` / `列 <> ''` 都要把载荷读出来，成正比于字节数
+//     （实测 1.36 GiB 要 0.80 秒），而这条路径在真机上一次 4.24 秒的长读
+//     就足以把整站打成 500——`journal_mode=delete` 下读事务挡写。
 //
 // 所以：常数级的那部分（pragma、文件大小）每次真读；全表聚合那部分带 TTL。
 // runtime 里没有"半真半假"的选项，两者失效原因是同一个（撞锁），
@@ -58,19 +63,40 @@ const (
 // `auto_vacuum=0` 与 `freelist_count=0` 都是有确切含义的值（前者意味着文件永不
 // 缩小，界面据此画橙色警告线），拿 0 去表示"不知道"会把警告画错。
 type DBStats struct {
-	Path        string `json:"path"`
-	FileSize    int64  `json:"file_size"`
-	PageSize    int64  `json:"page_size"`
-	PageCount   int64  `json:"page_count"`
-	Freelist    int64  `json:"freelist_count"`
-	AutoVacuum  int64  `json:"auto_vacuum"`
-	Rows        int64  `json:"rows"`
-	PendingRows int64  `json:"pending_rows"`
-	FramedRows  int64  `json:"framed_rows"`
-	BlockRows   int64  `json:"block_rows"`
-	GroupRows   int64  `json:"block_group_rows"`
-	GroupBytes  int64  `json:"block_group_bytes"`
-	ColumnBytes int64  `json:"input_column_bytes"`
+	Path       string `json:"path"`
+	FileSize   int64  `json:"file_size"`
+	PageSize   int64  `json:"page_size"`
+	PageCount  int64  `json:"page_count"`
+	Freelist   int64  `json:"freelist_count"`
+	AutoVacuum int64  `json:"auto_vacuum"`
+	Rows       int64  `json:"rows"`
+	// PendingRows / FramedRows 数的是**行**，判据取三列的并集：一行里只要还有
+	// 一列是明文就算待迁，只要有一列是帧就算已压。按单列数会让"input 迁完了、
+	// 响应体还没"这种最常见的中间态读成"待迁移 0 行"，而那正是真机上发生过的
+	// 那件事（界面报已完成，1.4 GiB 明文一行没动）。
+	PendingRows int64 `json:"pending_rows"`
+	FramedRows  int64 `json:"framed_rows"`
+	BlockRows   int64 `json:"block_rows"`
+	GroupRows   int64 `json:"block_group_rows"`
+	GroupBytes  int64 `json:"block_group_bytes"`
+	// 这里**没有**"这三列此刻占多少字节"。
+	//
+	// 曾经有（`input_column_bytes` / `output_column_bytes`），是为了让界面别像
+	// 阶段 6 之前那样只报 62 MB——那时「实际占用」只算请求体列 + 组表，而库文件
+	// 是 1.47 GiB，因为响应体两列的 1.36 GiB 根本没进那个口径。
+	//
+	// 但那个数**只能靠读载荷算**：`sum(length(CAST(列 AS BLOB)))`（帧另说，
+	// 明文部分实测正比于字节数：1.36 GiB 要 0.80 秒）。它按秒轮询，就成了一次
+	// 长读事务；库跑在 `journal_mode=delete` 下读事务挡写，聊天请求等锁 5 秒
+	// 超时——整站 500。真机回执：回滚后的 7.6 GiB 库上这条聚合 4.24 秒。
+	//
+	// 界面需要的那件事有更准也更便宜的答案：**`file_size`（库文件多大）**。
+	// 它本来就是常数量级的 pragma + os.Stat，而且比"三列加总"更全——把块表索引、
+	// freelist、别的东西都算进去了。阶段 6 想修的那个"界面少报 1.4 GiB"，
+	// 至此是由 file_size 直接回答的。
+	//
+	// 分块的字节（GroupBytes）留着：`block_groups` 是张小表（真机 57 MiB / 891 行），
+	// 聚合它 0.03 秒，而且它没有别的口径能替代。
 
 	// StatsAt 是这组数字量出来的时刻（unix 毫秒）。前端据此说明"数据截至"。
 	StatsAt int64 `json:"stats_at"`
@@ -219,13 +245,25 @@ func readDBStatsOnce(ctx context.Context) (*DBStats, error) {
 		}
 	}
 
-	if err := models.DB.WithContext(ctx).Raw(`
+	// 判据直接复用迁移那一套（plaintextFilter / framedFilter）：两处口径要是
+	// 分头写，界面就会给出一个与迁移自己认的候选集不一样的"待迁移行数"，
+	// 而这两个数**必须**对得上——它们说的是同一件事。
+	//
+	// **这一句里不许出现任何读载荷的东西。** 两条判据只读 `typeof`（记录头里，
+	// 真机 7.6 GiB 全表 0.076 秒），这一条是硬要求，不是优化：这个接口在任务
+	// 进行中是每 2 秒被轮询一次的，而 `journal_mode=delete` 下长读事务挡写。
+	// 曾经的形状里有个 `sum(length(CAST(列 AS BLOB)))`，在回滚后的库上要 4.24 秒
+	// ——聊天请求的写等锁超时，整站 500。那段历史写在 DBStats 的字段说明里。
+	//
+	// 判据能瘦成纯 `typeof`，靠的是那条不变量：这三列里 **TEXT 只表示非空明文**
+	// （空值一律 NULL），详细推导见 log_compress.go 六个判据常量上面那段。
+	rowQ := fmt.Sprintf(`
 		SELECT count(*),
-		       COALESCE(sum(CASE WHEN typeof(input) = 'text' THEN 1 ELSE 0 END), 0),
-		       COALESCE(sum(CASE WHEN typeof(input) = 'blob' THEN 1 ELSE 0 END), 0),
-		       COALESCE(sum(length(CAST(input AS BLOB))), 0)
-		FROM chat_ios WHERE deleted_at IS NULL`).
-		Row().Scan(&stats.Rows, &stats.PendingRows, &stats.FramedRows, &stats.ColumnBytes); err != nil {
+		       COALESCE(sum(CASE WHEN %s THEN 1 ELSE 0 END), 0),
+		       COALESCE(sum(CASE WHEN %s THEN 1 ELSE 0 END), 0)
+		FROM chat_ios WHERE deleted_at IS NULL`, plaintextFilter, framedFilter)
+	if err := models.DB.WithContext(ctx).Raw(rowQ).
+		Row().Scan(&stats.Rows, &stats.PendingRows, &stats.FramedRows); err != nil {
 		return nil, err
 	}
 

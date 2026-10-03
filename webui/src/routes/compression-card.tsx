@@ -87,14 +87,6 @@ import { cn } from "@/lib/utils"
 /** 迁移在跑时的轮询间隔。够密到进度条能动，够疏到不把全表扫打满。 */
 const RUNNING_POLL_MS = 2000
 
-/**
- * 块表每行的估算开销，与后端 `rpBlockRowBytes` 同值。
- *
- * 是估的：块表没有存 orig_len 这一列，精确值要 `SUM(payload)`，那是一次
- * 全表读。它翻一倍也只多一 MiB 量级，不改变结论——但界面上要说明这是估算。
- */
-const BLOCK_ROW_BYTES = 40
-
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
@@ -758,11 +750,19 @@ function CompressionBody({
   // `freelist_count=0` 都是有确切含义的值（前者意味着文件永不缩，界面据此
   // 画警告线），拿 0 顶替"不知道"会把结论画反。整块如实说"没量到"。
   //
-  // 真正落库 = input 列 + 组表 + 块表。块表那 40 字节/行是估算（见 BLOCK_ROW_BYTES）。
-  const blockMetaBytes = db ? db.block_rows * BLOCK_ROW_BYTES : 0
-  const storedBytes = db
-    ? db.input_column_bytes + db.block_group_bytes + blockMetaBytes
-    : null
+  // 「实际占用」= **库文件大小**，不是"三列字节相加"。
+  //
+  // 相加那个口径在这里存在过，为的是修一件真事：响应体两列与请求体列在同一张
+  // 表上，体量一度盖过其余全部——真机 1.47 GiB 的库，这两列明文占 1.36 GiB，
+  // 而这一栏当时只报 62 MB（它只算请求体列 + 分组表 + 块表索引），用户据此得出的
+  // 结论是"压缩效果很好"，而实际几乎没有省。
+  //
+  // 但相加**必须读载荷**（`sum(length(CAST(列 AS BLOB)))`），而这份状态在迁移
+  // 期间每 2 秒被轮询一次；库跑在 `journal_mode=delete` 下，读事务挡写——真机上
+  // 一次 4.24 秒的长读就把聊天请求全打成了 500。文件大小是常数级的 os.Stat，
+  // 而且比相加**更准**：块表索引、freelist、别的表它一起算。
+  // "界面少报 1.4 GiB"那件事由它直接回答。
+  const storedBytes = db ? db.file_size : null
 
   // 压缩比的分子是 **state.bytes_total**（全表原文合计，起跑时量一次）。
   //
@@ -846,9 +846,7 @@ function CompressionBody({
           label={t("compression.stored")}
           value={storedBytes !== null ? formatBytes(storedBytes) : "—"}
           hint={
-            storedBytes !== null
-              ? t("compression.stored_hint", { block: formatBytes(blockMetaBytes) })
-              : t("compression.db_unavailable")
+            storedBytes !== null ? t("compression.stored_hint") : t("compression.db_unavailable")
           }
         />
         <Reading
@@ -872,11 +870,6 @@ function CompressionBody({
             </p>
           )}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <Reading
-              label={t("compression.file_size")}
-              value={formatBytes(db.file_size)}
-              hint={t("compression.file_size_hint")}
-            />
             <Reading
               label={t("compression.reclaimable")}
               value={formatBytes(freelistBytes ?? 0)}

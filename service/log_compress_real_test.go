@@ -8,13 +8,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/atopos31/llmio/models"
 	"github.com/atopos31/llmio/pkg/compress"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // 阶段 4 的真机验收：在一份**生产库副本**上做一次真正的**原地迁移**。
@@ -264,12 +267,20 @@ func verifyAgainstSource(t *testing.T, ctx context.Context, src *sql.DB) (int64,
 			if !ok {
 				t.Fatalf("行 %d 在目标库里不见了", s.id)
 			}
-			if !bytes.Equal(g.Input, s.body) {
+			// 比的是**两边各自读出来的值**，而不是列里的字节。源库那一列本身
+			// 就可能是帧（input 列先迁完的库就是这样），拿它跟明文比必然不等，
+			// 而那个"不等"恰恰是压缩生效的证据。明文走 DecompressBytes 也是
+			// 原样返回，所以这一句对两种源库形态都成立。
+			want, _, err := compress.DecompressBytes(s.body)
+			if err != nil {
+				t.Fatalf("源库行 %d 的 input 解不开：%v", s.id, err)
+			}
+			if !bytes.Equal(g.Input, want) {
 				t.Fatalf("行 %d 还原不一致：%d 字节 → %d 字节",
-					s.id, len(s.body), len(g.Input))
+					s.id, len(want), len(g.Input))
 			}
 			seen++
-			checked += int64(len(s.body))
+			checked += int64(len(want))
 		}
 		pending = pending[:0]
 	}
@@ -506,14 +517,20 @@ func assertSourceIntegrity(t *testing.T, src *sql.DB) int64 {
 
 // copyForMigration 复制一份可写的工作库。源库只读，原地迁移必须有自己的副本。
 func copyForMigration(t *testing.T, src string) string {
+	return copyForMigrationNamed(t, src, "work-phase4", "migrate.db")
+}
+
+// copyForMigrationNamed 同上，只是工作目录与文件名可指定——两个阶段的真机验收
+// 各留各的副本，重跑其中一条不会把另一条的中间态覆盖掉。
+func copyForMigrationNamed(t *testing.T, src, dirName, fileName string) string {
 	t.Helper()
-	dir := filepath.Join(filepath.Dir(src), "..", "work-phase4")
+	dir := filepath.Join(filepath.Dir(src), "..", dirName)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("建工作目录失败：%v", err)
 	}
 	// 每次都重建：上一次跑剩下来的库已经不是"迁移前"的形态了，
 	// 拿它接着跑会得到一堆"0 行改动"的假绿灯。
-	dst := filepath.Join(dir, "migrate.db")
+	dst := filepath.Join(dir, fileName)
 	_ = os.Remove(dst)
 
 	started := time.Now()
@@ -556,4 +573,375 @@ func humanBytesReal(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.2f %ciB", float64(n)/float64(div), "KMGTP"[exp])
+}
+
+// ── 响应体两列的真机验收（阶段 6）────────────────────────────────────────
+//
+// 与上面那条**不是一件事**，别混：
+//
+//   - 上面那条从"整库明文"起跑，验的是请求体列的迁移能不能把 5.64 GiB 压下去；
+//   - 这条从"请求体列已经迁完、响应体两列还是明文"起跑。真机上那份 1.47 GiB 的
+//     库就是这个形状：input 列早就是引用帧了，而 of_string_array 那一列的明文
+//     占 1.36 GiB（8,890 行），界面却一直报"已完成"。
+//
+// 它要回答三件事：
+//
+//  1. **三列都迁完之后逐行读得回来。** 走生产读路径，与源库**三列**逐一比对。
+//     响应体那两列不能拿"列里字节相等"来验：迁移之后列里存的是帧，本来就
+//     不该相等；要比的是读路径解出来的值。
+//  2. **库真的小下来了。** VACUUM 前后的文件大小都报——1.36 GiB 的明文压完
+//     应该只剩几十 MiB，这个落差就是这次改动的全部意义。
+//  3. **回滚闭环**：decompress 之后三列都回到明文，与源库**再次**逐行相等。
+//
+// 跑法（源库只读，测试在它旁边复制一份工作库再动）：
+//
+//	$env:LLMIO_REAL_DB_COPY="D:\llmio-test\work-phase4\real.db"
+//	go test ./service/ -run RealDatabaseOutputColumns -v -timeout 180m
+func TestLogCompress_RealDatabaseOutputColumnsInPlace(t *testing.T) {
+	srcPath := realDBForMigration(t)
+	ctx := context.Background()
+
+	src := openReadOnlySQL(t, srcPath)
+	defer src.Close()
+	srcRows := assertSourceIntegrity(t, src)
+	// 核对基线走**生产读路径**，理由见 openSourceModel。
+	srcDB := openSourceModel(t, srcPath)
+
+	work := copyForMigrationNamed(t, srcPath, "work-phase6", "output.db")
+	models.Init(ctx, work)
+	t.Cleanup(func() {
+		if sqlDB, err := models.DB.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+		compressInFlight.Store(false)
+		compressPauseRequested.Store(false)
+	})
+
+	before := measureRealDB(t, ctx, work)
+	outBefore := measureOutputColumns(t, ctx)
+	if before.rows != srcRows {
+		t.Fatalf("工作库 %d 行、源库 %d 行，复制没拷全", before.rows, srcRows)
+	}
+	if outBefore.plainRows == 0 {
+		t.Skip("这份副本的响应体两列已经是压缩形态——这条验收要一份还没迁过的副本")
+	}
+	t.Logf("")
+	t.Logf("【迁移前】input 列 %s（明文 %d 行 / 帧 %d 行）｜文件 %s",
+		humanBytesReal(before.colBytes), before.textRows, before.blobRows,
+		humanBytesReal(before.fileSize))
+	t.Logf("【迁移前】响应体两列 %s：其中 %d 行还有明文（原始 %s）｜组 %d 个 / %s",
+		humanBytesReal(outBefore.storedBytes), outBefore.plainRows,
+		humanBytesReal(outBefore.plainBytes), before.groups, humanBytesReal(before.groupBytes))
+
+	// ── 迁移 ──
+	//
+	// full=true 是**必须**的，而且它正是这次改动顺带修掉的那个缺口：
+	// 水位停在表尾，续跑一行都扫不到，响应体那两列永远迁不动。
+	started := time.Now()
+	state, err := RunLogCompress(ctx, true)
+	if err != nil {
+		t.Fatalf("原地迁移失败：%v", err)
+	}
+	elapsed := time.Since(started)
+	if state.Status != compressDone {
+		t.Fatalf("迁移结束状态是 %q（last_error=%q）", state.Status, state.LastError)
+	}
+	t.Logf("【迁移】用了 %s：扫 %d 行 / 改 %d 行 / 跳过 %d 行（原始 %s ⇒ %s）",
+		elapsed.Round(time.Millisecond), state.Scanned, state.Packed, state.Skipped,
+		humanBytesReal(state.BytesBefore), humanBytesReal(state.BytesAfter))
+
+	outAfter := measureOutputColumns(t, ctx)
+	// 这里**不能**断言"零明文行"，理由见 assertRemainingPlainUnpackable。
+	left := assertRemainingPlainUnpackable(t, ctx)
+	// 归一化：真机上那 8,932 行 `of_string` 是空串，到这一步应当全部变成 NULL。
+	assertNoEmptyText(t, ctx)
+	if left > max(outBefore.plainBytes/100, 1) {
+		t.Fatalf("残留明文 %s 超过原明文的 1%%（%s）——这个量级不像是压不动，像是漏迁",
+			humanBytesReal(left), humanBytesReal(outBefore.plainBytes))
+	}
+	t.Logf("【迁移后】响应体两列 %s（原始 %s ⇒ **%.1fx**）",
+		humanBytesReal(outAfter.storedBytes), humanBytesReal(outBefore.plainBytes),
+		float64(outBefore.plainBytes)/float64(max(outAfter.storedBytes, 1)))
+
+	// ── 逐行核对（三列）──
+	checked, checkedOut := verifyAllColumnsAgainstSource(t, ctx, srcDB)
+	t.Logf("【核对】%d 行三列逐一相等（响应体两列解出来 %s）", checked,
+		humanBytesReal(checkedOut))
+
+	// ── 文件 ──
+	after := measureRealDB(t, ctx, work)
+	t.Logf("【文件】迁移后 %s（freelist %d 页）；不 VACUUM 文件不会缩",
+		humanBytesReal(after.fileSize), after.freelistCount)
+	vacuumRealDB(t, ctx, work, after.fileSize)
+	vacuumed := measureRealDB(t, ctx, work)
+	t.Logf("【文件】VACUUM 后 %s：整库 %s ⇒ %s（%.1f%%）",
+		humanBytesReal(vacuumed.fileSize), humanBytesReal(before.fileSize),
+		humanBytesReal(vacuumed.fileSize),
+		100*float64(vacuumed.fileSize)/float64(max(before.fileSize, 1)))
+
+	// ── 回滚闭环 ──
+	started = time.Now()
+	dstate, err := RunLogDecompress(ctx, true)
+	if err != nil {
+		t.Fatalf("回滚失败：%v", err)
+	}
+	if dstate.Status != compressDone {
+		t.Fatalf("回滚结束状态是 %q（last_error=%q）", dstate.Status, dstate.LastError)
+	}
+	t.Logf("【回滚】用了 %s：还原 %d 行", time.Since(started).Round(time.Millisecond), dstate.Packed)
+
+	assertColumnsPlain(t, ctx)
+	assertNoEmptyText(t, ctx)
+	verifyAllColumnsAgainstSource(t, ctx, srcDB)
+	rolled := measureRealDB(t, ctx, work)
+	t.Logf("【回滚后】input 列 %s（明文 %d 行 / 帧 %d 行）｜文件 %s",
+		humanBytesReal(rolled.colBytes), rolled.textRows, rolled.blobRows,
+		humanBytesReal(rolled.fileSize))
+}
+
+// outputMeasure 是响应体两列的现状。
+type outputMeasure struct {
+	plainRows   int64 // 至少一列还是明文的行数
+	framedRows  int64 // 至少一列已是帧的行数
+	plainBytes  int64 // 明文列的原文字节合计
+	storedBytes int64 // 两列此刻真实占的字节（压过的算帧的大小）
+}
+
+// measureOutputColumns 量响应体两列。
+//
+// 判据直接复用迁移自己的 plaintextFilter 那一套常量（`ofStringPlain` /
+// `ofArrayPlain`）：测试和生产要是各写一份，"还有没有货"就会有两个答案。
+func measureOutputColumns(t *testing.T, ctx context.Context) outputMeasure {
+	t.Helper()
+	var m outputMeasure
+	q := fmt.Sprintf(`SELECT
+		   COALESCE(sum(CASE WHEN %s OR %s THEN 1 ELSE 0 END), 0),
+		   COALESCE(sum(CASE WHEN %s OR %s THEN 1 ELSE 0 END), 0),
+		   COALESCE(sum(CASE WHEN %s THEN COALESCE(length(CAST(of_string AS BLOB)), 0) ELSE 0 END
+		                  + CASE WHEN %s THEN COALESCE(length(CAST(of_string_array AS BLOB)), 0) ELSE 0 END), 0),
+		   COALESCE(sum(COALESCE(length(CAST(of_string AS BLOB)), 0)
+		              + COALESCE(length(CAST(of_string_array AS BLOB)), 0)), 0)
+		FROM chat_ios WHERE deleted_at IS NULL`,
+		ofStringPlain, ofArrayPlain, ofStringFramed, ofArrayFramed,
+		ofStringPlain, ofArrayPlain)
+	if err := models.DB.WithContext(ctx).Raw(q).
+		Row().Scan(&m.plainRows, &m.framedRows, &m.plainBytes, &m.storedBytes); err != nil {
+		t.Fatalf("量响应体两列失败：%v", err)
+	}
+	return m
+}
+
+// assertRemainingPlainUnpackable 复核迁移之后的残留明文：每一段都必须是**真的压不动**。
+//
+// 为什么不直接断言"零明文行"——第一次跑真机就是这么写的，然后红在一件完全正确的
+// 事上：这份库里有 43 行的 of_string 只有 19～615 字节（of_string_array 是 NULL），
+// 短文本压完比原文还长，PackColumnValue 按规则 1（压不了就存明文）让它留在明文里。
+// 那是设计，不是漏迁。钉零明文会把正确的行为判成失败，而真正的风险——"还有大块
+// 明文没迁"——反倒从这个断言下面溜过去了：它只数行数，不看那些行有多大。
+//
+// 判据用**生产那一个函数**（models.PackColumnValue），而不是在测试里重算一遍压缩：
+// 两处各写一份的话，"压不动"迟早会有两个答案。调用方另有一条不依赖压缩代码的
+// 量级断言（残留不得超过原明文的 1%），两条合起来才既认得出"压不动"、又挡得住
+// "PackColumnValue 自己有 bug 于是什么都压不动"。
+//
+// 返回残留明文的合计字节。
+func assertRemainingPlainUnpackable(t *testing.T, ctx context.Context) int64 {
+	t.Helper()
+	var (
+		segs    int64
+		left    int64
+		longest int
+	)
+	for _, c := range []struct{ col, filter string }{
+		{"of_string", ofStringPlain},
+		{"of_string_array", ofArrayPlain},
+	} {
+		rows, err := models.DB.WithContext(ctx).Raw(fmt.Sprintf(
+			`SELECT id, %s FROM chat_ios WHERE deleted_at IS NULL AND %s ORDER BY id`,
+			c.col, c.filter)).Rows()
+		if err != nil {
+			t.Fatalf("扫 %s 的残留明文失败：%v", c.col, err)
+		}
+		for rows.Next() {
+			var (
+				id  uint
+				raw []byte
+			)
+			if err := rows.Scan(&id, &raw); err != nil {
+				rows.Close()
+				t.Fatalf("读 %s 的残留明文失败：%v", c.col, err)
+			}
+			if models.PackColumnValue(raw) != nil {
+				rows.Close()
+				t.Fatalf("行 %d 的 %s 有 %d 字节明文，而且它**压得动**——这一行被漏掉了",
+					id, c.col, len(raw))
+			}
+			segs++
+			left += int64(len(raw))
+			longest = max(longest, len(raw))
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			t.Fatalf("%s 的扫描中断：%v", c.col, err)
+		}
+		rows.Close()
+	}
+	t.Logf("【核对】残留明文 %d 段 / %s（最长 %d 字节）：都是压不动的短响应体，符合规则 1",
+		segs, humanBytesReal(left), longest)
+	return left
+}
+
+// openSourceModel 按**生产读路径**打开源库，并把写权限关掉。
+//
+// 为什么不能拿裸 SQL 读来的字节当基线：这份副本的 input 列早就是帧了，其中
+// 80 字节上下那些是**块引用序列**——只有 models.UnpackBody 解得开（要查块表），
+// 而 compress.DecompressBytes 只认逐行帧，遇到引用序列会把那 80 字节原样当
+// 明文还回来。第一次跑就红在这里：80 字节 vs 112,434 字节。
+//
+// 钩子用的是**查询时那个 tx**，所以源库与目标库各用自己的块表解包，两边读出来
+// 的都是原始 body——比它才是"数据没坏"。单连接 + query_only 与 openReadOnlySQL
+// 是同一套硬保证，只是这条连接要跑读路径。
+func openSourceModel(t *testing.T, path string) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(path),
+		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatalf("按读路径打开源库失败：%v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("取源库连接失败：%v", err)
+	}
+	// 连接不许被回收换新——query_only 是**挂在连接上**的，换一条连接就没了。
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	sqlDB.SetConnMaxLifetime(0)
+	if _, err := sqlDB.Exec(`PRAGMA query_only = ON`); err != nil {
+		t.Fatalf("关闭源库写权限失败：%v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	return db
+}
+
+// verifyAllColumnsAgainstSource 把**三列**都走生产读路径读出来，与源库逐行比对。
+//
+// 两侧都是"读出来的值"，不是"列里的字节"：迁移之后列里是帧，与源库的明文本来
+// 就不该相等，而那个不等恰恰是压缩生效的证据。同理，源库的 input 列此刻也可能是
+// 帧——这份副本的响应体还没迁，但 input 早迁完了。
+//
+// 分批是有代价上的必要的：整库三列的明文合起来 7 GB 上下，一次性 Find 会把它们
+// 全拽进内存。每批 64 行 ~36 MB，稳。
+func verifyAllColumnsAgainstSource(t *testing.T, ctx context.Context, srcDB *gorm.DB) (int64, int64) {
+	t.Helper()
+	var ids []uint
+	if err := srcDB.WithContext(ctx).Raw(
+		`SELECT id FROM chat_ios WHERE deleted_at IS NULL ORDER BY id`).Scan(&ids).Error; err != nil {
+		t.Fatalf("读源库 id 列表失败：%v", err)
+	}
+	if len(ids) == 0 {
+		t.Fatal("源库里一行都没有")
+	}
+
+	const batch = 64
+	var (
+		seen    int64
+		outSize int64
+	)
+	for lo := 0; lo < len(ids); lo += batch {
+		chunk := ids[lo:min(lo+batch, len(ids))]
+		src, err := gorm.G[models.ChatIO](srcDB).Where("id IN ?", chunk).Find(ctx)
+		if err != nil {
+			t.Fatalf("读源库行 %d..%d 失败：%v", chunk[0], chunk[len(chunk)-1], err)
+		}
+		dst, err := gorm.G[models.ChatIO](models.DB).Where("id IN ?", chunk).Find(ctx)
+		if err != nil {
+			t.Fatalf("读目标库行 %d..%d 失败：%v", chunk[0], chunk[len(chunk)-1], err)
+		}
+		byID := make(map[uint]models.ChatIO, len(dst))
+		for _, g := range dst {
+			byID[g.ID] = g
+		}
+		for _, s := range src {
+			g, ok := byID[s.ID]
+			if !ok {
+				t.Fatalf("行 %d 在目标库里不见了", s.ID)
+			}
+			if !bytes.Equal(g.Input, s.Input) {
+				t.Fatalf("行 %d 的 input 还原不一致：%d 字节 → %d 字节",
+					s.ID, len(s.Input), len(g.Input))
+			}
+			if g.OfString != s.OfString {
+				t.Fatalf("行 %d 的 of_string 还原不一致：%d 字节 → %d 字节",
+					s.ID, len(s.OfString), len(g.OfString))
+			}
+			// 两侧都已经是 []string（各有各的解码路径），比切片而不是比 JSON 字面
+			// 形式——历史行不一定是同一个 marshal 写出来的。
+			if !reflect.DeepEqual(g.OfStringArray, s.OfStringArray) {
+				t.Fatalf("行 %d 的 of_string_array 还原不一致：%d 段 → %d 段",
+					s.ID, len(s.OfStringArray), len(g.OfStringArray))
+			}
+			seen++
+			outSize += int64(len(s.OfString)) + int64(len(s.OfStringArray))
+		}
+	}
+
+	var targetRows int64
+	if err := models.DB.WithContext(ctx).
+		Raw(`SELECT count(*) FROM chat_ios WHERE deleted_at IS NULL`).Row().Scan(&targetRows); err != nil {
+		t.Fatalf("数目标库失败：%v", err)
+	}
+	if seen != targetRows {
+		t.Fatalf("核对了 %d 行，目标库有 %d 行", seen, targetRows)
+	}
+	return seen, outSize
+}
+
+// assertNoEmptyText 断言三列里**没有零长度的 TEXT**。
+//
+// 它盯的是那条不变量本身：**TEXT 只表示"非空明文"**，空值一律 NULL。这不是
+// 洁癖——只要 TEXT 还兼着"空"这个含义，"挑出还没迁的行"就非得把载荷读出来量
+// 长度不可，而那个 `length()` 在真机 7.6 GiB 的库上要 4.2 秒；`journal_mode=delete`
+// 下读事务挡写，聊天请求等锁超时，整站 500。判据能瘦成免费的 `typeof`，全靠这条。
+//
+// 历史行里这个形态真实存在：真机上 `of_string` 有 8,932 行是空串（流式响应，
+// 正文在 of_string_array 里），当年写入路径把空串写成零长度字符串而不是 NULL。
+// 迁移顺手归一化（packColumn），回滚也一样（空值写 NULL 回去），所以迁完与
+// 回滚完都不该再有。
+//
+// 这一句要读载荷（拿空串去比，得把 TEXT 取出来），但只对 TEXT 行读——迁完之后
+// 剩下的 TEXT 只有几十行、几十字节，代价可以忽略。它**不在任何生产路径上**，
+// 所以不违反"轮询那条路只许用 typeof"。
+func assertNoEmptyText(t *testing.T, ctx context.Context) {
+	t.Helper()
+	for _, col := range chatIOColumns {
+		var n int64
+		q := fmt.Sprintf(
+			`SELECT count(*) FROM chat_ios WHERE deleted_at IS NULL AND typeof(%s) = 'text' AND %s = ''`,
+			col, col)
+		if err := models.DB.WithContext(ctx).Raw(q).Row().Scan(&n); err != nil {
+			t.Fatalf("数 %s 的空 TEXT 行失败：%v", col, err)
+		}
+		if n != 0 {
+			t.Fatalf("%s 还有 %d 行是零长度的 TEXT——空的该写 NULL。"+
+				"TEXT 兼着「空」这个含义，状态页那条判据就非得读载荷量长度，"+
+				"而那正是真机上把整站打成 500 的那 4.2 秒", col, n)
+		}
+	}
+}
+
+// assertColumnsPlain 断言三列都回到了明文形态（`typeof` 是 text 或 null）。
+func assertColumnsPlain(t *testing.T, ctx context.Context) {
+	t.Helper()
+	for _, col := range chatIOColumns {
+		var n int64
+		q := fmt.Sprintf(
+			`SELECT count(*) FROM chat_ios WHERE deleted_at IS NULL AND typeof(%s) = 'blob'`, col)
+		if err := models.DB.WithContext(ctx).Raw(q).Row().Scan(&n); err != nil {
+			t.Fatalf("数 %s 的帧行失败：%v", col, err)
+		}
+		if n != 0 {
+			t.Fatalf("回滚之后 %s 还有 %d 行是 BLOB——明文按 BLOB 写回去，读路径照样读得出来，"+
+				"于是这个错会一直躺着，直到下一次迁移把它当成已迁过而漏掉", col, n)
+		}
+	}
 }

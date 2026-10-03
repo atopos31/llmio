@@ -376,7 +376,9 @@ func TestBodyBytes_ValuePicksType(t *testing.T) {
 		want any
 	}{
 		{"nil → NULL", nil, nil},
-		{"空 → 空字符串", BodyBytes(""), ""},
+		// 空值落 NULL，不是 `''`：这三列里 **TEXT 只表示非空明文**，
+		// 三者与 typeof 一一对应。见 serializer.go 里那条不变量的推导。
+		{"空 → NULL", BodyBytes(""), nil},
 		{"明文 → TEXT", BodyBytes(`{"model":"gpt-4o"}`), `{"model":"gpt-4o"}`},
 		{"帧 → BLOB", BodyBytes(frame), []byte(frame)},
 	}

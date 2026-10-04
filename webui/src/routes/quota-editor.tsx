@@ -343,7 +343,13 @@ export function QuotaEditorDialog({
           <DialogDescription>{typeHint}</DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4 py-2">
+        {/* min-w-0 不是装饰：DialogContent 是 grid，这一层是它的网格项，网格项默认
+            min-width:auto，会把所在轨道撑到内容的 min-content 宽。而 Textarea 带
+            field-sizing:content（见 components/ui/textarea.tsx），粘贴一条长凭据
+            （会话 Cookie / API Key）时它的 min-content 就是那一整行的宽度——实测把
+            622px 的输入框撑成 3722px，直接顶出对话框。允许这一层收缩后，轨道回到
+            可用宽度，输入框仍是 100% 宽，长内容改为换行、由高度自己长。 */}
+        <div className="flex min-w-0 flex-col gap-4 py-2">
           {/* ---- 横切字段 ---- */}
           <Field label={t("editor.name")}>
             <div className="flex flex-wrap items-center gap-3">

@@ -141,6 +141,10 @@ func UnitKindOf(u Unit) UnitKind {
 
 var windowAliases = map[string]Window{
 	"5h": Window5h, "5小时": Window5h, "五小时": Window5h,
+	// rolling 是 opencode 对"5 小时滚动窗口"的叫法（它的 usage.rolling 与
+	// commandcode 的 windowLimits.fiveHour 是同一个窗口）。不认它，这类上游
+	// 摊开后窗口会变成空，卡片上既没有"5 小时"也没有 {window}
+	"rolling": Window5h, "fivehour": Window5h, "five_hour": Window5h, "5hours": Window5h,
 	"day": WindowDay, "daily": WindowDay, "日": WindowDay, "天": WindowDay, "每日": WindowDay,
 	"week": WindowWeek, "weekly": WindowWeek, "周": WindowWeek, "每周": WindowWeek,
 	"month": WindowMonth, "monthly": WindowMonth, "月": WindowMonth, "每月": WindowMonth,
@@ -275,12 +279,17 @@ func Normalize(raw any, opts NormalizeOptions) ([]Item, error) {
 
 	items := make([]Item, 0, len(rows))
 	for i, row := range rows {
+		base := opts.IDPrefix + "item-" + strconv.Itoa(i+1)
 		item, ok := normItem(row, opts)
 		if !ok {
+			// 一行里装着多个窗口是上游的常见形态
+			// （{"usage": {"rolling": {...}, "weekly": {...}}}），逐窗口摊开；
+			// 摊不开就还是"认不出"，由下面的错误说明
+			items = append(items, expandWindows(row, opts, base)...)
 			continue
 		}
 		if item.ID == "" {
-			item.ID = opts.IDPrefix + "item-" + strconv.Itoa(i+1)
+			item.ID = base
 		}
 		items = append(items, item)
 	}
@@ -345,11 +354,7 @@ func filterRecords(arr []any) []map[string]any {
 // rowsFromMap 把对象映射摊成条目。键序不稳定，因此排序后输出——
 // 否则同一个数据源每次刷新条目顺序都可能不同，界面上会跳。
 func rowsFromMap(m map[string]any) []map[string]any {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := sortedKeys(m)
 
 	out := make([]map[string]any, 0, len(keys))
 	for _, k := range keys {
@@ -374,9 +379,157 @@ func rowsFromMap(m map[string]any) []map[string]any {
 	return out
 }
 
+// containerAliases 是"一行里装着多个窗口"时的容器字段名。
+//
+// 上游常把几个窗口塞进一个对象里：
+//
+//	{"usage": {"rolling": {...}, "weekly": {...}, "monthly": {...}}}
+//
+// 先按这些名字找容器；一个都对不上时再退一步看任意"值都是对象"的字段——
+// 字段名千变万化，认死一份名单会让上游换个名字就整源认不出。
+var containerAliases = []string{
+	"usage", "windows", "window", "limits", "limit", "meters",
+	"quotas", "quota", "periods", "period", "detail", "details",
+}
+
+// expandWindows 把"一行装着多个窗口"摊成多条。
+//
+// 只在整行认不出任何余量数值时才调用：认得出就说明用的是平铺写法，
+// 再去摊父级只会凭空多出条目。
+func expandWindows(row map[string]any, opts NormalizeOptions, base string) []Item {
+	// 父级自己给了 id 就用它做前缀，条目标识才追得回原始数据；
+	// 没给才退回"第几条"的生成式 id（与 Normalize 的默认一致）
+	prefix := base
+	if v, ok := lookup(row, "id"); ok {
+		if s := toStr(v); s != "" {
+			prefix = opts.IDPrefix + s
+		}
+	}
+
+	containers := make([]map[string]any, 0, 2)
+	for _, key := range containerAliases {
+		if m, ok := row[key].(map[string]any); ok && len(m) > 0 {
+			containers = append(containers, m)
+		}
+	}
+	if len(containers) == 0 {
+		for _, key := range sortedKeys(row) {
+			m, ok := row[key].(map[string]any)
+			if ok && len(m) > 0 && allObjects(m) {
+				containers = append(containers, m)
+			}
+		}
+	}
+
+	var items []Item
+	for _, container := range containers {
+		expanded := false
+		for _, key := range windowOrder(container) {
+			sub, ok := container[key].(map[string]any)
+			if !ok {
+				continue
+			}
+			expanded = true
+			child := make(map[string]any, len(sub)+3)
+			for k, v := range sub {
+				child[k] = v
+			}
+			if _, ok := child["id"]; !ok {
+				child["id"] = prefix + ":" + key
+			}
+			if _, ok := child["window"]; !ok {
+				child["window"] = key
+			}
+			if _, ok := child["label"]; !ok {
+				if label := WindowLabel(NormalizeWindow(key)); label != "" {
+					child["label"] = label
+				} else {
+					// 认不出的窗口键：原样当标签，别让它变成空标题
+					child["label"] = key
+				}
+			}
+			if item, ok := normItem(child, opts); ok {
+				items = append(items, item)
+			}
+		}
+		if expanded {
+			continue
+		}
+		// 容器里一个对象子项都没有：它本身可能就是一条
+		// （{"usage": {"used": 5, "total": 10}}）。补上父级的 id/label 再试。
+		child := make(map[string]any, len(container)+2)
+		for k, v := range container {
+			child[k] = v
+		}
+		if _, ok := child["id"]; !ok {
+			child["id"] = prefix
+		}
+		if _, ok := lookup(child, "label"); !ok {
+			if label, ok := lookup(row, "label"); ok {
+				child["label"] = label
+			}
+		}
+		if item, ok := normItem(child, opts); ok {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+// windowOrder 给摊开后的条目定序：短窗口在前，认不出的键按名字排在最后。
+//
+// 不定序的话顺序随 map 遍历变化，同一个源每刷一次卡片上的条目就重排一次。
+func windowOrder(container map[string]any) []string {
+	keys := sortedKeys(container)
+	sort.SliceStable(keys, func(i, j int) bool {
+		return windowRank(keys[i]) < windowRank(keys[j])
+	})
+	return keys
+}
+
+func windowRank(key string) int {
+	switch NormalizeWindow(key) {
+	case Window5h:
+		return 0
+	case WindowDay:
+		return 1
+	case WindowWeek:
+		return 2
+	case WindowMonth:
+		return 3
+	case WindowTotal:
+		return 4
+	default:
+		return 5
+	}
+}
+
+// allObjects 判断对象里每个值都是对象——"容器"的形状判据。
+func allObjects(m map[string]any) bool {
+	for _, v := range m {
+		if _, ok := v.(map[string]any); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// sortedKeys 按键名排序，让依赖 map 遍历的输出稳定下来。
+func sortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // fieldAliases 各语义字段的别名。
 var fieldAliases = map[string][]string{
 	"used":      {"used", "usedAmount", "used_amount", "usage", "已用", "使用量", "consumed"},
+	// percent 是**已用**百分比（见 normItem 的说明）。上游只报百分比时，
+	// 这一个数就是全部的余量信息——不认它，opencode 那种用量窗口整源认不出
+	"percent":   {"percent", "percentage", "usedPercent", "used_percent", "usagePercent", "百分比", "使用率", "已用百分比"},
 	"total":     {"total", "totalAmount", "total_amount", "limit", "quota", "总量", "额度"},
 	"remaining": {"remaining", "remain", "left", "balance", "剩余", "余额"},
 	"unit":      {"unit", "单位", "currency"},
@@ -482,9 +635,27 @@ func normItem(row map[string]any, opts NormalizeOptions) (Item, bool) {
 	used, hasUsed := lookupFloat(row, "used")
 	total, hasTotal := lookupFloat(row, "total")
 	remaining, hasRemaining := lookupFloat(row, "remaining")
+	// 上游可能只报一个百分比（opencode 的用量窗口就是 {percent, resetsAt, status}）。
+	// 它与按 used/total 推出来的那一个是同一个口径：**已用**百分比。
+	percent, hasPercent := lookupFloat(row, "percent")
 
 	if raw, ok := lookup(row, "unit"); ok {
 		item.Unit = NormalizeUnit(toStr(raw))
+	}
+	// 只有百分比：把另外三个数补出来，让它与"给了数"的行同构。unit 为 % 的条目
+	// 在下游一律是 remaining = 剩余百分比（DefaultFormat 也按这个渲染），
+	// 所以 used 取百分比本身、remaining 取它的补数。
+	if hasPercent && !hasUsed && !hasTotal && !hasRemaining &&
+		(item.Unit == UnitUnknown || item.Unit == UnitPercent) {
+		if item.Unit == UnitUnknown {
+			item.Unit = UnitPercent
+		}
+		p := *percent
+		hundred := 100.0
+		rest := 100 - p
+		used, hasUsed = &p, true
+		total, hasTotal = &hundred, true
+		remaining, hasRemaining = &rest, true
 	}
 	// 单位给了 % 但没给总量时，总量按 100 算——否则百分比无从比较
 	if item.Unit == UnitPercent && !hasTotal {
@@ -504,15 +675,22 @@ func normItem(row map[string]any, opts NormalizeOptions) (Item, bool) {
 	// 这个方向很重要：告警阈值按"用了多少"设定（warningAt=80 意为用掉八成即告警），
 	// 状态推导也按已用判断。若算成剩余百分比，100% 剩余会被判成"用尽"，
 	// 而 0% 剩余会被判成"健康"——完全反过来。
-	if item.Unit == UnitPercent {
+	switch {
+	case hasPercent:
+		// 显式给的百分比优先：上游知道得比我们按 used/total 反推的准
+		p := *percent
+		item.Percent = &p
+	case item.Unit == UnitPercent:
 		// 单位是 % 时 remaining 本身就是剩余百分比，已用即其补数
 		if item.Remaining != nil {
 			p := 100 - *item.Remaining
 			item.Percent = &p
 		}
-	} else if item.Used != nil && item.Total != nil && *item.Total > 0 {
-		p := (*item.Used / *item.Total) * 100
-		item.Percent = &p
+	default:
+		if item.Used != nil && item.Total != nil && *item.Total > 0 {
+			p := (*item.Used / *item.Total) * 100
+			item.Percent = &p
+		}
 	}
 
 	if raw, ok := lookup(row, "window"); ok {

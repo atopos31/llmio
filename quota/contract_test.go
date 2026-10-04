@@ -1162,6 +1162,181 @@ func TestExtractRowsContainerFallback(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// 只报百分比的窗口
+// ---------------------------------------------------------------------------
+
+// opencode / commandcode 的用量接口只给一个百分比。percent 是**已用**百分比，
+// 补齐出来的三个数必须与这条口径一致——搞反了面板会把"用掉 73%"读成"还剩 73%"。
+func TestNormalizePercentOnlyRow(t *testing.T) {
+	t.Parallel()
+
+	items, err := Normalize(parseJSON(t, `{
+		"id": "weekly", "label": "每周",
+		"percent": 73, "resetsAt": "2026-10-05T00:00:00Z", "status": "ok"
+	}`), NormalizeOptions{WarningAt: 80})
+	if err != nil {
+		t.Fatalf("意外错误: %v", err)
+	}
+	it := items[0]
+	approx(t, it.Percent, 73, "percent")
+	approx(t, it.Used, 73, "used")
+	approx(t, it.Total, 100, "total")
+	approx(t, it.Remaining, 27, "remaining")
+	if it.Unit != UnitPercent {
+		t.Fatalf("只给百分比的条目单位应为 %%, 实得 %q", it.Unit)
+	}
+	if it.ResetAt != "2026-10-05T00:00:00Z" {
+		t.Fatalf("resetAt 应保留，实得 %q", it.ResetAt)
+	}
+	if it.Status != StatusOK {
+		t.Fatalf("用掉 73%% 未到阈值应为 ok，实得 %q", it.Status)
+	}
+
+	// 用满：状态必须跟着百分比走，而不是因为"没有剩余数值"变成 unknown
+	items, err = Normalize(parseJSON(t, `{"percent": 100}`), NormalizeOptions{WarningAt: 80})
+	if err != nil {
+		t.Fatalf("意外错误: %v", err)
+	}
+	if items[0].Status != StatusExhausted {
+		t.Fatalf("用满应为 exhausted，实得 %q", items[0].Status)
+	}
+	approx(t, items[0].Remaining, 0, "remaining")
+}
+
+// 显式给的百分比优先于按 used/total 反推的那个值。
+func TestNormalizeExplicitPercentWins(t *testing.T) {
+	t.Parallel()
+
+	items, err := Normalize(parseJSON(t, `{"used": 50, "total": 100, "percent": 12}`), NormalizeOptions{})
+	if err != nil {
+		t.Fatalf("意外错误: %v", err)
+	}
+	it := items[0]
+	approx(t, it.Percent, 12, "percent 应取显式值")
+	// 另外三个数仍按上游给的原样保留，不因为有个 percent 就被改写成 12/100
+	approx(t, it.Used, 50, "used")
+	approx(t, it.Total, 100, "total")
+	approx(t, it.Remaining, 50, "remaining")
+}
+
+// 单位写着别的（且没有任何额度数字）时，一个光秃秃的 percent 无从解释：
+// 当成 CREDITS 会显示成"用掉 50 CREDITS"，那是在编数据。
+func TestNormalizePercentWithNonPercentUnitIsUnrecognized(t *testing.T) {
+	t.Parallel()
+
+	if _, err := Normalize(parseJSON(t, `{"percent": 50, "unit": "CREDITS"}`), NormalizeOptions{}); err == nil {
+		t.Fatal("单位不是百分比时应算认不出，而不是编一个条目出来")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 一行装着多个窗口
+// ---------------------------------------------------------------------------
+
+// `{"usage": {"rolling": ..., "weekly": ..., "monthly": ...}}` 是 opencode 的 /usage
+// 形状，也是用户脚本最容易原样丢回来的形状。整行认不出数值时才摊开——
+// 认得出来说明用的是平铺写法，再摊一次就会凭空多出条目。
+func TestNormalizeWindowContainer(t *testing.T) {
+	t.Parallel()
+
+	raw := parseJSON(t, `[
+		{"id": "item-1", "label": "item-1", "usage": {
+			"rolling": {"percent": 0,  "resetsAt": "2026-10-04T08:32:15.000Z", "status": "ok"},
+			"weekly":  {"percent": 73, "resetsAt": "2026-10-05T00:00:00.000Z", "status": "ok"},
+			"monthly": {"percent": 36, "resetsAt": "2026-10-28T01:22:15.000Z", "status": "ok"}
+		}}
+	]`)
+	items, err := Normalize(raw, NormalizeOptions{IDPrefix: "s1:"})
+	if err != nil {
+		t.Fatalf("意外错误: %v", err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("三个窗口应摊成三条，实得 %d 条", len(items))
+	}
+
+	// 展开后的顺序按窗口长短固定：5 小时 → 每周 → 每月
+	want := []struct {
+		id      string
+		label   string
+		window  Window
+		percent float64
+	}{
+		{"s1:item-1:rolling", "5 小时", Window5h, 0},
+		{"s1:item-1:weekly", "每周", WindowWeek, 73},
+		{"s1:item-1:monthly", "每月", WindowMonth, 36},
+	}
+	for i, w := range want {
+		it := items[i]
+		if it.ID != w.id {
+			t.Fatalf("第 %d 条 id 期望 %q，实得 %q", i, w.id, it.ID)
+		}
+		if it.Label != w.label {
+			t.Fatalf("第 %d 条 label 期望 %q，实得 %q", i, w.label, it.Label)
+		}
+		if it.Window != w.window {
+			t.Fatalf("第 %d 条 window 期望 %q，实得 %q", i, w.window, it.Window)
+		}
+		approx(t, it.Percent, w.percent, "percent")
+	}
+	// 时间与状态一并带过来：摊开不该丢掉窗口自己的字段
+	if items[2].ResetAt != "2026-10-28T01:22:15Z" {
+		t.Fatalf("resetAt 应随窗口带出，实得 %q", items[2].ResetAt)
+	}
+}
+
+// 容器字段名不在名单里，但形状对（值全是对象）时也要认——上游换个名字
+// 就整源认不出，是这类"按名字认"的写法最容易犯的错。
+func TestNormalizeUnknownContainerExpands(t *testing.T) {
+	t.Parallel()
+
+	items, err := Normalize(parseJSON(t, `{"套餐": {
+		"5h":    {"percent": 10},
+		"month": {"percent": 20}
+	}}`), NormalizeOptions{})
+	if err != nil {
+		t.Fatalf("意外错误: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("应摊成两条，实得 %d 条", len(items))
+	}
+	if items[0].Window != Window5h || items[1].Window != WindowMonth {
+		t.Fatalf("窗口归一不对: %q, %q", items[0].Window, items[1].Window)
+	}
+}
+
+// 数嵌在容器里（usage 里直接放 used/total）也是常见形状：容器本身当一条看。
+func TestNormalizeNestedSingleRow(t *testing.T) {
+	t.Parallel()
+
+	items, err := Normalize(parseJSON(t, `{"usage": {"used": 5, "total": 10}}`), NormalizeOptions{})
+	if err != nil {
+		t.Fatalf("意外错误: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("应是一条，实得 %d 条", len(items))
+	}
+	approx(t, items[0].Used, 5, "used")
+	approx(t, items[0].Total, 10, "total")
+}
+
+// 整行自己就有数值时不再摊父级，否则一个数值会长出好几条重复条目。
+func TestNormalizeRowWithNumbersIsNotExpanded(t *testing.T) {
+	t.Parallel()
+
+	items, err := Normalize(parseJSON(t, `{
+		"used": 1, "total": 2,
+		"usage": {"monthly": {"percent": 50}, "weekly": {"percent": 10}}
+	}`), NormalizeOptions{})
+	if err != nil {
+		t.Fatalf("意外错误: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("认得出来的行不该被摊开，实得 %d 条", len(items))
+	}
+	approx(t, items[0].Used, 1, "used")
+}
+
 func TestStatusRank(t *testing.T) {
 	t.Parallel()
 

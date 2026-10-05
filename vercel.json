@@ -1,5 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "go",
-  "buildCommand": "cd webui && (command -v pnpm >/dev/null 2>&1 || npm i -g pnpm@10) && pnpm install --frozen-lockfile && pnpm run build && cd .. && CGO_ENABLED=0 go build -trimpath -o server ."
+  "buildCommand": "cd webui && npx --yes pnpm@10 install --frozen-lockfile && npx --yes pnpm@10 run build && cd .. && CGO_ENABLED=0 go build -trimpath -o server ."
 }

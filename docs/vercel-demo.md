@@ -14,12 +14,27 @@ Go 后端，产出单个 URL。它不适用于生产——原因见文末。
 构建命令在 `vercel.json` 里，顺序不是随便定的：
 
 ```json
-"buildCommand": "cd webui && (command -v pnpm >/dev/null 2>&1 || npm i -g pnpm@10) && pnpm install --frozen-lockfile && pnpm run build && cd .. && CGO_ENABLED=0 go build -trimpath -o server ."
+"buildCommand": "cd webui && npx --yes pnpm@10 install --frozen-lockfile && npx --yes pnpm@10 run build && cd .. && CGO_ENABLED=0 go build -trimpath -o server ."
 ```
 
 前端**必须先构建**：`main.go` 用 `//go:embed webui/dist` 把静态资源编进二进制，
-`dist` 不存在时 `go build` 直接失败。Vercel 的构建镜像基于 Amazon Linux 2023，
-自带 Node（构建系统本身就跑在 Node 上）但没有 pnpm，所以先探测再装。
+`dist` 不存在时 `go build` 直接失败。
+
+**pnpm 版本必须钉死，不能沿用预装的。** 这里踩过一次坑（首次部署即失败）：
+
+```
+WARN  Ignoring not compatible lockfile at /vercel/path0/webui/pnpm-lock.yaml
+ERROR Headless installation requires a pnpm-lock.yaml file
+```
+
+Vercel 构建镜像**预装了 pnpm，但版本偏旧**，读不了本仓库的
+`lockfileVersion: '9.0'`（需要 pnpm ≥9）。原先写的是
+`command -v pnpm || npm i -g pnpm@10`——这个 guard 恰恰失效：预装的 pnpm
+能被 `command -v` 找到，于是安装分支根本不执行，最后跑的还是那个旧 pnpm。
+
+所以这里用 `npx --yes pnpm@10` **无条件指定**版本，既不看预装的是什么，也不往
+全局装（`npx` 按需取用，不留副作用）。仓库 `Dockerfile` 里钉的也是 `pnpm@10`，
+两处保持一致。
 
 ## 环境变量
 

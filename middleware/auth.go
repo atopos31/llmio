@@ -43,23 +43,39 @@ func Auth(token string) gin.HandlerFunc {
 	}
 }
 
+// bearerKey 从 Authorization 头里取出 Bearer 凭据；不是 Bearer 形态（或为空）返回空串。
+//
+// 抽出来是因为两个入口共用同一套解析：OpenAI 侧本来就只有这一种形态，
+// Anthropic 侧除此之外还收 x-api-key（见 AuthAnthropic）。
+func bearerKey(header string) string {
+	parts := strings.SplitN(header, " ", 2)
+	if len(parts) == 2 && parts[0] == "Bearer" {
+		return parts[1]
+	}
+	return ""
+}
+
 // 用于OpenAI接口鉴权
 func AuthOpenAI(adminToken string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		parts := strings.SplitN(c.GetHeader("Authorization"), " ", 2)
-
-		var authKey string
-		if len(parts) == 2 && parts[0] == "Bearer" {
-			authKey = parts[1]
-		}
-		checkAuthKey(c, authKey, adminToken)
+		checkAuthKey(c, bearerKey(c.GetHeader("Authorization")), adminToken)
 	}
 }
 
 // 用于Anthropic接口鉴权
+//
+// 两种携带方式都收，因为客户端有两种约定：
+//   - x-api-key：Anthropic 原生。Claude Code 读的是 ANTHROPIC_API_KEY；
+//   - Authorization: Bearer：Claude Code 读 ANTHROPIC_AUTH_TOKEN 时发的就是它（issue #38）。
+//
+// 两者都在时 **x-api-key 优先**。优先级写死才可预期：否则"哪个头生效"会随客户端
+// 的实现细节漂移，而 401 现场看不出是哪一半出的问题。
 func AuthAnthropic(adminToken string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authKey := c.GetHeader("x-api-key")
+		if authKey == "" {
+			authKey = bearerKey(c.GetHeader("Authorization"))
+		}
 		checkAuthKey(c, authKey, adminToken)
 	}
 }

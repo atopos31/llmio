@@ -97,13 +97,13 @@
 | `/openai/v1/chat/completions` | POST | `handler.ChatCompletionsHandler` | `Authorization: Bearer` |
 | `/openai/v1/responses` | POST | `handler.ResponsesHandler` | `Authorization: Bearer` |
 | `/anthropic/api/event_logging/batch` | POST | `handler.EventLogging` | 无鉴权（Claude Code 批量事件上报） |
-| `/anthropic/v1/models` | GET | `handler.AnthropicModelsHandler` | `x-api-key` |
-| `/anthropic/v1/messages` | POST | `handler.Messages` | `x-api-key` |
-| `/anthropic/v1/messages/count_tokens` | POST | `handler.CountTokens` | `x-api-key` |
+| `/anthropic/v1/models` | GET | `handler.AnthropicModelsHandler` | `x-api-key` 或 `Authorization: Bearer` |
+| `/anthropic/v1/messages` | POST | `handler.Messages` | `x-api-key` 或 `Authorization: Bearer` |
+| `/anthropic/v1/messages/count_tokens` | POST | `handler.CountTokens` | `x-api-key` 或 `Authorization: Bearer` |
 | `/gemini/v1beta/models` | GET | `handler.GeminiModelsHandler` | `x-goog-api-key` |
 | `/gemini/v1beta/models/*modelAction` | POST | `handler.GeminiGenerateContentHandler` | `x-goog-api-key` |
 | `/v1/models`、`/v1/chat/completions`、`/v1/responses` | GET/POST | 同 OpenAI 三处理器（兼容别名） | `Authorization: Bearer` |
-| `/v1/messages`、`/v1/messages/count_tokens` | POST | 同 Anthropic 两处理器（兼容别名） | `x-api-key` |
+| `/v1/messages`、`/v1/messages/count_tokens` | POST | 同 Anthropic 两处理器（兼容别名） | `x-api-key` 或 `Authorization: Bearer` |
 
 静态资源与兜底（`main.go:191-206`）：`GET /assets/*` 由 `r.StaticFS` 服务内嵌前端；`NoRoute` 对非 `/api/`、非 `/v1/` 的 GET 一律返回 `index.html`（SPA 前端路由接管），其余返回纯文本 404。这两条不构成"功能"，不进对照表。
 

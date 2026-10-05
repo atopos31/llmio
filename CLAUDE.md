@@ -119,7 +119,7 @@ React 19 + TypeScript + Vite with SWC. Key libraries: Tailwind CSS v4, Radix UI 
 All routes are defined in `main.go`. Three provider-specific groups (`/openai`, `/anthropic`, `/gemini`) plus compatibility aliases under `/v1`. Management APIs under `/api` (auth required).
 
 - OpenAI auth: `Authorization: Bearer <TOKEN>`
-- Anthropic auth: `x-api-key: <TOKEN>`
+- Anthropic auth: `x-api-key: <TOKEN>` or `Authorization: Bearer <TOKEN>` (Claude Code sends the latter when `ANTHROPIC_AUTH_TOKEN` is set; `x-api-key` wins if both are present)
 - Gemini auth: `x-goog-api-key: <TOKEN>`
 - Event logging: `/anthropic/api/event_logging/batch` (Claude Code batch events)
 

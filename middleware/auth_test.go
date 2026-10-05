@@ -471,3 +471,109 @@ func TestCheckAuthKey_NilExpiry(t *testing.T) {
 
 	t.Log("✓ Nil expiry (never expires) key is accepted")
 }
+
+// ── issue #38：Anthropic 侧要能收 Authorization: Bearer ──────────────────────
+
+// 携带方式的矩阵。判据只有一条：能不能过；过了还要确认拿到了 admin token 的权限。
+func TestAuthAnthropic_HeaderForms(t *testing.T) {
+	const admin = "admin-token"
+	cases := []struct {
+		name    string
+		headers map[string]string
+		wantOK  bool
+	}{
+		{"x-api-key 单独给（既有行为，别回归）", map[string]string{"x-api-key": admin}, true},
+		{"Authorization: Bearer 单独给（ANTHROPIC_AUTH_TOKEN）", map[string]string{"Authorization": "Bearer " + admin}, true},
+		{"两个都给且一致", map[string]string{"x-api-key": admin, "Authorization": "Bearer " + admin}, true},
+		{"两个都给但 x-api-key 是错的：以 x-api-key 为准，不放行", map[string]string{"x-api-key": "wrong", "Authorization": "Bearer " + admin}, false},
+		{"非 Bearer 方案不认", map[string]string{"Authorization": "Basic " + admin}, false},
+		{"两个都没给", nil, false},
+	}
+
+	gin.SetMode(gin.TestMode)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, cleanup := setupTestDB(t)
+			defer cleanup()
+
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			req := httptest.NewRequest("POST", "/anthropic/v1/messages", nil)
+			for k, v := range tc.headers {
+				req.Header.Set(k, v)
+			}
+			c.Request = req
+
+			AuthAnthropic(admin)(c)
+
+			if got := !c.IsAborted(); got != tc.wantOK {
+				t.Fatalf("放行=%v，期望 %v（响应：%s）", got, tc.wantOK, rec.Body.String())
+			}
+			if tc.wantOK {
+				if v := c.Request.Context().Value(consts.ContextKeyAllowAllModel); v != true {
+					t.Fatalf("用 admin token 时应当拿到 AllowAllModel=true，实际 %v", v)
+				}
+			}
+		})
+	}
+}
+
+// 走一遍签发出来的 AuthKey（sk-llmio-…）经 Bearer 进来的完整路径：
+// 既要放行，也要把密钥 id 与 IO 开关写进 context——只断言"没被拒"会漏掉后半段。
+func TestAuthAnthropic_BearerAuthKey(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	authKey := models.AuthKey{
+		Name:     "Claude Code（ANTHROPIC_AUTH_TOKEN）",
+		Key:      "sk-llmio-claude-code",
+		Status:   new(true),
+		IOLog:    new(true),
+		AllowAll: new(true),
+	}
+	if err := db.Create(&authKey).Error; err != nil {
+		t.Fatalf("failed to create test auth key: %v", err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest("POST", "/anthropic/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer sk-llmio-claude-code")
+	c.Request = req
+
+	AuthAnthropic("admin-token")(c)
+
+	if c.IsAborted() {
+		t.Fatalf("Authorization: Bearer 携带 AuthKey 时不该被拒：%s", rec.Body.String())
+	}
+	ctx := c.Request.Context()
+	if got := ctx.Value(consts.ContextKeyAuthKeyID); got != authKey.ID {
+		t.Fatalf("ContextKeyAuthKeyID=%v，期望 %d", got, authKey.ID)
+	}
+	if got := ctx.Value(consts.ContextKeyAuthKeyIOLog); got != true {
+		t.Fatalf("ContextKeyAuthKeyIOLog=%v，期望 true", got)
+	}
+}
+
+// bearerKey 是两处共用的解析：OpenAI 侧的行为必须一字不变（守门测试）。
+func TestAuthOpenAI_BearerUnchanged(t *testing.T) {
+	_, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	req.Header.Set("Authorization", "Bearer admin-token")
+	c.Request = req
+
+	AuthOpenAI("admin-token")(c)
+
+	if c.IsAborted() {
+		t.Fatalf("OpenAI 侧的 Bearer 一直是认的，不该被拒：%s", rec.Body.String())
+	}
+	if v := c.Request.Context().Value(consts.ContextKeyAllowAllModel); v != true {
+		t.Fatalf("AllowAllModel=%v，期望 true", v)
+	}
+}

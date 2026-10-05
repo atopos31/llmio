@@ -11,6 +11,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/handler"
 	"github.com/atopos31/llmio/middleware"
 	"github.com/atopos31/llmio/models"
@@ -35,10 +36,7 @@ func init() {
 	}
 
 	ctx := context.Background()
-	models.Init(ctx, demoDBPath())
-	if demoSeedEnabled() {
-		demoSeed(ctx)
-	}
+	models.Init(ctx, "./db/llmio.db")
 	slog.Info("TZ", "time.Local", time.Local.String())
 }
 
@@ -220,7 +218,7 @@ func main() {
 		api.GET("/test/count_tokens", handler.TestCountTokens)
 	}
 
-	router.Run(":" + listenerPort())
+	router.Run(":" + env.GetWithDefault("LLMIO_SERVER_PORT", consts.DefaultPort))
 }
 
 //go:embed webui/dist

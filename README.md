@@ -409,9 +409,9 @@ LLMIO provides a multi‑provider REST API with the following endpoints:
 | OpenAI | `/openai/v1/models` | GET | List available models | Bearer Token |
 | OpenAI | `/openai/v1/chat/completions` | POST | Create chat completion | Bearer Token |
 | OpenAI | `/openai/v1/responses` | POST | Create response | Bearer Token |
-| Anthropic | `/anthropic/v1/models` | GET | List available models | x-api-key |
-| Anthropic | `/anthropic/v1/messages` | POST | Create message | x-api-key |
-| Anthropic | `/anthropic/v1/messages/count_tokens` | POST | Count tokens | x-api-key |
+| Anthropic | `/anthropic/v1/models` | GET | List available models | x-api-key or Bearer Token |
+| Anthropic | `/anthropic/v1/messages` | POST | Create message | x-api-key or Bearer Token |
+| Anthropic | `/anthropic/v1/messages/count_tokens` | POST | Count tokens | x-api-key or Bearer Token |
 | Anthropic | `/anthropic/api/event_logging/batch` | POST | Accept Claude Code batch event reports and acknowledge them (contents are not stored) | No auth |
 | Gemini | `/gemini/v1beta/models` | GET | List available models | x-goog-api-key |
 | Gemini | `/gemini/v1beta/models/{model}:generateContent` | POST | Generate content | x-goog-api-key |
@@ -419,8 +419,8 @@ LLMIO provides a multi‑provider REST API with the following endpoints:
 | Generic | `/v1/models` | GET | List models (compat) | Bearer Token |
 | Generic | `/v1/chat/completions` | POST | Create chat completion (compat) | Bearer Token |
 | Generic | `/v1/responses` | POST | Create response (compat) | Bearer Token |
-| Generic | `/v1/messages` | POST | Create message (compat) | x-api-key |
-| Generic | `/v1/messages/count_tokens` | POST | Count tokens (compat) | x-api-key |
+| Generic | `/v1/messages` | POST | Create message (compat) | x-api-key or Bearer Token |
+| Generic | `/v1/messages/count_tokens` | POST | Count tokens (compat) | x-api-key or Bearer Token |
 
 ### Authentication
 
@@ -432,10 +432,13 @@ Applies to `/openai/v1/*` and OpenAI‑compatible endpoints under `/v1/*`.
 curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:7070/openai/v1/models
 ```
 
-#### 2. Anthropic‑style endpoints (x-api-key)
+#### 2. Anthropic‑style endpoints (x-api-key or Bearer Token)
+Accepts both: Claude Code sends `x-api-key` when `ANTHROPIC_API_KEY` is set and `Authorization: Bearer` when `ANTHROPIC_AUTH_TOKEN` is set. If both headers are present, `x-api-key` wins.
 Applies to `/anthropic/v1/*` and Anthropic‑compatible endpoints under `/v1/*`.
 ```bash
 curl -H "x-api-key: YOUR_TOKEN" http://localhost:7070/anthropic/v1/messages
+# same token, sent the way ANTHROPIC_AUTH_TOKEN sends it:
+curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:7070/anthropic/v1/messages
 ```
 
 #### 3. Gemini Native endpoints (x-goog-api-key)
@@ -448,6 +451,8 @@ For claude code or codex, use these environment variables:
 ```bash
 export OPENAI_API_KEY=<YOUR_TOKEN>
 export ANTHROPIC_API_KEY=<YOUR_TOKEN>
+# optional: ANTHROPIC_AUTH_TOKEN is also accepted (it is sent as Authorization: Bearer)
+export ANTHROPIC_AUTH_TOKEN=<YOUR_TOKEN>
 export GEMINI_API_KEY=<YOUR_TOKEN>
 ```
 > **Note**: `/v1/*` paths are kept for compatibility. Prefer the provider‑specific routes.

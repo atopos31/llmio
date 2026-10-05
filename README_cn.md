@@ -322,9 +322,9 @@ LLMIO 提供多供应商兼容的 REST API，支持以下端点：
 | OpenAI | `/openai/v1/models` | GET | 获取可用模型列表 | Bearer Token |
 | OpenAI | `/openai/v1/chat/completions` | POST | 创建聊天完成 | Bearer Token |
 | OpenAI | `/openai/v1/responses` | POST | 创建响应 | Bearer Token |
-| Anthropic | `/anthropic/v1/models` | GET | 获取可用模型列表 | x-api-key |
-| Anthropic | `/anthropic/v1/messages` | POST | 创建消息 | x-api-key |
-| Anthropic | `/anthropic/v1/messages/count_tokens` | POST | 计算Token数量 | x-api-key |
+| Anthropic | `/anthropic/v1/models` | GET | 获取可用模型列表 | x-api-key 或 Bearer Token |
+| Anthropic | `/anthropic/v1/messages` | POST | 创建消息 | x-api-key 或 Bearer Token |
+| Anthropic | `/anthropic/v1/messages/count_tokens` | POST | 计算Token数量 | x-api-key 或 Bearer Token |
 | Anthropic | `/anthropic/api/event_logging/batch` | POST | 接收 Claude Code 的批量事件上报并确认（不保存内容） | 无鉴权 |
 | Gemini | `/gemini/v1beta/models` | GET | 获取可用模型列表 | x-goog-api-key |
 | Gemini | `/gemini/v1beta/models/{model}:generateContent` | POST | 生成内容 | x-goog-api-key |
@@ -332,8 +332,8 @@ LLMIO 提供多供应商兼容的 REST API，支持以下端点：
 | 通用 | `/v1/models` | GET | 获取模型列表（兼容） | Bearer Token |
 | 通用 | `/v1/chat/completions` | POST | 创建聊天完成（兼容） | Bearer Token |
 | 通用 | `/v1/responses` | POST | 创建响应（兼容） | Bearer Token |
-| 通用 | `/v1/messages` | POST | 创建消息（兼容） | x-api-key |
-| 通用 | `/v1/messages/count_tokens` | POST | 计算Token数量（兼容） | x-api-key |
+| 通用 | `/v1/messages` | POST | 创建消息（兼容） | x-api-key 或 Bearer Token |
+| 通用 | `/v1/messages/count_tokens` | POST | 计算Token数量（兼容） | x-api-key 或 Bearer Token |
 
 ### 认证方式
 
@@ -345,10 +345,13 @@ LLMIO 根据端点类型使用不同的认证方式：
 curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:7070/openai/v1/models
 ```
 
-#### 2. Anthropic 格式端点（x-api-key）
+#### 2. Anthropic 格式端点（x-api-key 或 Bearer Token）
+两种都收：Claude Code 在 `ANTHROPIC_API_KEY` 下发 `x-api-key`，在 `ANTHROPIC_AUTH_TOKEN` 下发 `Authorization: Bearer`。两个头同时出现时以 `x-api-key` 为准。
 适用于：`/anthropic/v1/*` 和 `/v1/*` 中的 Anthropic 兼容端点
 ```bash
 curl -H "x-api-key: YOUR_TOKEN" http://localhost:7070/anthropic/v1/messages
+# 同一个 token，换成 ANTHROPIC_AUTH_TOKEN 的携带方式：
+curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:7070/anthropic/v1/messages
 ```
 
 #### 3. Gemini Native 端点（x-goog-api-key）
@@ -361,6 +364,8 @@ curl -H "x-goog-api-key: YOUR_TOKEN" http://localhost:7070/gemini/v1beta/models
 ```bash
 export OPENAI_API_KEY=<YOUR_TOKEN>
 export ANTHROPIC_API_KEY=<YOUR_TOKEN>
+# 可选：也认 ANTHROPIC_AUTH_TOKEN（它以 Authorization: Bearer 发送）
+export ANTHROPIC_AUTH_TOKEN=<YOUR_TOKEN>
 export GEMINI_API_KEY=<YOUR_TOKEN>
 ```
 > **注意**：`/v1/*` 路径为兼容性保留，建议使用新的供应商特定路径。

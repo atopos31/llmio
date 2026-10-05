@@ -6,6 +6,21 @@ LLMIO is a Go-based LLM load‑balancing gateway that provides a unified REST AP
 
 **QQ group: 1083599685**
 
+## Live Demo
+
+A demo instance is deployed on Vercel: **https://llmio-rust.vercel.app/**
+
+Console token: `demo`
+
+It is a showcase, not a service to rely on. The console is fully interactive — three
+providers, two models with weighted routing, and a day of request logs are seeded so
+every page has something to show. Two things are deliberately not real: every
+provider credential is a placeholder (`sk-demo-*`), so "test connectivity" fails; and
+the database lives in the function's temporary storage, so it resets whenever the
+instance is recycled. Background scheduling (log retention, compression, space
+reclamation) does not run there. See [docs/vercel-demo.md](docs/vercel-demo.md) for
+how the deployment is put together and why it is demo-only.
+
 ## Architecture
 
 ![LLMIO Architecture](./docs/llmio.svg)

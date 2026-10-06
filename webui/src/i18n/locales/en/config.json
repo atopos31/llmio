@@ -250,5 +250,27 @@
     "test_failed": "Config test failed: {{message}}",
     "save_success": "Config saved",
     "save_failed": "Failed to save config"
+  },
+  "model_autofill": {
+    "title": "Model capability and price auto-fill",
+    "desc": "Configure how the model × provider dialog fills in capabilities and prices. Filling happens only inside the dialog, and every item can be changed before saving.",
+    "enabled": "Auto-fill",
+    "enabled_on": "Enabled — fills automatically",
+    "enabled_off": "Disabled — no auto-fill",
+    "enabled_help": "When off, the association dialog no longer fills in capabilities and prices.",
+    "overwrite": "Overwrite existing values",
+    "overwrite_on": "Overwrite",
+    "overwrite_off": "Do not overwrite; fill blanks only",
+    "overwrite_help": "When on, values from the data sources replace values already in the form. When off, only items that have no value yet are filled. Defaults to off.",
+    "allow_deprecated": "Suggest deprecated models",
+    "allow_deprecated_help": "When on, models the data source marks as deprecated are suggested too. Defaults to off.",
+    "sources": "Data sources",
+    "sources_help": "Tried in order; leave blank to use the default models.dev, litellm.",
+    "edit": "Edit",
+    "edit_title": "Edit model auto-fill policy",
+    "edit_desc": "Change the default behaviour of filling model capabilities and prices in the association dialog.",
+    "status_on": "Current state: enabled. New associations are filled with capabilities and prices, all editable before saving.",
+    "status_off": "Current state: disabled. The association dialog does not fill anything; capabilities and prices must be entered by hand.",
+    "load_failed": "Failed to read the auto-fill policy: {{message}}"
   }
 }

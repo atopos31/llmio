@@ -216,16 +216,32 @@ func alignProviders(cat *Catalog, providerType, baseURL string) []providerRef {
 
 // lookupInProvider 在一个已对齐的上游里按六步找模型。
 //
-// 返回 entries 下标、命中的规则名。第二条规则从 lower 表查，因为从那里开始的
-// 形态都是小写的（normalizeForms 保证）。
+// 返回 entries 下标、命中的规则名。第一步（exact）也查一次小写表作为兜底，
+// 其余各步都只查小写表——从 case 那一步开始的形态都是小写的（normalizeForms
+// 保证）。为什么第一步也要兜底，见下面那段注释。
 func (c *Catalog) lookupInProvider(providerID, model string) (int, string, bool) {
 	byProviderExact := c.exact[providerID]
 	byProviderLower := c.lower[providerID]
 	for _, f := range normalizeForms(model) {
 		var hit indexHit
 		var ok bool
+		rule := f.rule
 		if f.rule == RuleExact {
 			hit, ok = byProviderExact[f.value]
+			if !ok {
+				// 第一步也要能反着来：源里有一批键带大写（实测 models.dev 把
+				// DeepInfra 记作 `stepfun-ai/Step-3.7-Flash`、Poe 记作 `GPT-5.4`），
+				// 而用户多半照小写填。查询本身已是小写时，case 那一步因为"没产生
+				// 差异"不会被记进阶梯，小写表就永远轮不到——于是"源大写、查询小写"
+				// 这个方向反而不通，恰好与 case 那一步存在的意义相反。
+				//
+				// 报 case 不是编造：这次命中确实只有忽略大小写才成立。写成 exact
+				// 才是谎话——它会让用户以为源里存的就是他填的那个串。
+				hit, ok = byProviderLower[f.value]
+				if ok {
+					rule = RuleCase
+				}
+			}
 		} else {
 			hit, ok = byProviderLower[f.value]
 		}
@@ -235,7 +251,7 @@ func (c *Catalog) lookupInProvider(providerID, model string) (int, string, bool)
 		if hit.aliased {
 			return hit.idx, RuleIDPrefix, true
 		}
-		return hit.idx, f.rule, true
+		return hit.idx, rule, true
 	}
 	return 0, "", false
 }

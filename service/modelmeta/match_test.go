@@ -217,6 +217,47 @@ func TestLookupRules(t *testing.T) {
 	}
 }
 
+// TestLookupCaseInsensitiveBothWays：大小写两个方向都要通。
+//
+// 这条钉的是一个真实存在的不对称：源里有一批键带大写（models.dev 把 DeepInfra
+// 记作 `stepfun-ai/Step-3.7-Flash`、Poe 记作 `GPT-5.4`），而用户在 llmio 里
+// 多半照小写填。反过来（用户填大写、源里是小写）一直是对的，因为 case 那一步
+// 会被记进阶梯；但查询本身已是小写时那一步"没产生差异"、不会被记，
+// 小写表就再也轮不到——于是唯独"源大写、查询小写"这个方向不通，
+// 用户看到的是"数据源里没这个模型"，而那条记录就在他配的那个上游下面。
+func TestLookupCaseInsensitiveBothWays(t *testing.T) {
+	md := modelsDevCatalog(t)
+
+	for _, tc := range []struct {
+		name     string
+		provider string
+		model    string
+		entry    string
+	}{
+		{"源里是小写、用户填大写", "openai", "GPT-5.4", "gpt-5.4"},
+		{"源里是大写、用户填小写", "deepinfra", "step-3.7-flash", "stepfun-ai/Step-3.7-Flash"},
+		{"源里是大写、用户按源里填", "deepinfra", "Step-3.7-Flash", "stepfun-ai/Step-3.7-Flash"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			idx, rule, ok := md.lookupInProvider(tc.provider, tc.model)
+			if !ok {
+				t.Fatalf("%s/%s 该命中", tc.provider, tc.model)
+			}
+			if got := md.entries[idx].Model; got != tc.entry {
+				t.Errorf("命中的是源里的 %q，期望 %q", got, tc.entry)
+			}
+			if rule != RuleCase && rule != RuleIDPrefix {
+				t.Errorf("rule = %q，期望靠忽略大小写命中（case 或 id_prefix）", rule)
+			}
+		})
+	}
+
+	// 只是忽略大小写，不是忽略别的：换成完全不同的串仍然不许命中。
+	if _, _, ok := md.lookupInProvider("deepinfra", "step-3-7-flash"); ok {
+		t.Error("点号与短横线的互换是另一步，不该在这一条里被顺带放行")
+	}
+}
+
 // TestLookupNoSimilarityMatching：归一化只做**确定性的格式换算**，
 // 不做任何相似度。这几个查询在实测里都被当成过"应该能匹配上"，
 // 但它们对应的是已退役或不同版本的模型，编一个最接近的结果比空着更糟。

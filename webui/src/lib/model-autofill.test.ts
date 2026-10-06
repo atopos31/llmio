@@ -241,6 +241,108 @@ describe("自动填写 · 已有值只补空", () => {
   })
 })
 
+describe("自动填写 · 换了目标就不是「已有值」", () => {
+  /**
+   * 用户实测到的形态：给 A 填完之后改上游模型名成 B，A 的值还在表单里，
+   * 「已有值」那道门把它当成了用户确认过的值——勾没取消、价格也没覆盖，
+   * 界面上还写着"已有值，未覆盖 5 项"。
+   *
+   * 下面这组数就是沙箱里那次复现的原值：表单是上一个目标的 0.15/0.003/0.6、
+   * 三项能力全勾；新目标 glm-5 在源里是 1 / 0.2 / 3.2，image=false，
+   * structured_output 没给。
+   */
+  const 上一个目标留下的: AutofillSnapshot = {
+    tool_call: true,
+    structured_output: true,
+    image: true,
+    input_price: 0.15,
+    cache_read_price: 0.003,
+    output_price: 0.6,
+    currency: "USD",
+  }
+  const GLM5 = suggestion({
+    tool_call: true,
+    image: false,
+    input_price: 1,
+    cache_read_price: 0.2,
+    output_price: 3.2,
+    currency: "USD",
+  })
+
+  it("同一个表单，没换目标时正是那条被报的 bug：五格全被「已有值」挡住", () => {
+    const result = computeAutofill({
+      suggestion: GLM5,
+      current: 上一个目标留下的,
+      edited: NO_EDIT,
+      policy: KEEP_ONLY,
+      trigger: "auto",
+    })
+
+    expect(result.fill).toEqual([])
+    expect(result.skipped.map((item) => item.field)).toEqual([
+      "tool_call",
+      "image",
+      "input_price",
+      "cache_read_price",
+      "output_price",
+    ])
+  })
+
+  it("换了目标：源给的值一律写进去，勾该取消就取消、价该覆盖就覆盖", () => {
+    const result = computeAutofill({
+      suggestion: GLM5,
+      current: 上一个目标留下的,
+      edited: NO_EDIT,
+      policy: KEEP_ONLY,
+      trigger: "auto",
+      targetChanged: true,
+    })
+
+    expect(result.fill).toEqual([
+      { field: "image", value: false },
+      { field: "input_price", value: 1 },
+      { field: "cache_read_price", value: 0.2 },
+      { field: "output_price", value: 3.2 },
+    ])
+    // tool_call 没变不进 fill，但它是"一致"而不是"被跳过"：换目标之后
+    // 不该再有"已有值，未覆盖"这个说法。
+    expect(result.skipped).toEqual([])
+    expect(result.missing).toEqual(["structured_output"])
+    expect(result.currency).toBe("USD")
+  })
+
+  it("换目标也免不掉「改过」：用户刚敲的那格仍然不动", () => {
+    // 用户手改的值是他本人此刻的判断，与是哪个目标无关；免掉的是"上一个
+    // 目标的预填"和"库里带过来的旧值"这两种。
+    const result = computeAutofill({
+      suggestion: GLM5,
+      current: { ...上一个目标留下的, input_price: 9 },
+      edited: new Set<AutofillField>(["input_price"]),
+      policy: KEEP_ONLY,
+      trigger: "auto",
+      targetChanged: true,
+    })
+
+    expect(filledFields(result)).not.toContain("input_price")
+    expect(result.skipped).toEqual([{ field: "input_price", reason: "edited" }])
+  })
+
+  it("不改变「源没给就不写」：换来换去也不会替源断言", () => {
+    const result = computeAutofill({
+      suggestion: GLM5,
+      current: 上一个目标留下的,
+      edited: NO_EDIT,
+      policy: KEEP_ONLY,
+      trigger: "auto",
+      targetChanged: true,
+    })
+
+    // structured_output 源里没给，就还是不动——换目标不构成"可以猜"的理由。
+    expect(result.missing).toEqual(["structured_output"])
+    expect(filledFields(result)).not.toContain("structured_output")
+  })
+})
+
 describe("自动填写 · 手动重新填写", () => {
   it("不看 Overwrite：策略是「只补空」也照样覆盖", () => {
     const current = { ...emptySnapshot(), tool_call: true }

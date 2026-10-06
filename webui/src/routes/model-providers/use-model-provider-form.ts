@@ -55,6 +55,9 @@ export type ModelAutofillState = {
   manual: boolean;
 };
 
+/** 预填会写的格子：六个能力/价格字段，外带跟着价格一起改的币种。 */
+type AutofillWritableField = AutofillField | "currency";
+
 const emptyAutofill = (enabled: boolean, overwrite: boolean): ModelAutofillState => ({
   enabled,
   overwrite,
@@ -165,7 +168,8 @@ export const useModelProviderForm = ({
   //
   // 这里是自动填写的**唯一入口**：写入路径完全沿用既有的 Create/Update，
   // 服务端不做任何补值（§4.2）。所有保护都在下面这几步里，一步都不能少：
-  // 总开关、防抖、同一目标不重复拉、源没给的不写、已有值/用户改过的不覆盖。
+  // 总开关、防抖、同一目标不重复拉、源没给的不写、已有值/用户改过的不覆盖、
+  // 换目标时把上一次预填的痕迹撤回。
   // -------------------------------------------------------------------------
   const [autofillPolicy, setAutofillPolicy] = useState<ModelAutofillPolicy>(defaultModelAutofillPolicy);
   const [autofill, setAutofill] = useState<ModelAutofillState>(() =>
@@ -174,6 +178,24 @@ export const useModelProviderForm = ({
   const [policyLoaded, setPolicyLoaded] = useState(false);
   /** 已经预填过的「上游 + 模型名」，同一组不重复拉 */
   const filledTargetRef = useRef("");
+  /**
+   * 上一次**看到**的「上游 + 模型名」。
+   *
+   * 与 `filledTargetRef` 是两件事：那个记的是"拉过了"，这个记的是"表单里现在
+   * 摆着的值是为哪一组填的"。判断有没有换目标要靠后者——用户完全可能在第一次
+   * 查询（防抖 400ms）落地之前就把模型名改掉，那时 filledTargetRef 还是空的，
+   * 而表单里的值已经是上一组的了。
+   */
+  const seenTargetRef = useRef("");
+  /**
+   * 预填自己写过的格子，以及**写之前**它长什么样。
+   *
+   * 换目标时要把这些格子撤回原样：那些值描述的是上一个目标，留在表单里就是
+   * 一条没人验证过的断言（"这个上游支持视觉"），而它长得和用户自己填的值
+   * 一模一样——`setValue` 不标脏，dirtyFields 也认不出来。所以只能由写的人
+   * 自己记着，见 rollbackWritten。
+   */
+  const writtenRef = useRef(new Map<AutofillWritableField, boolean | number | string>());
   /** 已自动重试的次数，用于给 catalog_unavailable 封顶 */
   const autofillRetryRef = useRef(0);
   /** 重试计数器的自增位：让下面那个 effect 重新跑一次 */
@@ -211,10 +233,36 @@ export const useModelProviderForm = ({
     return new Set(AUTOFILL_FIELDS.filter((field) => Boolean(dirty[field])));
   }, [form]);
 
-  /** 把算好的结果写进表单。 */
+  /**
+   * 读某一格当前的值，缺省按表单的默认（能力 false / 价格 0 / 币种 CNY）。
+   * 取值口径与 `readAutofillSnapshot` 一致，撤回时才不会把一个 undefined
+   * 写回表单。
+   */
+  const readAutofillField = useCallback(
+    (field: AutofillWritableField): boolean | number | string => {
+      if (field === "currency") {
+        return form.getValues("currency") ?? "CNY";
+      }
+      if (field === "tool_call" || field === "structured_output" || field === "image") {
+        return Boolean(form.getValues(field));
+      }
+      return Number(form.getValues(field) ?? 0);
+    },
+    [form],
+  );
+
+  /** 把算好的结果写进表单，顺带记下每格被覆盖前的样子。 */
   const applyAutofillResult = useCallback(
     (result: ReturnType<typeof computeAutofill>) => {
+      const written = writtenRef.current;
+      // 只在第一次写某格时记：再次预填覆盖的是自己上一次写的值，撤回要回到
+      // 更早那个"本来就在表单里的值"，不是回到上一次的预填结果。
+      const remember = (field: AutofillWritableField) => {
+        if (!written.has(field)) written.set(field, readAutofillField(field));
+      };
+
       for (const { field, value } of result.fill) {
+        remember(field);
         // 分两支是为了让 setValue 的类型收窄到具体字段名；写成一句会用
         // 联合类型的 setter，TS 解不出来。
         if (field === "tool_call" || field === "structured_output" || field === "image") {
@@ -224,11 +272,35 @@ export const useModelProviderForm = ({
         }
       }
       if (result.currency) {
+        remember("currency");
         form.setValue("currency", result.currency as "CNY" | "USD");
       }
     },
-    [form],
+    [form, readAutofillField],
   );
+
+  /**
+   * 撤回预填写过的格子（换目标时调）。
+   *
+   * 用户手改过的格子不动：那已经是他自己的值了，与是哪个目标无关。撤回后清空
+   * 记录——下一次预填重新开始记，否则会把"撤回后的样子"当成更早的基线。
+   */
+  const rollbackWritten = useCallback(() => {
+    const written = writtenRef.current;
+    if (written.size === 0) return;
+    const dirty = form.formState.dirtyFields as Record<string, unknown>;
+    written.forEach((value, field) => {
+      if (dirty[field]) return;
+      if (field === "currency") {
+        form.setValue("currency", value as "CNY" | "USD");
+      } else if (field === "tool_call" || field === "structured_output" || field === "image") {
+        form.setValue(field, value as boolean);
+      } else {
+        form.setValue(field, value as number);
+      }
+    });
+    written.clear();
+  }, [form]);
 
   /**
    * 按一份建议预填。自动与手动走的是同一条路，区别只在 `trigger`。
@@ -237,13 +309,18 @@ export const useModelProviderForm = ({
    * "查到了，确实没有"，两者对用户是两件事（§5.2）。
    */
   const applySuggestion = useCallback(
-    (suggestion: ModelMetadataSuggestion, trigger: "auto" | "manual"): AutofillReport => {
+    (
+      suggestion: ModelMetadataSuggestion,
+      trigger: "auto" | "manual",
+      targetChanged = false,
+    ): AutofillReport => {
       const result = computeAutofill({
         suggestion,
         current: readAutofillSnapshot(),
         edited: readEditedFields(),
         policy: autofillPolicy,
         trigger,
+        targetChanged,
       });
       applyAutofillResult(result);
       return {
@@ -257,7 +334,16 @@ export const useModelProviderForm = ({
   );
 
   const runAutofill = useCallback(
-    async (providerId: number, providerModel: string, trigger: "auto" | "manual") => {
+    async (
+      providerId: number,
+      providerModel: string,
+      trigger: "auto" | "manual",
+      targetChanged = false,
+    ) => {
+      // 换了目标就先撤痕迹，再去查新的：这一步与查询结果无关，所以放在这里
+      // 而不是"查到之后再撤"。若新目标查不到东西，表单留给用户的应该是
+      // "关于它我们什么都不知道"，而不是上一个目标的值。
+      if (targetChanged) rollbackWritten();
       setAutofill((prev) => ({ ...prev, loading: true, error: null }));
       try {
         const suggestion = await getModelMetadata(providerId, providerModel);
@@ -285,7 +371,7 @@ export const useModelProviderForm = ({
           return;
         }
         autofillRetryRef.current = 0;
-        const report = applySuggestion(suggestion, trigger);
+        const report = applySuggestion(suggestion, trigger, targetChanged);
         setAutofill((prev) => ({
           ...prev,
           loading: false,
@@ -309,7 +395,7 @@ export const useModelProviderForm = ({
         }));
       }
     },
-    [applySuggestion],
+    [applySuggestion, rollbackWritten],
   );
 
   /**
@@ -346,6 +432,9 @@ export const useModelProviderForm = ({
    *
    * 同一组输入只拉一次（`filledTargetRef`）：这个 effect 会因为开关、重试
    * 计数器等无关变化重跑，而重跑一次就多打一次端点。
+   *
+   * 换没换目标也在这里判：这个 effect 每次重跑读到的都是**最新**的表单值，
+   * 用户改一个字符这里就看得出来。
    */
   useEffect(() => {
     if (!open || !autofillPolicy.enabled) return;
@@ -355,9 +444,16 @@ export const useModelProviderForm = ({
     const target = `${selectedProviderId}\u0000${model}`;
     if (filledTargetRef.current === target) return;
 
+    // 换没换目标看的是上一次**显示**的是哪一组，不是上一次查的是哪一组：
+    // 用户在第一次查询落地前就把模型名改掉时，`filledTargetRef` 还是空的。
+    // 空串（弹窗刚打开、上游或模型名被清空）不算换目标——那时表单里没有任何
+    // 一组值可以作废。
+    const switched = seenTargetRef.current !== "" && seenTargetRef.current !== target;
+    seenTargetRef.current = target;
+
     const timer = window.setTimeout(() => {
       filledTargetRef.current = target;
-      void runAutofill(selectedProviderId, model, "auto");
+      void runAutofill(selectedProviderId, model, "auto", switched);
     }, AUTOFILL_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [open, autofillPolicy.enabled, selectedProviderId, watchedProviderModel, autofillRetry, runAutofill]);
@@ -391,7 +487,11 @@ export const useModelProviderForm = ({
 
   const resetAutofill = useCallback(() => {
     filledTargetRef.current = "";
+    seenTargetRef.current = "";
     autofillRetryRef.current = 0;
+    // 这次弹窗的痕迹不带到下一次：留着的话，下一个弹窗里第一次预填会被当成
+    // "换了目标"，刚填好的值立刻又被撤回。
+    writtenRef.current.clear();
     setAutofill((prev) => ({ ...emptyAutofill(prev.enabled, prev.overwrite), loading: false }));
   }, []);
 

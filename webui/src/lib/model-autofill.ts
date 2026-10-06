@@ -100,8 +100,21 @@ export function computeAutofill(args: {
   edited: ReadonlySet<AutofillField>
   policy: Pick<ModelAutofillPolicy, "overwrite">
   trigger: "auto" | "manual"
+  /**
+   * 这次是因为换了目标（上游或上游模型名变了）才重算的。
+   *
+   * 换目标时"已有值"这道门必须让开：表单里那些值描述的是**上一个**目标
+   * ——按 A 填进去的价格与能力，换到 B 之后就是错的，而它们又长得和"用户
+   * 确认过的值"一模一样，光看表单分不出来。挡着不放的结果就是用户实测到的
+   * 那样：换了模型，勾没取消、价格也没覆盖，还被告知"已有值，未覆盖"。
+   *
+   * 所以调用方在换目标那一侧负责把预填自己写过的格子撤回原样（见
+   * use-model-provider-form 的 rollbackWritten），这里只负责不再拿残留值挡路。
+   * 用户手改过的字段（edited）仍然不动——那是他本人刚写下的值，与目标无关。
+   */
+  targetChanged?: boolean
 }): AutofillResult {
-  const { suggestion, current, edited, policy, trigger } = args
+  const { suggestion, current, edited, policy, trigger, targetChanged = false } = args
   const result: AutofillResult = { fill: [], missing: [], skipped: [], currency: null }
 
   for (const field of AUTOFILL_FIELDS) {
@@ -115,7 +128,7 @@ export function computeAutofill(args: {
         result.skipped.push({ field, reason: "edited" })
         continue
       }
-      if (!policy.overwrite && hasValue(field, current[field])) {
+      if (!policy.overwrite && !targetChanged && hasValue(field, current[field])) {
         result.skipped.push({ field, reason: "existing" })
         continue
       }

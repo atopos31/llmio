@@ -23,6 +23,7 @@ import {
   updateModelOrder,
   updateModelProvider,
   type Model,
+  type ModelMetadataSuggestion,
   type ModelWithProvider,
   type Provider,
 } from "@/lib/api"
@@ -173,6 +174,21 @@ function cellText(row: HTMLElement, index: number): string {
 /** 唯一的那张表（桌面表格；手机卡片不是 table）——避开同名元素出现两次的干扰 */
 function table(): Promise<HTMLElement> {
   return screen.findByRole("table")
+}
+
+/** 打开某条关联的编辑对话框（表格那一套实现；卡片列表是同一份逻辑的另一处渲染） */
+async function openAssociationDialog(providerModel = "gpt-4o") {
+  const user = userEvent.setup()
+  renderPage("/model-providers?modelId=1")
+  const t = await table()
+  await within(t).findByText(providerModel)
+  const row = within(t)
+    .getAllByRole("row")
+    .find((r) => r.textContent?.includes(providerModel))
+  if (!row) throw new Error(`关联表里没有 ${providerModel} 这一行`)
+  await user.click(within(row).getByRole("button", { name: "编辑" }))
+  const dialog = await screen.findByRole("dialog")
+  return { user, dialog }
 }
 
 beforeEach(async () => {
@@ -623,21 +639,6 @@ describe("关联表单 · 峰谷条款", () => {
     ],
   }
 
-  /** 打开某条关联的编辑对话框（表格那一套实现；卡片列表是同一份逻辑的另一处渲染） */
-  async function openAssociationDialog(providerModel = "gpt-4o") {
-    const user = userEvent.setup()
-    renderPage("/model-providers?modelId=1")
-    const t = await table()
-    await within(t).findByText(providerModel)
-    const row = within(t)
-      .getAllByRole("row")
-      .find((r) => r.textContent?.includes(providerModel))
-    if (!row) throw new Error(`关联表里没有 ${providerModel} 这一行`)
-    await user.click(within(row).getByRole("button", { name: "编辑" }))
-    const dialog = await screen.findByRole("dialog")
-    return { user, dialog }
-  }
-
   it("未配置时只给一个入口，不摆一份看起来已生效的空条款", async () => {
     const { dialog } = await openAssociationDialog()
 
@@ -929,5 +930,131 @@ describe("关联表单 · 峰谷条款", () => {
     await user.click(within(dialog).getByRole("button", { name: "预览时间轴" }))
 
     await waitFor(() => expect(mocked.previewPeakTerms).toHaveBeenCalledWith(已配条款, 3))
+  })
+})
+
+/**
+ * 换目标的预填（用户实测报的那条 bug）。
+ *
+ * 表单里那些值是预填自己写进去的，但它长得和"用户确认过的值"一模一样——
+ * `setValue` 不标脏，dirtyFields 认不出来。于是换了个上游模型名之后，新目标
+ * 的值全被"已有值"挡在外面：勾没取消、价也没覆盖，面板还写着"已有值，未覆盖"。
+ *
+ * 这条只有走完整弹窗才测得到：判定的两半分别在纯函数（lib/model-autofill）与
+ * 这一页的 effect 里，前者测不到"痕迹要撤回"，后者测不到"撤回之后还能不能填"。
+ */
+describe("关联表单 · 自动填写换目标", () => {
+  /** 源里那条记录；默认什么都不给，用例只写关心的那几项。 */
+  function 建议(model: string, over: Partial<ModelMetadataSuggestion> = {}): ModelMetadataSuggestion {
+    return {
+      matched: true,
+      source: "models.dev",
+      provider: "opencode",
+      provider_name: "OpenCode Zen",
+      model,
+      tool_call: null,
+      structured_output: null,
+      image: null,
+      input_price: null,
+      cache_read_price: null,
+      output_price: null,
+      ...over,
+    }
+  }
+
+  /**
+   * 两档价格为 0 时输入框是空的（PriceInput 的 0 与"没填"共用同一个显示），
+   * 所以这里读的是 name 而不是 value——`input[name]` 就是表单字段名。
+   */
+  function 价格(dialog: HTMLElement, name: "input_price" | "cache_read_price" | "output_price") {
+    const input = dialog.querySelector<HTMLInputElement>(`input[name="${name}"]`)
+    if (!input) throw new Error(`表单里没有 ${name} 这个输入框`)
+    return input.value
+  }
+
+  const 视觉 = (dialog: HTMLElement) => within(dialog).getByRole("checkbox", { name: "视觉" })
+
+  it("改了上游模型名：新目标给的值要覆盖旧的，旧目标留下的勾也要取消", async () => {
+    // 用编辑对话框而不是新建：编辑态上游是定死的，不必去点 Radix 的
+    // Select（jsdom 里没有 pointer capture，点不动），而这一条要测的是
+    // "换了模型名之后"，与上游怎么选上的无关。
+    mocked.getModelProviders.mockResolvedValue([
+      association({ ProviderModel: "claude-sonnet-4-5" }),
+    ])
+    mocked.getModelMetadata.mockImplementation(async (_id, model) =>
+      model === "claude-sonnet-4-5"
+        ? 建议("claude-sonnet-4-5", {
+            tool_call: true,
+            structured_output: true,
+            image: true,
+            input_price: 3,
+            cache_read_price: 0.3,
+            output_price: 15,
+            currency: "USD",
+          })
+        : 建议("glm-5", {
+            tool_call: true,
+            // 源没给 structured_output：它必须回到"没勾"，而不是留着 A 的勾
+            image: false,
+            input_price: 1,
+            cache_read_price: 0.2,
+            output_price: 3.2,
+            currency: "USD",
+          })
+    )
+
+    const { user, dialog } = await openAssociationDialog("claude-sonnet-4-5")
+
+    // A 填完了：能力三项都勾上，三档价 3 / 0.3 / 15
+    await waitFor(() => expect(价格(dialog, "output_price")).toBe("15"))
+    expect(视觉(dialog)).toBeChecked()
+    expect(within(dialog).getByRole("checkbox", { name: "结构化输出" })).toBeChecked()
+
+    const 模型名 = within(dialog).getByPlaceholderText("输入或选择提供商模型")
+    await user.clear(模型名)
+    await user.type(模型名, "glm-5")
+
+    // B 在源里不支持视觉、价格也不同：两样都得跟着换
+    await waitFor(() => expect(价格(dialog, "output_price")).toBe("3.2"))
+    expect(价格(dialog, "input_price")).toBe("1")
+    expect(价格(dialog, "cache_read_price")).toBe("0.2")
+    expect(视觉(dialog)).not.toBeChecked()
+    // 源没给 structured_output，所以它退回没勾——不是留着 A 的 true。
+    // 留着的话等于替用户断言"这个上游支持结构化输出"，而路由会按它挑候选。
+    expect(within(dialog).getByRole("checkbox", { name: "结构化输出" })).not.toBeChecked()
+    // 用户看到的必须是"已填写"，不能再是那句把他劝退的话
+    expect(within(dialog).queryByText(/已有值，未覆盖/)).not.toBeInTheDocument()
+  })
+
+  it("库里带过来的旧价也照新目标覆盖（换目标就是不再按旧值算）", async () => {
+    // 编辑态那六格是从库里读出来的，预填第一次跑时它们受"只补空"保护（这是
+    // 对的，打开弹窗不该动已保存的值）；但用户既然换了上游模型，那些值就
+    // 不再描述这条关联了——留在原地会让 B 带着 A 的价格被保存。
+    mocked.getModelProviders.mockResolvedValue([
+      association({ ProviderModel: "gpt-4o", Image: true, InputPrice: 9, OutputPrice: 99 }),
+    ])
+    mocked.getModelMetadata.mockImplementation(async (_id, model) =>
+      model === "glm-5"
+        ? 建议("glm-5", {
+            image: false,
+            input_price: 1,
+            cache_read_price: 0.2,
+            output_price: 3.2,
+            currency: "USD",
+          })
+        : { ...建议(model), matched: false, reason: "no_model_match" }
+    )
+
+    const { user, dialog } = await openAssociationDialog("gpt-4o")
+    // 打开时按库里那条查（查不到），已保存的值一动不动
+    expect(价格(dialog, "input_price")).toBe("9")
+    expect(视觉(dialog)).toBeChecked()
+
+    await user.clear(within(dialog).getByPlaceholderText("输入或选择提供商模型"))
+    await user.type(within(dialog).getByPlaceholderText("输入或选择提供商模型"), "glm-5")
+
+    await waitFor(() => expect(价格(dialog, "output_price")).toBe("3.2"))
+    expect(价格(dialog, "input_price")).toBe("1")
+    expect(视觉(dialog)).not.toBeChecked()
   })
 })

@@ -18,6 +18,9 @@ import { RefreshCw } from "lucide-react";
 import type { Model, Provider, ProviderModel } from "@/lib/api";
 import type { ModelWithProvider } from "@/lib/api";
 import type { ModelProviderFormValues } from "./use-model-provider-form";
+import type { ModelAutofillState } from "./use-model-provider-form";
+import { ModelAutofillPanel } from "./model-autofill-panel";
+import type { ModelMetadataCandidate } from "@/lib/api";
 import { PeakTermsEditor } from "./peak-terms-editor";
 import type { PeakTermsForm } from "@/lib/peak";
 
@@ -42,6 +45,10 @@ type ModelProviderFormDialogProps = {
   peakTerms: PeakTermsForm | null;
   setPeakTerms: (next: PeakTermsForm | null) => void;
   peakSubmitAttempt: number;
+  /** 自动填写区要的全部状态（§5.1） */
+  autofill: ModelAutofillState;
+  onAutofillRefresh: () => void;
+  onAdoptCandidate: (candidate: ModelMetadataCandidate) => void;
 };
 
 function PriceInput({ value, onChange, onBlur, name }: {
@@ -106,6 +113,9 @@ export function ModelProviderFormDialog({
   peakTerms,
   setPeakTerms,
   peakSubmitAttempt,
+  autofill,
+  onAutofillRefresh,
+  onAdoptCandidate,
 }: ModelProviderFormDialogProps) {
   const { t } = useTranslation(['models', 'common']);
   return (
@@ -325,6 +335,19 @@ export function ModelProviderFormDialog({
                   </FormItem>
                 )}
               />
+
+              {/*
+                自动填写放在能力分组下（§5.1.1）：它填的就是上面这三项与下面
+                三档价格，但用户最先会来核对的是能力。跨上游候选也在这里出现，
+                因为"没找到这个模型"这句话正是关于上面那三格的。
+              */}
+              <ModelAutofillPanel
+                state={autofill}
+                canRefresh={!!selectedProviderId && !!form.watch('provider_name')?.trim()}
+                onRefresh={onAutofillRefresh}
+                onAdopt={onAdoptCandidate}
+              />
+
               <FormLabel>{t('association_form.params')}</FormLabel>
               <FormField
                 control={form.control}

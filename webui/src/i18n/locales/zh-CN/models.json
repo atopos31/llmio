@@ -152,7 +152,36 @@
     "currency": "货币",
     "input_price": "输入价格",
     "cache_read_price": "缓存命中价格",
-    "output_price": "输出价格"
+    "output_price": "输出价格",
+    "autofill": {
+      "title": "自动填写",
+      "refill": "重新填写",
+      "refill_hint": "按当前选择的提供商与模型重新查询数据源并填写",
+      "idle": "选定提供商与提供商模型后，将自动按公开模型数据库填写能力与价格。",
+      "disabled": "自动填写已在系统配置中关闭。",
+      "query_failed": "本次查询未完成：{{message}}",
+      "filled": "已填写 {{count}} 项：{{fields}}",
+      "nothing_filled": "数据源给出的内容与当前表单一致，没有需要改动的地方。",
+      "missing": "数据源未提供 {{count}} 项：{{fields}}",
+      "skipped": "已有值，未覆盖 {{count}} 项：{{fields}}",
+      "skipped_hint": "可在系统配置中打开「覆盖已有值」后重试。",
+      "source_line": "数据来源：按「{{provider}}」查询，命中 {{model}}",
+      "note": "自动填写的数据来自公开模型数据库，可能滞后于上游实际能力。可在「系统配置」→「模型能力与价格自动填写」中调整默认填写行为。",
+      "this_provider": "当前提供商",
+      "reason": {
+        "no_provider_match": "数据源中没有这个提供商，无法自动填写。",
+        "no_model_match": "数据源中没有这个模型，无法自动填写。",
+        "catalog_unavailable": "数据源尚未准备好，正在自动重试；也可以点「重新填写」再试一次。",
+        "deprecated_model": "数据源已把该模型标记为废弃，因此不予填写。",
+        "unknown": "未取得可用的模型数据。"
+      },
+      "candidates": {
+        "title": "未在「{{provider}}」中找到该模型。数据源在下列提供商下存在同名模型，采用后按其能力与价格填写：",
+        "adopt": "采用",
+        "same_protocol": "同协议",
+        "context": "上下文 {{value}}"
+      }
+    }
   },
   "test_dialog": {
     "title": "模型测试",

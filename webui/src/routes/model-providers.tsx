@@ -254,6 +254,9 @@ export default function ModelProvidersPage() {
     peakTerms,
     setPeakTerms,
     peakSubmitAttempt,
+    autofill,
+    refreshAutofill,
+    adoptCandidate,
     openEditDialog,
     openCreateDialog,
     submit,
@@ -733,6 +736,9 @@ export default function ModelProvidersPage() {
         peakTerms={peakTerms}
         setPeakTerms={setPeakTerms}
         peakSubmitAttempt={peakSubmitAttempt}
+        autofill={autofill}
+        onAutofillRefresh={refreshAutofill}
+        onAdoptCandidate={adoptCandidate}
       />
 
       <ModelProviderTestDialog

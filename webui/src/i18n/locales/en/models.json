@@ -152,7 +152,36 @@
     "currency": "Currency",
     "input_price": "Input Price",
     "cache_read_price": "Cache Read Price",
-    "output_price": "Output Price"
+    "output_price": "Output Price",
+    "autofill": {
+      "title": "Auto-fill",
+      "refill": "Refill",
+      "refill_hint": "Query the data sources again for the selected provider and model",
+      "idle": "Once a provider and provider model are selected, capabilities and prices are filled from public model databases.",
+      "disabled": "Auto-fill is turned off in System settings.",
+      "query_failed": "The query did not complete: {{message}}",
+      "filled": "Filled {{count}} item(s): {{fields}}",
+      "nothing_filled": "The data source matches the current form; nothing needed changing.",
+      "missing": "Not provided by the data source ({{count}}): {{fields}}",
+      "skipped": "Left unchanged because they already have values ({{count}}): {{fields}}",
+      "skipped_hint": "Turn on “Overwrite existing values” in System settings and refill to replace them.",
+      "source_line": "Source: queried as “{{provider}}”, matched {{model}}",
+      "note": "Auto-fill uses public model databases and may lag behind the upstream's actual capabilities. Default behaviour can be changed in System settings → Model capability and price auto-fill.",
+      "this_provider": "the current provider",
+      "reason": {
+        "no_provider_match": "This provider is not in the data sources, so nothing can be filled.",
+        "no_model_match": "This model is not in the data sources, so nothing can be filled.",
+        "catalog_unavailable": "The data sources are not ready yet; retrying automatically. You can also press “Refill”.",
+        "deprecated_model": "The data source marks this model as deprecated, so nothing is filled.",
+        "unknown": "No usable model data was returned."
+      },
+      "candidates": {
+        "title": "Not found under “{{provider}}”. The data source has a model with the same name under the following providers; adopting it fills in their capabilities and prices:",
+        "adopt": "Adopt",
+        "same_protocol": "same protocol",
+        "context": "context {{value}}"
+      }
+    }
   },
   "test_dialog": {
     "title": "Model Test",

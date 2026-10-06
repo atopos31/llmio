@@ -7,9 +7,11 @@ import ModelProvidersPage from "@/routes/model-providers"
 // 只导入要在断言里引用的那几个；其余端点由下面的 mock 工厂供给页面，
 // 不导入是刻意的——导入了却不用会让 tsc 报未使用
 import {
+  configAPI,
   createModel,
   createModelProvider,
   deleteModel,
+  getModelMetadata,
   getModelOptions,
   getModelProviderStatus,
   getModelProviders,
@@ -32,6 +34,19 @@ import type { PeakTerms } from "@/lib/peak"
 // 子组件（表单对话框、连通性测试、两个自定义 hook、峰谷条款编辑器）也从这里
 // 取函数，因此清单必须完整——漏一个会让它在运行时是 undefined 而不是"没被调用"。
 vi.mock("@/lib/api", () => ({
+  // 自动填写：策略是个常量（不是函数），mock 工厂整个换掉这个模块，不给的话
+  // 导入处就是 undefined，而它在 useState 的初值里被读到，会当场炸。
+  defaultModelAutofillPolicy: {
+    enabled: true,
+    overwrite: false,
+    allow_deprecated: false,
+    sources: ["models.dev", "litellm"],
+  },
+  configAPI: {
+    getConfig: vi.fn(),
+    updateConfig: vi.fn(),
+  },
+  getModelMetadata: vi.fn(),
   createModel: vi.fn(),
   createModelProvider: vi.fn(),
   deleteModel: vi.fn(),
@@ -62,6 +77,8 @@ const mocked = {
   createModelProvider: vi.mocked(createModelProvider),
   updateModelProvider: vi.mocked(updateModelProvider),
   previewPeakTerms: vi.mocked(previewPeakTerms),
+  getConfig: vi.mocked(configAPI.getConfig),
+  getModelMetadata: vi.mocked(getModelMetadata),
 }
 
 /**
@@ -165,6 +182,9 @@ beforeEach(async () => {
   mocked.getModelProviders.mockImplementation(async (id: number) => associationsOf(id))
   mocked.getModelProviderStatus.mockResolvedValue([true, false])
   mocked.getProviderModels.mockResolvedValue([])
+  // 弹窗打开时会读一次自动填写策略。给一个"没配过"的回执（新装状态），
+  // 预填按默认策略（开）走；不给的话 getConfig 返回 undefined，.then 会抛。
+  mocked.getConfig.mockResolvedValue({ key: "model_autofill_policy", value: "" })
   const i18n = (await import("@/i18n")).default
   await i18n.changeLanguage("zh-CN")
 })

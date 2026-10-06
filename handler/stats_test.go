@@ -313,7 +313,10 @@ func TestParseStatsFilterAcceptsAllGranularities(t *testing.T) {
 func TestStatsHandler(t *testing.T) {
 	setupHandlerDB(t)
 
-	base := time.Date(2026, 9, 29, 10, 0, 0, 0, time.Local)
+	// 时间基准取"现在"，**不写字面日期**：不带 from/to 时默认回看
+	// defaultStatsWindow（7 天），钉死一个绝对日期会让这条测试写下的第七天
+	// 开始失败，而且再也回不去。
+	base := time.Now().Add(-time.Hour).Truncate(time.Minute)
 	ok := models.ChatLog{CreatedAt: base, Status: consts.StatusSuccess, Name: "gpt-4o", ProviderName: "p1", Currency: "CNY"}
 	bad := models.ChatLog{CreatedAt: base.Add(time.Minute), Status: consts.StatusError, Name: "claude", ProviderName: "p2", Error: `status: 429, body: rate limited`, Currency: "CNY"}
 	for _, l := range []models.ChatLog{ok, bad} {

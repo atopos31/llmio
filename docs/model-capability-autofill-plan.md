@@ -21,7 +21,15 @@
 
 - **不做逐家原生接口适配。** 调研结论是原生接口无法单独完成任务：字段名互不相同（`capabilities.vision` / `supportsImageInput` / `input_modalities` / `supports_image_in` / `features`），而使用最广的 OpenAI 原生 `GET /v1/models` 经官方 OpenAPI 规范确认只返回 `id/object/created/owned_by`（外加可选 `shutdown_date`）。逐家适配要写十几套解析器，换回来的覆盖率还不如一个聚合源。**统一走聚合源。**
 - **不做「上下文长度」自动填写。** 全库（`models/model.go`、`handler/`、`webui/src/lib/api.ts`）确认没有上下文/最大输出的列，填写它需要先改表。本方案只填已有列，上下文留待单独一轮（见 §7）。
-- **不做 OpenRouter 直连。** 其 ToS（2026-08-31 版）明文禁止自动化抓取与「开发竞争服务」，自托管多上游代理很可能落入该条。改为经 models.dev 间接取得（其数据本身也源自 OpenRouter，但由 MIT 许可的产物承载）。
+- **不做 OpenRouter 直连。** 其 ToS（2026-08-31 版）第 7 节「Prohibited Conduct」把禁抓取列为**独立并列项**，原文：
+
+  > develop, support or use software, devices, scripts, robots or any other means or processes (such as crawlers, browser plugins, add-ons or any other automated technology) to scrape or copy any information on the Site or the Services
+
+  这一项**没有商业用途限定**，与相邻的"reselling API access / developing a competing service"是各自独立的分号并列项。因此「非商业自用」**不能豁免**——禁止的是抓取行为本身，触发条件是"BY USING THE SERVICE"。
+  
+  两个有利事实但不足以推翻上述：`robots.txt` 为 `User-Agent: * / Allow: /`（只禁 `/seo/`），故"绕过技术措施"不成立；该端点无鉴权、带 `Access-Control-Allow-Origin: *`，实际执法风险对个人自托管用户很低。但"风险低"不等于"没问题"。
+  
+  改为经 models.dev（MIT）间接取得。**如实说明**：models.dev 的数据本身也源自 OpenRouter，这转移了"谁抓的"、没有消除上游限制——但那是 models.dev 与 OpenRouter 之间的事，我们消费的是 MIT 许可的成品。
 
 ## 2. 数据源与 fallback 策略
 
@@ -232,23 +240,17 @@ GET /api/model-providers/metadata?provider_id=<id>&provider_model=<name>
 
 三个能力与三档价格在 JSON 里用 `*bool` / `*float64`，`null` 即「源未提供」。
 
-### 4.2 保存时自动填写
+### 4.2 自动填写只在弹窗内发生
 
-在 `CreateModelProvider` / `UpdateModelProvider` 里，**当请求未显式给出该字段**且策略开启时补值。判定「未显式给出」需要把请求结构体的这三个能力与三档价格改成指针——现在 `ModelWithProviderRequest` 用的是非指针 `bool`/`float64`（`handler/api.go:49`），无法区分「用户取消勾选」与「用户没填」。
+自动填写是**关联弹窗里的前端行为**：开关开启时，弹窗里选定「上游 + 上游模型」后拉取建议并预填表单，用户在保存前可逐项复核与修改。
 
-改动点：
+**不改服务端的保存逻辑。** `CreateModelProvider` / `UpdateModelProvider` 与 `ModelWithProviderRequest` 保持原样，不做"保存时补值"。理由有三条：
 
-```go
-// 现在
-ToolCall bool `json:"tool_call"`
-InputPrice float64 `json:"input_price"`
+1. **不需要**：需求就是关联时自动填写，弹窗内预填已经完全满足，值随表单正常提交即可。
+2. **做了也无效**：`use-model-provider-form.ts:65` 的 `getDefaultFormValues` 把三项能力默认成 `false`，`buildPayload`（同文件 122-146 行）又**无条件发送**这三项——界面保存时永远显式传 `false`，服务端根本没有"未给出"这个状态可言。若只做服务端补值，新建关联时必然永远不补，功能看起来接好了、实际一次都不会触发。
+3. **省掉一次破坏性契约变更**：原本要判定"未给出"就得把请求结构体的 `bool`/`float64` 改成指针，那是会打断现有 API 客户端的改动。不做这条路，这个变更整条消失。
 
-// 改为
-ToolCall *bool `json:"tool_call"`
-InputPrice *float64 `json:"input_price"`
-```
-
-这是**破坏性契约变更**，前端必须同步（§5）。旧客户端不传这些字段时落 nil，此时策略开启才补值，关闭则维持现状（落 nil → 该行原值不变）。
+因此本轮**只新增一个只读建议端点**（§4.1），写入路径完全沿用现有实现。
 
 ### 4.3 策略
 
@@ -260,9 +262,9 @@ KeyModelAutofillPolicy = "model_autofill_policy"
 
 ```go
 type ModelAutofillPolicy struct {
-    // Enabled 是总开关：关闭后保存不再自动补值，手动查询仍可用。
+    // Enabled 是总开关：关闭后弹窗不再自动预填。
     Enabled bool `json:"enabled"`
-    // Overwrite 决定补值是否覆盖已有值。默认 false：只补空。
+    // Overwrite 决定预填是否覆盖已有值。默认 false：只补空。
     Overwrite bool `json:"overwrite"`
     // AllowDeprecated 是否给已废弃模型建议。默认 false。
     AllowDeprecated bool `json:"allow_deprecated"`
@@ -271,32 +273,60 @@ type ModelAutofillPolicy struct {
 }
 ```
 
-**默认值：`Enabled=false`。** 理由与仓库既有约定一致（见 `LogReclaimPolicy` 的注释：默认替用户做主，等于把有感知的动作变成默认行为）——自动填写会改动用户在表单里看到的值，属于有感知的行为，应由用户显式开启。
+**默认值：`Enabled=true`（默认启用）。**
 
-`Overwrite=false` 默认是调研的直接结论：聚合源存在可测缺口，覆盖用户已确认的值风险高于收益。
+理由：这是本轮明确的产品选择——开箱即用优先。与 `LogReclaimPolicy` 那类「默认关闭」不同，自动填写是**纯前端的、幂等的、可在表单里逐项复核的**动作：它只往用户正看着的表单里预填值，不落库、不占锁、不改变运行中的服务，用户点保存前始终有机会改。这与回收/VACUUM 那种「一开就占写锁」的动作性质不同，因此不套用同一默认。
+
+但**配套的三条约束必须同时生效**，否则「默认启用」会变成「默认改坏数据」：
+
+1. `Overwrite=false`：不覆盖已有值，只补空。
+2. `AllowDeprecated=false`：260 个 `deprecated` 模型默认不给建议。
+3. 源未提供的能力**不写**（§3.5），不得把缺失当 `false`。
+
+`Overwrite=false` 是调研的直接结论：聚合源存在可测缺口（`structured_output` 仅 55.8%、LiteLLM 的 `supports_vision` 仅覆盖 42% 对话条目），覆盖用户已确认的值风险高于收益。
+
+#### 4.3.1 预填与覆盖的关系
+
+「默认启用」+「不覆盖」在**新建**时没有矛盾：新行的三项能力是表单默认 `false`、三档价格是 `0`，预填会正常写入。矛盾只出现在**编辑既有行**时——那时 `Overwrite=false` 意味着预填**不改动**已有值，用户会看到"已跳过 N 项（已有值）"。
+
+这是刻意的：编辑既有关联时，用户已确认过的能力与价格不应被社区数据静默改写。用户若想强制刷新，可在弹窗里手动改，或在策略里临时打开 `Overwrite`。
+
+#### 4.3.2 用户手工改过的不覆盖
+
+除"已有值"之外，还有一层同类的保护：用户在这次弹窗里**已经手工改过**的字段，后续不再被预填改写（见 §5.1）。两层合起来保证自动填写只填"空着的"和"用户没碰的"。
 
 ## 5. 前端设计
 
 ### 5.1 关联弹窗
 
-在「模型能力」分组标题右侧加一个**「自动填写」按钮**（次要样式，带图标），点击后：
+弹窗是自动填写的**唯一入口**（§4.2）：开关开启时，选定「上游 + 上游模型」后**自动拉取并预填**，无需用户额外点击。同时保留一个**「重新填写」按钮**供手动重取。
+
+预填规则：
 
 1. 调 §4.1 端点；
-2. 命中则把三态值填入表单：`true`→勾选、`false`→取消勾选、**`null`→不动且不改动提示**；
+2. 命中则把三态值填入表单：`true`→勾选、`false`→取消勾选、**`null`→不动**；
 3. 价格同理，并同步把币种切到 `USD`；
-4. 给出结果提示：填写了哪几项、哪几项源未提供。
+4. 给出结果提示：填写了哪几项、哪几项源未提供、哪几项因已有值被跳过（§4.3.1）。
 
-未命中时提示文案要区分原因，不能一律「未找到」——`catalog_unavailable`（数据还没准备好）与 `no_model_match`（确实没有这个模型）对用户是两件事。
+三个必须守住的交互细节：
+
+- **不得打断用户输入**：预填只在「上游 + 模型」刚确定、且用户尚未手工改动这些字段时进行。用户改过之后不再自动覆盖（§4.3.2），避免"正在输入时值被改掉"。
+- **失败不阻塞保存**：数据源不可用时，弹窗照常可填可存，只在能力分组下给一行提示。自动填写是便利功能，不能成为保存的前置条件。
+- **原因要分开**：`catalog_unavailable`（数据还没准备好，可重试）与 `no_model_match`（确实没有这个模型）对用户是两件事，不能都显示「未找到」。
 
 ### 5.2 弹窗内说明文案
 
 在弹窗底部（或能力分组下）加一行常驻说明，指向开关位置。要求**官方、小白化**，不用口语：
 
-> 自动填写的数据来自公开模型数据库，可能滞后于上游实际能力。默认填写行为可在「系统配置」→「模型能力与价格自动填写」中调整。
+> 自动填写的数据来自公开模型数据库，可能滞后于上游实际能力。可在「系统配置」→「模型能力与价格自动填写」中调整默认填写行为。
 
 ### 5.3 系统配置页
 
 在 `webui/src/routes/config.tsx` 新增一张卡片（沿用现有 `Card` + 编辑 `Dialog` + `Switch` 的结构），暴露 §4.3 的四个字段。
+
+因为 `Enabled` 默认为**开**，卡片上要有一句说明当前行为，避免用户以为没配过就是关闭：
+
+> 当前状态：已启用。新建关联时将自动填写模型能力与价格，可在保存前逐项修改。
 
 ### 5.4 文案规范
 
@@ -323,12 +353,15 @@ type ModelAutofillPolicy struct {
 | 上游别名表 | 官方上游（api 字段为空）与 openai-compatible 上游都能命中 |
 | 价格币种 | 自动填写必带 `USD` |
 | deprecated | 默认不给建议，放开后给 |
-| 策略默认值 | `Enabled=false`、`Overwrite=false` |
+| 策略默认值 | `Enabled=true`、`Overwrite=false` |
+| 预填不打断输入 | 用户改过字段后，再次预填不得覆盖（前端测试） |
+| 写入路径未变 | `Create/UpdateModelProvider` 的请求与落库行为与改动前一致（钉住 §4.2「不改服务端保存逻辑」） |
 
 ### 6.2 集测（集成测试）
 
-- `handler` 层：新端点的命中/未命中/数据源不可用三条路径；`Create/Update` 在策略开/关 × 字段给/不给 的四种组合下的落库结果。
-- 契约测试：请求结构体改指针后，前端 `api.ts` 类型与后端 JSON 标签一致（沿用仓库既有 `docs/api-frontend-parity.md` 的做法）。
+- `handler` 层：新端点的命中/未命中/数据源不可用三条路径。
+- 回归：`Create/UpdateModelProvider` 在策略开/关下行为一致（写入路径不读策略，§4.2）。
+- 契约测试：新端点的响应字段与前端 `api.ts` 类型一致（沿用仓库既有 `docs/api-frontend-parity.md` 的做法）。
 - `go test ./...` 全绿（Windows 上按 AGENTS.md 设 `GOCACHE=$PWD/.gocache`）。
 
 ### 6.3 真机
@@ -357,9 +390,9 @@ type ModelAutofillPolicy struct {
 | 2 | `feat(modelmeta): 聚合源抓取与解析` | `Source` 接口、models.dev、LiteLLM、缓存、testdata |
 | 3 | `feat(modelmeta): 上游对齐与建议生成` | 别名表、五步归一化、三态建议 |
 | 4 | `feat(config): 自动填写策略` | `KeyModelAutofillPolicy`、默认值、读写 |
-| 5 | `feat(api): 自动填写建议端点与保存时补值` | 新端点、请求结构体改指针 |
-| 6 | `feat(webui): 关联弹窗自动填写与说明` | 按钮、结果提示、常驻说明、三语文案 |
+| 5 | `feat(api): 自动填写建议端点` | 只读新端点，**不动写入路径** |
+| 6 | `feat(webui): 关联弹窗自动填写与说明` | 自动预填、重新填写按钮、结果提示、常驻说明、三语文案 |
 | 7 | `feat(webui): 系统配置页自动填写开关` | 新卡片与编辑弹窗 |
 | 8 | `test: 自动填写单测与集测` | §6.1/§6.2 的用例 |
 
-第 5 与第 6 笔必须**同时**可编译（请求结构体改指针是破坏性契约变更），中间不插入其他提交。
+第 5、6 笔之间前端还调不到端点，属正常的分笔顺序（后端先就绪）。**没有任何破坏性契约变更**——写入路径与请求结构体都不动，因此每笔都可独立编译、独立通过测试。

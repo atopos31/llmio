@@ -43,6 +43,15 @@ vi.mock("@/lib/api", () => ({
     getConfig: vi.fn(),
     updateConfig: vi.fn(),
   },
+  // 模型自动填写卡片要用默认策略。它是 api.ts 里的一个常量，不是函数——
+  // mock 工厂整个换掉这个模块，不给的话导入处就是 undefined，而它在
+  // useState 的初值里被读到，会当场炸。
+  defaultModelAutofillPolicy: {
+    enabled: true,
+    overwrite: false,
+    allow_deprecated: false,
+    sources: ["models.dev", "litellm"],
+  },
   getCleanupHistory: vi.fn(),
   testCountTokens: vi.fn(),
   // 峰谷计费卡片与数据库压缩卡片都自带取数，挂在这一页上。不给它们默认值的话，

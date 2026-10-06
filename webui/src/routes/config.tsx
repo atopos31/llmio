@@ -30,6 +30,7 @@ import { Switch } from '@/components/ui/switch';
 import { configAPI, type AnthropicCountTokens, type LogCleanupPolicy, type LogCleanupRecord, getCleanupHistory, testCountTokens } from '@/lib/api';
 import { PeakCalendarCard } from '@/routes/peak-calendar';
 import { CompressionCard } from '@/routes/compression-card';
+import { ModelAutofillCard } from '@/routes/model-autofill-card';
 import {
   Table,
   TableBody,
@@ -339,6 +340,15 @@ export default function ConfigPage() {
         */}
         <div className="mt-4">
           <CompressionCard />
+        </div>
+
+        {/*
+          模型能力与价格自动填写。同样是自带取数的卡片，理由与上面两张一致。
+          放在这一页的底部而不是并进 loadConfig：这块配置只影响「模型 × 上游」
+          弹窗里的预填行为，与上面的日志清理、令牌计数不是一回事。
+        */}
+        <div className="mt-4">
+          <ModelAutofillCard />
         </div>
       </div>
 

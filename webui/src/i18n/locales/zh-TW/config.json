@@ -250,5 +250,27 @@
     "test_failed": "設定檢測失敗: {{message}}",
     "save_success": "設定已儲存",
     "save_failed": "儲存設定失敗"
+  },
+  "model_autofill": {
+    "title": "模型能力與價格自動填寫",
+    "desc": "設定「模型 × 提供商」關聯彈窗中自動填寫能力與價格的行為。填寫只發生在彈窗內，儲存前可以逐項修改。",
+    "enabled": "自動填寫",
+    "enabled_on": "已啟用，自動預填",
+    "enabled_off": "已關閉，不自動預填",
+    "enabled_help": "關閉後，關聯彈窗不再自動填寫能力與價格。",
+    "overwrite": "覆寫已有值",
+    "overwrite_on": "覆寫",
+    "overwrite_off": "不覆寫，只補空",
+    "overwrite_help": "開啟後，資料來源的值會改寫表單中已有的值；關閉時只填寫還沒有值的那幾項。預設為關閉。",
+    "allow_deprecated": "為已廢棄模型提供建議",
+    "allow_deprecated_help": "開啟後，資料來源標記為廢棄的模型也會給出建議。預設為關閉。",
+    "sources": "資料來源",
+    "sources_help": "依序嘗試；留空使用預設值 models.dev、litellm。",
+    "edit": "編輯設定",
+    "edit_title": "編輯模型自動填寫策略",
+    "edit_desc": "調整關聯彈窗中自動填寫模型能力與價格的預設行為。",
+    "status_on": "目前狀態：已啟用。建立關聯時將自動填寫模型能力與價格，可在儲存前逐項修改。",
+    "status_off": "目前狀態：已關閉。關聯彈窗不會自動填寫，需要手動勾選能力並填寫價格。",
+    "load_failed": "讀取自動填寫策略失敗：{{message}}"
   }
 }

@@ -250,5 +250,27 @@
     "test_failed": "配置检测失败: {{message}}",
     "save_success": "配置已保存",
     "save_failed": "保存配置失败"
+  },
+  "model_autofill": {
+    "title": "模型能力与价格自动填写",
+    "desc": "配置「模型 × 提供商」关联弹窗里自动填写能力与价格的行为。填写只发生在弹窗内，保存前可以逐项修改。",
+    "enabled": "自动填写",
+    "enabled_on": "已启用，自动预填",
+    "enabled_off": "已关闭，不自动预填",
+    "enabled_help": "关闭后，关联弹窗不再自动填写能力与价格。",
+    "overwrite": "覆盖已有值",
+    "overwrite_on": "覆盖",
+    "overwrite_off": "不覆盖，只补空",
+    "overwrite_help": "开启后，数据源的值会改写表单里已有的值；关闭时只填写还没有值的那几项。默认为关闭。",
+    "allow_deprecated": "为已废弃模型提供建议",
+    "allow_deprecated_help": "开启后，数据源标记为废弃的模型也会给出建议。默认为关闭。",
+    "sources": "数据源",
+    "sources_help": "按顺序尝试；留空使用默认值 models.dev、litellm。",
+    "edit": "编辑配置",
+    "edit_title": "编辑模型自动填写策略",
+    "edit_desc": "调整关联弹窗里自动填写模型能力与价格的默认行为。",
+    "status_on": "当前状态：已启用。新建关联时将自动填写模型能力与价格，可在保存前逐项修改。",
+    "status_off": "当前状态：已关闭。关联弹窗不会自动填写，需要手工勾选能力并填写价格。",
+    "load_failed": "读取自动填写策略失败：{{message}}"
   }
 }

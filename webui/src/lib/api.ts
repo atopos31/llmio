@@ -372,6 +372,71 @@ export async function updateModelProvider(id: number, association: {
   });
 }
 
+/**
+ * 一次模型元数据建议查询（GET /api/model-providers/metadata）。
+ *
+ * 三个能力与三档价格都是 `boolean | null` / `number | null`，**null 是"源未
+ * 提供"**，与 false / 0 是两件事：预填遇到 null 不动表单里对应那一格，遇到
+ * false 才写"不支持"。把两者合并会在用户没配置过的关联上留下一堆断言。
+ *
+ * `candidates` 只在 matched=false 时出现，且**不可自动填写**——它说的是
+ * "你要的那个上游没有这个模型，但别家有同名的"，用不用由用户点"采用"决定。
+ */
+export interface ModelMetadataCandidate {
+  source: string;
+  provider: string;
+  provider_name: string;
+  model: string;
+  tool_call: boolean | null;
+  structured_output: boolean | null;
+  image: boolean | null;
+  input_price: number | null;
+  cache_read_price: number | null;
+  output_price: number | null;
+  currency: string;
+  context_limit?: number;
+  output_limit?: number;
+  /** 这条候选的协议与当前上游一致，列表里排前面 */
+  same_protocol: boolean;
+}
+
+export interface ModelMetadataSuggestion {
+  matched: boolean;
+  /** matched=false 时才有：no_provider_match / no_model_match / catalog_unavailable / deprecated_model */
+  reason?: string;
+  /** 本次是按数据源里的哪个上游查的 */
+  source?: string;
+  provider?: string;
+  provider_name?: string;
+  /** 上游对齐命中的步：base_url / host_alias / type_fallback */
+  provider_match_rule?: string;
+  /** 源里的模型 id（不是用户填的那个），用来核对归一化是否合理 */
+  model?: string;
+  /** 模型 id 命中的归一化步：exact / case / models_prefix / suffix_strip / date_strip / dot_dash */
+  match_rule?: string;
+  /** 源标出的生命周期：空 / deprecated / beta */
+  status?: string;
+  tool_call: boolean | null;
+  structured_output: boolean | null;
+  image: boolean | null;
+  input_price: number | null;
+  cache_read_price: number | null;
+  output_price: number | null;
+  /** 只有确实写了至少一档价格时才连带写币种 */
+  currency?: string;
+  context_limit?: number;
+  output_limit?: number;
+  candidates?: ModelMetadataCandidate[];
+}
+
+export async function getModelMetadata(providerId: number, providerModel: string): Promise<ModelMetadataSuggestion> {
+  const params = new URLSearchParams({
+    provider_id: providerId.toString(),
+    provider_model: providerModel,
+  });
+  return apiRequest<ModelMetadataSuggestion>(`/model-providers/metadata?${params.toString()}`);
+}
+
 export async function updateModelProviderStatus(id: number, status: boolean): Promise<ModelWithProvider> {
   return apiRequest<ModelWithProvider>(`/model-providers/${id}/status`, {
     method: 'PATCH',
@@ -605,6 +670,31 @@ export interface LogCleanupPolicy {
   enabled: boolean;
   retention_days: number;
 }
+
+/**
+ * 「模型 × 上游」关联弹窗里自动填写模型能力与价格的策略。
+ *
+ * 默认值见 `defaultModelAutofillPolicy`：**enabled 为 true**。这与日志清理那类
+ * 「默认关闭」不同——自动填写只往用户正看着的表单里预填值，不落库、不改变
+ * 运行中的服务，保存前始终有机会逐项复核。
+ */
+export interface ModelAutofillPolicy {
+  /** 总开关：关闭后关联弹窗不再自动预填 */
+  enabled: boolean;
+  /** 是否改写已有值。默认 false：只补空，不动用户已经确认过的能力与价格 */
+  overwrite: boolean;
+  /** 是否给已废弃（deprecated）的模型建议。默认 false */
+  allow_deprecated: boolean;
+  /** 按序尝试的数据源；留空用 ["models.dev", "litellm"] */
+  sources: string[];
+}
+
+export const defaultModelAutofillPolicy: ModelAutofillPolicy = {
+  enabled: true,
+  overwrite: false,
+  allow_deprecated: false,
+  sources: ["models.dev", "litellm"],
+};
 
 export interface ConfigResponse {
   key: string;

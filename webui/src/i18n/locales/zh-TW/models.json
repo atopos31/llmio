@@ -152,7 +152,36 @@
     "currency": "貨幣",
     "input_price": "輸入價格",
     "cache_read_price": "快取命中價格",
-    "output_price": "輸出價格"
+    "output_price": "輸出價格",
+    "autofill": {
+      "title": "自動填寫",
+      "refill": "重新填寫",
+      "refill_hint": "依目前選擇的提供商與模型重新查詢資料來源並填寫",
+      "idle": "選定提供商與提供商模型後，將自動依公開模型資料庫填寫能力與價格。",
+      "disabled": "自動填寫已在系統設定中關閉。",
+      "query_failed": "本次查詢未完成：{{message}}",
+      "filled": "已填寫 {{count}} 項：{{fields}}",
+      "nothing_filled": "資料來源提供的內容與目前表單一致，沒有需要變更的地方。",
+      "missing": "資料來源未提供 {{count}} 項：{{fields}}",
+      "skipped": "已有值，未覆寫 {{count}} 項：{{fields}}",
+      "skipped_hint": "可在系統設定中開啟「覆寫已有值」後重試。",
+      "source_line": "資料來源：依「{{provider}}」查詢，命中 {{model}}",
+      "note": "自動填寫的資料來自公開模型資料庫，可能落後於上游實際能力。可在「系統設定」→「模型能力與價格自動填寫」中調整預設填寫行為。",
+      "this_provider": "目前提供商",
+      "reason": {
+        "no_provider_match": "資料來源中沒有這個提供商，無法自動填寫。",
+        "no_model_match": "資料來源中沒有這個模型，無法自動填寫。",
+        "catalog_unavailable": "資料來源尚未準備好，正在自動重試；也可以點「重新填寫」再試一次。",
+        "deprecated_model": "資料來源已將該模型標記為廢棄，因此不予填寫。",
+        "unknown": "未取得可用的模型資料。"
+      },
+      "candidates": {
+        "title": "未在「{{provider}}」中找到該模型。資料來源在下列提供商下有同名模型，採用後依其能力與價格填寫：",
+        "adopt": "採用",
+        "same_protocol": "同協定",
+        "context": "上下文 {{value}}"
+      }
+    }
   },
   "test_dialog": {
     "title": "模型測試",

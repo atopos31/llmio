@@ -25,6 +25,9 @@ const (
 	// 它独立于迁移策略：迁移是"改写数据形态"，回收是"把文件缩小"，两者的
 	// 触发时机完全不是一回事——迁移完一次就不再跑了，回收要跟着删除量一直跑。
 	KeyLogReclaimPolicy = "log_reclaim_policy"
+	// KeyModelAutofillPolicy 是「模型能力与价格自动填写」的策略。
+	// 见 ModelAutofillPolicy。
+	KeyModelAutofillPolicy = "model_autofill_policy"
 )
 
 type AnthropicCountTokens struct {
@@ -36,6 +39,34 @@ type AnthropicCountTokens struct {
 type LogCleanupPolicy struct {
 	Enabled       bool `json:"enabled"`
 	RetentionDays int  `json:"retention_days"`
+}
+
+// ModelAutofillPolicy 是「模型 × 上游」关联弹窗里自动填写模型能力与价格的策略。
+//
+// **Enabled 默认 true**（默认启用）。这不是随手定的：与 LogReclaimPolicy 那类
+// 「默认关闭」不同，自动填写是**纯前端的、幂等的、可在表单里逐项复核的**动作
+// ——它只往用户正看着的表单里预填值，不落库、不占锁、不改变运行中的服务，
+// 用户点保存前始终有机会改。回收/VACUUM 那种「一开就占写锁」的动作才需要
+// 默认关。理由与配套的三条约束见 docs/model-capability-autofill-plan.md §4.3。
+//
+// **保存路径完全不读这个策略**：写入永远沿用既有的 Create/UpdateModelProvider，
+// 服务端不做任何补值（§4.2）。所以这里的 Enabled 只管"弹窗要不要预填"。
+type ModelAutofillPolicy struct {
+	// Enabled 是总开关：关闭后关联弹窗不再自动预填。
+	Enabled bool `json:"enabled"`
+	// Overwrite 决定预填是否改写已有值。默认 false：只补空。
+	//
+	// 默认 false 是调研的直接结论：聚合源存在可测缺口（models.dev 的
+	// structured_output 只有 55.8%，LiteLLM 的 supports_vision 只覆盖 42%
+	// 的对话条目），而覆盖用户**已经确认过**的值风险高于收益——把手工设成
+	// true 的 ToolCall 改写成 false，会让这个上游从工具调用请求的候选池里
+	// 直接消失（§3.5.2）。
+	Overwrite bool `json:"overwrite"`
+	// AllowDeprecated 是否给已废弃的模型建议。默认 false。
+	// models.dev 的 8,389 个模型里有 261 个 deprecated、71 个 beta。
+	AllowDeprecated bool `json:"allow_deprecated"`
+	// Sources 是按序尝试的来源，留空用默认 ["models.dev", "litellm"]。
+	Sources []string `json:"sources"`
 }
 
 // LogCompressPolicy 是历史行迁移的策略。前三个参数是"每批多大"、第四个是

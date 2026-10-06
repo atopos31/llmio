@@ -200,8 +200,10 @@ func TestInit_UpgradesLegacySchemaInPlace(t *testing.T) {
 			"auth_keys":            2,
 			"chat_logs":            3,
 			"chat_ios":             2,
-			"configs":              2,
-			"log_cleanup_records":  1,
+			// configs 是**唯一一张启动期会被追加行的表**：几处 ensure*Config
+			// 会为缺省的策略补一行。历史那两行原样不动，这里数的是总数。
+			"configs":             3,
+			"log_cleanup_records": 1,
 		}
 		names := make([]string, 0, len(want))
 		for name := range want {
@@ -266,6 +268,33 @@ func TestInit_UpgradesLegacySchemaInPlace(t *testing.T) {
 		// 升级也不该凭空多出第二条策略
 		if got := countRowsWhere(t, "configs", "key = ?", KeyLogCleanupPolicy); got != 1 {
 			t.Fatalf("清理策略应有且只有 1 条，实得 %d 条", got)
+		}
+	})
+
+	t.Run("老库升级时补上自动填写策略，且只补一条", func(t *testing.T) {
+		// 上面那条 "configs 应有 3 行" 数的就是"两行历史 + 这一行"。
+		// 这里把它的来历钉住：补的是**没配过的**那条，值取默认。
+		if got := countRowsWhere(t, "configs", "key = ?", KeyModelAutofillPolicy); got != 1 {
+			t.Fatalf("自动填写策略应有且只有 1 条，实得 %d 条", got)
+		}
+		var cfg Config
+		if err := DB.Where("key = ?", KeyModelAutofillPolicy).First(&cfg).Error; err != nil {
+			t.Fatalf("load policy: %v", err)
+		}
+		var policy ModelAutofillPolicy
+		if err := json.Unmarshal([]byte(cfg.Value), &policy); err != nil {
+			t.Fatalf("解析策略失败（值：%q）：%v", cfg.Value, err)
+		}
+		if !policy.Enabled || policy.Overwrite || policy.AllowDeprecated {
+			t.Fatalf("默认策略不对：%+v", policy)
+		}
+		// 用户那条自己加的配置一个字都没被动过。
+		var userCfg Config
+		if err := DB.Where("key = ?", "some_user_key").First(&userCfg).Error; err != nil {
+			t.Fatalf("load user config: %v", err)
+		}
+		if userCfg.Value != `{"kept":true}` {
+			t.Fatalf("用户配置被改写：%q", userCfg.Value)
 		}
 	})
 

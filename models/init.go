@@ -81,6 +81,9 @@ func Init(ctx context.Context, path string) {
 	if err := ensureLogCleanupPolicyConfig(ctx); err != nil {
 		panic(err)
 	}
+	if err := ensureModelAutofillPolicyConfig(ctx); err != nil {
+		panic(err)
+	}
 	if err := MigratePeakTermsToAssociations(ctx); err != nil {
 		panic(err)
 	}
@@ -165,6 +168,39 @@ func ensureLogCleanupPolicyConfig(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// ensureModelAutofillPolicyConfig 建一行默认的自动填写策略。
+//
+// 与日志清理那次不同，这里写默认值不只是"省一次判空"：**Enabled 默认是开**，
+// 而"没配过"与"配成开"在数据库里长得一模一样。落一行显式的配置，配置页
+// 与弹窗读到的就是同一份事实，"当前状态：已启用"这句话才有出处。
+//
+// 注意它**不覆盖已存在的行**：用户关掉之后重启服务不该把它又打开。
+func ensureModelAutofillPolicyConfig(ctx context.Context) error {
+	count, err := gorm.G[Config](DB).Where("key = ?", KeyModelAutofillPolicy).Count(ctx, "*")
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	value, err := json.Marshal(ModelAutofillPolicy{
+		Enabled:         true,
+		Overwrite:       false,
+		AllowDeprecated: false,
+		Sources:         consts.ModelMetaDefaultSources,
+	})
+	if err != nil {
+		return err
+	}
+
+	config := Config{
+		Key:   KeyModelAutofillPolicy,
+		Value: string(value),
+	}
+	return gorm.G[Config](DB).Create(ctx, &config)
 }
 
 func ensureDBFile(path string) error {

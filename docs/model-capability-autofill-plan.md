@@ -132,11 +132,17 @@ llmio 的 `Provider` 有 `Type`（`openai`/`anthropic`/`gemini`/`openai-res`）�
 2. **按 base_url 主机名匹配**一张手工别名表（覆盖官方上游：`api.anthropic.com`→`anthropic`、`api.openai.com`→`openai`、`generativelanguage.googleapis.com`→`google`）。官方上游的 `api` 字段为空（226 家中 200 家带 `api`，且只有 `@ai-sdk/openai-compatible` 的 185 家填了值），所以必须有这一层。
 3. **按 `Type` 兜底**：`anthropic`→`anthropic`、`gemini`→`google`、`openai`→`openai`。兜底最容易误配（任何 OpenAI 兼容上游都会被判成 `openai`），因此**只在能同时确定模型 ID 命中时才采用**。
 
-手工别名表与代码同目录、可单测；表里查不到就返回「无建议」，不做模糊猜测。
+手工别名表与代码同目录、可单测；表里查不到就不做上游对齐，转入 §3.4.2 的跨上游候选提示。
+
+注意上游对齐与模型匹配是**两件事**：对齐错了，模型 ID 再准也会取到别家的价格。因此对齐结果与匹配结果都要回给前端（§4.1 的 `provider` 字段），让用户看得见"这次是按哪个上游查的"。
 
 ### 3.4 模型 ID 归一化
 
-`ProviderModel` 是用户输入或从上游 `/v1/models` 拉到的原生名。归一化按**代价递增、命中即停**的顺序，每步都要在测试里钉住：
+`ProviderModel` 是用户输入或从上游 `/v1/models` 拉到的原生名。归一化分**两档**：确定性的自动采用，不确定的只提示不填写。
+
+#### 3.4.1 确定性归一化（命中即自动填写）
+
+按代价递增、命中即停的顺序，每步都要在测试里钉住：
 
 | 步 | 规则 | 例子 |
 |---|---|---|
@@ -145,8 +151,35 @@ llmio 的 `Provider` 有 `Type`（`openai`/`anthropic`/`gemini`/`openai-res`）�
 | 3 | 去 `models/` 前缀（Gemini） | `models/gemini-2.5-flash` → `gemini-2.5-flash` |
 | 4 | 去 `:free` / `:batch` 后缀 | `anthropic/claude-opus-4.5:batch` |
 | 5 | 去日期后缀（`-YYYYMMDD`） | `claude-sonnet-4-5-20250929` → `claude-sonnet-4-5` |
+| 6 | 点号 ↔ 短横线互换 | `claude-opus-4.5` → `claude-opus-4-5` |
 
-**不做模糊匹配。** 调研实测到两种真实错配：版本漂移（`claude-3-5-haiku-latest`、`gemini-1.5-pro` 在 models.dev 中已不存在）与命名漂移（`gemini-2.0-flash` 存在于 models.dev 但挂在第三方 `qiniu-ai` 下，而非 `google`）。跨上游搜同名会取到**别家**的限额与价格——错的价格比空价格更糟。因此第 5 步之后仍不命中就返回「无建议」。
+第 6 步是实测出来的真实差异：OpenRouter 用点号、Anthropic 官方用短横线。实测 `anthropic` 下 `claude-sonnet-4-5` 在、`claude-sonnet-4.5` 不在，而 OpenRouter 的 ID 形态是 `anthropic/claude-opus-4.5`。这一步是纯格式换算，不涉及语义猜测，因此归入确定性档。
+
+#### 3.4.2 跨上游匹配：可提示，不默认填写
+
+**先纠正本方案早期的一处错误论断。** 上一版把「`gemini-2.0-flash` 挂在 `qiniu-ai` 下而非 `google`」当成"命名漂移"，这是错的：
+
+`qiniu-ai` 是**真实提供商**——Qiniu（七牛云），`api: https://api.qnaigc.com/v1`，带 91 个模型，其 `doc` 指向 `developer.qiniu.com/aitokenapi`。它是**转售** Gemini 的第三方上游，所以该模型挂在它名下完全正常。用户若真的把 llmio 配到七牛云的 `api.qnaigc.com/v1`，那么 `qiniu-ai` 就是**正确**的匹配目标，不是误配。
+
+进一步实测：**转售是常态而非异常**。3,924 个模型 ID 中有 **1,148 个（29.3%）出现在 2 个以上提供商下**，`glm-5.2` 与 `glm-5.3` 各出现在 31 家、`kimi-k3` 30 家、`deepseek-v4-pro` 29 家。七牛云的 91 个模型里有 54 个在别家也有同名。
+
+所以「跨上游同名」不是需要回避的坏情况，而是需要**呈现给用户判断**的常态。规则因此改为：
+
+- **确定性档命中**（§3.4.1，在已对齐的上游内）：自动填写。
+- **只有跨上游候选**（当前上游没命中，但在别的上游命中同名）：**不填写**，只提示。提示里必须写明匹配到的上游与模型，例如：
+
+  > 未在「七牛云」中找到该模型。数据源在「Google」下存在同名模型 `gemini-2.0-flash`（上下文 1,048,576）。是否按其能力与价格填写？
+
+  用户点「采用」才填，且**币种与价格按被匹配上游的口径**写入。
+- **完全无候选**：返回 `no_model_match`，不提示。
+
+这样既保住了「不默认把别家的价格写进你的配置」这条底线，又不丢掉跨上游转售场景下的可用性——把判断权交给看得见上下文的用户，而不是替他猜。
+
+#### 3.4.3 仍不做的：语义模糊匹配
+
+不做的是**没有候选呈现的语义猜测**：子串包含、编辑距离、按名称相似度取 top-1 之类。实测到的真实坑是**版本退役**——`claude-3-5-haiku-latest`、`gemini-1.5-pro`、`claude-3-5-sonnet-20241022` 在 models.dev 中**全库都不存在**（不是挂在别家，是没有）。此时任何"最相似"的结果都是编出来的：把 `claude-3-5-haiku-latest` 匹到 `claude-haiku-4-5` 会给出**不同代际**的价格与上下文，比空着更糟。
+
+判据很清晰：**候选必须同名（归一化后字符串相等）才呈现**。同名跨上游 = 转售，可提示；不同名 = 猜测，不做。
 
 ### 3.5 三态：缺失 ≠ false
 
@@ -223,6 +256,7 @@ GET /api/model-providers/metadata?provider_id=<id>&provider_model=<name>
   "matched": true,
   "source": "models.dev",
   "provider": "anthropic",
+  "provider_name": "Anthropic",
   "model": "claude-sonnet-4-5",
   "match_rule": "exact",
   "status": null,
@@ -236,9 +270,48 @@ GET /api/model-providers/metadata?provider_id=<id>&provider_model=<name>
 }
 ```
 
+字段说明：
+
+- `provider` / `provider_name` 是**本次按哪个上游查的**。上游对齐可能靠 `Type` 兜底（§3.3），所以必须回给前端，让用户看得见对齐结果——对齐错了，模型再准也会取到别家的价格。
+- `match_rule` 是命中的归一化步（`exact` / `case` / `models_prefix` / `suffix_strip` / `date_strip` / `dot_dash` / `cross_provider`）。
+- `status` 为 `deprecated` / `beta` 时前端要给提示（默认策略下 `deprecated` 不给建议）。
+
 `matched: false` 时其余字段为 `null`，并带 `reason`（`no_provider_match` / `no_model_match` / `catalog_unavailable`），前端据此给不同文案。
 
 三个能力与三档价格在 JSON 里用 `*bool` / `*float64`，`null` 即「源未提供」。
+
+#### 4.1.1 跨上游候选（`candidates`）
+
+当当前上游未命中、但在别的上游找到**同名**模型时（§3.4.2），返回候选而**不返回可填写值**：
+
+```json
+{
+  "matched": false,
+  "reason": "no_model_match",
+  "candidates": [
+    {
+      "source": "models.dev",
+      "provider": "google",
+      "provider_name": "Google",
+      "model": "gemini-2.0-flash",
+      "tool_call": true,
+      "structured_output": null,
+      "image": true,
+      "input_price": null,
+      "cache_read_price": null,
+      "output_price": null,
+      "currency": "USD"
+    }
+  ]
+}
+```
+
+关键约定：
+
+- **有 `candidates` 时前端不得自动填写**，只在能力分组下展示一行提示与「采用」按钮（§5.1）。
+- 候选**按名称完全一致**筛出，不做相似度排序（§3.4.3）。
+- 候选数量设上限（如 5 条），超出时按提供商是否与当前上游同 `Type` 排序——同协议的在前面，因为转售通常同协议。
+- 用户点「采用」后按该候选的 `provider` 口径填写，**币种随候选走**。
 
 ### 4.2 自动填写只在弹窗内发生
 
@@ -308,17 +381,30 @@ type ModelAutofillPolicy struct {
 3. 价格同理，并同步把币种切到 `USD`；
 4. 给出结果提示：填写了哪几项、哪几项源未提供、哪几项因已有值被跳过（§4.3.1）。
 
-三个必须守住的交互细节：
+#### 5.1.1 跨上游候选的呈现
 
-- **不得打断用户输入**：预填只在「上游 + 模型」刚确定、且用户尚未手工改动这些字段时进行。用户改过之后不再自动覆盖（§4.3.2），避免"正在输入时值被改掉"。
-- **失败不阻塞保存**：数据源不可用时，弹窗照常可填可存，只在能力分组下给一行提示。自动填写是便利功能，不能成为保存的前置条件。
-- **原因要分开**：`catalog_unavailable`（数据还没准备好，可重试）与 `no_model_match`（确实没有这个模型）对用户是两件事，不能都显示「未找到」。
+`matched: false` 且带 `candidates` 时（§4.1.1），**不填写**，在能力分组下展示一行提示与「采用」按钮：
+
+> 未在「七牛云」中找到该模型。数据源在「Google」下存在同名模型 `gemini-2.0-flash`（上下文 1,048,576）。采用后按其能力与价格填写。
+
+交互约定：
+
+- 提示里必须**同时写明被匹配的上游名与模型名**——这是让用户判断"这是不是我要的那家"的唯一依据。
+- 多个候选时列出全部（上限 5 条），不替用户排序成"推荐"；同协议候选可置前并标注。
+- 点「采用」才写入，且**币种随候选的上游口径**，不是一律 USD。
+- 提示是**非阻塞**的：不点也能正常保存。
 
 ### 5.2 弹窗内说明文案
 
 在弹窗底部（或能力分组下）加一行常驻说明，指向开关位置。要求**官方、小白化**，不用口语：
 
 > 自动填写的数据来自公开模型数据库，可能滞后于上游实际能力。可在「系统配置」→「模型能力与价格自动填写」中调整默认填写行为。
+
+三个必须守住的交互细节：
+
+- **不得打断用户输入**：预填只在「上游 + 模型」刚确定、且用户尚未手工改动这些字段时进行。用户改过之后不再自动覆盖（§4.3.2），避免"正在输入时值被改掉"。
+- **失败不阻塞保存**：数据源不可用时，弹窗照常可填可存，只在能力分组下给一行提示。自动填写是便利功能，不能成为保存的前置条件。
+- **原因要分开**：`catalog_unavailable`（数据还没准备好，可重试）与 `no_model_match`（确实没有这个模型）对用户是两件事，不能都显示「未找到」。
 
 ### 5.3 系统配置页
 
@@ -349,7 +435,10 @@ type ModelAutofillPolicy struct {
 | nil 的路由语义 | 构造 `tool_call=NULL` 的行，断言它在 `before.toolCall=true` 时**被排除**（钉住 §3.5.1 的结论，防止后人误以为 NULL 会放行） |
 | 覆盖保护 | `Overwrite=false` 时，源给 `false` 不得覆盖库里已有的 `true` |
 | 价格 NULL 迁移 | 断言启动迁移把价格 NULL 归零（钉住 §3.6.1，说明价格无「未知」态） |
-| 归一化五步 | 每步各一例；第 5 步后不命中要返回未匹配 |
+| 归一化六步 | 每步各一例（含点号↔短横线）；第 6 步后不命中要返回未匹配 |
+| 跨上游候选 | 当前上游未命中、别家同名时**返回 candidates 且不返回可填写值**（钉住 §3.4.2，防止实现成自动填） |
+| 候选不做相似度 | `claude-3-5-haiku-latest`（全库无）不得匹到 `claude-haiku-4-5`，必须返回 `no_model_match` 且无候选（钉住 §3.4.3） |
+| 转售上游正命中 | 配 `api.qnaigc.com/v1` 时应对齐到 `qiniu-ai` 并正常命中，**不**因为"Google 才是官方"而改判（钉住 §3.4.2 的纠正） |
 | 上游别名表 | 官方上游（api 字段为空）与 openai-compatible 上游都能命中 |
 | 价格币种 | 自动填写必带 `USD` |
 | deprecated | 默认不给建议，放开后给 |
@@ -388,7 +477,7 @@ type ModelAutofillPolicy struct {
 |---|---|---|
 | 1 | `docs: 模型能力与价格自动填写方案` | 本文档 + 研究文档归档 |
 | 2 | `feat(modelmeta): 聚合源抓取与解析` | `Source` 接口、models.dev、LiteLLM、缓存、testdata |
-| 3 | `feat(modelmeta): 上游对齐与建议生成` | 别名表、五步归一化、三态建议 |
+| 3 | `feat(modelmeta): 上游对齐与建议生成` | 别名表、六步归一化、跨上游候选、三态建议 |
 | 4 | `feat(config): 自动填写策略` | `KeyModelAutofillPolicy`、默认值、读写 |
 | 5 | `feat(api): 自动填写建议端点` | 只读新端点，**不动写入路径** |
 | 6 | `feat(webui): 关联弹窗自动填写与说明` | 自动预填、重新填写按钮、结果提示、常驻说明、三语文案 |

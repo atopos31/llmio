@@ -582,10 +582,10 @@ func TestSuggestStaleCatalogStillServes(t *testing.T) {
 
 	// 后台确实去刷新了（而且失败了也不影响答案，因为 Refresh 会保住旧缓存）。
 	deadline := time.Now().Add(2 * time.Second)
-	for src.fetches == 0 && time.Now().Before(deadline) {
+	for src.fetchCount() == 0 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if src.fetches == 0 {
+	if src.fetchCount() == 0 {
 		t.Error("过期之后该起一次后台刷新")
 	}
 	// 刷新失败后旧缓存还在。

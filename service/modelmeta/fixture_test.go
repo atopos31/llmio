@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -120,18 +121,25 @@ type fakeSource struct {
 	cat  *Catalog
 	err  error
 
-	fetches int
+	// fetches 由**两个 goroutine** 碰：kick 起的后台刷新在写，测试在自己的
+	// goroutine 里轮询着读（陈旧缓存的用例正是要确认"后台确实去抓了"）。
+	// 普通 int 在这里是数据竞争——-race 报出来的是这一行，而读的人多半会
+	// 以为生产代码在抢，所以直接做成原子的。
+	fetches atomic.Int64
 }
 
 func (f *fakeSource) Name() string { return f.name }
 
 func (f *fakeSource) Fetch(context.Context) (*Catalog, error) {
-	f.fetches++
+	f.fetches.Add(1)
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.cat, nil
 }
+
+// fetchCount 读抓取次数。给测试用，避免各处再散着写 Load()。
+func (f *fakeSource) fetchCount() int { return int(f.fetches.Load()) }
 
 // testManager 建一个两个源都已装好索引的管理器——整条建议路径不碰网络。
 //

@@ -79,8 +79,8 @@ func TestManagerCatalogFreshServesCache(t *testing.T) {
 		t.Error("新鲜缓存该原样返回")
 	}
 	// 新鲜就不该去打扰上游。
-	if src.fetches != 0 {
-		t.Errorf("新鲜缓存下抓取了 %d 次，期望 0 次", src.fetches)
+	if n := src.fetchCount(); n != 0 {
+		t.Errorf("新鲜缓存下抓取了 %d 次，期望 0 次", n)
 	}
 }
 

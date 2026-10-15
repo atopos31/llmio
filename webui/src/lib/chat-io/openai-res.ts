@@ -130,7 +130,7 @@ export function openaiResParseRequest(body: Record<string, unknown>): ParsedRequ
 
   const messages: Message[] = [];
   let role = "system";
-  let parts: ContentPart[] = [];
+  const parts: ContentPart[] = [];
 
   // 累积而不逐条 flush：一条 Responses 请求里 assistant 的 reasoning 与
   // message 分属两个条目，应当合成同一条对话消息，而不是拆成两段。

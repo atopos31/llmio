@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { AlertTriangle, ChevronLeft, ChevronRight, Eye, GitCompareArrows, MessageSquare, RefreshCw, Search, Trash2, X } from "lucide-react"
+import { AlertTriangle, ChevronLeft, ChevronRight, Columns3, Eye, GitCompareArrows, MessageSquare, RefreshCw, Search, Trash2, X } from "lucide-react"
 
 import { LogDetailSheet } from "@/components/log-detail-sheet"
 import { MultiSelectFilter, type FilterOption } from "@/components/multi-select-filter"
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useAutoRefresh } from "@/hooks/use-auto-refresh"
@@ -29,7 +30,7 @@ import {
   type Model,
   type Provider,
 } from "@/lib/api"
-import { compactNumber, formatBytes, formatDurationNs, formatFull, formatNumber } from "@/lib/format"
+import { compactNumber } from "@/lib/format"
 import {
   activeMultiCount,
   canViewChatIO,
@@ -41,8 +42,16 @@ import {
   type LogsMultiKey,
 } from "@/lib/logs"
 import {
+  LOG_COLUMNS,
+  LOG_DEFAULT_VISIBLE_IDS,
+  LOG_TOGGLEABLE_IDS,
+  cacheRate,
+  visibleColumns,
+} from "@/lib/logs-columns"
+import {
   refreshSecFor,
   readUiPrefs,
+  withLogsColumns,
   withRefreshSec,
   writeUiPrefs,
   type UiPrefs,
@@ -58,13 +67,6 @@ const LOGS_REFRESH_SECONDS = [0, 5, 10, 30, 60]
 /** 请求状态到 i18n 键的映射。后端的 status 是固定的三个英文值。 */
 function statusKey(status: string): "success" | "error" | "running" | "unknown" {
   return status === "success" || status === "error" || status === "running" ? status : "unknown"
-}
-
-/** 缓存命中率（%）。输入为 0 时返回 null，表示"不适用"而非 0%。 */
-function cacheRate(log: ChatLog): number | null {
-  const prompt = log.prompt_tokens ?? 0
-  if (prompt <= 0) return null
-  return ((log.prompt_tokens_details?.cached_tokens ?? 0) / prompt) * 100
 }
 
 export default function LogsPage() {
@@ -172,9 +174,10 @@ export default function LogsPage() {
    */
   const [selected, setSelected] = useState<Map<number, ChatLog>>(new Map())
 
-  // 自动刷新档位落 localStorage：三页共用一份偏好，刷新页面后仍在
+  // 自动刷新档位与可见列落 localStorage：三页共用一份偏好，刷新页面后仍在
   const [uiPrefs, setUiPrefs] = useState(() => readUiPrefs())
   const refreshSec = refreshSecFor(uiPrefs, "logs", LOGS_REFRESH_SECONDS)
+  const cols = useMemo(() => visibleColumns(uiPrefs.logsColumns), [uiPrefs.logsColumns])
 
   const setPref = (next: UiPrefs) => {
     setUiPrefs(next)
@@ -377,6 +380,50 @@ export default function LogsPage() {
             onChange={(s) => setPref(withRefreshSec(uiPrefs, "logs", s))}
           />
 
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="icon" className="size-8" aria-label={t("table.columns")} title={t("table.columns")}>
+                <Columns3 className="size-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 p-3" align="end">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-medium">{t("table.columns")}</span>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => setPref(withLogsColumns(uiPrefs, [...LOG_DEFAULT_VISIBLE_IDS], LOG_TOGGLEABLE_IDS))}
+                >
+                  {t("table.reset_columns")}
+                </button>
+              </div>
+              <div className="space-y-1">
+                {LOG_COLUMNS.filter((c) => !c.always && c.labelKey).map((c) => {
+                  const checked = uiPrefs.logsColumns.length === 0
+                    ? c.defaultVisible === true
+                    : uiPrefs.logsColumns.includes(c.id)
+                  return (
+                    <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(v) => {
+                          const current = uiPrefs.logsColumns.length === 0
+                            ? LOG_DEFAULT_VISIBLE_IDS
+                            : uiPrefs.logsColumns
+                          const next = v
+                            ? [...current, c.id]
+                            : current.filter((id) => id !== c.id)
+                          setPref(withLogsColumns(uiPrefs, next, LOG_TOGGLEABLE_IDS))
+                        }}
+                      />
+                      <span>{t(c.labelKey as never)}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+
           {hasActiveFilter && (
             <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs" onClick={clearFilters}>
               <X className="size-3.5" aria-hidden="true" />
@@ -469,48 +516,39 @@ export default function LogsPage() {
           <Table className="min-w-[1400px]">
             <TableHeader className="sticky top-0 z-10 bg-muted">
               <TableRow className="hover:bg-muted">
-                <TableHead className="w-10">
-                  <Checkbox
-                    checked={allOnPageSelected}
-                    onCheckedChange={(v) => {
-                      if (v) {
-                        setSelected((prev) => {
-                          const next = new Map(prev)
-                          for (const l of logs) {
-                            if (selectable(l) && next.size < MAX_COMPARE) next.set(l.ID, l)
+                {cols.map((col) => (
+                  <TableHead key={col.id} className={cn(col.headClass)}>
+                    {col.id === "select" ? (
+                      <Checkbox
+                        checked={allOnPageSelected}
+                        onCheckedChange={(v) => {
+                          if (v) {
+                            setSelected((prev) => {
+                              const next = new Map(prev)
+                              for (const l of logs) {
+                                if (selectable(l) && next.size < MAX_COMPARE) next.set(l.ID, l)
+                              }
+                              return next
+                            })
+                          } else {
+                            setSelected((prev) => {
+                              const next = new Map(prev)
+                              for (const l of logs) next.delete(l.ID)
+                              return next
+                            })
                           }
-                          return next
-                        })
-                      } else {
-                        setSelected((prev) => {
-                          const next = new Map(prev)
-                          for (const l of logs) next.delete(l.ID)
-                          return next
-                        })
-                      }
-                    }}
-                    aria-label={t("compare.select_all")}
-                  />
-                </TableHead>
-                {/* 冻结 ID 列：横向滚动时保持可见，否则右移后就认不出是哪条 */}
-                <TableHead className="sticky left-0 z-20 w-20 bg-muted">{t("table.id")}</TableHead>
-                <TableHead>{t("table.time")}</TableHead>
-                <TableHead>{t("table.request_name")}</TableHead>
-                <TableHead>{t("table.project")}</TableHead>
-                <TableHead>{t("table.status")}</TableHead>
-                <TableHead>{t("table.tokens")}</TableHead>
-                <TableHead>{t("table.cache")}</TableHead>
-                <TableHead>{t("table.size")}</TableHead>
-                <TableHead>{t("table.duration")}</TableHead>
-                <TableHead>{t("table.model")}</TableHead>
-                <TableHead>{t("table.type")}</TableHead>
-                <TableHead>{t("table.provider")}</TableHead>
-                <TableHead className="w-24">{t("table.actions")}</TableHead>
+                        }}
+                        aria-label={t("compare.select_all")}
+                      />
+                    ) : col.labelKey ? (
+                      t(col.labelKey as never)
+                    ) : null}
+                  </TableHead>
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
               {logs.map((log) => {
-                const rate = cacheRate(log)
                 const isSelected = selected.has(log.ID)
                 return (
                   <TableRow
@@ -519,75 +557,75 @@ export default function LogsPage() {
                     className={cn("cursor-pointer", isSelected && "bg-accent/50")}
                     onClick={() => setDetailLog(log)}
                   >
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <Checkbox
-                        checked={isSelected}
-                        disabled={!selectable(log)}
-                        onCheckedChange={() => toggleSelect(log)}
-                        aria-label={t("compare.select_row", { id: log.ID })}
-                      />
-                    </TableCell>
-                    <TableCell className="reading sticky left-0 z-10 bg-background text-xs text-muted-foreground">
-                      {log.ID}
-                    </TableCell>
-                    <TableCell className="reading whitespace-nowrap text-xs text-muted-foreground">
-                      {formatFull(new Date(log.CreatedAt).getTime())}
-                    </TableCell>
-                    <TableCell className="max-w-[160px] truncate font-medium" title={log.Name}>
-                      {log.Name}
-                    </TableCell>
-                    <TableCell className="max-w-[120px] truncate text-xs" title={log.key_name}>
-                      {log.key_name || "-"}
-                    </TableCell>
-                    <TableCell>
-                      <StatusMark status={log.Status} label={t(`common:status.${statusKey(log.Status)}` as never)} />
-                    </TableCell>
-                    <TableCell className="reading">{formatNumber(log.total_tokens)}</TableCell>
-                    <TableCell className="reading text-xs">
-                      {rate === null ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        t("table.cache_value", { percent: rate.toFixed(0), tokens: compactNumber(log.prompt_tokens_details?.cached_tokens ?? 0) })
-                      )}
-                    </TableCell>
-                    <TableCell className="reading text-xs text-muted-foreground">
-                      {log.Size ? formatBytes(log.Size) : "-"}
-                    </TableCell>
-                    <TableCell className="reading text-xs">
-                      {formatDurationNs(log.ChunkTime + log.FirstChunkTime + log.ProxyTime)}
-                    </TableCell>
-                    <TableCell className="max-w-[140px] truncate text-xs" title={log.ProviderModel}>
-                      {log.ProviderModel}
-                    </TableCell>
-                    <TableCell className="text-xs">{log.Style}</TableCell>
-                    <TableCell className="max-w-[120px] truncate text-xs" title={log.ProviderName}>
-                      {log.ProviderName}
-                    </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7"
-                          onClick={() => setDetailLog(log)}
-                          aria-label={t("detail.title", { id: log.ID })}
-                          title={t("table.detail")}
-                        >
-                          <Eye className="size-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7"
-                          onClick={() => navigate(`/logs/${log.ID}/chat-io`)}
-                          disabled={!canViewChatIO(log)}
-                          aria-label={t("table.view_io")}
-                          title={canViewChatIO(log) ? t("table.view_io") : t("table.io_unavailable")}
-                        >
-                          <MessageSquare className="size-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {cols.map((col) => {
+                      if (col.id === "select") {
+                        return (
+                          <TableCell key={col.id} onClick={(e) => e.stopPropagation()}>
+                            <Checkbox
+                              checked={isSelected}
+                              disabled={!selectable(log)}
+                              onCheckedChange={() => toggleSelect(log)}
+                              aria-label={t("compare.select_row", { id: log.ID })}
+                            />
+                          </TableCell>
+                        )
+                      }
+                      if (col.id === "actions") {
+                        return (
+                          <TableCell key={col.id} onClick={(e) => e.stopPropagation()}>
+                            <div className="flex gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7"
+                                onClick={() => setDetailLog(log)}
+                                aria-label={t("detail.title", { id: log.ID })}
+                                title={t("table.detail")}
+                              >
+                                <Eye className="size-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7"
+                                onClick={() => navigate(`/logs/${log.ID}/chat-io`)}
+                                disabled={!canViewChatIO(log)}
+                                aria-label={t("table.view_io")}
+                                title={canViewChatIO(log) ? t("table.view_io") : t("table.io_unavailable")}
+                              >
+                                <MessageSquare className="size-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        )
+                      }
+                      const value = col.value?.(log) ?? ""
+                      const titleAttr = col.cellClass?.includes("truncate") ? value || undefined : undefined
+                      if (col.kind === "status") {
+                        return (
+                          <TableCell key={col.id} className={cn(col.cellClass)}>
+                            <StatusMark status={log.Status} label={t(`common:status.${statusKey(log.Status)}` as never)} />
+                          </TableCell>
+                        )
+                      }
+                      if (col.kind === "cache") {
+                        const rate = cacheRate(log)
+                        return (
+                          <TableCell key={col.id} className={cn(col.cellClass)}>
+                            {rate === null ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : (
+                              t("table.cache_value", { percent: rate.toFixed(0), tokens: compactNumber(log.prompt_tokens_details?.cached_tokens ?? 0) })
+                            )}
+                          </TableCell>
+                        )
+                      }
+                      return (
+                        <TableCell key={col.id} className={cn(col.cellClass)} title={titleAttr}>
+                          {value}
+                        </TableCell>
+                      )
+                    })}
                   </TableRow>
                 )
               })}

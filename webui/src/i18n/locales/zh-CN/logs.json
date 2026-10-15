@@ -57,7 +57,18 @@
     "cache_value": "{{percent}}%（{{tokens}}）",
     "detail": "查看详情",
     "view_io": "查看请求内容",
-    "io_unavailable": "该请求未记录内容（需成功且开启 IO 记录）"
+    "io_unavailable": "该请求未记录内容（需成功且开启 IO 记录）",
+    "trace_id": "链路 ID",
+    "session_id": "会话 ID",
+    "tps": "TPS",
+    "cost": "成本",
+    "retry": "重试",
+    "remote_ip": "远端 IP",
+    "user_agent": "User-Agent",
+    "upstream_style": "上游协议",
+    "bridge_notes": "桥接说明",
+    "columns": "列",
+    "reset_columns": "恢复默认"
   },
   "mobile": {
     "tokens": "Tokens",

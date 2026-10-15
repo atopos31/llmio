@@ -57,7 +57,18 @@
     "cache_value": "{{percent}}%（{{tokens}}）",
     "detail": "檢視詳情",
     "view_io": "檢視請求內容",
-    "io_unavailable": "該請求未記錄內容（需成功且開啟 IO 記錄）"
+    "io_unavailable": "該請求未記錄內容（需成功且開啟 IO 記錄）",
+    "trace_id": "鏈路 ID",
+    "session_id": "會話 ID",
+    "tps": "TPS",
+    "cost": "成本",
+    "retry": "重試",
+    "remote_ip": "遠端 IP",
+    "user_agent": "User-Agent",
+    "upstream_style": "上游協定",
+    "bridge_notes": "橋接說明",
+    "columns": "欄位",
+    "reset_columns": "恢復預設"
   },
   "mobile": {
     "tokens": "Tokens",

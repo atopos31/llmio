@@ -57,7 +57,18 @@
     "cache_value": "{{percent}}% ({{tokens}})",
     "detail": "View details",
     "view_io": "View request content",
-    "io_unavailable": "No body recorded (requires success and IO logging enabled)"
+    "io_unavailable": "No body recorded (requires success and IO logging enabled)",
+    "trace_id": "Trace ID",
+    "session_id": "Session ID",
+    "tps": "TPS",
+    "cost": "Cost",
+    "retry": "Retries",
+    "remote_ip": "Remote IP",
+    "user_agent": "User Agent",
+    "upstream_style": "Upstream Protocol",
+    "bridge_notes": "Bridge Notes",
+    "columns": "Columns",
+    "reset_columns": "Reset to defaults"
   },
   "mobile": {
     "tokens": "Tokens",

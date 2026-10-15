@@ -67,6 +67,10 @@
   },
   "detail": {
     "title": "Log Detail: {{id}}",
+    "loading": "Loading this log",
+    "not_found": "This log does not exist or has already been cleaned up.",
+    "load_failed": "Failed to load this log.",
+    "open_in_logs": "Open in logs",
     "created_at": "Created At:",
     "trace_id": "Trace ID:",
     "session_id": "Session ID:",

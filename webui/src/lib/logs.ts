@@ -1,3 +1,5 @@
+import type { ChatLog } from "@/lib/api"
+
 /**
  * 日志页的纯逻辑：多选筛选在 URL 与查询串之间的往返。
  *
@@ -61,6 +63,18 @@ export function readMultiFilter(get: (key: string) => string | null): LogsMultiF
 /** 已选中的筛选项总数（用于决定是否显示"清空筛选"）。 */
 export function activeMultiCount(filter: LogsMultiFilter): number {
   return LOGS_MULTI_KEYS.reduce((n, key) => n + filter[key].length, 0)
+}
+
+/**
+ * 这一条日志有没有可看的请求内容。
+ *
+ * 判据是后端写入的口径而不是前端猜测：失败路径不落 ChatIO 行，
+ * 所以"成功"且"这行有 ChatIO 文件"两条件同时成立才有内容可读。
+ * 详情抽屉与日志列表共用这一条判据——各写一份的话，很快就会出现
+ * "按钮可点但页面空白"或反过来的不一致。
+ */
+export function canViewChatIO(log: ChatLog): boolean {
+  return log.Status === "success" && !!log.ChatIO
 }
 
 /** 在一个维度上切换一个取值。 */

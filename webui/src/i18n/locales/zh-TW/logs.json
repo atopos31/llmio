@@ -67,6 +67,10 @@
   },
   "detail": {
     "title": "日誌詳情: {{id}}",
+    "loading": "讀取這條日誌",
+    "not_found": "這條記錄不存在，或已被清理。",
+    "load_failed": "讀取這條記錄失敗。",
+    "open_in_logs": "在日誌頁查看",
     "created_at": "建立時間：",
     "trace_id": "Trace ID：",
     "session_id": "Session ID：",

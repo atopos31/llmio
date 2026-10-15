@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { AlertTriangle, ChevronLeft, ChevronRight, Eye, GitCompareArrows, MessageSquare, RefreshCw, Search, Trash2, X } from "lucide-react"
 
+import { LogDetailSheet } from "@/components/log-detail-sheet"
 import { MultiSelectFilter, type FilterOption } from "@/components/multi-select-filter"
 import { RefreshSelect } from "@/components/refresh-select"
 import { StatusMark } from "@/components/status-mark"
@@ -13,7 +14,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useAutoRefresh } from "@/hooks/use-auto-refresh"
 import {
@@ -28,9 +28,10 @@ import {
   type Model,
   type Provider,
 } from "@/lib/api"
-import { compactNumber, formatBytes, formatCost, formatDurationNs, formatFull, formatNumber } from "@/lib/format"
+import { compactNumber, formatBytes, formatDurationNs, formatFull, formatNumber } from "@/lib/format"
 import {
   activeMultiCount,
+  canViewChatIO,
   joinMulti,
   parseMulti,
   readMultiFilter,
@@ -277,8 +278,6 @@ export default function LogsPage() {
       setIsCleanDialogOpen(false)
     }
   }
-
-  const canViewChatIO = (log: ChatLog) => log.Status === "success" && log.ChatIO
 
   /** 只有成功请求可参与对比——失败请求没有可比较的输出内容。 */
   const selectable = (log: ChatLog) => log.Status === "success"
@@ -740,186 +739,5 @@ function DimensionFilter({
           : label
       }
     />
-  )
-}
-
-function DetailField({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[11px] tracking-wide text-muted-foreground uppercase">{label}</div>
-      <div className={cn("text-sm break-words", mono && "reading text-xs")}>{value ?? "-"}</div>
-    </div>
-  )
-}
-
-/**
- * 单条日志详情。
- *
- * 用右侧抽屉而非弹窗：读者要在列表与详情之间来回比对（看这条是不是刚才那条），
- * 遮住整页反而妨碍操作。关闭后焦点由 Radix 归还到触发行。
- */
-function LogDetailSheet({ log, onClose }: { log: ChatLog | null; onClose: () => void }) {
-  const { t } = useTranslation(["logs", "common"])
-  const navigate = useNavigate()
-
-  const cached = log?.prompt_tokens_details?.cached_tokens ?? 0
-  const hasPricing = (log?.input_price ?? 0) > 0 || (log?.output_price ?? 0) > 0
-  // 上游协议与客户端协议不同 = 这次请求走了一层协议转换。直连时后端写入的
-  // upstream_style 与 Style 相同，转换时才分叉
-  const bridged = !!log?.upstream_style && log.upstream_style !== log.Style
-  const bridgeCodes = (log?.bridge_notes ?? "")
-    .split(",")
-    .map((code) => code.trim())
-    .filter(Boolean)
-  const totalCost = log
-    ? (Math.max(0, (log.prompt_tokens ?? 0) - cached) / 1e6) * (log.input_price ?? 0) +
-      (cached / 1e6) * (log.cache_read_price ?? 0) +
-      ((log.completion_tokens ?? 0) / 1e6) * (log.output_price ?? 0)
-    : 0
-
-  return (
-    <Sheet open={log !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent>
-        <SheetHeader>
-          <SheetTitle>{log ? t("logs:detail.title", { id: log.ID }) : ""}</SheetTitle>
-          {log && (
-            <SheetDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <StatusMark status={log.Status} label={t(`common:status.${statusKey(log.Status)}` as never)} />
-              <span className="reading">{formatFull(new Date(log.CreatedAt).getTime())}</span>
-              <span>{log.Name}</span>
-            </SheetDescription>
-          )}
-        </SheetHeader>
-
-        {log && (
-          <SheetBody className="space-y-5">
-            {log.Error && (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
-                <p className="mb-1 text-[11px] tracking-wide text-status-critical-ink uppercase">
-                  {t("logs:detail.error_title")}
-                </p>
-                <div className="text-sm break-words whitespace-pre-wrap text-status-critical-ink">{log.Error}</div>
-              </div>
-            )}
-
-            <Section title={t("logs:detail.basic_info")}>
-              <div className="grid grid-cols-2 gap-3">
-                <DetailField label={t("logs:detail.model_name")} value={log.Name} />
-                <DetailField label={t("logs:detail.provider")} value={log.ProviderName || "-"} />
-                <DetailField label={t("logs:detail.provider_model")} value={log.ProviderModel || "-"} mono />
-                <DetailField label={t("logs:detail.type")} value={log.Style || "-"} />
-                {bridged && (
-                  <DetailField
-                    label={t("logs:bridge.upstream_type")}
-                    value={<span className="reading text-xs">{log.upstream_style}</span>}
-                  />
-                )}
-                <DetailField label={t("logs:detail.size")} value={log.Size ? formatBytes(log.Size) : "-"} />
-                <DetailField label={t("logs:detail.remote_ip")} value={log.RemoteIP || "-"} mono />
-                <DetailField
-                  label={t("logs:detail.io_log")}
-                  value={log.ChatIO ? t("logs:detail.io_yes") : t("logs:detail.io_no")}
-                />
-                <DetailField label={t("logs:detail.retry")} value={log.Retry ?? 0} />
-                <DetailField
-                  label={t("logs:detail.trace_id")}
-                  value={log.TraceID ? <span className="reading break-all">{log.TraceID}</span> : "-"}
-                />
-                <DetailField
-                  label={t("logs:detail.session_id")}
-                  value={log.SessionID ? <span className="reading break-all">{log.SessionID}</span> : "-"}
-                />
-              </div>
-              <div className="mt-3">
-                <DetailField label={t("logs:detail.user_agent")} value={log.UserAgent || "-"} mono />
-              </div>
-            </Section>
-
-            {bridged && (
-              <Section title={t("logs:bridge.title")}>
-                <div className="grid grid-cols-2 gap-3">
-                  <DetailField
-                    label={t("logs:bridge.direction")}
-                    value={<span className="reading text-xs">{log.Style} → {log.upstream_style}</span>}
-                  />
-                </div>
-                <div className="mt-3 space-y-1.5">
-                  <div className="text-[11px] tracking-wide text-muted-foreground uppercase">
-                    {bridgeCodes.length > 0 ? t("logs:bridge.changed") : t("logs:bridge.clean")}
-                  </div>
-                  {bridgeCodes.map((code) => (
-                    <div key={code} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      <code className="reading rounded bg-muted px-1.5 py-0.5 text-[11px]">{code}</code>
-                      <span className="text-xs text-muted-foreground">
-                        {t(`logs:bridge.notes.${code}` as never, { defaultValue: t("logs:bridge.unknown_note") })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
-
-            <Section title={t("logs:detail.performance")}>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <DetailField label={t("logs:detail.proxy_time")} value={formatDurationNs(log.ProxyTime)} />
-                <DetailField label={t("logs:detail.first_chunk_time")} value={formatDurationNs(log.FirstChunkTime)} />
-                <DetailField label={t("logs:detail.chunk_time")} value={formatDurationNs(log.ChunkTime)} />
-                <DetailField label={t("logs:detail.tps")} value={log.Tps ? log.Tps.toFixed(2) : "-"} />
-              </div>
-            </Section>
-
-            <Section title={t("logs:detail.token_usage")}>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <DetailField label={t("logs:detail.input")} value={formatNumber(log.prompt_tokens)} />
-                <DetailField label={t("logs:detail.cached")} value={formatNumber(cached)} />
-                <DetailField label={t("logs:detail.output")} value={formatNumber(log.completion_tokens)} />
-                <DetailField label={t("logs:detail.total")} value={formatNumber(log.total_tokens)} />
-              </div>
-            </Section>
-
-            <Section title={t("logs:detail.billing")}>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <DetailField
-                  label={t("logs:detail.billing_input")}
-                  value={hasPricing ? formatCost((Math.max(0, log.prompt_tokens - cached) / 1e6) * log.input_price, log.currency) : "-"}
-                />
-                <DetailField
-                  label={t("logs:detail.billing_cache")}
-                  value={hasPricing ? formatCost((cached / 1e6) * log.cache_read_price, log.currency) : "-"}
-                />
-                <DetailField
-                  label={t("logs:detail.billing_output")}
-                  value={hasPricing ? formatCost((log.completion_tokens / 1e6) * log.output_price, log.currency) : "-"}
-                />
-                <DetailField
-                  label={t("logs:detail.billing_total")}
-                  value={hasPricing ? formatCost(totalCost, log.currency) : "-"}
-                />
-              </div>
-            </Section>
-
-            {canView(log) && (
-              <Button variant="outline" size="sm" className="w-full" onClick={() => navigate(`/logs/${log.ID}/chat-io`)}>
-                <MessageSquare className="mr-1.5 size-3.5" aria-hidden="true" />
-                {t("logs:table.view_io")}
-              </Button>
-            )}
-          </SheetBody>
-        )}
-      </SheetContent>
-    </Sheet>
-  )
-}
-
-function canView(log: ChatLog) {
-  return log.Status === "success" && log.ChatIO
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="space-y-2">
-      <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{title}</h3>
-      {children}
-    </section>
   )
 }

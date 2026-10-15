@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 
+import type { ChatLog } from "@/lib/api"
 import {
   activeMultiCount,
+  canViewChatIO,
   joinMulti,
   LOGS_MULTI_KEYS,
   parseMulti,
@@ -117,5 +119,52 @@ describe("toggleMulti", () => {
     const after = toggleMulti(before, "b")
     expect(before).toEqual(["a"])
     expect(after).not.toBe(before)
+  })
+})
+
+/** canViewChatIO 只读两个字段，其余取值与判定无关，给一份能过类型检查的填充即可。 */
+function logOf(over: Partial<ChatLog> = {}): ChatLog {
+  return {
+    ID: 1,
+    CreatedAt: "2026-09-30T10:00:00+08:00",
+    Name: "gpt-4o",
+    TraceID: "trace-1",
+    ProviderModel: "gpt-4o",
+    ProviderName: "openai",
+    Status: "success",
+    Style: "openai",
+    UserAgent: "curl/8.0",
+    Error: "",
+    Retry: 0,
+    ProxyTime: 0,
+    FirstChunkTime: 0,
+    ChunkTime: 0,
+    Tps: 0,
+    ChatIO: true,
+    Size: 0,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+    prompt_tokens_details: { cached_tokens: 0 },
+    key_name: "",
+    input_price: 0,
+    cache_read_price: 0,
+    output_price: 0,
+    currency: "CNY",
+    ...over,
+  }
+}
+
+describe("canViewChatIO", () => {
+  it("成功且有 IO 记录：可看", () => {
+    expect(canViewChatIO(logOf())).toBe(true)
+  })
+
+  it("失败请求：后端不落 ChatIO 行，不可看", () => {
+    expect(canViewChatIO(logOf({ Status: "error", ChatIO: false }))).toBe(false)
+  })
+
+  it("成功但未开启 IO 记录：同样不可看", () => {
+    expect(canViewChatIO(logOf({ Status: "success", ChatIO: false }))).toBe(false)
   })
 })

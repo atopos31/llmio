@@ -67,6 +67,10 @@
   },
   "detail": {
     "title": "日志详情: {{id}}",
+    "loading": "读取这条日志",
+    "not_found": "这条记录不存在，或已被清理。",
+    "load_failed": "读取这条记录失败。",
+    "open_in_logs": "在日志页查看",
     "created_at": "创建时间：",
     "trace_id": "Trace ID：",
     "session_id": "Session ID：",

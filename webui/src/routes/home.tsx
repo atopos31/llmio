@@ -4,11 +4,13 @@ import { AlertTriangle, ArrowUpRight, RefreshCw } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { FirstChunkHistogram, RequestTrendChart, TokenTrendChart } from "@/components/charts/trend-charts"
+import { RefreshSelect } from "@/components/refresh-select"
 import { StatusMark } from "@/components/status-mark"
 import { Button } from "@/components/ui/button"
 import { Panel } from "@/components/panel"
 import { EmptyState, ErrorState } from "@/components/state-views"
 import { Card, CardContent } from "@/components/ui/card"
+import { useAutoRefresh } from "@/hooks/use-auto-refresh"
 import { getStats, type StatsResult } from "@/lib/api"
 import {
   compactNumber,
@@ -17,19 +19,36 @@ import {
   formatPercent,
   formatSeconds,
 } from "@/lib/format"
+import {
+  HOME_RANGES,
+  type HomeRange,
+  refreshSecFor,
+  readUiPrefs,
+  withHomeRange,
+  withRefreshSec,
+  writeUiPrefs,
+  type UiPrefs,
+} from "@/lib/prefs"
 
-/** 时间范围预设。值与后端的 from/to 参数直接对应。 */
-type RangeKey = "today" | "last_24h" | "last_7d" | "last_30d"
-
-const RANGE_HOURS: Record<RangeKey, number | "today"> = {
+/** 时间范围的选项清单在 lib/prefs 的 HOME_RANGES 里，取值即后端的换算口径。 */
+const RANGE_HOURS: Record<HomeRange, number | "today"> = {
   today: "today",
   last_24h: 24,
   last_7d: 24 * 7,
   last_30d: 24 * 30,
 }
 
+/**
+ * 自动刷新档位（秒）。0 表示关闭。
+ *
+ * 起点比日志页高（10 秒而不是 5 秒）：总览的 stats 要把整个窗口内的日志
+ * 拉回来做分组聚合（service/stats.go 的 StatsScanLimit 上限 20 万条），
+ * 比日志页的分页查询重得多，5 秒一次等于把聚合压力放大到没有收益。
+ */
+const HOME_REFRESH_SECONDS = [0, 10, 30, 60, 300]
+
 /** 范围 → 后端接受的秒级时间戳。 */
-function rangeToQuery(key: RangeKey): { from: string; to: string } {
+function rangeToQuery(key: HomeRange): { from: string; to: string } {
   const now = new Date()
   const to = Math.floor(now.getTime() / 1000)
   const spec = RANGE_HOURS[key]
@@ -42,30 +61,49 @@ function rangeToQuery(key: RangeKey): { from: string; to: string } {
 
 export default function Home() {
   const { t } = useTranslation(["home", "common"])
-  const [range, setRange] = useState<RangeKey>("last_24h")
+  // 时间范围与刷新档位都落 localStorage：总览是仪表盘，刷新一次就丢掉
+  // 用户挑好的窗口比什么都不记更伤
+  const [prefs, setPrefs] = useState(() => readUiPrefs())
+  const range = prefs.homeRange
+  const sec = refreshSecFor(prefs, "home", HOME_REFRESH_SECONDS)
   const [stats, setStats] = useState<StatsResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const data = await getStats(rangeToQuery(range))
-      setStats(data)
-      setLoadError(null)
-    } catch (err) {
-      // 失败必须留在页面上。原先只弹一条会自己消失的 toast，而 stats 仍是 null，
-      // 于是 hasData 为假、页面显示"该时间范围内没有请求"——把"没取到"说成了
-      // "确实没有"，而这是打开控制台的第一屏。
-      setLoadError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [range])
+  const setPref = (next: UiPrefs) => {
+    setPrefs(next)
+    writeUiPrefs(next)
+  }
+
+  const load = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true)
+      try {
+        const data = await getStats(rangeToQuery(range))
+        setStats(data)
+        setLoadError(null)
+      } catch (err) {
+        // 失败必须留在页面上。原先只弹一条会自己消失的 toast，而 stats 仍是 null，
+        // 于是 hasData 为假、页面显示"该时间范围内没有请求"——把"没取到"说成了
+        // "确实没有"，而这是打开控制台的第一屏。
+        // 自动刷新的静默失败例外：一次网络瞬断就把整页换成失败态，
+        // 比保留上一次的结果更打扰人（与日志页 fetchLogs(silent) 同一口径）。
+        if (!silent) setLoadError(err instanceof Error ? err.message : String(err))
+      } finally {
+        if (!silent) setLoading(false)
+      }
+    },
+    [range]
+  )
 
   useEffect(() => {
     void load()
   }, [load])
+
+  // 自动刷新走静默取数：不闪骨架、不落成错误条
+  useAutoRefresh(sec, () => {
+    void load(true)
+  })
 
   const kpi = stats?.kpi
   const hasData = (kpi?.total ?? 0) > 0
@@ -88,7 +126,7 @@ export default function Home() {
           aria-label={t("home:range.label")}
           className="flex items-center gap-0.5 rounded-md border border-border bg-background p-0.5"
         >
-          {(["today", "last_24h", "last_7d", "last_30d"] as RangeKey[]).map((key) => {
+          {HOME_RANGES.map((key) => {
             const active = range === key
             return (
               <Button
@@ -103,7 +141,7 @@ export default function Home() {
                     ? "h-7 bg-accent px-2.5 text-xs text-accent-foreground"
                     : "h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
                 }
-                onClick={() => setRange(key)}
+                onClick={() => setPref(withHomeRange(prefs, key))}
               >
                 {t(`home:range.${key}` as never)}
               </Button>
@@ -111,6 +149,11 @@ export default function Home() {
           })}
         </div>
 
+        <RefreshSelect
+          value={sec}
+          options={HOME_REFRESH_SECONDS}
+          onChange={(s) => setPref(withRefreshSec(prefs, "home", s))}
+        />
         <Button
           variant="outline"
           size="icon"

@@ -1,10 +1,11 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import { userEvent } from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import HomePage from "@/routes/home"
 import { getStats, type GroupStat, type StatsResult } from "@/lib/api"
+import { UI_PREFS_STORAGE_KEY } from "@/lib/prefs"
 
 // 本页只有一个数据来源，在这里切断即断开了它的全部 IO。
 vi.mock("@/lib/api", () => ({ getStats: vi.fn() }))
@@ -193,5 +194,80 @@ describe("总览页 · 有数据", () => {
     renderPage()
 
     expect(await screen.findByText(/统计可能不完整/)).toBeInTheDocument()
+  })
+})
+
+describe("总览页 · 自动刷新与偏好", () => {
+  it("存档里的时间范围与刷新档位被沿用，静默刷新不闪骨架", async () => {
+    // 用户上一回选过"近 30 天 + 每 10 秒"：刷新页面后不该丢
+    localStorage.setItem(
+      UI_PREFS_STORAGE_KEY,
+      JSON.stringify({ homeRange: "last_30d", refresh: { home: 10 } })
+    )
+    vi.useFakeTimers()
+    try {
+      renderPage()
+      await act(async () => {})
+
+      expect(screen.getByRole("radio", { name: "近 30 天" })).toHaveAttribute(
+        "aria-checked",
+        "true"
+      )
+      expect(screen.getByText("请求数")).toBeInTheDocument()
+      expect(mocked.getStats).toHaveBeenCalledTimes(1)
+
+      // 到点静默取一次：数字还在，骨架没有闪回来
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+      expect(mocked.getStats).toHaveBeenCalledTimes(2)
+      expect(screen.getByText("请求数")).toBeInTheDocument()
+      expect(screen.queryByText("正在加载系统概览")).not.toBeInTheDocument()
+
+      // 静默刷新失败不打扰人：不留错误条，也不用空态那句断言
+      mocked.getStats.mockRejectedValue(new Error("聚合服务不可用"))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+      expect(mocked.getStats).toHaveBeenCalledTimes(3)
+      expect(screen.queryByText("读取统计失败")).not.toBeInTheDocument()
+      expect(screen.getByText("请求数")).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("改了时间范围会落 localStorage，重新挂载后仍在", async () => {
+    const user = userEvent.setup()
+    const first = renderPage()
+    expect(await screen.findByText("请求数")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("radio", { name: "近 7 天" }))
+    const stored = JSON.parse(
+      localStorage.getItem(UI_PREFS_STORAGE_KEY) ?? "{}"
+    ) as { homeRange: string }
+    expect(stored.homeRange).toBe("last_7d")
+
+    // 重新挂载 = 用户刷新了页面
+    first.unmount()
+    renderPage()
+    expect(screen.getByRole("radio", { name: "近 7 天" })).toHaveAttribute(
+      "aria-checked",
+      "true"
+    )
+  })
+
+  it("改了刷新档位会落 localStorage", async () => {
+    const user = userEvent.setup()
+    renderPage()
+    expect(await screen.findByText("请求数")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("combobox", { name: "自动刷新" }))
+    await user.click(screen.getByRole("option", { name: "每 30 秒" }))
+
+    const stored = JSON.parse(
+      localStorage.getItem(UI_PREFS_STORAGE_KEY) ?? "{}"
+    ) as { refresh: Record<string, number> }
+    expect(stored.refresh.home).toBe(30)
   })
 })

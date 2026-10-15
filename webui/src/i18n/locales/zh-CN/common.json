@@ -37,6 +37,11 @@
     "prev": "上一页",
     "next": "下一页"
   },
+  "auto_refresh": {
+    "label": "自动刷新",
+    "off": "不自动",
+    "every": "每 {{sec}} 秒"
+  },
   "loading": "加载中",
   "no_data": "暂无数据",
   "no_match": "未找到匹配数据",

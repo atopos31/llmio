@@ -57,8 +57,7 @@
     "count": "{{count}} 次",
     "affected_providers": "受影响供应商",
     "affected_models": "受影响模型",
-    "samples": "样本",
-    "view_log": "查看请求详情"
+    "samples": "样本"
   },
   "breakdown": {
     "title": "分布",

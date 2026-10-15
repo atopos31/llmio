@@ -57,8 +57,7 @@
     "count": "{{count}}x",
     "affected_providers": "Providers affected",
     "affected_models": "Models affected",
-    "samples": "Samples",
-    "view_log": "View request detail"
+    "samples": "Samples"
   },
   "breakdown": {
     "title": "Breakdown",

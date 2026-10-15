@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowUpRight, RefreshCw } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { FirstChunkHistogram, RequestTrendChart, TokenTrendChart } from "@/components/charts/trend-charts"
+import { LogDetailSheet } from "@/components/log-detail-sheet"
 import { RefreshSelect } from "@/components/refresh-select"
 import { StatusMark } from "@/components/status-mark"
 import { Button } from "@/components/ui/button"
@@ -15,6 +16,7 @@ import { getStats, type StatsResult } from "@/lib/api"
 import {
   compactNumber,
   formatCost,
+  formatDateTime,
   formatNumber,
   formatPercent,
   formatSeconds,
@@ -398,50 +400,71 @@ function PercentileRow({ stats }: { stats: StatsResult }) {
  * 用**列表而非环形图**：错误类别是要比较的量，环形图对接近的值不可靠；
  * 且类别数可能超过 7，那时图表本就不如表格。类别名 + 计数 + 受影响对象
  * 用文字直给，不依赖颜色传达。
+ *
+ * 每类下面带最多 3 条样本（后端 maxErrorSamples，时间倒序），逐条点开抽屉。
+ * 失败路径不写 ChatIO，所以抽屉里看到的是请求元数据与错误原文，而不是请求体——
+ * 原实现的唯一入口是跳到 /logs/:id/chat-io，而失败行在那里永远是空表。
  */
 function ErrorList({ stats, unavailable }: { stats: StatsResult; unavailable: string }) {
   const { t } = useTranslation(["home", "common"])
+  const [sampleId, setSampleId] = useState<number | null>(null)
+
   if (stats.errors.length === 0) {
     return <p className="py-6 text-center text-sm text-muted-foreground">{unavailable}</p>
   }
+
   return (
-    <ul className="space-y-3">
-      {stats.errors.slice(0, 5).map((g) => (
-        <li key={g.code}>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="flex items-center gap-1.5 text-sm font-medium">
-              <StatusMark status="error" label={g.type} />
-            </span>
-            <span className="reading text-sm text-muted-foreground">
-              {t("home:errors.count", { count: g.count })}
-            </span>
-          </div>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground">
-            {g.providers.length > 0 && (
-              <span>
-                {t("home:errors.affected_providers")}：
-                {g.providers.map((p) => `${p.name}(${p.count})`).join("、")}
+    <>
+      <ul className="space-y-3">
+        {stats.errors.slice(0, 5).map((g) => (
+          <li key={g.code}>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                <StatusMark status="error" label={g.type} />
               </span>
-            )}
-            {g.models.length > 0 && (
-              <span>
-                {t("home:errors.affected_models")}：
-                {g.models.map((m) => `${m.name}(${m.count})`).join("、")}
+              <span className="reading text-sm text-muted-foreground">
+                {t("home:errors.count", { count: g.count })}
               </span>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground">
+              {g.providers.length > 0 && (
+                <span>
+                  {t("home:errors.affected_providers")}：
+                  {g.providers.map((p) => `${p.name}(${p.count})`).join("、")}
+                </span>
+              )}
+              {g.models.length > 0 && (
+                <span>
+                  {t("home:errors.affected_models")}：
+                  {g.models.map((m) => `${m.name}(${m.count})`).join("、")}
+                </span>
+              )}
+            </div>
+            {g.samples.length > 0 && (
+              <ul className="mt-1.5 space-y-0.5" aria-label={t("home:errors.samples")}>
+                {g.samples.map((s) => (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSampleId(s.id)}
+                      className="flex w-full items-baseline gap-2 rounded-sm text-left text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+                    >
+                      <span className="reading shrink-0">{formatDateTime(s.createdAt)}</span>
+                      <span className="truncate" title={s.error}>
+                        {s.error}
+                      </span>
+                      <ArrowUpRight className="ml-auto size-3 shrink-0" aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
-          </div>
-          {g.samples[0] && (
-            <Link
-              to={`/logs/${g.samples[0].id}/chat-io`}
-              className="mt-1 inline-flex items-center gap-1 text-[11px] text-primary underline-offset-2 hover:underline"
-            >
-              {t("home:errors.view_log")}
-              <ArrowUpRight className="size-3" aria-hidden="true" />
-            </Link>
-          )}
-        </li>
-      ))}
-    </ul>
+          </li>
+        ))}
+      </ul>
+
+      <LogDetailSheet logId={sampleId} onClose={() => setSampleId(null)} />
+    </>
   )
 }
 

@@ -4,13 +4,20 @@ import { MemoryRouter } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import HomePage from "@/routes/home"
-import { getStats, type GroupStat, type StatsResult } from "@/lib/api"
+import {
+  getLogById,
+  getStats,
+  type ChatLog,
+  type ErrorGroup,
+  type GroupStat,
+  type StatsResult,
+} from "@/lib/api"
 import { UI_PREFS_STORAGE_KEY } from "@/lib/prefs"
 
-// 本页只有一个数据来源，在这里切断即断开了它的全部 IO。
-vi.mock("@/lib/api", () => ({ getStats: vi.fn() }))
+// 本页只有两个数据来源：概览聚合，以及错误样本点开时按 id 取的那一条日志。
+vi.mock("@/lib/api", () => ({ getStats: vi.fn(), getLogById: vi.fn() }))
 
-const mocked = { getStats: vi.mocked(getStats) }
+const mocked = { getStats: vi.mocked(getStats), getLogById: vi.mocked(getLogById) }
 
 /**
  * 总览页的四态测试（方案 §5.2 的 C 层）。
@@ -94,6 +101,52 @@ function group(name: string): GroupStat {
 function latency(list: number[]) {
   const last = list[list.length - 1] ?? 0
   return { p50: list[0] ?? 0, p90: last, p95: last, p99: last, avg: last, max: last, list }
+}
+
+/** 错误类别。样本是后端的 Truncate 截断后的片段，正文比它长。 */
+function errorGroup(over: Partial<ErrorGroup> = {}): ErrorGroup {
+  return {
+    type: "上游 5xx",
+    code: "5xx",
+    count: 3,
+    providers: [{ name: "openai", count: 3 }],
+    models: [{ name: "claude-sonnet-4", count: 3 }],
+    samples: [{ id: 21, createdAt: 1_700_000_000_000, error: "upstream unavailable" }],
+    ...over,
+  }
+}
+
+/** 失败请求：有错误原文，没有请求体。 */
+function failedLog(over: Partial<ChatLog> = {}): ChatLog {
+  return {
+    ID: 21,
+    CreatedAt: "2026-10-15T10:00:00+08:00",
+    Name: "claude-code",
+    TraceID: "trace-err",
+    ProviderModel: "claude-sonnet-4",
+    ProviderName: "openai",
+    Status: "error",
+    Style: "openai",
+    UserAgent: "claude-cli/2.1",
+    Error: "upstream unavailable: connection reset by peer",
+    Retry: 2,
+    ProxyTime: 1_000_000_000,
+    FirstChunkTime: 0,
+    ChunkTime: 2_000_000_000,
+    Tps: 0,
+    ChatIO: false,
+    Size: 0,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+    prompt_tokens_details: { cached_tokens: 0 },
+    key_name: "dev-key",
+    input_price: 0,
+    cache_read_price: 0,
+    output_price: 0,
+    currency: "CNY",
+    ...over,
+  }
 }
 
 /** 该时间范围内没有请求 */
@@ -271,3 +324,76 @@ describe("总览页 · 自动刷新与偏好", () => {
     expect(stored.refresh.home).toBe(30)
   })
 })
+
+/**
+ * 错误样本的详情抽屉。
+ *
+ * 原来这一块的唯一入口是跳到 /logs/:id/chat-io，而失败请求没有 ChatIO，
+ * 那条链接进去是空表——也就是"点了没反应"。现在改成原地弹抽屉，
+ * 读者不用离开总览就能看清是哪一次、哪个模型、错误原文是什么。
+ */
+describe("总览页 · 错误样本抽屉", () => {
+  it("点开样本按那条日志的 id 取数，抽屉给出错误原文", async () => {
+    mocked.getStats.mockResolvedValue(stats({ errors: [errorGroup()] }))
+    mocked.getLogById.mockResolvedValue(failedLog())
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText("错误分析")
+    await user.click(screen.getByRole("button", { name: /upstream unavailable/ }))
+
+    expect(mocked.getLogById).toHaveBeenCalledWith(21)
+    expect(await screen.findByText("日志详情: 21")).toBeInTheDocument()
+    // 抽屉里有被截断掉的那半句
+    expect(screen.getByText("upstream unavailable: connection reset by peer")).toBeInTheDocument()
+  })
+
+  it("失败请求没有请求体：不给「查看请求内容」，改给「在日志页查看」", async () => {
+    mocked.getStats.mockResolvedValue(stats({ errors: [errorGroup()] }))
+    mocked.getLogById.mockResolvedValue(failedLog())
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText("错误分析")
+    await user.click(screen.getByRole("button", { name: /upstream unavailable/ }))
+
+    expect(await screen.findByRole("button", { name: "在日志页查看" })).toBeInTheDocument()
+    expect(screen.queryByText("查看请求内容")).not.toBeInTheDocument()
+  })
+
+  it("样本对应的日志已被清理时，说明不存在，而不是留一块空详情", async () => {
+    mocked.getStats.mockResolvedValue(stats({ errors: [errorGroup()] }))
+    mocked.getLogById.mockResolvedValue(null)
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText("错误分析")
+    await user.click(screen.getByRole("button", { name: /upstream unavailable/ }))
+
+    expect(await screen.findByText("这条记录不存在，或已被清理。")).toBeInTheDocument()
+    expect(screen.queryByText("错误信息")).not.toBeInTheDocument()
+  })
+
+  it("取这条日志失败时给原文与哪一步失败了", async () => {
+    mocked.getStats.mockResolvedValue(stats({ errors: [errorGroup()] }))
+    mocked.getLogById.mockRejectedValue(new Error("数据库不可用"))
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText("错误分析")
+    await user.click(screen.getByRole("button", { name: /upstream unavailable/ }))
+
+    expect(await screen.findByText("读取这条记录失败。")).toBeInTheDocument()
+    expect(screen.getByText("数据库不可用")).toBeInTheDocument()
+  })
+
+  it("没有样本的类别不给点开入口", async () => {
+    mocked.getStats.mockResolvedValue(stats({ errors: [errorGroup({ samples: [] })] }))
+    renderPage()
+
+    await screen.findByText("上游 5xx")
+    expect(screen.queryByRole("button", { name: /upstream/ })).not.toBeInTheDocument()
+    expect(mocked.getLogById).not.toHaveBeenCalled()
+  })
+})
+

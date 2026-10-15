@@ -57,8 +57,7 @@
     "count": "{{count}} 次",
     "affected_providers": "受影響供應商",
     "affected_models": "受影響模型",
-    "samples": "樣本",
-    "view_log": "檢視請求詳情"
+    "samples": "樣本"
   },
   "breakdown": {
     "title": "分佈",

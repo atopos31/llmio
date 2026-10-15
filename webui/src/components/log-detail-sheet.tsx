@@ -72,9 +72,14 @@ export function LogDetailSheet({
   const open = log !== undefined ? log !== null : logId !== undefined && logId !== null
   const shownId = logId ?? active?.ID ?? null
 
+  // 加载中与「这条记录不存在」两态没有描述节点，而 Radix 在 aria-describedby
+  // 指向的节点不在 DOM 里时会告警——告警多了就没人看了。这两态显式声明
+  // 「没有描述」；有内容时不传这个属性，让 Radix 自己接上描述 id。
+  const describedByProps = active ? {} : { "aria-describedby": undefined }
+
   return (
     <Sheet open={open} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent>
+      <SheetContent {...describedByProps}>
         <SheetHeader>
           <SheetTitle>{shownId ? t("logs:detail.title", { id: shownId }) : ""}</SheetTitle>
           {active && (

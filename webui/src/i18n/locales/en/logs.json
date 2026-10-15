@@ -171,11 +171,6 @@
     "io_not_found": "No session record found. IO logging may not be enabled.",
     "empty": "(empty)"
   },
-  "auto_refresh": {
-    "label": "Auto refresh",
-    "off": "Off",
-    "every": "Every {{sec}}s"
-  },
   "compare": {
     "select_all": "Select all comparable rows on this page",
     "select_row": "Select #{{id}} for comparison",

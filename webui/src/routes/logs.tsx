@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { AlertTriangle, ChevronLeft, ChevronRight, Eye, GitCompareArrows, MessageSquare, RefreshCw, Search, Trash2, X } from "lucide-react"
 
 import { MultiSelectFilter, type FilterOption } from "@/components/multi-select-filter"
+import { RefreshSelect } from "@/components/refresh-select"
 import { StatusMark } from "@/components/status-mark"
 import { ErrorState } from "@/components/state-views"
 import { Button } from "@/components/ui/button"
@@ -14,6 +15,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { useAutoRefresh } from "@/hooks/use-auto-refresh"
 import {
   cleanLogs,
   getAuthKeysList,
@@ -35,13 +37,20 @@ import {
   toggleMulti,
   type LogsMultiKey,
 } from "@/lib/logs"
+import {
+  refreshSecFor,
+  readUiPrefs,
+  withRefreshSec,
+  writeUiPrefs,
+  type UiPrefs,
+} from "@/lib/prefs"
 import { cn } from "@/lib/utils"
 
 /** 对比上限。与后端一次返回的详情体积、以及人眼能同时比较的条数都有关。 */
 const MAX_COMPARE = 6
 
 /** 自动刷新档位（秒）。0 表示关闭。 */
-const REFRESH_OPTIONS = [0, 5, 10, 30, 60]
+const LOGS_REFRESH_SECONDS = [0, 5, 10, 30, 60]
 
 /** 请求状态到 i18n 键的映射。后端的 status 是固定的三个英文值。 */
 function statusKey(status: string): "success" | "error" | "running" | "unknown" {
@@ -162,8 +171,14 @@ export default function LogsPage() {
    */
   const [selected, setSelected] = useState<Map<number, ChatLog>>(new Map())
 
-  // 自动刷新
-  const [refreshSec, setRefreshSec] = useState(0)
+  // 自动刷新档位落 localStorage：三页共用一份偏好，刷新页面后仍在
+  const [uiPrefs, setUiPrefs] = useState(() => readUiPrefs())
+  const refreshSec = refreshSecFor(uiPrefs, "logs", LOGS_REFRESH_SECONDS)
+
+  const setPref = (next: UiPrefs) => {
+    setUiPrefs(next)
+    writeUiPrefs(next)
+  }
 
   const fetchOptions = useCallback(async () => {
     // 筛选下拉的选项来源与日志本身无关，失败只影响可选范围，不阻断列表
@@ -219,23 +234,10 @@ export default function LogsPage() {
     void fetchLogs()
   }, [fetchLogs])
 
-  // 自动刷新：标签页隐藏时跳过（省资源），回到前台立即补一次
-  useEffect(() => {
-    if (refreshSec <= 0) return
-    const tick = () => {
-      if (document.hidden) return
-      void fetchLogs(true)
-    }
-    const timer = window.setInterval(tick, refreshSec * 1000)
-    const onVisible = () => {
-      if (!document.hidden) tick()
-    }
-    document.addEventListener("visibilitychange", onVisible)
-    return () => {
-      window.clearInterval(timer)
-      document.removeEventListener("visibilitychange", onVisible)
-    }
-  }, [refreshSec, fetchLogs])
+  // 自动刷新走静默取数：不闪骨架、失败不落错误条
+  useAutoRefresh(refreshSec, () => {
+    void fetchLogs(true)
+  })
 
   const toggleSelect = useCallback(
     (log: ChatLog) => {
@@ -356,21 +358,11 @@ export default function LogsPage() {
         />
 
         <div className="ml-auto flex items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            <RefreshCw className="size-3.5 text-muted-foreground" aria-hidden="true" />
-            <Select value={String(refreshSec)} onValueChange={(v) => setRefreshSec(Number(v))}>
-              <SelectTrigger className="h-8 w-[104px] text-xs" aria-label={t("auto_refresh.label")}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {REFRESH_OPTIONS.map((s) => (
-                  <SelectItem key={s} value={String(s)}>
-                    {s === 0 ? t("auto_refresh.off") : t("auto_refresh.every", { sec: s })}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <RefreshSelect
+            value={refreshSec}
+            options={LOGS_REFRESH_SECONDS}
+            onChange={(s) => setPref(withRefreshSec(uiPrefs, "logs", s))}
+          />
 
           {hasActiveFilter && (
             <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs" onClick={clearFilters}>

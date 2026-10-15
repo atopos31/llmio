@@ -171,11 +171,6 @@
     "io_not_found": "未找到會話記錄，IO 記錄可能未啟用。",
     "empty": "(空)"
   },
-  "auto_refresh": {
-    "label": "自動重新整理",
-    "off": "不自動",
-    "every": "每 {{sec}} 秒"
-  },
   "compare": {
     "select_all": "全選本頁可比較項",
     "select_row": "選擇 #{{id}} 用於對比",

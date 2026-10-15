@@ -8,7 +8,14 @@
 - 想知道某个端点删了会不会出事，看"前端调用者"一栏是否为空。
 - 状态列只有五档：**已接通** / **部分接通**（并说明缺什么）/ **无入口** / **仅 SDK** / **已废弃**。
 
-整理时点：**截至本次整理时的工作区状态**（当前分支 `feat/console-iter3`）。所有 `file:line` 均为当时行号；`webui/src/lib/api.ts` 因本次整理删掉了两个死包装，该文件的行号已按删除后的状态更新，其余文件的引用随峰谷拆分的定稿一并更新（峰谷四个端点在第三轮改名为 `/api/peak-calendar/*`，条款那半并入「模型 × 上游」关联）。表格不会自动跟随代码变动，改动相关文件时请顺手更新受影响的行。
+整理时点：**截至本次整理时的工作区状态**（当前分支 `feat/console-iter4`）。所有 `file:line` 均为当时行号；`webui/src/lib/api.ts` 因本次整理删掉了两个死包装，该文件的行号已按删除后的状态更新，其余文件的引用随峰谷拆分的定稿一并更新（峰谷四个端点在第三轮改名为 `/api/peak-calendar/*`，条款那半并入「模型 × 上游」关联）。
+
+**第四轮（console-iter4）变更**：
+- `/api/logs` 新增查询参数 `provider_model`（精确 IN 匹配，与 `name` 同形）；前端 `webui/src/routes/logs.tsx:192` 通过 `getObservedProviderModels()` 加载候选并发送此参数。
+- 新增端点 `GET /api/provider-models`（`handler.GetProviderModelList`，`handler/api.go:964`），返回 `chat_logs.provider_model` 的 distinct 非空值；前端 `webui/src/lib/api.ts:790` 封装为 `getObservedProviderModels()`，日志页用于"模型"筛选下拉。
+- 日志页列标签从「模型」改为「请求名」（对应 `chat_logs.name`），原「提供商模型」列改名为「模型」（对应 `chat_logs.provider_model`）；筛选新增 `requestName`（URL → 后端 `name`）与 `providerModel`（URL → 后端 `provider_model`），旧 URL 键 `model` 降级为只读别名。
+
+表格不会自动跟随代码变动，改动相关文件时请顺手更新受影响的行。
 
 ---
 
@@ -37,9 +44,10 @@
 | `/api/model-providers/:id/status` | PATCH | `handler.UpdateModelProviderStatus` | webui/src/routes/model-providers.tsx:403 | 已接通 |
 | `/api/model-providers/:id` | DELETE | `handler.DeleteModelProvider` | webui/src/routes/model-providers.tsx:379 | 已接通 |
 | `/api/version` | GET | `handler.GetVersion`（handler/version.go:9） | webui/src/routes/layout.tsx:182 | 已接通 |
-| `/api/logs` | GET | `handler.GetRequestLogs` | webui/src/routes/logs.tsx:186；webui/src/routes/compare.tsx:56（经 `getLogById` 复用 id 过滤） | 已接通 |
+| `/api/logs` | GET | `handler.GetRequestLogs` | webui/src/routes/logs.tsx:186；webui/src/routes/compare.tsx:56（经 `getLogById` 复用 id 过滤） | 已接通（新增 `provider_model` 查询参数，精确 IN 匹配） |
 | `/api/logs/:id/chat-io` | GET | `handler.GetChatIO` | webui/src/routes/log-chat.tsx:909；webui/src/routes/compare.tsx:56 | 已接通 |
 | `/api/user-agents` | GET | `handler.GetUserAgents` | 无 | 无入口（见 ③-2） |
+| `/api/provider-models` | GET | `handler.GetProviderModelList`（handler/api.go:964） | webui/src/routes/logs.tsx:192 | 已接通（第四轮新增，日志页"模型"筛选候选） |
 | `/api/logs/cleanup` | POST | `handler.CleanLogs` | webui/src/routes/logs.tsx:268 | 已接通 |
 | `/api/logs/cleanup/history` | GET | `handler.GetCleanupHistory` | webui/src/routes/config.tsx:194 | 已接通 |
 | `/api/auth-keys` | GET | `handler.GetAuthKeys` | webui/src/routes/auth-keys.tsx:196；webui/src/routes/quickstart.tsx:530 | 已接通 |

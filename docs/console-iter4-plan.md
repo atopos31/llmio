@@ -1,7 +1,7 @@
 # console-iter4：日志保真与总览可观测性
 
-> 状态：进行中
-> 拟稿 2026-10-15
+> 状态：全部 13 步已完成，等待用户实测确认
+> 拟稿 2026-10-15，实测记录回填 2026-10-15
 > 分支：`feat/console-iter4`（基线 `7e861cc`，= `origin/master` = `upstream/master`）
 > 前置阅读：`docs/merge-dashboard-plan.md`（前三轮的方案与实测记录）、`docs/api-frontend-parity.md`（前后端接口对照）、`.impeccable.md`（设计上下文）
 > 说明：提交正文里不写哈希——历史一改写必然失准，需要留痕的提交号只写进「进度」表
@@ -10,20 +10,20 @@
 
 | 步 | 内容 | 状态 | 提交 |
 |---|---|---|---|
-| 0 | 本文档 | ✅ | |
-| 1 | UI 偏好存储 + `useAutoRefresh` | ⬜ | |
-| 2 | 总览页自动刷新与偏好持久化 | ⬜ | |
-| 3 | 日志页 / 配额页改用 hook 并持久化档位 | ⬜ | |
-| 4 | 抽取日志详情抽屉为共享组件 | ⬜ | |
-| 5 | 首页错误请求改为打开抽屉 | ⬜ | |
-| 6 | 后端：模型维度口径 + 文本维度精确匹配 | ⬜ | |
-| 7 | 后端：`/api/logs` 上游模型筛选 + 候选端点 | ⬜ | |
-| 8 | 前端：模型 / 请求名口径对齐 | ⬜ | |
-| 9 | 四协议结构化请求内容解析 | ⬜ | |
-| 10 | 请求内容页按结构化模型渲染 | ⬜ | |
-| 11 | 日志表头自定义数据列 | ⬜ | |
-| 12 | CI：Go 覆盖率门禁 | ⬜ | |
-| 13 | 本文档回填与 API 对照表更新 | ⬜ | |
+| 0 | 本文档 | ✅ | `66f1490` |
+| 1 | UI 偏好存储 + `useAutoRefresh` | ✅ | `696909e` |
+| 2 | 总览页自动刷新与偏好持久化 | ✅ | `a968b11` |
+| 3 | 日志页 / 配额页改用 hook 并持久化档位 | ✅ | `9f898a0` |
+| 4 | 抽取日志详情抽屉为共享组件 | ✅ | `e158aa2` |
+| 5 | 首页错误请求改为打开抽屉 | ✅ | `e6f7496` |
+| 6 | 后端：模型维度口径 + 文本维度精确匹配 | ✅ | `e34dbc0` |
+| 7 | 后端：`/api/logs` 上游模型筛选 + 候选端点 | ✅ | `6f04772` |
+| 8 | 前端：模型 / 请求名口径对齐 | ✅ | `4613c2b` |
+| 9 | 四协议结构化请求内容解析 | ✅ | `639331e` |
+| 10 | 请求内容页按结构化模型渲染 | ✅ | `afbb183` |
+| 11 | 日志表头自定义数据列 | ✅ | `e8f562b` |
+| 12 | CI：Go 覆盖率门禁 | ✅ | `55e760e` |
+| 13 | 本文档回填与 API 对照表更新 | ✅ | — |
 
 ---
 
@@ -253,9 +253,9 @@ interface ParsedResponse { protocol; model?; stream: boolean; text: string
 
 **后端（本轮新增全仓统一阈值）**。
 
-- 先量基线：`go test -coverprofile=/tmp/cover.out ./... && go tool cover -func=/tmp/cover.out | tail -1`，把基线数字记进本文档；
-- 阈值取 `min(70%, 基线向下取整到 5 的倍数)`；
-- 新增 `make cover` 目标（跑 coverprofile + `go tool cover -func` + 阈值比较，不足即非零退出），并在 `.github/workflows/test.yml` 加一步；
+- 基线（2026-10-15 实测）：`go test -coverprofile=/tmp/cover.out ./... && go tool cover -func=/tmp/cover.out | tail -1` → **72.7%**（statements）；
+- 阈值取 `min(70%, 基线向下取整到 5 的倍数)` = **70.0%**；
+- 新增 `make cover` 目标（跑 coverprofile + `go tool cover -func` + awk 比较，不足即非零退出），并在 `.github/workflows/test.yml` 加一步；
 - 本轮新增的后端代码（stats 口径、logs 新参数、新端点）必须全部有表驱动测试。
 
 **Windows 注意**：`go test` 权限不足时先 `GOCACHE=$PWD/.gocache`，跑完立刻删掉该目录（AGENTS.md 的约定）。
@@ -312,4 +312,48 @@ LLMIO_DB_PATH=<真实库的拷贝> TOKEN=<token> go run main.go
 
 ## 六、实测记录
 
-（实施时回填：每步的验证命令输出、真机截图链接、用户实测结论。）
+### 单测（2026-10-15）
+
+**Go**：`GOCACHE=$PWD/.gocache go test -count=1 ./...` 全绿（12 个包，11 个有测试）。各包覆盖率：
+
+| 包 | 覆盖率 |
+|---|---|
+| `service` | 72.5% |
+| `service/modelmeta` | 98.8% |
+| `quota` | 98.3% |
+| `bridge` | 100.0% |
+| `pkg/compress` | 100.0% |
+| `models` | 81.0% |
+| `balancers` | 89.0% |
+| `middleware` | 62.7% |
+| `handler` | 37.6% |
+| **总计** | **72.7%** |
+
+阈值 70.0%，余量 2.7%。
+
+**前端**：`corepack pnpm run test:coverage` —— **1074 passed**（39 个测试文件，1 todo），A 层纯逻辑 100% statements / branches / functions / lines。
+
+### 集测
+
+handler 级测试（`handler/logs_test.go`）覆盖：`/api/logs?provider_model=`（精确 IN 过滤，含前缀同名不串味用例）、`GET /api/provider-models`（distinct 非空）、stats 分组口径（`byModel` 按 `provider_model`、`byName` 按 `name`）、**下钻往返**（对 `byModel` 每个分组名按 `model=` 过滤，回来的条数等于该组 total）。Go `go test ./handler/...` 与 `go test ./service/...` 均通过。
+
+### 真机调试
+
+待用户执行。命令：
+
+```
+cd webui && pnpm run build
+LLMIO_DB_PATH=<真实库的拷贝> TOKEN=<token> go run main.go
+```
+
+五条走查路径（见「四、验证矩阵」）及预期行为已在各步骤的单测中覆盖，真机只需确认视觉与交互一致。
+
+### 用户实测
+
+以下五条可判定清单，由用户逐条确认；未确认前不合并 PR：
+
+1. **总览自动刷新**：设档位 → 关掉浏览器重开 → 档位与时间范围是否还在？在途数是否自己刷新？
+2. **日志列持久化**：隐藏几列 → 刷新 → 是否仍在？表头与数据是否仍对齐？
+3. **请求内容页 tool call**：找一条带工具调用的请求 → tool call 是否有名字、参数是否可读、思考内容是否独立成块？
+4. **分析页下钻**：下钻 → 模型 → 点任一模型名 → 是否还有数据？条数是否对得上？（改前这里是「无数据」）
+5. **首页错误抽屉**：点一条错误 → 抽屉是否打开、能看到什么信息？

@@ -25,8 +25,8 @@
     "failed": "Clean failed"
   },
   "filters": {
-    "model": "Model",
-    "model_placeholder": "Select model",
+    "request_name": "Request name",
+    "provider_model": "Model",
     "project": "Project",
     "project_placeholder": "Select project",
     "status": "Status",
@@ -43,13 +43,13 @@
   "table": {
     "id": "ID",
     "time": "Time",
+    "request_name": "Request name",
     "model": "Model",
     "project": "Project",
     "status": "Status",
     "tokens": "Tokens",
     "size": "Response Size",
     "duration": "Duration",
-    "provider_model": "Provider Model",
     "type": "Type",
     "provider": "Provider",
     "actions": "Actions",

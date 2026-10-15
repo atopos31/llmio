@@ -25,8 +25,8 @@
     "failed": "清理失败"
   },
   "filters": {
-    "model": "模型名称",
-    "model_placeholder": "选择模型",
+    "request_name": "请求名",
+    "provider_model": "模型",
     "project": "项目",
     "project_placeholder": "选择项目",
     "status": "状态",
@@ -43,13 +43,13 @@
   "table": {
     "id": "ID",
     "time": "时间",
+    "request_name": "请求名",
     "model": "模型",
     "project": "项目",
     "status": "状态",
     "tokens": "Tokens",
     "size": "响应大小",
     "duration": "耗时",
-    "provider_model": "提供商模型",
     "type": "类型",
     "provider": "提供商",
     "actions": "操作",

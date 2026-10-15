@@ -1,4 +1,4 @@
-import type { AuthKeyItem, ErrorGroup, GroupStat, StatsQuery, StatsResult } from "@/lib/api"
+import type { AuthKeyItem, ErrorGroup, GroupStat, StatsLogRow, StatsQuery, StatsResult } from "@/lib/api"
 import { toggleValue } from "@/lib/utils"
 
 /**
@@ -532,12 +532,39 @@ function compareName(a: string, b: string): number {
 // ---------------------------------------------------------------------------
 
 /**
- * 日志详情路径。
+ * 请求内容页路径：`/logs/:id/chat-io`。
  *
- * 排行榜与错误样本都跳到 `/logs/:id/chat-io`（请求内容页），而不是弹窗：
- * 分析页需要"从聚合数字跳到那一条请求"的通路，而内容页能同时给出
- * 请求体、响应体与分片重组结果，是排查的终点。
+ * 只用于**成功且有 IO 记录**的行（判据是 `canViewChatIO`）：内容页同时给出
+ * 请求体、响应体与分片重组结果，是排查成功请求的终点。
  */
 export function logDetailPath(id: number): string {
   return `/logs/${id}/chat-io`
+}
+
+/**
+ * 回日志页看这一条的路径：`/logs?id=<id>`（后端按 id 精确过滤）。
+ *
+ * 失败请求没有内容页这条路——后端在失败路径上不写 ChatIO 行，点进去只会得到
+ * 一个空页。所以错误样本一律走这里：列表先收窄成一行，再由详情抽屉给出请求
+ * 元数据与错误原文。别把它换成 logDetailPath，那次死链就是这么来的。
+ */
+export function logPath(id: number): string {
+  return `/logs?id=${id}`
+}
+
+/**
+ * 排行榜一行的两个名字：`model` 是上游模型名，`requestName` 是客户端请求名。
+ *
+ * 多数别名原样转发，两者相同——这时把请求名再写一遍只是噪声，所以取值为
+ * null 让调用方不渲染。别名改路由（同一个请求名落到几个上游）时才显示出来，
+ * 那是"这条慢请求到底发给谁了"唯一能看出来的地方。
+ *
+ * 首页与分析页两张榜共用它，避免出现"一张榜带、一张不带"。
+ */
+export function statsRowNames(row: Pick<StatsLogRow, "model" | "requestName">): {
+  model: string
+  requestName: string | null
+} {
+  const requestName = row.requestName
+  return { model: row.model, requestName: requestName && requestName !== row.model ? requestName : null }
 }

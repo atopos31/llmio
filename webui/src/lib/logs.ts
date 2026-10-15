@@ -15,13 +15,38 @@ import type { ChatLog } from "@/lib/api"
  * `splitCSV` + `IN`，也就是说**逗号就是多值的编码**，不需要重复参数。
  */
 
-/** 可以多选的筛选维度。键名与 URL 参数名一致，也和后端的查询参数名一致。 */
-export const LOGS_MULTI_KEYS = ["providerName", "model", "status", "style", "authKey"] as const
+/**
+ * 可以多选的筛选维度。键名与 URL 参数名一致，和后端查询参数的**语义**一致：
+ *
+ * - `providerModel` → `provider_model`，上游模型名（真正发给提供商的模型 id）
+ * - `requestName`   → `name`，请求名（客户端请求体里写的名字 = llmio 别名）
+ *
+ * 两个名字以前混成一个，于是「按模型下钻」用的是请求名、而分组显示的是上游
+ * 模型名，两边对不上——点分组名筛出来是空表。
+ */
+export const LOGS_MULTI_KEYS = [
+  "providerName",
+  "requestName",
+  "providerModel",
+  "status",
+  "style",
+  "authKey",
+] as const
 
 export type LogsMultiKey = (typeof LOGS_MULTI_KEYS)[number]
 
 /** 全部维度都为空的一份筛选值。 */
 export type LogsMultiFilter = Record<LogsMultiKey, string[]>
+
+/**
+ * 只读的历史键名：读到就按新语义解释，写回时改用规范键名。
+ *
+ * 旧链接的 `model` 装的是请求名（后端 `name`）。它是**只读别名**——新版永不
+ * 再写它，所以不会和新版的同名参数相撞；而一旦用户在界面上碰过一次请求名
+ * 筛选，就该写成 `requestName` 并把残留的 `model` 删掉，否则同两个语义会在
+ * URL 上各占一个键，刷新后谁先谁后就得猜。
+ */
+export const LEGACY_MULTI_KEYS = ["model"] as const
 
 /**
  * 单值时代的哨兵值。旧链接里 `status=all`、`model=all` 表示"不过滤"，
@@ -51,13 +76,45 @@ export function joinMulti(values: string[]): string {
   return values.join(",")
 }
 
-/** 从查询参数里读出五个多选维度。 */
+/**
+ * 读一个多选维度当前的取值。规范键名优先；`requestName` 还有一个只读别名
+ * （旧链接的 `model`），只在 `requestName` 缺席时兜底——两个键都在时以规范
+ * 键为准，否则一次界面操作就会把旧值又带回来。
+ *
+ * 这个函数读写共用：写入前先取这里算出来的值再去勾选，旧链接上的已选项
+ * 才不会被一次点选悄悄丢掉。
+ */
+export function readMultiValue(get: (key: string) => string | null, key: LogsMultiKey): string[] {
+  if (key === "requestName") {
+    const current = parseMulti(get("requestName"))
+    return current.length > 0 ? current : parseMulti(get("model"))
+  }
+  return parseMulti(get(key))
+}
+
+/** 从查询参数里读出全部多选维度（含只读别名的兜底）。 */
 export function readMultiFilter(get: (key: string) => string | null): LogsMultiFilter {
   const out = {} as LogsMultiFilter
   for (const key of LOGS_MULTI_KEYS) {
-    out[key] = parseMulti(get(key))
+    out[key] = readMultiValue(get, key)
   }
   return out
+}
+
+/**
+ * 把一次多选勾选写进 URL 参数：非空就写规范键名，空就删掉参数，同时清掉
+ * 所有只读别名并回到第 1 页。
+ *
+ * 勾选前必须先用 `readMultiValue` 取当前值（它认别名），再在这里回写规范键名：
+ * 这样旧书签上的已选项会被**迁移**到新键名，而不是被一次点选静默丢掉。
+ */
+export function applyMultiFilter(params: URLSearchParams, key: LogsMultiKey, values: string[]): URLSearchParams {
+  const csv = joinMulti(values)
+  if (csv) params.set(key, csv)
+  else params.delete(key)
+  for (const legacy of LEGACY_MULTI_KEYS) params.delete(legacy)
+  params.delete("page")
+  return params
 }
 
 /** 已选中的筛选项总数（用于决定是否显示"清空筛选"）。 */

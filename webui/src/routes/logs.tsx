@@ -21,6 +21,7 @@ import {
   getAuthKeysList,
   getLogs,
   getModelOptions,
+  getObservedProviderModels,
   getProviderTemplates,
   getProviders,
   type AuthKeyItem,
@@ -32,9 +33,10 @@ import { compactNumber, formatBytes, formatDurationNs, formatFull, formatNumber 
 import {
   activeMultiCount,
   canViewChatIO,
+  applyMultiFilter,
   joinMulti,
-  parseMulti,
   readMultiFilter,
+  readMultiValue,
   toggleMulti,
   type LogsMultiKey,
 } from "@/lib/logs"
@@ -76,6 +78,8 @@ export default function LogsPage() {
   const [pages, setPages] = useState(0)
   const [providers, setProviders] = useState<Provider[]>([])
   const [models, setModels] = useState<Model[]>([])
+  // 上游模型名候选来自历史日志（区别于 models 那份本地别名表）
+  const [providerModels, setProviderModels] = useState<string[]>([])
   const [authKeys, setAuthKeys] = useState<AuthKeyItem[]>([])
   const [availableStyles, setAvailableStyles] = useState<string[]>([])
 
@@ -84,7 +88,7 @@ export default function LogsPage() {
   const page = Math.max(1, Number(searchParams.get("page")) || 1)
   const pageSize = Math.max(1, Number(searchParams.get("pageSize")) || 20)
   /**
-   * 五个多选维度。URL 里的取值是逗号拼接的一串（与后端 splitCSV + IN 同口径），
+   * 六个多选维度。URL 里的取值是逗号拼接的一串（与后端 splitCSV + IN 同口径），
    * 页面只认这一份**解析后**的结果：控件的取值、发给后端的参数、有没有在筛选，
    * 全部由它派生。若某处直接读原始串，就会出现"界面上没筛、请求里却带着 all"
    * 这种两处口径不一——而它不会报错，只会筛出意料之外的东西。
@@ -134,11 +138,7 @@ export default function LogsPage() {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev)
-          const csv = joinMulti(toggleMulti(parseMulti(next.get(key)), value))
-          if (csv) next.set(key, csv)
-          else next.delete(key)
-          next.delete("page")
-          return next
+          return applyMultiFilter(next, key, toggleMulti(readMultiValue((k) => next.get(k), key), value))
         },
         { replace: true }
       )
@@ -183,14 +183,16 @@ export default function LogsPage() {
 
   const fetchOptions = useCallback(async () => {
     // 筛选下拉的选项来源与日志本身无关，失败只影响可选范围，不阻断列表
-    const [p, m, a, tpl] = await Promise.allSettled([
+    const [p, m, pm, a, tpl] = await Promise.allSettled([
       getProviders(),
       getModelOptions(),
+      getObservedProviderModels(),
       getAuthKeysList(),
       getProviderTemplates(),
     ])
     if (p.status === "fulfilled") setProviders(p.value)
     if (m.status === "fulfilled") setModels(m.value)
+    if (pm.status === "fulfilled") setProviderModels(pm.value)
     if (a.status === "fulfilled") setAuthKeys(a.value)
     if (tpl.status === "fulfilled") setAvailableStyles(tpl.value.map((x) => x.type))
   }, [])
@@ -202,7 +204,8 @@ export default function LogsPage() {
         const result = await getLogs(page, pageSize, {
           // 空列表即"没筛"：拼出来是空串，于是这个参数根本不发
           providerName: joinMulti(multiFilter.providerName) || undefined,
-          name: joinMulti(multiFilter.model) || undefined,
+          name: joinMulti(multiFilter.requestName) || undefined,
+          providerModel: joinMulti(multiFilter.providerModel) || undefined,
           status: joinMulti(multiFilter.status) || undefined,
           style: joinMulti(multiFilter.style) || undefined,
           authKeyId: joinMulti(multiFilter.authKey) || undefined,
@@ -318,14 +321,25 @@ export default function LogsPage() {
       </div>
 
       {/* 筛选行在内容之上一整行，作用于其下的表格与分页。
-          五个维度都是**多选**：看日志时的诉求多数是"这几个供应商/模型放在一起看"，
+          六个维度都是**多选**：看日志时的诉求多数是"这几个供应商/模型放在一起看"，
           单选时代只能一个一个来回切，切一次还得重看一遍上下文。 */}
       <div className="flex flex-wrap items-center gap-2">
+        {/*
+          两个"名字"维度必须分开：请求名是客户端请求体里写的（本地别名表），
+          模型是真正发给上游的 id（取自历史日志）。同名可跨提供商，
+          两者的取值集合不同源，混在一个下拉里就会筛到对不上的东西。
+        */}
         <DimensionFilter
-          label={t("filters.model")}
-          selected={multiFilter.model}
-          onToggle={(v) => toggleMultiFilter("model", v)}
+          label={t("filters.request_name")}
+          selected={multiFilter.requestName}
+          onToggle={(v) => toggleMultiFilter("requestName", v)}
           options={models.map((m) => ({ value: m.Name, label: m.Name }))}
+        />
+        <DimensionFilter
+          label={t("filters.provider_model")}
+          selected={multiFilter.providerModel}
+          onToggle={(v) => toggleMultiFilter("providerModel", v)}
+          options={providerModels.map((m) => ({ value: m, label: m }))}
         />
         <DimensionFilter
           label={t("filters.project")}
@@ -481,14 +495,14 @@ export default function LogsPage() {
                 {/* 冻结 ID 列：横向滚动时保持可见，否则右移后就认不出是哪条 */}
                 <TableHead className="sticky left-0 z-20 w-20 bg-muted">{t("table.id")}</TableHead>
                 <TableHead>{t("table.time")}</TableHead>
-                <TableHead>{t("table.model")}</TableHead>
+                <TableHead>{t("table.request_name")}</TableHead>
                 <TableHead>{t("table.project")}</TableHead>
                 <TableHead>{t("table.status")}</TableHead>
                 <TableHead>{t("table.tokens")}</TableHead>
                 <TableHead>{t("table.cache")}</TableHead>
                 <TableHead>{t("table.size")}</TableHead>
                 <TableHead>{t("table.duration")}</TableHead>
-                <TableHead>{t("table.provider_model")}</TableHead>
+                <TableHead>{t("table.model")}</TableHead>
                 <TableHead>{t("table.type")}</TableHead>
                 <TableHead>{t("table.provider")}</TableHead>
                 <TableHead className="w-24">{t("table.actions")}</TableHead>

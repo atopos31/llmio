@@ -19,6 +19,7 @@ import {
   isMissingModelMetric,
   keyFilterOptions,
   logDetailPath,
+  logPath,
   MODEL_DIMENSIONS,
   modelDimensionGroups,
   MODEL_SORT_KEYS,
@@ -26,6 +27,7 @@ import {
   observedOptions,
   presetRange,
   shortenLabel,
+  statsRowNames,
   sortModelGroups,
   toLocalInput,
   toggleDimensionValue,
@@ -429,6 +431,37 @@ describe("logDetailPath", () => {
   it("指向请求内容页而不是弹窗", () => {
     // 分析页需要"从聚合数字跳到那一条请求"的通路；内容页是排查终点。
     expect(logDetailPath(42)).toBe("/logs/42/chat-io")
+  })
+})
+
+describe("logPath", () => {
+  it("指向日志页并带上 id 筛选，而不是内容页", () => {
+    // 失败请求没有 ChatIO 行，点进 /logs/:id/chat-io 只会得到空页；
+    // 错误样本必须走"列表收窄成一行 + 详情抽屉"这条路。
+    expect(logPath(42)).toBe("/logs?id=42")
+    expect(logPath(42)).not.toBe(logDetailPath(42))
+  })
+})
+
+describe("statsRowNames", () => {
+  it("请求名与模型名相同时不重复给出", () => {
+    // 多数别名原样转发；重复写一遍只是噪声。
+    expect(statsRowNames({ model: "gpt-4o", requestName: "gpt-4o" })).toEqual({
+      model: "gpt-4o",
+      requestName: null,
+    })
+  })
+
+  it("后端省略（omitempty）与空串同样视为相同", () => {
+    expect(statsRowNames({ model: "gpt-4o" }).requestName).toBeNull()
+    expect(statsRowNames({ model: "gpt-4o", requestName: "" }).requestName).toBeNull()
+  })
+
+  it("别名改路由时把请求名带上", () => {
+    expect(statsRowNames({ model: "gpt-4o-2024-08-06", requestName: "gpt-4o" })).toEqual({
+      model: "gpt-4o-2024-08-06",
+      requestName: "gpt-4o",
+    })
   })
 })
 

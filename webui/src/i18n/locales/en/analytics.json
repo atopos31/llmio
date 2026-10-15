@@ -105,7 +105,7 @@
     "affected_providers": "Providers",
     "affected_models": "Models",
     "table_note": "More than {{limit}} categories — bars stop being a reliable comparison, so this is a table.",
-    "view_log": "View request content",
+    "view_log": "View in logs",
     "columns": {
       "type": "Category",
       "count": "Count",
@@ -143,6 +143,7 @@
       "retries": "Retries",
       "cost": "Cost",
       "totalTokens": "Tokens"
-    }
+    },
+    "note_model": "Model is the upstream model id actually sent to the provider — the same name can come from different providers; switch to “Model × provider” to compare them. Click a column header to sort; click again to flip the direction. Models with no successful sample (TPS or first chunk of 0) always sort last — they are never treated as the fastest."
   }
 }

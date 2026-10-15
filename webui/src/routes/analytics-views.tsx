@@ -31,11 +31,13 @@ import {
   errorBarWidth,
   errorViewMode,
   logDetailPath,
+  logPath,
   groupByModel,
   MODEL_DIMENSIONS,
   MODEL_SORT_KEYS,
   modelDimensionGroups,
   shortenLabel,
+  statsRowNames,
   sortModelGroups,
   type AnalyticsFilter,
   type DimensionKey,
@@ -336,22 +338,28 @@ export function Board({
         </p>
       ) : (
         <ul className="space-y-1.5">
-          {rows.map((r) => (
-            <li key={r.id}>
-              <Link
-                to={logDetailPath(r.id)}
-                className="flex items-baseline justify-between gap-2 rounded-sm px-1 py-0.5 text-xs hover:bg-accent"
-              >
-                <span className="min-w-0 flex-1 truncate" title={`${r.model} · ${r.provider}`}>
-                  {r.model}
-                  <span className="text-muted-foreground"> · {r.provider}</span>
-                </span>
-                <span className="reading min-w-0 shrink truncate" title={metric(r)}>
-                  {metric(r)}
-                </span>
-              </Link>
-            </li>
-          ))}
+          {rows.map((r) => {
+            const names = statsRowNames(r)
+            // 别名与上游模型名不同时补在模型名后面；括号即"同一件事的两个名字"
+            const alias = names.requestName ? `（${names.requestName}）` : ""
+            return (
+              <li key={r.id}>
+                <Link
+                  to={logDetailPath(r.id)}
+                  className="flex items-baseline justify-between gap-2 rounded-sm px-1 py-0.5 text-xs hover:bg-accent"
+                >
+                  <span className="min-w-0 flex-1 truncate" title={`${names.model}${alias} · ${r.provider}`}>
+                    {names.model}
+                    {alias ? <span className="text-muted-foreground">{alias}</span> : null}
+                    <span className="text-muted-foreground"> · {r.provider}</span>
+                  </span>
+                  <span className="reading min-w-0 shrink truncate" title={metric(r)}>
+                    {metric(r)}
+                  </span>
+                </Link>
+              </li>
+            )
+          })}
         </ul>
       )}
     </Panel>
@@ -526,9 +534,10 @@ function SampleLink({ group }: { group: ErrorGroup }) {
   const { t } = useTranslation("analytics")
   const sample = group.samples[0]
   if (!sample) return null
+  // 失败请求没有 ChatIO 行，所以跳的是日志页（按 id 收窄）而不是请求内容页
   return (
     <Link
-      to={logDetailPath(sample.id)}
+      to={logPath(sample.id)}
       className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline"
       title={sample.error}
     >
@@ -654,7 +663,14 @@ export function ModelsView({
     <Panel
       title={t("models.title")}
       // 联合维度的排序语义与另外两维不同（组内排序），得说出来
-      note={t(dimension === "modelProvider" ? "models.note_joint" : "models.note")}
+      // 模型维多一句术语说明：模型是上游模型名，请求名是客户端写的名字
+      note={t(
+        dimension === "modelProvider"
+          ? "models.note_joint"
+          : dimension === "model"
+            ? "models.note_model"
+            : "models.note"
+      )}
     >
       <div className="mb-3">{picker}</div>
       {/* 十列在窄屏放不下：横向滚动而不是砍列，砍掉的往往是用户要找的那列 */}

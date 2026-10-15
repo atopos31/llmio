@@ -13,6 +13,7 @@ import { EmptyState, ErrorState } from "@/components/state-views"
 import { Card, CardContent } from "@/components/ui/card"
 import { useAutoRefresh } from "@/hooks/use-auto-refresh"
 import { getStats, type StatsResult } from "@/lib/api"
+import { statsRowNames } from "@/lib/analytics"
 import {
   compactNumber,
   formatCost,
@@ -487,33 +488,39 @@ function LeaderboardCard({
         <p className="py-4 text-center text-xs text-muted-foreground">{empty}</p>
       ) : (
         <ul className="space-y-1.5">
-          {rows.map((r) => (
-            <li key={r.id}>
-              <Link
-                to={`/logs/${r.id}/chat-io`}
-                className="flex items-baseline justify-between gap-2 rounded-sm px-1 py-0.5 text-xs hover:bg-accent"
-              >
-                {/* 左列吃掉剩余宽度并截断，右列按内容宽度但不许`shrink-0`。
-                    右列装的是错误原文（等宽字体，可达 300px 以上），
-                    `shrink-0` 会让它永不收缩，把整行撑宽后一路顶到内容区——
-                    窄卡片上表现为页面内容区出现一条横向滚动条。 */}
-                <span className="min-w-0 flex-1 truncate" title={`${r.model} · ${r.provider}`}>
-                  {r.model}
-                  <span className="text-muted-foreground"> · {r.provider}</span>
-                </span>
-                <span
-                  className={
-                    tone === "critical"
-                      ? "reading min-w-0 shrink truncate text-status-critical-ink"
-                      : "reading min-w-0 shrink truncate"
-                  }
-                  title={metric(r)}
+          {rows.map((r) => {
+            const names = statsRowNames(r)
+            // 别名与上游模型名不同时补在模型名后面；括号即"同一件事的两个名字"
+            const alias = names.requestName ? `（${names.requestName}）` : ""
+            return (
+              <li key={r.id}>
+                <Link
+                  to={`/logs/${r.id}/chat-io`}
+                  className="flex items-baseline justify-between gap-2 rounded-sm px-1 py-0.5 text-xs hover:bg-accent"
                 >
-                  {metric(r)}
-                </span>
-              </Link>
-            </li>
-          ))}
+                  {/* 左列吃掉剩余宽度并截断，右列按内容宽度但不许`shrink-0`。
+                      右列装的是错误原文（等宽字体，可达 300px 以上），
+                      `shrink-0` 会让它永不收缩，把整行撑宽后一路顶到内容区——
+                      窄卡片上表现为页面内容区出现一条横向滚动条。 */}
+                  <span className="min-w-0 flex-1 truncate" title={`${names.model}${alias} · ${r.provider}`}>
+                    {names.model}
+                    {alias ? <span className="text-muted-foreground">{alias}</span> : null}
+                    <span className="text-muted-foreground"> · {r.provider}</span>
+                  </span>
+                  <span
+                    className={
+                      tone === "critical"
+                        ? "reading min-w-0 shrink truncate text-status-critical-ink"
+                        : "reading min-w-0 shrink truncate"
+                    }
+                    title={metric(r)}
+                  >
+                    {metric(r)}
+                  </span>
+                </Link>
+              </li>
+            )
+          })}
         </ul>
       )}
     </Panel>

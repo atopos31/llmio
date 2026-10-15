@@ -797,6 +797,7 @@ func GetRequestLogs(c *gin.Context) {
 
 	// 获取筛选参数
 	providerName := c.Query("provider_name")
+	providerModel := c.Query("provider_model")
 	name := c.Query("name")
 	status := c.Query("status")
 	style := c.Query("style")
@@ -808,14 +809,21 @@ func GetRequestLogs(c *gin.Context) {
 	// 构建查询条件
 	query := models.DB.Model(&models.ChatLog{})
 
-	// 前五个维度是**多值**的：逗号分隔表示"任一命中"，与 /api/metrics/stats
+	// 前六个维度是**多值**的：逗号分隔表示"任一命中"，与 /api/metrics/stats
 	// 的口径一致（那里也是 splitCSV + IN）。维度本身就是一组取值
-	// （模型、供应商、状态、协议、密钥），看日志时最常见的诉求是"这几个一起看"。
+	// （上游模型名、请求名、供应商、状态、协议、密钥），看日志时最常见的
+	// 诉求是"这几个一起看"。
 	//
 	// trace_id / session_id / id 保持精确匹配：它们是"某一次具体请求"的标识，
 	// 多选没有语义；它们各自的取值也长，拼成查询串不便于人写。
 	if values := splitCSV(providerName); len(values) > 0 {
 		query = query.Where("provider_name IN ?", values)
+	}
+
+	// provider_model 是真正发给上游的模型 id。前端很早就在发这个参数（按模型
+	// 下钻时用），后端一直不认，等于静默丢弃——现在补上，与 name 同形。
+	if values := splitCSV(providerModel); len(values) > 0 {
+		query = query.Where("provider_model IN ?", values)
 	}
 
 	if values := splitCSV(name); len(values) > 0 {
@@ -942,6 +950,31 @@ func GetUserAgents(c *gin.Context) {
 	}
 
 	common.Success(c, userAgents)
+}
+
+// GetProviderModelList 获取所有不重复的上游模型名（chat_logs.provider_model）。
+//
+// 它和 /models/select 不是一回事：后者是本地配的别名表（请求名），
+// 这个是从历史日志里观测到的、真正发给上游的模型 id。日志页的"模型"筛选
+// 要按后者取值，否则筛选项和分组名对不上。同名可以跨提供商，所以这里
+// 只取模型名本身，不带上提供商——要按两者组合看走 /metrics/stats 的
+// byModelProvider 维度。
+//
+// 与 GetUserAgents 同形：只取非空去重值，按字母序返回，下拉框里顺序稳定。
+func GetProviderModelList(c *gin.Context) {
+	var providerModels []string
+
+	if err := models.DB.Model(&models.ChatLog{}).
+		Where("provider_model IS NOT NULL AND provider_model != ''").
+		Distinct("provider_model").
+		Order("provider_model").
+		Pluck("provider_model", &providerModels).
+		Error; err != nil {
+		common.InternalServerError(c, "Failed to query provider models: "+err.Error())
+		return
+	}
+
+	common.Success(c, providerModels)
 }
 
 // GetConfigByKey 获取特定配置

@@ -155,6 +155,8 @@ func main() {
 		api.GET("/logs", handler.GetRequestLogs)
 		api.GET("/logs/:id/chat-io", handler.GetChatIO)
 		api.GET("/user-agents", handler.GetUserAgents)
+		// 上游模型名候选（日志页"模型"筛选的下拉来源）
+		api.GET("/provider-models", handler.GetProviderModelList)
 		api.POST("/logs/cleanup", handler.CleanLogs)
 		api.GET("/logs/cleanup/history", handler.GetCleanupHistory)
 

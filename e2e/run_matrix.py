@@ -481,6 +481,51 @@ def stub_cases(providers):
                                             '{"role":"assistant","content":"好"}']),
                         log=dict(style="anthropic", upstream_style="openai", status="success",
                                  notes_exact=[]))),
+        # 19 回归：Anthropic 客户端按 mid-conversation tool changes（beta
+        # mid-conversation-tool-changes-2026-07-01；Claude Code 开着 ENABLE_TOOL_SEARCH）
+        # 发的 system 消息带 tool_addition(tool_reference)。引用指向的工具本来就随顶层
+        # tools 转发，块在 OpenAI 的消息流里放不下 → 丢块记账。这里曾经整份拒绝
+        dict(name="搬运·system 里的 tool_addition（Anthropic 客户端→OpenAI 上游）", client="anthropic",
+             assoc=[{"provider": oc, "provider_model": "stub-text"}],
+             body={"max_tokens": 64,
+                   "tools": [{"name": "mcp__ctx", "description": "mcp tool",
+                              "input_schema": {"type": "object", "properties": {}}}],
+                   "messages": [
+                       {"role": "user", "content": "你好"},
+                       {"role": "system", "content": [
+                           {"type": "text", "text": "工具现在可用"},
+                           {"type": "tool_addition", "tool": {"type": "tool_reference", "name": "mcp__ctx"}},
+                       ]},
+                       {"role": "user", "content": "接着"},
+                   ]},
+             check=dict(content="stub-text",
+                        upstream=dict(path="/openai/chat/completions", model="stub-text",
+                                      dump=['"name":"mcp__ctx"'],
+                                      dump_absent=['"tool_addition"', '"tool_reference"']),
+                        log=dict(style="anthropic", upstream_style="openai", status="success",
+                                 notes=["dropped_tool_change"],
+                                 notes_absent=["merged_tool_definition"]))),
+        # 20 内联完整定义（tool_definition）：顶层 tools 里没有它，但工具表装得下——
+        # 并进顶层、schema 透传，模型后续真的能调用；同名以顶层声明优先
+        dict(name="搬运·tool_definition 内联并入工具表（Anthropic 客户端→OpenAI 上游）", client="anthropic",
+             assoc=[{"provider": oc, "provider_model": "stub-text"}],
+             body={"max_tokens": 64,
+                   "messages": [
+                       {"role": "user", "content": "你好"},
+                       {"role": "system", "content": [
+                           {"type": "tool_addition", "tool": {"type": "tool_definition", "definition": {
+                               "name": "db_query", "description": "read-only sql",
+                               "input_schema": {"type": "object", "properties": {"sql": {"type": "string"}}}}}},
+                       ]},
+                       {"role": "user", "content": "接着"},
+                   ]},
+             check=dict(content="stub-text",
+                        upstream=dict(path="/openai/chat/completions", model="stub-text",
+                                      dump_count={'"name":"db_query"': 1},
+                                      dump=['"properties":{"sql":{"type":"string"}}'],
+                                      dump_absent=['"tool_definition"']),
+                        log=dict(style="anthropic", upstream_style="openai", status="success",
+                                 notes=["dropped_tool_change", "merged_tool_definition"]))),
     ]
 
 
@@ -668,8 +713,12 @@ def main():
 # 所以断言集中在三处：客户端拿到的是客户端协议的形状、日志把方向记对了、上游报的
 # 用量真的被记了下来。字段级的花样留给桩。
 
-# 免费且不限量（见 docs 链接里的 Go 端点定价），两个端点都收这个模型
-FREE_MODEL = "space-bunny-free"
+# 免费（见 docs 链接里的 Go 端点定价）。曾经的 space-bunny-free 已下架，换
+# cat-jam-free——但它只支持 openai 形状（anthropic 形状报 ModelProtocolUnsupported），
+# 免费池里找不到支持 anthropic 形状的模型
+FREE_MODEL = "cat-jam-free"
+# anthropic 端点那一发用付费的：真上游的形状校验没有免费替身
+PAID_MODEL_ANTHROPIC = "space-bunny"
 # 真上游不爱等人：提示语要短，max_tokens 给够但要封顶，免得一发跑出几千 token
 REAL_MAX_TOKENS = 256
 REAL_PROMPT = "只回两个字：收到"
@@ -729,7 +778,8 @@ def check_log_tokens(log, label):
 def opencode_cases(providers):
     oc, oa = providers["openai"], providers["anthropic"]
     to_oc = [{"provider": oc, "provider_model": FREE_MODEL}]
-    to_oa = [{"provider": oa, "provider_model": FREE_MODEL}]
+    # 拒绝用例（在翻译层就被拦下）与 anthropic 直连都走这条；直连那一发花付费额度
+    to_oa = [{"provider": oa, "provider_model": PAID_MODEL_ANTHROPIC}]
     text = {"messages": [{"role": "user", "content": REAL_PROMPT}], "max_tokens": REAL_MAX_TOKENS}
     return [
         # 1 直连：同一个协议，翻译层不该插手。真上游的响应形状与 llmio 的不完全一样

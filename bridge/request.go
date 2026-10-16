@@ -600,7 +600,7 @@ func AnthropicRequestToOpenAI(raw []byte, _ Options) ([]byte, []Note, error) {
 		notes = append(notes, NoteDroppedMetadata)
 	}
 
-	tools := openAITools(req.Tools, &notes)
+	tools := openAITools(anthropicMergedTools(req.Tools, req.Messages, &notes), &notes)
 	choice, err := openAIToolChoice(req.ToolChoice)
 	if err != nil {
 		return nil, nil, err
@@ -659,6 +659,13 @@ func anthropicMessagesToOpenAI(msgs []AnthropicMessage, notes *[]Note) ([]OpenAI
 					parts = append(parts, part)
 				case blockThinking, blockRedacted:
 					*notes = append(*notes, NoteDroppedThinking)
+				case blockToolAddition, blockToolRemoval:
+					// mid-conversation tool changes（Anthropic 的 beta 扩展）只存在于
+					// system 消息里，OpenAI 的消息流表示不了这两块。工具层面能表达的部分
+					// 由 anthropicInlineTools 处理：内联定义并进顶层 tools，记
+					// merged_tool_definition；引用型指向的工具本来就随顶层 tools 转发过，
+					// 撤回则没有对应物。这里只把块本身从消息里丢掉并记账。
+					*notes = append(*notes, NoteDroppedToolChange)
 				default:
 					return nil, &Unsupported{
 						Field:  fmt.Sprintf("messages[%d].content[].type", i),
@@ -859,6 +866,59 @@ func anthropicSystemText(raw json.RawMessage) (string, error) {
 		sb.WriteString(b.Text)
 	}
 	return sb.String(), nil
+}
+
+// anthropicInlineTools 收集 system 消息里 tool_addition 带的内联完整定义。
+//
+// mid-conversation tool changes（beta）的一种用法是 addition 里带 tool_definition，
+// 完整定义不出现在顶层 tools 里。OpenAI 没有"这一刻才出现"的时序，但顶层工具表本身
+// 装得下它——按"能表达就表达"的判据并进去。引用型（tool_reference / MCP 引用）指向的
+// 工具要么已在顶层 tools 里、要么根本没有定义可提，都不出结果；块本身的丢弃由
+// system 分支统一记 dropped_tool_change，合并这一笔记 merged_tool_definition。
+//
+// 与顶层同名的定义不提取也不记账（addition 的语义是"没有才加"，顶层声明优先；官方也
+// 保证同一定义重发是幂等的），去重属于纯结构。
+func anthropicInlineTools(top []AnthropicTool, msgs []AnthropicMessage, notes *[]Note) []AnthropicTool {
+	seen := map[string]bool{}
+	for _, t := range top {
+		seen[t.Name] = true
+	}
+	var out []AnthropicTool
+	for _, m := range msgs {
+		if m.Role != "system" {
+			continue
+		}
+		for _, b := range m.Content {
+			if b.Type != blockToolAddition || seen[b.Name] {
+				continue
+			}
+			var tool struct {
+				Type       string          `json:"type"`
+				Definition json.RawMessage `json:"definition"`
+			}
+			if err := json.Unmarshal(b.Tool, &tool); err != nil || tool.Type != "tool_definition" {
+				continue
+			}
+			var def AnthropicTool
+			if err := json.Unmarshal(tool.Definition, &def); err != nil || def.Name == "" || seen[def.Name] {
+				continue
+			}
+			seen[def.Name] = true
+			out = append(out, def)
+			*notes = append(*notes, NoteMergedToolDefinition)
+		}
+	}
+	return out
+}
+
+// anthropicMergedTools 组装发往上游的工具表：顶层声明在前，system 消息里内联的定义
+// 追加在后。没有内联定义时原样返回顶层，没有 beta 扩展的请求零开销走原路。
+func anthropicMergedTools(top []AnthropicTool, msgs []AnthropicMessage, notes *[]Note) []AnthropicTool {
+	inline := anthropicInlineTools(top, msgs, notes)
+	if len(inline) == 0 {
+		return top
+	}
+	return append(append(make([]AnthropicTool, 0, len(top)+len(inline)), top...), inline...)
 }
 
 // openAITools 搬运工具声明到 function 形状。

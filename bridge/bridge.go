@@ -73,6 +73,18 @@ const (
 	// NotePrefixedToolError 工具结果带 is_error，在正文前加了 [tool_error] 标记。
 	// OpenAI 的 tool 消息没有"这是失败"这个位，丢了模型会以为工具成功了。
 	NotePrefixedToolError Note = "prefixed_tool_error"
+	// NoteDroppedToolChange 丢掉了 system 消息里的 tool_addition / tool_removal 块
+	// （mid-conversation tool changes，Anthropic 的 beta 扩展，Claude Code 开着
+	// ENABLE_TOOL_SEARCH 时几乎每个会话都发）。OpenAI 的工具集是请求级全量的，消息
+	// 流里没有这两块的位置：引用型 addition（tool_reference / MCP 引用）指向的工具
+	// 已经随顶层 tools 转发过，removal 的"从此撤下工具"更没有对应物——等于撤回被
+	// 忽略，模型可能仍调用已撤下的工具，客户端要能消化这样的 tool_use。内联的完整
+	// 定义由 anthropicInlineTools 并进顶层工具列表，另记 merged_tool_definition。
+	NoteDroppedToolChange Note = "dropped_tool_change"
+	// NoteMergedToolDefinition tool_addition 里的内联完整定义（tool_definition）
+	// 被并进了顶层 tools。OpenAI 没有"这一刻才出现"的时序，模型从对话起就能看见它
+	// ——比 Anthropic 的语义宽了一档，可这是 OpenAI 侧给得出的最忠实近似。
+	NoteMergedToolDefinition Note = "merged_tool_definition"
 
 	// 以下几条约只出现在**响应**侧：那边没有重试的机会（字已经生成出来了），
 	// 做不到的地方只能带上并记账，不能像请求侧那样拒绝。

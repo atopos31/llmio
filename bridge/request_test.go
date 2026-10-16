@@ -1593,3 +1593,160 @@ func TestAnthropicRequestToOpenAIStreamOptions(t *testing.T) {
 		t.Fatalf("非流式不该注入 stream_options: %s", out)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// mid-conversation tool changes（tool_addition / tool_removal）
+// ---------------------------------------------------------------------------
+
+func TestAnthropicToOpenAIToolChangeReference(t *testing.T) {
+	// Claude Code 开着 ENABLE_TOOL_SEARCH 的真实形状（anthropics/claude-code#95087）：
+	// messages 里夹一条 role:"system" 消息，带 tool_addition(tool_reference)。
+	// 这里曾经整份拒绝；而引用指向的工具本来就随顶层 tools 转发，块本身表示不了但
+	// 请求完全走得起——丢弃加记账即可
+	out, notes := toOpenAI(t, `{
+		"max_tokens": 10,
+		"tools": [
+			{"name": "mcp__x", "description": "mcp tool", "input_schema": {"type": "object"}},
+			{"name": "get_weather", "description": "provided", "input_schema": {"type": "object"}}
+		],
+		"messages": [
+			{"role": "user", "content": [{"type": "text", "text": "hi"}]},
+			{"role": "system", "content": [
+				{"type": "text", "text": "tools surfacing now"},
+				{"type": "tool_addition", "tool": {"type": "tool_reference", "name": "mcp__x"}},
+				{"type": "tool_addition", "tool": {"type": "tool_reference", "name": "get_weather"}}
+			]},
+			{"role": "user", "content": "go"}
+		]
+	}`)
+
+	messages := out["messages"].([]any)
+	if len(messages) != 3 {
+		t.Fatalf("三条消息都该留下: %v", messages)
+	}
+	// 只剩文本时 OpenAI 给字符串而不是块数组
+	if mid := messages[1].(map[string]any); mid["content"] != "tools surfacing now" {
+		t.Fatalf("tool_addition 块应当被丢掉，文本留下: %v", mid)
+	}
+	if tools := out["tools"].([]any); len(tools) != 2 {
+		t.Fatalf("顶层工具应当原样转发: %v", tools)
+	}
+	requireNote(t, notes, NoteDroppedToolChange)
+	requireNoNote(t, notes, NoteMergedToolDefinition)
+}
+
+func TestAnthropicToOpenAIToolChangeInlineDefinition(t *testing.T) {
+	// addition 里直接带完整定义（inline-tools beta）：顶层 tools 里没有它，但 OpenAI 的
+	// 工具表装得下——按"能表达就表达"并进去，模型后续真的能调用
+	out, notes := toOpenAI(t, `{
+		"max_tokens": 10,
+		"messages": [
+			{"role": "user", "content": "hi"},
+			{"role": "system", "content": [
+				{"type": "tool_addition", "tool": {"type": "tool_definition", "definition": {
+					"name": "db_query",
+					"description": "read-only sql",
+					"input_schema": {"type": "object", "properties": {"sql": {"type": "string"}}}
+				}}}
+			]},
+			{"role": "user", "content": "run it"}
+		]
+	}`)
+
+	tools := out["tools"].([]any)
+	if len(tools) != 1 {
+		t.Fatalf("内联定义应当进工具表: %v", tools)
+	}
+	def := tools[0].(map[string]any)["function"].(map[string]any)
+	if def["name"] != "db_query" || def["description"] != "read-only sql" {
+		t.Fatalf("定义字段搬错了: %v", def)
+	}
+	if def["parameters"].(map[string]any)["properties"].(map[string]any)["sql"] == nil {
+		t.Fatalf("input_schema 应当透传成 parameters: %v", def)
+	}
+	// 消息流里块本身留不下，这一笔与合并各区账
+	requireNote(t, notes, NoteDroppedToolChange)
+	requireNote(t, notes, NoteMergedToolDefinition)
+}
+
+func TestAnthropicToOpenAIToolChangeInlineIdempotent(t *testing.T) {
+	// 同一定义重发是官方允许的幂等操作：工具表里只落一份，账也只记一次
+	out, notes := toOpenAI(t, `{
+		"max_tokens": 10,
+		"messages": [
+			{"role": "system", "content": [
+				{"type": "tool_addition", "tool": {"type": "tool_definition", "definition": {"name": "f", "input_schema": {"type": "object"}}}},
+				{"type": "tool_addition", "tool": {"type": "tool_definition", "definition": {"name": "f", "input_schema": {"type": "object"}}}}
+			]},
+			{"role": "user", "content": "hi"}
+		]
+	}`)
+
+	if tools := out["tools"].([]any); len(tools) != 1 {
+		t.Fatalf("重发的定义不该重复进工具表: %v", tools)
+	}
+	count := 0
+	for _, n := range notes {
+		if n == NoteMergedToolDefinition {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("merged_tool_definition 应当只记一次: %v", notes)
+	}
+}
+
+func TestAnthropicToOpenAIToolChangeTopLevelWins(t *testing.T) {
+	// 顶层与内联都声明了同一个名字：顶层那份优先，内联不重复进表
+	out, notes := toOpenAI(t, `{
+		"max_tokens": 10,
+		"tools": [{"name": "f", "description": "top", "input_schema": {"type": "object"}}],
+		"messages": [
+			{"role": "system", "content": [
+				{"type": "tool_addition", "tool": {"type": "tool_definition", "definition": {"name": "f", "input_schema": {"type": "object"}}}}
+			]},
+			{"role": "user", "content": "hi"}
+		]
+	}`)
+
+	tools := out["tools"].([]any)
+	if len(tools) != 1 {
+		t.Fatalf("同名内联定义不该重复进工具表: %v", tools)
+	}
+	if tools[0].(map[string]any)["function"].(map[string]any)["description"] != "top" {
+		t.Fatalf("顶层声明应当优先: %v", tools[0])
+	}
+	requireNoNote(t, notes, NoteMergedToolDefinition)
+}
+
+func TestAnthropicToOpenAIToolRemovalDropped(t *testing.T) {
+	// 撤回没有对应物：OpenAI 表达不了"从这一刻起撤下工具"。不真的去掉该工具——
+	// 模型可能仍调用它，客户端要能消化这样的 tool_use；这里是尽职记账
+	out, notes := toOpenAI(t, `{
+		"max_tokens": 10,
+		"tools": [{"name": "get_weather", "input_schema": {"type": "object"}}],
+		"messages": [
+			{"role": "user", "content": "hi"},
+			{"role": "system", "content": [{"type": "tool_removal", "tool": {"type": "tool_reference", "name": "get_weather"}}]},
+			{"role": "user", "content": "run"}
+		]
+	}`)
+
+	messages := out["messages"].([]any)
+	if len(messages) != 2 {
+		t.Fatalf("只有 tool_removal 的 system 消息应当整条消失: %v", messages)
+	}
+	if tools := out["tools"].([]any); len(tools) != 1 {
+		t.Fatalf("被撤回的工具不真从顶层撤下: %v", tools)
+	}
+	requireNote(t, notes, NoteDroppedToolChange)
+}
+
+func TestAnthropicToOpenAIToolChangeMisplacedRejected(t *testing.T) {
+	// 这两块在 Anthropic 侧也只允许出现在 system 消息里。出现在 user/assistant 是
+	// 客户端的坏请求，丢掉再骗过一次翻译没有意义——保持拒绝
+	rejectedReverse(t, `{
+		"max_tokens": 10,
+		"messages": [{"role": "user", "content": [{"type": "tool_addition", "tool": {"type": "tool_reference", "name": "f"}}]}]
+	}`, "messages[0].content[].type")
+}

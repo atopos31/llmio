@@ -133,6 +133,27 @@ system 是一等角色，出现在哪个位置都收**——所以照搬、保�
 "assistant 后面紧跟的那条消息"：连续的 tool 消息会被合并成同一条 user 轮，只看相邻一条
 时，合并进来的第二份结果就成了没人检查的孤儿，原样发给上游直接 400。
 
+### 3.5 反方向的另一条：`system` 消息里的 `tool_addition` / `tool_removal`
+
+Claude Code 开着 `ENABLE_TOOL_SEARCH` 时，几乎每个会话都会按
+[mid-conversation tool changes](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages)
+（beta `mid-conversation-tool-changes-2026-07-01`）发消息：`messages` 里夹一条
+`role:"system"`，content 里带 `tool_addition` / `tool_removal` 块。这里曾经整份拒绝
+（打到第三方 `ANTHROPIC_BASE_URL` 上也是连环 400）。OpenAI 的工具集是**请求级全量**的，
+没有"中途变更"，逐块处置：
+
+- **`tool_reference` / MCP 引用**：指向的工具已经在顶层 `tools` 里随请求转发，块本身在
+  OpenAI 的消息流里放不下 → 丢弃，记 `dropped_tool_change`
+- **`tool_definition`（内联完整定义）**：顶层工具表装得下 → 并进顶层 `tools`，记
+  `merged_tool_definition`。同名以顶层声明优先，重发的同一定义幂等去重。时序上模型从
+  对话起就看得见它，比 Anthropic 的语义宽一档——这是 OpenAI 侧给得出的最忠实近似
+- **`tool_removal`**："从这一刻起撤下工具"没有对应物 → 丢弃并记 `dropped_tool_change`。
+  真的从顶层把工具撤下等于撤回被忽略，模型可能仍调用已撤下的工具，客户端要能
+  消化这样的 `tool_use`（Claude Code 的自带 fallback 同样只是把块去掉）
+
+出现在 user / assistant 位置的仍然拒绝：这两块在 Anthropic 侧也只允许放进 system
+消息，别处出现属于客户端的坏请求，静默通关没有意义。
+
 ## 4. `max_tokens` 的默认值是个有损决定
 
 Anthropic 的 `max_tokens` 必填，OpenAI 的可选。绝大多数 OpenAI 客户端不填（用模型默认）。

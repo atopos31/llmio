@@ -382,9 +382,9 @@ type TrendPoint struct {
 // GroupStat 是单个分组的统计。
 type GroupStat struct {
 	Name string `json:"name"`
-	// Model / Provider 只在模型×上游这一维填写：行名是「模型 · 上游」，
-	// 但展示要按模型把上游归成一组，光有一行拼好的标签拆不回来
-	// （模型名里完全可能自己就带分隔符）。其余维度留空。
+	// Model / Provider 只在联合维度（请求名 × 提供商）填写：行名是
+	// 「请求名 · 提供商」，但展示要按请求名把各家提供商归成一组，光有一行
+	// 拼好的标签拆不回来（请求名里完全可能自己就带分隔符）。其余维度留空。
 	Model           string  `json:"model,omitempty"`
 	Provider        string  `json:"provider,omitempty"`
 	Total           int64   `json:"total"`
@@ -468,10 +468,11 @@ type StatsResult struct {
 	Trend       []TrendPoint `json:"trend"`
 	ByModel     []GroupStat  `json:"byModel"`
 	ByProvider  []GroupStat  `json:"byProvider"`
-	// ByModelProvider 是模型×上游的联合分布。
+	// ByModelProvider 是请求名×提供商的联合分布（字段名沿用 JSON 契约）。
 	//
-	// 两个边际分布（byModel / byProvider）推不出它来：同一个模型挂多个上游时，
-	// 谁快谁慢只在联合分布里看得见，而"只按请求名对比"会把它们混成一行。
+	// 两个边际分布（byName / byProvider）推不出它来：同一个请求名被路由到
+	// 几家提供商时，谁快谁慢只在联合分布里看得见，而"只按请求名对比"会把
+	// 它们混成一行。
 	ByModelProvider []GroupStat      `json:"byModelProvider"`
 	ByKey           []GroupStat      `json:"byKey"`
 	ByName          []GroupStat      `json:"byName"`
@@ -639,11 +640,15 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 		// byModel 按**上游模型名**（provider_model）分组，byName 按**请求名**
 		// （客户端请求体里写的名字 = llmio 别名）。两者原先都按 l.Name 分组，
 		// 于是「按模型」和「按请求名」两列内容完全一样，而筛选走的是
-		// provider_model——名字与上游 id 不同就筛出 0 行。同名可跨提供商，
-		// 所以模型维度永远要配着 byModelProvider 看。
+		// provider_model——名字与上游 id 不同就筛出 0 行。
+		//
+		// 联合维度按**请求名 × 提供商**分组，不是模型 × 提供商：同一个请求名
+		// 可能被路由到好几个上游模型，按模型分会把一次"这个别名走了几家、
+		// 谁快谁慢"的比较拆成若干小行；按请求名分则每组回答的正是这个问题。
+		// 上游模型名在单模型维度（byModel）里看，并可下钻到日志。
 		models.add(l.ProviderModel, l)
 		providers.add(l.ProviderName, l)
-		modelProviders.addJoint(l.ProviderModel, l.ProviderName, l)
+		modelProviders.addJoint(l.Name, l.ProviderName, l)
 		keys.add(keyLabel(l.AuthKeyID), l)
 		names.add(l.Name, l)
 		uas.add(l.UserAgent, l)
@@ -887,18 +892,20 @@ func (a *groupAcc) add(name string, l models.ChatLog) {
 	a.count(a.item(name), l)
 }
 
-// addJoint 累计模型×上游这一维。
+// addJoint 累计联合维度（请求名 × 提供商）这一维。
 //
-// 名字取「模型 · 上游」是给**读**用的，两个分量另存字段——表格要按模型把
-// 上游归成一组，而拼好的标签拆不回来：模型名里本身就可能带分隔符，
-// 拆错了会把一个模型的两行上游分到两个组里，看起来像多了一个模型。
+// 名字取「请求名 · 提供商」是给**读**用的，两个分量另存字段——表格要按请求名
+// 把各家提供商归成一组，而拼好的标签拆不回来：请求名里本身就可能带分隔符，
+// 拆错了会把一个请求名的两行提供商分到两个组里，看起来像多了一个请求名。
+// 字段仍叫 Model，是历史命名（前端 groupByModel 早已按"联合维度的第一个
+// 分量"读它，不吃字面含义）。
 func (a *groupAcc) addJoint(model, provider string, l models.ChatLog) {
 	it := a.item(jointLabel(model, provider))
 	it.stat.Model, it.stat.Provider = dashIfEmpty(model), dashIfEmpty(provider)
 	a.count(it, l)
 }
 
-// jointLabel 是模型×上游这一维的行名。
+// jointLabel 是联合维度（请求名 × 提供商）的行名。
 func jointLabel(model, provider string) string {
 	return dashIfEmpty(model) + " · " + dashIfEmpty(provider)
 }

@@ -958,7 +958,7 @@ func GetUserAgents(c *gin.Context) {
 // 这个是从历史日志里观测到的、真正发给上游的模型 id。日志页的"模型"筛选
 // 要按后者取值，否则筛选项和分组名对不上。同名可以跨提供商，所以这里
 // 只取模型名本身，不带上提供商——要按两者组合看走 /metrics/stats 的
-// byModelProvider 维度。
+// byModelProvider 维度（那一维按**请求名**分组，不按上游模型名）。
 //
 // 与 GetUserAgents 同形：只取非空去重值，按字母序返回，下拉框里顺序稳定。
 func GetProviderModelList(c *gin.Context) {

@@ -785,31 +785,31 @@ func TestAggregateGroupsSortedByTotalThenName(t *testing.T) {
 	}
 }
 
-// 模型×上游这一维要能回答"同一个模型的几个上游谁快"。
+// 联合维度（请求名 × 提供商）要能回答"同一个请求名的几家提供商谁快"。
 //
-// 两个边际分布都答不了：byModel 把同一模型的多个上游混成一行，
-// byProvider 又把同一上游的多个模型混成一行。因此这里断言的是
+// 两个边际分布都答不了：byName 把同一请求名的多家提供商混成一行，
+// byProvider 又把同一提供商的多个请求名混成一行。因此这里断言的是
 // **联合**分布的分量，而不是它恰好等于某个边际分布。
-func TestAggregateByModelProvider(t *testing.T) {
+func TestAggregateByNameProvider(t *testing.T) {
 	t.Parallel()
 
 	base := time.Now()
-	mk := func(model, provider string, tps float64, fc time.Duration) models.ChatLog {
+	mk := func(name, provider string, tps float64, fc time.Duration) models.ChatLog {
 		l := logAt(1, base, consts.StatusSuccess)
-		// byModel 按上游模型名分组，请求名在这里与它同名，避免两个维度混着看
-		l.Name, l.ProviderModel = model, model
-		l.ProviderName = provider
+		// 上游模型名与请求名刻意不同：联合维度按请求名分，
+		// 同名之外的上游 id 不该把一行拆成两行
+		l.Name, l.ProviderModel, l.ProviderName = name, name+"-v1", provider
 		l.Tps = tps
 		l.FirstChunkTime = fc
 		return l
 	}
 
 	res := AggregateWithBucket([]models.ChatLog{
-		// 同一个上游模型，两个上游：正是"要对比"的那种情形
+		// 同一个请求名，两家提供商：正是"要对比"的那种情形
 		mk("claude", "快上游", 40, 300*time.Millisecond),
 		mk("claude", "快上游", 60, 500*time.Millisecond),
 		mk("claude", "慢上游", 10, 3*time.Second),
-		// 另一个模型挂在同一个上游上：联合分布要把它分出去
+		// 另一个请求名挂在同一个上游上：联合分布要把它分出去
 		mk("gpt", "快上游", 5, time.Second),
 	}, StatsFilter{}, time.Hour)
 
@@ -827,10 +827,10 @@ func TestAggregateByModelProvider(t *testing.T) {
 	if !ok {
 		t.Fatalf("缺少 claude×快上游：%+v", res.ByModelProvider)
 	}
-	// 分量字段必须原样保留：前端要按模型把上游归成一组，
+	// 分量字段必须原样保留：前端要按请求名把各家提供商归成一组，
 	// 光有一行「claude · 快上游」拆不回来
 	if fast.Name != "claude · 快上游" {
-		t.Fatalf("行名应为「模型 · 上游」，实得 %q", fast.Name)
+		t.Fatalf("行名应为「请求名 · 提供商」，实得 %q", fast.Name)
 	}
 	if fast.Total != 2 || fast.AvgTps != 50 {
 		t.Fatalf("claude×快上游 应有 2 条、平均 50 TPS，实得 %+v", fast)
@@ -841,17 +841,35 @@ func TestAggregateByModelProvider(t *testing.T) {
 	}
 
 	// 边际分布是混着的，这正是要分开的理由：
-	// claude 这一行把两个上游合成了 3 条
-	for _, g := range res.ByModel {
+	// claude 这一行把两家提供商合成了 3 条
+	for _, g := range res.ByName {
 		if g.Name == "claude" && g.Total != 3 {
-			t.Fatalf("byModel 的 claude 应为 3 条，实得 %d", g.Total)
+			t.Fatalf("byName 的 claude 应为 3 条，实得 %d", g.Total)
 		}
 	}
-	// 快上游这一行把两个模型合成了 3 条
+	// 快上游这一行把两个请求名合成了 3 条
 	for _, g := range res.ByProvider {
 		if g.Name == "快上游" && g.Total != 3 {
 			t.Fatalf("byProvider 的快上游应为 3 条，实得 %d", g.Total)
 		}
+	}
+
+	// 上游模型名不参与联合分组：同一个请求名换了模型 id，仍是同一行。
+	// 否则"这家比那家慢多少"会被拆成若干小行，恰恰是这一维要回答的问题。
+	reRouted := AggregateWithBucket([]models.ChatLog{
+		func() models.ChatLog {
+			l := mk("claude", "快上游", 40, 300*time.Millisecond)
+			l.ProviderModel = "claude-sonnet-4"
+			return l
+		}(),
+		func() models.ChatLog {
+			l := mk("claude", "快上游", 60, 500*time.Millisecond)
+			l.ProviderModel = "claude-sonnet-4-5"
+			return l
+		}(),
+	}, StatsFilter{}, time.Hour)
+	if len(reRouted.ByModelProvider) != 1 || reRouted.ByModelProvider[0].Total != 2 {
+		t.Fatalf("同一请求名下的不同上游模型应合为一行：%+v", reRouted.ByModelProvider)
 	}
 }
 
@@ -910,8 +928,8 @@ func TestAggregateByModelUsesProviderModel(t *testing.T) {
 	}
 }
 
-// 其余维度不该带上模型/上游这两个身份字段——它们只在联合分布里有意义，
-// 到处都填会让前端以为别的维度也能按上游归组。
+// 其余维度不该带上这两个身份字段——它们只在联合分布（请求名·提供商）里
+// 有意义，到处都填会让前端以为别的维度也能按它归组。
 func TestAggregateModelProviderFieldsOnlyOnJoint(t *testing.T) {
 	t.Parallel()
 
@@ -919,8 +937,9 @@ func TestAggregateModelProviderFieldsOnlyOnJoint(t *testing.T) {
 	res := AggregateWithBucket([]models.ChatLog{l}, StatsFilter{}, time.Hour)
 
 	for _, g := range res.ByModelProvider {
-		if g.Model != "gpt-4o-2024" || g.Provider != "prov-a" {
-			t.Fatalf("联合分布应带上分量（上游模型名，不是请求名）：%+v", g)
+		// 第一个分量是**请求名**（logAt: name=gpt-4o），不是上游模型名（gpt-4o-2024）
+		if g.Model != "gpt-4o" || g.Provider != "prov-a" {
+			t.Fatalf("联合分布应带上分量（请求名，不是上游模型名）：%+v", g)
 		}
 	}
 	for _, g := range res.ByModel {
@@ -941,7 +960,7 @@ func TestAggregateJointLabelDashesEmptyParts(t *testing.T) {
 
 	mk := func(name, provider string) models.ChatLog {
 		l := logAt(1, time.Now(), consts.StatusSuccess)
-		l.Name, l.ProviderModel, l.ProviderName = name, name, provider
+		l.Name, l.ProviderModel, l.ProviderName = name, name+"-v1", provider
 		return l
 	}
 	res := AggregateWithBucket([]models.ChatLog{

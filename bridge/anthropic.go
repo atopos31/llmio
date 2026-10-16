@@ -131,12 +131,12 @@ type AnthropicToolChoice struct {
 
 // 内容块类型常量。散落的字符串字面量最容易拼错，集中在这里。
 const (
-	blockText       = "text"
-	blockImage      = "image"
-	blockToolUse    = "tool_use"
-	blockToolResult = "tool_result"
-	blockThinking   = "thinking"
-	blockRedacted   = "redacted_thinking"
+	blockText         = "text"
+	blockImage        = "image"
+	blockToolUse      = "tool_use"
+	blockToolResult   = "tool_result"
+	blockThinking     = "thinking"
+	blockRedacted     = "redacted_thinking"
 	blockToolAddition = "tool_addition"
 	blockToolRemoval  = "tool_removal"
 )

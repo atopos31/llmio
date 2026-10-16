@@ -1593,6 +1593,7 @@ func TestAnthropicRequestToOpenAIStreamOptions(t *testing.T) {
 		t.Fatalf("非流式不该注入 stream_options: %s", out)
 	}
 }
+
 // ---------------------------------------------------------------------------
 // mid-conversation tool changes（tool_addition / tool_removal）
 // ---------------------------------------------------------------------------

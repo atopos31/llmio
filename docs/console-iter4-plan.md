@@ -1,6 +1,6 @@
 # console-iter4：日志保真与总览可观测性
 
-> 状态：13 步已完成；2026-10-16 用户实测后追加返修轮（三条缺陷，见第七节）
+> 状态：13 步已完成；2026-10-16 用户实测后追加返修轮（四条缺陷，见第七节）
 > 拟稿 2026-10-15，实测记录回填 2026-10-15，返修轮 2026-10-16
 > 分支：`feat/console-iter4`（基线 `7e861cc`，= `origin/master` = `upstream/master`）
 > 前置阅读：`docs/merge-dashboard-plan.md`（前三轮的方案与实测记录）、`docs/api-frontend-parity.md`（前后端接口对照）、`.impeccable.md`（设计上下文）
@@ -362,7 +362,7 @@ LLMIO_DB_PATH=<真实库的拷贝> TOKEN=<token> go run main.go
 
 ## 七、返修轮：用户实测暴露的三条缺陷（2026-10-16）
 
-用户跑完上面的清单后提了三条，原话：*「为什么首页还需要手动点击刷新才触发自动刷新；首页显示失败模型的地方又不止一处，为什么不都做抽屉：最近失败；模型性能里面的模型\*提供商改为请求名\*提供商」*。逐条定位后改，第三条超出了原方案的范围（原方案定的是模型 × 提供商），所以单列一节。
+用户跑完上面的清单后提了三（后来是四）条，原话：*「为什么首页还需要手动点击刷新才触发自动刷新；首页显示失败模型的地方又不止一处，为什么不都做抽屉：最近失败；模型性能里面的模型\*提供商改为请求名\*提供商」*，以及*「还有对思考内容的解析怎么没有合并，现在还是按sse」*。逐条定位后改，第三条超出了原方案的范围（原方案定的是模型 × 提供商），所以单列一节。
 
 ### 缺陷 A：总览的自动刷新看不出在跑
 
@@ -393,12 +393,23 @@ LLMIO_DB_PATH=<真实库的拷贝> TOKEN=<token> go run main.go
 
 **口径落点。** `service/stats.go` 的 `modelProviders.addJoint(l.Name, l.ProviderName, l)`——只换第一个分量，`byModel` / `byName` / `byProvider` 三个边际分布一律不动。JSON 契约不变：字段仍叫 `model`（`GroupStat.Model`），装的东西从上游模型名变成请求名；前端 `groupByModel` 随之更名 `groupByRequestName`，并断言它读的是「联合维度的第一个分量」而不是字面含义。三语文案（`models.dimensions.modelProvider` = 请求名 × 提供商、`note_joint`、`note_model`）与抽屉里「请求名 / 模型」两个字段的次序一起对齐。
 
+### 缺陷 D：请求内容页的思考仍按 SSE 分片裂成卡片
+
+**现象。** 用户实测：「对思考内容的解析怎么没有合并，现在还是按 sse」。
+
+**根因。** 上一轮的结构化解析把**协议差异**统一了（四协议都归一成 `kind="thinking"` 的增量），但没统一**分片粒度**：`AssembledResponse.thinking` 是 `string[]`，每来一个 thinking 增量就 `push` 一项。而流式里思考正是以增量到达的——Anthropic `thinking_delta`、OpenAI `reasoning_content`、Responses `reasoning_summary_text.delta`。真实日志里一条 291 个 `reasoning_content` 分片的响应，就裂成 291 张各写一两个字的卡片。
+
+**方案。** `thinking` 改成和 `text` 一样的累加（`string`）：一次响应一段正文、一段思考。分片是线路格式的产物，不是思考的边界。真要有多个思考块的协议（Anthropic 非流式的 `thinking` + `redacted_thinking`）在进入装配器之前就都归一成 `kind="thinking"` 了，边界信息到不了装配器这一层，保留 `string[]` 也换不回它——这一点写进 `types.ts` 的字段注释，免得后人以为是漏做。
+
+**界面跟着收。** 响应侧只渲染一张思考卡，去掉恒为 `#1` 的编号和失去意义的段数徽标。请求侧反过来：那里的思考块是消息里的一个内容块，一条消息可能有多段（Anthropic 的 `thinking` + `redacted_thinking`），编号按「第几段思考」数——此前所有思考块都显示 `#1`，因为 `ContentPartView` 恒传 `index={0}`。
+
 ### 本轮验证
 
 - **Go**：`go test ./...` 全绿；`go vet ./...` 干净（前置：`pnpm run build` 重建 `webui/dist`，否则 `//go:embed` 直接编译失败）。
-- **前端**：`corepack pnpm run lint` 干净；`test:coverage` **1082 passed**（39 个文件，1 todo），A 层纯逻辑 100% statements / branches / functions / lines；`pnpm run build` 通过。
+- **前端**：`corepack pnpm run lint` 干净；`test:coverage` **1084 passed**（39 个文件，1 todo），A 层纯逻辑 100% statements / branches / functions / lines；`pnpm run build` 通过。
 - **真机**：起 7171 端口、`LLMIO_DB_PATH` 指向真实库的**子集抽取**（源库尾部有坏页，逐块读到 25000 行即停；`chat_ios` 整表不可读故不带），时间戳整体平移到近 10 天让默认时间窗有数据。逐条走查：
   - 档位选「每 10 秒」→ 写进 `llmio-ui-prefs-v1` → 刷新页面后档位仍在；「更新于 HH:MM:SS」在两次轮询间往前走（15:19:56 → 15:20:46）；手动点刷新按钮的瞬间，工具栏两个 `RefreshCw` 同时挂上 `animate-spin`、按钮置灰，取数结束后恢复。
   - 首页「最近失败」与错误面板的「样本」行，点开都是右侧抽屉（`role="dialog"`，标题「日志详情: <id>」），**地址栏不变**（改前跳 `/logs/:id/chat-io`）；错误原文、请求名 / 提供商 / 模型、Trace ID、User-Agent 都在，操作是「在日志页查看」。
   - 分析页 → 模型性能 → 「请求名 × 提供商」：组头是请求名（`th scope="rowgroup"`），底下的行是各家提供商。`astron-code-latest` 一组三行（国家超算 5252 / deepseek 2708 / OPENCODE 2627，合计 10595 = `byName` 的分组计数），组序按请求数降序，与「请求名」边际维度的次序一致。
+  - 请求内容页（另起 7172、抽取时把可读的 `chat_ios` 一并带上）：`/logs/2065/chat-io` 是一条 291 个 `reasoning_content` 分片的 openai 流。改前这里会是 291 张思考卡；改后「思考」是一个折叠区、一张卡，卡内是完整的一段推理（以 `The user wrote in Chinese...Title: "自定义脚本查询套餐余量"` 结尾），卡片头部的摘要行也是整段的前 80 字。头部仍显示「291 个片段」——那是 SSE 分片数，是有意义的另一个计数。
 

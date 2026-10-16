@@ -14,22 +14,28 @@ import { cn } from "@/lib/utils"
  *
  * `0` 表示关闭，也是唯一的关闭方式，所以 options 的第一个必须是 0：
  * 没有关闭档位的页面就没法停掉轮询。
+ *
+ * `pending` 由调用方传"有没有一次取数在飞"，只为旋转这个图标：轮询是
+ * 静默的（不闪骨架），用户画面上看不出它在动，旋一下就是那个"它在跑"的
+ * 证据。
  */
 export function RefreshSelect({
   value,
   options,
   onChange,
+  pending,
   className,
 }: {
   value: number
   options: readonly number[]
   onChange: (sec: number) => void
+  pending?: boolean
   className?: string
 }) {
   const { t } = useTranslation("common")
   return (
     <div className="flex items-center gap-1.5">
-      <RefreshCw className="size-3.5 text-muted-foreground" aria-hidden="true" />
+      <RefreshCw className={cn("size-3.5 text-muted-foreground", pending && "animate-spin")} aria-hidden="true" />
       <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
         <SelectTrigger
           className={cn("h-8 w-[104px] text-xs", className)}

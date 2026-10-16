@@ -10,6 +10,7 @@ import {
   type ChatLog,
   type ErrorGroup,
   type GroupStat,
+  type StatsLogRow,
   type StatsResult,
 } from "@/lib/api"
 import { UI_PREFS_STORAGE_KEY } from "@/lib/prefs"
@@ -112,6 +113,25 @@ function errorGroup(over: Partial<ErrorGroup> = {}): ErrorGroup {
     providers: [{ name: "openai", count: 3 }],
     models: [{ name: "claude-sonnet-4", count: 3 }],
     samples: [{ id: 21, createdAt: 1_700_000_000_000, error: "upstream unavailable" }],
+    ...over,
+  }
+}
+
+/** 排行榜一行。`requestName` 与 `model` 是同一个东西的两个名字，可分别给。 */
+function leaderRow(over: Partial<StatsLogRow> = {}): StatsLogRow {
+  return {
+    id: 7,
+    createdAt: 1_700_000_000_000,
+    model: "claude-sonnet-4",
+    requestName: "claude-code",
+    provider: "openai",
+    keyName: "dev-key",
+    tps: 88.5,
+    firstChunkMs: 3200,
+    completionTokens: 512,
+    promptTokens: 128,
+    error: "upstream unavailable: connection reset by peer",
+    retry: 0,
     ...over,
   }
 }
@@ -250,6 +270,81 @@ describe("总览页 · 有数据", () => {
   })
 })
 
+/**
+ * 刷新反馈。
+ *
+ * 轮询是静默的，画面上没有任何东西在动，于是读者只能得出"点了刷新按钮才刷"
+ * 的结论——计时器确实在跑，但**没有证据**。这两条测试钉住证据本身：
+ * 时间戳要跟着每一轮落地往前走（静默轮询也算），在飞的那一轮要让图标转起来。
+ */
+describe("总览页 · 刷新反馈", () => {
+  it("取到数据后给出更新时间，精确到秒", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 9, 16, 9, 5, 3))
+    try {
+      renderPage()
+      await act(async () => {})
+
+      // 秒级而不是分钟级：stats 是全量聚合，10 秒档下取回同一份数据很常见，
+      // 分钟粒度下这一轮到底取没取成根本看不出来
+      expect(screen.getByText("更新于 09:05:03")).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("自动刷新落地后时间戳跟着走，这就是它在跑的证据", async () => {
+    localStorage.setItem(
+      UI_PREFS_STORAGE_KEY,
+      JSON.stringify({ refresh: { home: 10 } })
+    )
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 9, 16, 9, 5, 3))
+    try {
+      renderPage()
+      await act(async () => {})
+      expect(screen.getByText("更新于 09:05:03")).toBeInTheDocument()
+
+      // 从 09:05:03 起拨 10 秒，落地的那次取数记的就是 09:05:13
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+      // 计时器只负责"发起"，静默取数的落地还差一个微任务回合：
+      // 多冲一次才轮到 setState 重渲染
+      await act(async () => {})
+
+      expect(mocked.getStats).toHaveBeenCalledTimes(2)
+      // 静默取数不落错误条、不闪骨架，但时间戳必须动
+      expect(screen.getByText("更新于 09:05:13")).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("取数在飞时刷新图标转起来，落地后停下", async () => {
+    let settle: (v: StatsResult) => void = () => {}
+    mocked.getStats.mockReturnValue(
+      new Promise<StatsResult>((resolve) => {
+        settle = resolve
+      })
+    )
+    renderPage()
+
+    const button = screen.getByRole("button", { name: "刷新概览" })
+    await waitFor(() => expect(button).toBeDisabled())
+    expect(button.querySelector("svg")).toHaveClass("animate-spin")
+    expect(screen.queryByText(/^更新于 /)).not.toBeInTheDocument()
+
+    await act(async () => {
+      settle(stats())
+    })
+
+    expect(button).toBeEnabled()
+    expect(button.querySelector("svg")).not.toHaveClass("animate-spin")
+    expect(screen.getByText(/^更新于 /)).toBeInTheDocument()
+  })
+})
+
 describe("总览页 · 自动刷新与偏好", () => {
   it("存档里的时间范围与刷新档位被沿用，静默刷新不闪骨架", async () => {
     // 用户上一回选过"近 30 天 + 每 10 秒"：刷新页面后不该丢
@@ -322,6 +417,71 @@ describe("总览页 · 自动刷新与偏好", () => {
       localStorage.getItem(UI_PREFS_STORAGE_KEY) ?? "{}"
     ) as { refresh: Record<string, number> }
     expect(stored.refresh.home).toBe(30)
+  })
+})
+
+/**
+ * 排行榜的详情抽屉。
+ *
+ * 首页显示失败请求的地方有两处：错误分析与"最近失败"。后者原先跳去
+ * /logs/:id/chat-io，而失败请求没有请求内容，进去是张空表。三张榜共用
+ * 一份实现，所以交互也必须共用——否则同一张卡片点哪张去哪，全看它装的是
+ * 哪类数据。能不能看请求内容由抽屉按这条日志自己判断。
+ */
+describe("总览页 · 排行榜抽屉", () => {
+  it("最近失败点开抽屉，不跳去没有请求内容的 chat-io", async () => {
+    mocked.getStats.mockResolvedValue(
+      stats({ recentErrors: [leaderRow({ id: 21 })] })
+    )
+    mocked.getLogById.mockResolvedValue(failedLog())
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText("最近失败")
+    await user.click(screen.getByRole("button", { name: /claude-code/ }))
+
+    expect(mocked.getLogById).toHaveBeenCalledWith(21)
+    expect(await screen.findByText("日志详情: 21")).toBeInTheDocument()
+    expect(screen.getByText("upstream unavailable: connection reset by peer")).toBeInTheDocument()
+    // 失败请求给的是"回日志页"，不是那条通往空表的 chat-io
+    expect(screen.getByRole("button", { name: "在日志页查看" })).toBeInTheDocument()
+    expect(screen.queryByText("查看请求内容")).not.toBeInTheDocument()
+    expect(document.querySelector('a[href^="/logs/"]')).toBeNull()
+  })
+
+  it("TPS 榜首与最慢首包同样点开抽屉，交互不随数据而变", async () => {
+    mocked.getStats.mockResolvedValue(stats({ topTps: [leaderRow()] }))
+    mocked.getLogById.mockResolvedValue(failedLog())
+    const user = userEvent.setup()
+    renderPage()
+
+    await screen.findByText("TPS 榜首")
+    await user.click(screen.getByRole("button", { name: /claude-code/ }))
+
+    expect(mocked.getLogById).toHaveBeenCalledWith(7)
+  })
+
+  it("标签请求名优先，上游模型名退到括号里", async () => {
+    mocked.getStats.mockResolvedValue(
+      stats({ topTps: [leaderRow({ requestName: "claude-code", model: "claude-sonnet-4" })] })
+    )
+    renderPage()
+
+    await screen.findByText("TPS 榜首")
+    const row = screen.getByRole("button", { name: /claude-code/ })
+    expect(row).toHaveTextContent("claude-code（claude-sonnet-4） · openai")
+  })
+
+  it("别名与上游模型名相同时只写一个名字", async () => {
+    mocked.getStats.mockResolvedValue(
+      stats({ topTps: [leaderRow({ requestName: undefined, model: "gpt-4o" })] })
+    )
+    renderPage()
+
+    await screen.findByText("TPS 榜首")
+    expect(screen.getByRole("button", { name: /gpt-4o/ })).toHaveTextContent(
+      "gpt-4o · openai"
+    )
   })
 })
 

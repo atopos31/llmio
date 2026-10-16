@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, ArrowUpRight, RefreshCw } from "lucide-react"
-import { Link } from "react-router-dom"
 
 import { FirstChunkHistogram, RequestTrendChart, TokenTrendChart } from "@/components/charts/trend-charts"
 import { LogDetailSheet } from "@/components/log-detail-sheet"
@@ -16,12 +15,14 @@ import { getStats, type StatsResult } from "@/lib/api"
 import { statsRowNames } from "@/lib/analytics"
 import {
   compactNumber,
+  formatClockSeconds,
   formatCost,
   formatDateTime,
   formatNumber,
   formatPercent,
   formatSeconds,
 } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import {
   HOME_RANGES,
   type HomeRange,
@@ -72,6 +73,16 @@ export default function Home() {
   const [stats, setStats] = useState<StatsResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  /**
+   * "有没有一次取数在飞"与"上次取到是什么时候"。
+   *
+   * 轮询是静默的：不闪骨架、不换错误条，页面上连带状的动静都没有。用户看到的是
+   * 一堆不动的数字，于是只会得出"刷新按钮点了才动"的结论——定时器确实在跑，
+   * 但没有任何东西能证明它在跑。这两项就是那份证据：飞着的取数让图标转起来，
+   * 落地的时间戳让秒数往前走。
+   */
+  const [refreshing, setRefreshing] = useState(false)
+  const [updatedAt, setUpdatedAt] = useState(0)
 
   const setPref = (next: UiPrefs) => {
     setPrefs(next)
@@ -80,11 +91,14 @@ export default function Home() {
 
   const load = useCallback(
     async (silent = false) => {
+      // 静默取数也要置位：轮询的那一次同样在飞，图标该转
+      setRefreshing(true)
       if (!silent) setLoading(true)
       try {
         const data = await getStats(rangeToQuery(range))
         setStats(data)
         setLoadError(null)
+        setUpdatedAt(Date.now())
       } catch (err) {
         // 失败必须留在页面上。原先只弹一条会自己消失的 toast，而 stats 仍是 null，
         // 于是 hasData 为假、页面显示"该时间范围内没有请求"——把"没取到"说成了
@@ -93,6 +107,7 @@ export default function Home() {
         // 比保留上一次的结果更打扰人（与日志页 fetchLogs(silent) 同一口径）。
         if (!silent) setLoadError(err instanceof Error ? err.message : String(err))
       } finally {
+        setRefreshing(false)
         if (!silent) setLoading(false)
       }
     },
@@ -156,17 +171,29 @@ export default function Home() {
           value={sec}
           options={HOME_REFRESH_SECONDS}
           onChange={(s) => setPref(withRefreshSec(prefs, "home", s))}
+          pending={refreshing}
         />
         <Button
           variant="outline"
           size="icon"
           className="size-8"
           onClick={() => void load()}
+          disabled={refreshing}
           aria-label={t("home:refresh")}
           title={t("home:refresh")}
         >
-          <RefreshCw className="size-4" />
+          <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
         </Button>
+        {/*
+          "更新于 HH:MM:SS"是自动刷新在跑的直接证据。秒级而不是分钟级：
+          stats 是全量聚合，10 秒档下同一份数据来回滚动很常见，分钟粒度下
+          根本看不出这一轮有没有取成。
+        */}
+        {updatedAt > 0 && (
+          <span className="text-xs text-muted-foreground">
+            {t("home:updated_at", { time: formatClockSeconds(updatedAt) })}
+          </span>
+        )}
       </div>
 
       {stats?.truncated && (
@@ -469,6 +496,18 @@ function ErrorList({ stats, unavailable }: { stats: StatsResult; unavailable: st
   )
 }
 
+/**
+ * 排行榜卡片（TPS 榜首 / 最慢首包 / 最近失败）。
+ *
+ * 三张卡共用一份实现，也共用同一套交互：点开抽屉看那一条的详情。
+ * 原先这里是 `<Link to="/logs/:id/chat-io">`，而失败请求没有请求内容，
+ * 那条链接进去是张空表——同样的"点了没反应"，而且三张卡里只有一张会踩到。
+ * 统一改成抽屉后，能不能看请求内容由抽屉自己按这条日志的状态判断，
+ * 首页再没有通往死链的入口。
+ *
+ * 标签请求名优先：操作台上认得的是 llmio 别名，上游模型 id 只在别名改了
+ * 路由时才是必要信息，所以退到括号里。
+ */
 function LeaderboardCard({
   title,
   rows,
@@ -482,6 +521,8 @@ function LeaderboardCard({
   empty: string
   tone?: "critical"
 }) {
+  const [logId, setLogId] = useState<number | null>(null)
+
   return (
     <Panel title={title}>
       {rows.length === 0 ? (
@@ -490,21 +531,27 @@ function LeaderboardCard({
         <ul className="space-y-1.5">
           {rows.map((r) => {
             const names = statsRowNames(r)
-            // 别名与上游模型名不同时补在模型名后面；括号即"同一件事的两个名字"
-            const alias = names.requestName ? `（${names.requestName}）` : ""
+            const requestName = names.requestName
+            const primary = requestName ?? names.model
+            const title = requestName
+              ? `${requestName}（${names.model}） · ${r.provider}`
+              : `${names.model} · ${r.provider}`
             return (
               <li key={r.id}>
-                <Link
-                  to={`/logs/${r.id}/chat-io`}
-                  className="flex items-baseline justify-between gap-2 rounded-sm px-1 py-0.5 text-xs hover:bg-accent"
+                <button
+                  type="button"
+                  onClick={() => setLogId(r.id)}
+                  className="flex w-full items-baseline justify-between gap-2 rounded-sm px-1 py-0.5 text-left text-xs hover:bg-accent"
                 >
                   {/* 左列吃掉剩余宽度并截断，右列按内容宽度但不许`shrink-0`。
                       右列装的是错误原文（等宽字体，可达 300px 以上），
                       `shrink-0` 会让它永不收缩，把整行撑宽后一路顶到内容区——
                       窄卡片上表现为页面内容区出现一条横向滚动条。 */}
-                  <span className="min-w-0 flex-1 truncate" title={`${names.model}${alias} · ${r.provider}`}>
-                    {names.model}
-                    {alias ? <span className="text-muted-foreground">{alias}</span> : null}
+                  <span className="min-w-0 flex-1 truncate" title={title}>
+                    {primary}
+                    {requestName && (
+                      <span className="text-muted-foreground">（{names.model}）</span>
+                    )}
                     <span className="text-muted-foreground"> · {r.provider}</span>
                   </span>
                   <span
@@ -517,12 +564,14 @@ function LeaderboardCard({
                   >
                     {metric(r)}
                   </span>
-                </Link>
+                </button>
               </li>
             )
           })}
         </ul>
       )}
+
+      <LogDetailSheet logId={logId} onClose={() => setLogId(null)} />
     </Panel>
   )
 }

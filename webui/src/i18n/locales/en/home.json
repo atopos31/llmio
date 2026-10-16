@@ -1,6 +1,7 @@
 {
   "title": "Overview",
   "refresh": "Refresh overview",
+  "updated_at": "Updated {{time}}",
   "loading": "Loading overview",
   "loading_chart": "Loading chart...",
   "in_flight": "In flight",

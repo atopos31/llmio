@@ -6,6 +6,7 @@ import {
   formatBytes,
   currencySymbol,
   formatClock,
+  formatClockSeconds,
   formatCost,
   formatDateTime,
   formatDurationMs,
@@ -167,6 +168,11 @@ describe("时间格式化", () => {
   it("formatDateTime 输出 MM-DD HH:MM", () => {
     const ts = new Date(2026, 8, 29, 9, 5).getTime()
     expect(formatDateTime(ts)).toBe("09-29 09:05")
+  })
+
+  it("formatClockSeconds 输出 HH:MM:SS，秒数补零", () => {
+    expect(formatClockSeconds(new Date(2026, 8, 29, 9, 5, 3).getTime())).toBe("09:05:03")
+    expect(formatClockSeconds(new Date(2026, 8, 29, 9, 5, 0).getTime())).toBe("09:05:00")
   })
 
   it("formatFull 输出完整时间", () => {

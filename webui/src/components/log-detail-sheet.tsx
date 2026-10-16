@@ -134,6 +134,10 @@ function DetailBody({ log }: { log: ChatLog }) {
 
       <Section title={t("logs:detail.basic_info")}>
         <div className="grid grid-cols-2 gap-3">
+          {/* 两个名字的次序与标签都不能混：请求名是客户端请求体里写的那个
+              （chat_logs.name，llmio 别名），模型才是真正发给上游的 id
+              （chat_logs.provider_model）。屉抽里把请求名标成"模型名称"，
+              读者会拿着别名去筛选，而筛选打的是上游 id，于是筛出 0 行。 */}
           <DetailField label={t("logs:detail.model_name")} value={log.Name} />
           <DetailField label={t("logs:detail.provider")} value={log.ProviderName || "-"} />
           <DetailField label={t("logs:detail.provider_model")} value={log.ProviderModel || "-"} mono />

@@ -79,6 +79,16 @@ export function formatClock(ts: number): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/**
+ * 时间戳 → HH:MM:SS。
+ *
+ * 秒级是给"静默刷新看不见"用的：轮询回来的往往是同一批聚合，秒数不变就
+ * 分不清是没刷还是数据没动。分钟粒度下 10 秒档位在一分钟内根本看不出变化。
+ */
+export function formatClockSeconds(ts: number): string {
+  return `${formatClock(ts)}:${pad(new Date(ts).getSeconds())}`
+}
+
 /** 时间戳 → MM-DD HH:MM。跨天窗口下 HH:MM 会看不出是哪天。 */
 export function formatDateTime(ts: number): string {
   const d = new Date(ts)

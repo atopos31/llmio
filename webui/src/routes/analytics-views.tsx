@@ -32,7 +32,7 @@ import {
   errorViewMode,
   logDetailPath,
   logPath,
-  groupByModel,
+  groupByRequestName,
   MODEL_DIMENSIONS,
   MODEL_SORT_KEYS,
   modelDimensionGroups,
@@ -593,9 +593,9 @@ export function ModelsView({
   /**
    * 维度切换。
    *
-   * 「模型 × 提供商」不是前两项的重复：同一批日志按模型求和、按提供商求和，
-   * 两个方向都把另一半边际掉了，于是"这个模型的几家上游谁快"在两行合计里
-   * 都读不出来——而那正是这张性能表要回答的问题。
+   * 「请求名 × 提供商」不是前两项的重复：同一批日志按请求名求和、按提供商
+   * 求和，两个方向都把另一半边际掉了，于是"这个请求名的几家上游谁快"在两行
+   * 合计里都读不出来——而那正是这张性能表要回答的问题。
    */
   const picker = (
     <ToggleGroup
@@ -631,12 +631,12 @@ export function ModelsView({
 
   const rows = sortModelGroups(groups, sort)
   // 联合维度按**未排序**的原数组归组：组内次序由渲染时那次 sortModelGroups
-  // 负责（见下），组间次序由 groupByModel 按各行合计现算。若改成先排序再归组，
-  // 组内次序会被"归组时顺带带进来"，下面那行排序就成了永远等效的多余动作——
-  // 一处真排序比两处互相掩盖的排序可信。
-  const joint = groupByModel(groups)
+  // 负责（见下），组间次序由 groupByRequestName 按各行合计现算。若改成先排序
+  // 再归组，组内次序会被"归组时顺带带进来"，下面那行排序就成了永远等效的
+  // 多余动作——一处真排序比两处互相掩盖的排序可信。
+  const joint = groupByRequestName(groups)
   // 首列的表头跟着维度走：除了"模型"这一维，这一列装的都是提供商
-  // （联合维度里模型名已经升到分组行上去了）
+  // （联合维度里请求名已经升到分组行上去了）
   const nameColumn = dimension === "model" ? t("models.columns.name") : t("models.columns.provider")
 
   /** 一行读数。首列的文字由调用方给：联合维度里它是提供商名，其余是分组名。 */
@@ -686,25 +686,25 @@ export function ModelsView({
           </TableHeader>
           <TableBody>
             {/*
-              联合维度按模型分组渲染：组头一行放模型名，底下是它各家的读数。
-              平铺也能看，但同一个模型的上游会被别的模型隔开——要"对比"
+              联合维度按请求名分组渲染：组头一行放请求名，底下是它各家的读数。
+              平铺也能看，但同一个请求名的上游会被别的请求名隔开——要"对比"
               就得先把它们挪到一起。
 
               组头用 th + scope="rowgroup" 而不是普通单元格加粗：读屏时
-              每一行的提供商名才会被读成"属于某个模型"，否则那一列只剩
+              每一行的提供商名才会被读成"属于某个请求名"，否则那一列只剩
               孤零零的提供商名，读不出它在跟谁比。
             */}
             {dimension === "modelProvider"
               ? joint.map((grp) => (
-                  <Fragment key={grp.model}>
+                  <Fragment key={grp.requestName}>
                     <TableRow className="bg-muted/50 hover:bg-muted/50">
                       <TableHead
                         scope="rowgroup"
                         colSpan={MODEL_SORT_KEYS.length + 1}
                         className="max-w-[220px] font-medium"
                       >
-                        <span className="block truncate" title={grp.model}>
-                          {grp.model}
+                        <span className="block truncate" title={grp.requestName}>
+                          {grp.requestName}
                         </span>
                       </TableHead>
                     </TableRow>

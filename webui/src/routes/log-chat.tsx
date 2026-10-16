@@ -246,13 +246,21 @@ function ToolResultCard({ result }: { result: { callId: string; content: unknown
 
 // ── Thinking card ──
 
-function ThinkingCard({ text, index }: { text: string; index: number }) {
+/**
+ * 一段思考。
+ *
+ * `index` 只在请求侧传入：那里的思考块是消息里的一个内容块，一条消息可能有多
+ * 段（Anthropic 的 thinking + redacted_thinking），序号按"第几段思考"数。响应
+ * 侧不传——一次响应只有一段思考，分片在装配器里就拼好了（见 chat-io 的
+ * ParsedResponse.thinking），给一个恒为 #1 的编号只会让人以为还有别的段。
+ */
+function ThinkingCard({ text, index }: { text: string; index?: number }) {
   const { t } = useTranslation("logs");
   return (
     <div className="border rounded-md">
       <div className="flex items-center gap-2 px-2 py-1.5 border-b bg-muted/30">
         <KindBadge name={t("chat_io.thinking")} slot={2} variant="muted" />
-        <span className="text-xs text-muted-foreground">#{index + 1}</span>
+        {index !== undefined && <span className="text-xs text-muted-foreground">#{index + 1}</span>}
         <span className="text-xs text-muted-foreground ml-auto truncate max-w-[240px]">
           {truncate(text.replace(/\s+/g, " ").trim(), 80)}
         </span>
@@ -264,15 +272,21 @@ function ThinkingCard({ text, index }: { text: string; index: number }) {
 
 // ── Content part view ──
 
-/** 一条消息里的一个内容块。四种协议被压平成同一个形状，渲染层只用这一份分发。 */
-function ContentPartView({ part }: { part: ContentPart }) {
+/**
+ * 一条消息里的一个内容块。四种协议被压平成同一个形状，渲染层只用这一份分发。
+ *
+ * `thinkingNo` 是这块思考在本条消息里是第几段（从 1 数起），只数思考块：
+ * 按 parts 的下标算的话，消息里每多一段正文或一张图，思考的编号就跟着跳，
+ * 而读者要的是"第几段思考"。
+ */
+function ContentPartView({ part, thinkingNo }: { part: ContentPart; thinkingNo?: number }) {
   const { t } = useTranslation("logs");
 
   switch (part.type) {
     case "text":
       return <pre className="whitespace-pre-wrap text-sm leading-relaxed break-words">{part.text}</pre>;
     case "thinking":
-      return <ThinkingCard text={part.text} index={0} />;
+      return <ThinkingCard text={part.text} index={thinkingNo === undefined ? undefined : thinkingNo - 1} />;
     case "image": {
       const url = part.url ?? part.data;
       return (
@@ -342,6 +356,9 @@ function MessageView({ msg }: { msg: Message }) {
     .trim();
   const callNames = msg.toolCalls.map((c) => c.name || "?");
   const preview = textPreview || (callNames.length > 0 ? callNames.join(", ") : "");
+  // 每个块的"第几段思考"：不是思考的块留 undefined，卡片就不显示编号。
+  let thinkingSeen = 0;
+  const thinkingNos = msg.parts.map((p) => (p.type === "thinking" ? ++thinkingSeen : undefined));
 
   return (
     <div className="border rounded-lg overflow-hidden">
@@ -362,7 +379,7 @@ function MessageView({ msg }: { msg: Message }) {
           {msg.parts.length === 0 ? (
             <span className="text-xs text-muted-foreground">(empty)</span>
           ) : (
-            msg.parts.map((part, i) => <ContentPartView key={i} part={part} />)
+            msg.parts.map((part, i) => <ContentPartView key={i} part={part} thinkingNo={thinkingNos[i]} />)
           )}
         </div>
       )}
@@ -607,11 +624,9 @@ function OutputSection({ chatIO, style }: { chatIO: ChatIO; style: Protocol | un
               </div>
             )}
 
-            {thinking.length > 0 && (
-              <CollapsibleSection title={t("chat_io.thinking")} badge={`${thinking.length}`} defaultOpen={true}>
-                <div className="space-y-2">
-                  {thinking.map((txt, i) => <ThinkingCard key={i} text={txt} index={i} />)}
-                </div>
+            {thinking && (
+              <CollapsibleSection title={t("chat_io.thinking")} defaultOpen={true}>
+                <ThinkingCard text={thinking} />
               </CollapsibleSection>
             )}
 
@@ -637,7 +652,7 @@ function OutputSection({ chatIO, style }: { chatIO: ChatIO; style: Protocol | un
               </CollapsibleSection>
             )}
 
-            {!parsed.text && thinking.length === 0 && toolCalls.length === 0 && toolResults.length === 0 && (
+            {!parsed.text && !thinking && toolCalls.length === 0 && toolResults.length === 0 && (
               <p className="text-xs text-muted-foreground">{t("chat_io.empty")}</p>
             )}
 

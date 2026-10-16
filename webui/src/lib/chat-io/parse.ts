@@ -129,7 +129,7 @@ export function parseResponse(io: ChatInput, style: Protocol | null | undefined)
     protocol,
     stream,
     text: "",
-    thinking: [],
+    thinking: "",
     toolCalls: [],
     toolResults: [],
     chunks: [],

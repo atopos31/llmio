@@ -93,7 +93,7 @@ describe("parseRequest", () => {
 
 describe("parseResponse", () => {
   it("没有响应内容时给空结果", () => {
-    const empty = { protocol: "openai", stream: false, text: "", thinking: [], toolCalls: [], toolResults: [], chunks: [], malformed: 0, unknown: 0 }
+    const empty = { protocol: "openai", stream: false, text: "", thinking: "", toolCalls: [], toolResults: [], chunks: [], malformed: 0, unknown: 0 }
     expect(parseResponse({}, "openai")).toEqual(empty)
     expect(parseResponse({ OfString: "" }, "openai")).toEqual(empty)
     expect(parseResponse({ OfStringArray: [] }, "openai")).toEqual(empty)
@@ -105,7 +105,7 @@ describe("parseResponse", () => {
     expect(res.protocol).toBe("openai")
     expect(res.model).toBe("gpt-4o-2024")
     expect(res.text).toBe("上海今天多云 31°")
-    expect(res.thinking).toEqual(["先查一下实时天气。"])
+    expect(res.thinking).toBe("先查一下实时天气。")
     expect(res.toolCalls.map((c) => [c.id, c.name, c.arguments])).toEqual([
       ["call_a", "get_weather", "{\"city\":\"上海\"}"],
       ["call_b", "search", "{\"q\":\"天气\"}"],
@@ -121,7 +121,7 @@ describe("parseResponse", () => {
     const res = parseResponse(fixtures.openaiNonStream, "openai")
     expect(res.stream).toBe(false)
     expect(res.model).toBe("gpt-4o")
-    expect(res.thinking).toEqual(["思考过程"])
+    expect(res.thinking).toBe("思考过程")
     expect(res.toolCalls.map((c) => c.name)).toEqual(["get_weather"])
     expect(res.finishReason).toBe("tool_calls")
     expect(res.chunks).toHaveLength(1)
@@ -131,7 +131,7 @@ describe("parseResponse", () => {
     const res = parseResponse(fixtures.openaiResStream, "openai-res")
     expect(res.model).toBe("gpt-4o-responses")
     expect(res.text).toBe("第一段。第二段。拒绝内容")
-    expect(res.thinking).toEqual(["思考 A", "思考 B"])
+    expect(res.thinking).toBe("思考 A思考 B")
     expect(res.toolCalls).toHaveLength(1)
     expect(res.toolCalls[0]).toMatchObject({ id: "fc_2", name: "get_weather", arguments: "{\"city\":\"杭州\"}" })
     expect(res.toolResults.map((r) => r.callId)).toEqual(["fc_2"])
@@ -144,7 +144,7 @@ describe("parseResponse", () => {
     expect(res.stream).toBe(false)
     expect(res.model).toBe("gpt-4o-responses")
     expect(res.text).toBe("整包文本。不能回答")
-    expect(res.thinking).toEqual(["非流式的推理摘要"])
+    expect(res.thinking).toBe("非流式的推理摘要")
     expect(res.toolCalls.map((c) => c.name)).toEqual(["get_weather"])
     expect(res.finishReason).toBe("completed")
     expect(res.toolResults).toHaveLength(0)
@@ -154,7 +154,7 @@ describe("parseResponse", () => {
     const res = parseResponse(fixtures.anthropicStream, "anthropic")
     expect(res.model).toBe("claude-sonnet-4-20250514")
     expect(res.text).toBe("结果 多云")
-    expect(res.thinking).toEqual(["让我", "想想"])
+    expect(res.thinking).toBe("让我想想")
     expect(res.toolCalls).toHaveLength(1)
     expect(res.toolCalls[0]).toMatchObject({ id: "tu_9", name: "get_weather", arguments: "{\"city\":\"上海\"}" })
     expect(res.finishReason).toBe("tool_use")
@@ -164,7 +164,7 @@ describe("parseResponse", () => {
   it("Anthropic 非流式：content 数组里的每类块都展开", () => {
     const res = parseResponse(fixtures.anthropicNonStream, "anthropic")
     expect(res.model).toBe("claude-sonnet-4-20250514")
-    expect(res.thinking).toEqual(["非流式思考", "RED2"])
+    expect(res.thinking).toBe("非流式思考RED2")
     expect(res.text).toBe("非流式正文")
     expect(res.toolCalls).toHaveLength(1)
     expect(res.finishReason).toBe("tool_use")
@@ -174,7 +174,7 @@ describe("parseResponse", () => {
     const res = parseResponse(fixtures.geminiStream, "gemini")
     expect(res.model).toBe("gemini-2.0-flash-001")
     expect(res.text).toBe("我来查多云")
-    expect(res.thinking).toEqual(["好的"])
+    expect(res.thinking).toBe("好的")
     expect(res.toolCalls.map((c) => c.name)).toEqual(["get_weather"])
     expect(res.toolResults.map((r) => r.callId)).toEqual(["get_weather"])
     expect(res.finishReason).toBe("STOP")
@@ -185,7 +185,7 @@ describe("parseResponse", () => {
     const res = parseResponse(fixtures.geminiNonStream, "gemini")
     expect(res.stream).toBe(false)
     expect(res.text).toBe("整包正文")
-    expect(res.thinking).toEqual(["整包思考"])
+    expect(res.thinking).toBe("整包思考")
     expect(res.toolResults).toHaveLength(1)
     expect(res.finishReason).toBe("STOP")
   })

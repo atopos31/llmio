@@ -2,7 +2,7 @@ import type { ContentPart, Delta, ToolCall } from "./types";
 
 export interface AssembledResponse {
   text: string;
-  thinking: string[];
+  thinking: string;
   toolCalls: ToolCall[];
   toolResults: ContentPart[];
   unknown: ContentPart[];
@@ -11,7 +11,7 @@ export interface AssembledResponse {
 }
 
 export function emptyAssembled(): AssembledResponse {
-  return { text: "", thinking: [], toolCalls: [], toolResults: [], unknown: [] };
+  return { text: "", thinking: "", toolCalls: [], toolResults: [], unknown: [] };
 }
 
 /**
@@ -21,9 +21,9 @@ export function emptyAssembled(): AssembledResponse {
  * 两条路径不会出现"流式有 thinking 卡片、非流式没有"这类分叉。参照项目只
  * 覆盖 OpenAI 的 choices 形状；这里按 kind 分发，四协议共用一套。
  *
- * 不变式：text 只收 kind=text 的正文，thinking / tool_call / tool_result 各自
- * 单独成桶。旧实现把流式 delta.tool_calls 直接 JSON.stringify 塞进正文字符串，
- * 读者看到的是正文中间夹着一坨 JSON——那条路径已经不存在了。
+ * 不变式：text 与 thinking 都是**累加**的——分片按到达顺序拼接，一个响应
+ * 只有一段正文、一段思考。旧实现把流式 delta.tool_calls 直接 JSON.stringify
+ * 塞进正文字符串，读者看到的是正文中间夹着一坨 JSON——那条路径已经不存在了。
  */
 export function applyChunk(out: AssembledResponse, d: Delta): AssembledResponse {
   switch (d.kind) {
@@ -31,7 +31,9 @@ export function applyChunk(out: AssembledResponse, d: Delta): AssembledResponse 
       if (d.text) out.text += d.text;
       break;
     case "thinking":
-      if (d.text) out.thinking.push(d.text);
+      // 与 text 同一个加法：思考在流式里是几十上百个 delta，逐个存一项就会
+      // 在界面上裂成几百张卡片。
+      if (d.text) out.thinking += d.text;
       break;
     case "tool_call": {
       // 按 id 建索引，找不到再退回 index：id 跨分片稳定，index 只在"同一响应

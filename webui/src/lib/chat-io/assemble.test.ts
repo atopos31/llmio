@@ -9,17 +9,34 @@ const d = (patch: Partial<Delta> & { kind: Delta["kind"] }): Delta => patch
 
 describe("applyChunk", () => {
   it("空装配器的初始形状", () => {
-    expect(emptyAssembled()).toEqual({ text: "", thinking: [], toolCalls: [], toolResults: [], unknown: [] })
+    expect(emptyAssembled()).toEqual({ text: "", thinking: "", toolCalls: [], toolResults: [], unknown: [] })
   })
 
-  it("text 累加到正文，thinking 单独成桶", () => {
+  it("text 与 thinking 各自累加，互不占桶", () => {
     const out = emptyAssembled()
     applyChunk(out, d({ kind: "text", text: "你好" }))
     applyChunk(out, d({ kind: "text", text: "世界" }))
     applyChunk(out, d({ kind: "thinking", text: "先想想" }))
+    applyChunk(out, d({ kind: "thinking", text: "再想想" }))
     applyChunk(out, d({ kind: "text" }))
     expect(out.text).toBe("你好世界")
-    expect(out.thinking).toEqual(["先想想"])
+    expect(out.thinking).toBe("先想想再想想")
+  })
+
+  it("流式思考的分片拼成一段，不是每片一项", () => {
+    // Anthropic 的思考是几十上百个 thinking_delta；逐 delta 存一项就是
+    // "按 SSE 展示"——界面上会裂成几百张各写一两个字的卡片。
+    const out = emptyAssembled()
+    for (const frag of ["让", "我", "想想", "。"]) applyChunk(out, d({ kind: "thinking", text: frag }))
+    expect(out.thinking).toBe("让我想想。")
+  })
+
+  it("空片不计入：空串接上去不改变结果", () => {
+    const out = emptyAssembled()
+    applyChunk(out, d({ kind: "thinking", text: "" }))
+    applyChunk(out, d({ kind: "text", text: "" }))
+    expect(out.thinking).toBe("")
+    expect(out.text).toBe("")
   })
 
   it("tool_call 按 id 累积 name 与 arguments 分片", () => {

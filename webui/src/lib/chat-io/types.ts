@@ -113,7 +113,20 @@ export interface ParsedResponse {
   model?: string;
   /** 正文（不含思考与工具片段），按出现顺序拼接。 */
   text: string;
-  thinking: string[];
+  /**
+   * 思考内容，一次响应一整段。
+   *
+   * 不是 `string[]`：流式里思考是以几十上百个 delta 到达的（Anthropic 的
+   * thinking_delta、OpenAI 的 reasoning_content、Responses 的
+   * reasoning_summary_text.delta），逐 delta 存一项就是"按 SSE 展示"——
+   * 读者看到的是几百张各写一两个字的卡片。分片是线路格式的产物，不是思考
+   * 的边界，所以在装配器里就拼起来。
+   *
+   * 真要有多个思考块的协议（Anthropic 非流式的 thinking + redacted_thinking）
+   * 在上游就已经都归一成 kind="thinking" 了，边界信息在到达装配器之前就丢了，
+   * 这里保留 `string[]` 也换不回它。
+   */
+  thinking: string;
   toolCalls: ToolCall[];
   toolResults: Array<{ callId: string; content: unknown; toolCall?: string }>;
   usage?: unknown;

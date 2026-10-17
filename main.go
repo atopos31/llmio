@@ -43,6 +43,15 @@ func init() {
 }
 
 func main() {
+	// 上一次进程留下的"在途"日志收尾。进程重启后那些请求的 goroutine 已经不在，
+	// 它们的日志不可能再被更新——不清理的话界面会永远显示"一直有请求在跑"。
+	// 只在启动路径做：此刻没有任何在途请求，判"被中断"是事实而不是猜测。
+	if n, err := models.ReconcileInterruptedLogs(context.Background()); err != nil {
+		slog.Error("收尾上次中断的日志失败", "error", err)
+	} else if n > 0 {
+		slog.Info("已收尾上次进程中断的日志", "rows", n)
+	}
+
 	// 存储层维护（启动期 VACUUM / auto_vacuum 转换）**放在监听端口之前**：
 	// 这两件事都持排他写锁、要 2 倍库大小的空闲磁盘，放在监听之后就意味着
 	// 在途请求会撞 busy_timeout 吃到 500；放在之前则请求永远看不到它。

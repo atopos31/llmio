@@ -6,8 +6,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/atopos31/llmio/consts"
+	"github.com/atopos31/llmio/pkg/sqlitex"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
@@ -22,7 +24,14 @@ func Init(ctx context.Context, path string) {
 	if err := ensureDBFile(path); err != nil {
 		panic(err)
 	}
-	db, err := gorm.Open(sqlite.Open(path))
+	// 受保护驱动：COMMIT 撞锁失败时必须把事务回滚掉再交还连接。
+	// 原生 driver + database/sql 不会做这件事，泄漏的写事务会把整库锁死到重启
+	// （2026-10-17 线上故障，见 pkg/sqlitex 的包注释）。
+	sqlitex.Register()
+	db, err := gorm.Open(sqlite.Dialector{
+		DriverName: sqlitex.DriverName,
+		DSN:        sqliteDSN(path),
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -201,6 +210,21 @@ func ensureModelAutofillPolicyConfig(ctx context.Context) error {
 		Value: string(value),
 	}
 	return gorm.G[Config](DB).Create(ctx, &config)
+}
+
+// sqliteDSN 在库路径上追写驱动参数。
+//
+// _txlock=immediate：SQLite 的 deferred 事务是"先拿 SHARED、写的时候再升级成
+// RESERVED"。两个并发写事务同时走到升级那一步时会互等，SQLite 为避免死锁直接
+// 返回 SQLITE_BUSY（**不走 busy_timeout，也没有等待**），于是并发聊天请求的 IO
+// 写入成片失败。BEGIN IMMEDIATE 在事务开头就把 RESERVED 拿到手，并发写者改由
+// busy_timeout 排队，而不是撞死锁。读路径不受影响：GORM 的单条查询不开事务。
+func sqliteDSN(path string) string {
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "_txlock=immediate"
 }
 
 func ensureDBFile(path string) error {

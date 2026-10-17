@@ -34,12 +34,14 @@ func setupLogsHandlerDB(t *testing.T) {
 		t.Fatalf("migrate test db: %v", err)
 	}
 	seed := []models.ChatLog{
-		{ID: 1, Name: "alpha", ProviderName: "p1", Status: "success", Style: "openai", AuthKeyID: 1, TraceID: "t-1"},
-		{ID: 2, Name: "beta", ProviderName: "p2", Status: "error", Style: "openai", AuthKeyID: 2, TraceID: "t-2"},
-		{ID: 3, Name: "alpha", ProviderName: "p1", Status: "error", Style: "anthropic", AuthKeyID: 1, TraceID: "t-3"},
-		{ID: 4, Name: "gamma", ProviderName: "p3", Status: "success", Style: "gemini", AuthKeyID: 0, TraceID: "t-4"},
+		{ID: 1, Name: "alpha", ProviderName: "p1", ProviderModel: "gpt-4o", Status: "success", Style: "openai", AuthKeyID: 1, TraceID: "t-1"},
+		// 与上一行只差一个后缀：钉住 provider_model 是精确匹配而不是子串
+		{ID: 2, Name: "beta", ProviderName: "p2", ProviderModel: "gpt-4o-mini", Status: "error", Style: "openai", AuthKeyID: 2, TraceID: "t-2"},
+		{ID: 3, Name: "alpha", ProviderName: "p1", ProviderModel: "gpt-4o", Status: "error", Style: "anthropic", AuthKeyID: 1, TraceID: "t-3"},
+		// 空的 provider_model：候选端点必须把它排除在外
+		{ID: 4, Name: "gamma", ProviderName: "p3", ProviderModel: "", Status: "success", Style: "gemini", AuthKeyID: 0, TraceID: "t-4"},
 		// 假的 TraceID 里带逗号：用来验证请求标识不会被当成多值拆开
-		{ID: 5, Name: "delta", ProviderName: "p4", Status: "success", Style: "openai", AuthKeyID: 0, TraceID: "a,b"},
+		{ID: 5, Name: "delta", ProviderName: "p4", ProviderModel: "claude-3.5", Status: "success", Style: "openai", AuthKeyID: 0, TraceID: "a,b"},
 	}
 	if err := db.Create(&seed).Error; err != nil {
 		t.Fatalf("seed logs: %v", err)
@@ -104,12 +106,20 @@ func TestGetRequestLogsFilters(t *testing.T) {
 		{name: "多值协议取并集", query: "style=anthropic,gemini", want: []uint{3, 4}},
 		{name: "多值密钥取并集", query: "auth_key_id=1,2", want: []uint{1, 2, 3}},
 
+		// provider_model 是上游模型名，与 name（请求名）是两列。这一组的
+		// 期望值刻意排除了 ID 2（gpt-4o-mini），钉住精确匹配：若退回子串，
+		// 筛 gpt-4o 会把 gpt-4o-mini 一并带出来。
+		{name: "单值上游模型名精确命中", query: "provider_model=gpt-4o", want: []uint{1, 3}},
+		{name: "上游模型名多值取并集", query: "provider_model=gpt-4o,claude-3.5", want: []uint{1, 3, 5}},
+		{name: "空串等于没筛", query: "provider_model=", want: []uint{1, 2, 3, 4, 5}},
+
 		// 逗号两侧的空白与多余的分隔符不算取值
 		{name: "取值两侧空白被忽略", query: "provider_name=p1,+p2", want: []uint{1, 2, 3}},
 		{name: "只有分隔符等于没筛", query: "provider_name=,,+", want: []uint{1, 2, 3, 4, 5}},
 
 		// 维度之间是"与"：既是 p1 又要是 error
 		{name: "维度之间取交集", query: "provider_name=p1,p2&status=error", want: []uint{2, 3}},
+		{name: "上游模型与供应商取交集", query: "provider_model=gpt-4o&provider_name=p2", want: []uint{}},
 
 		// 请求标识不拆：这一串里真有一条 TraceID 就叫 "a,b"
 		{name: "trace_id 整串匹配不被拆开", query: "trace_id=a%2Cb", want: []uint{5}},
@@ -163,5 +173,32 @@ func TestGetRequestLogsKeyName(t *testing.T) {
 
 	if len(env.Data.Data) != 1 || env.Data.Data[0].KeyName != "生产" {
 		t.Fatalf("应带出密钥名，实得 %+v", env.Data.Data)
+	}
+}
+
+// 上游模型名候选：只取日志里观测到的、非空去重值，按字母序返回。
+//
+// 它是日志页"模型"筛选的下拉来源。空值必须排除——否则下拉里会多出一个
+// 点一下查不到任何东西的空白项；去重保证同名多次出现只列一次。
+func TestGetProviderModelList(t *testing.T) {
+	setupLogsHandlerDB(t)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/provider-models", nil)
+
+	GetProviderModelList(c)
+
+	var env struct {
+		Code int      `json:"code"`
+		Data []string `json:"data"`
+	}
+	decodeEnvelope(t, w, &env)
+	if env.Code != http.StatusOK {
+		t.Fatalf("业务码应为 200，实得 %d", env.Code)
+	}
+	want := []string{"claude-3.5", "gpt-4o", "gpt-4o-mini"}
+	if !slices.Equal(env.Data, want) {
+		t.Fatalf("候选应为 %v（去重、排除空值、字母序），实得 %v", want, env.Data)
 	}
 }

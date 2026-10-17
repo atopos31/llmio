@@ -15,6 +15,8 @@ import { QuotaEditorDialog } from "@/routes/quota-editor"
 import { QuotaItemDialog } from "@/routes/quota-item-dialog"
 import { QuotaSettingsDialog } from "@/routes/quota-settings"
 import { QuotaSourceViewDialog } from "@/routes/quota-source-view"
+import { RefreshSelect } from "@/components/refresh-select"
+import { useAutoRefresh } from "@/hooks/use-auto-refresh"
 import { EmptyState, ErrorState } from "@/components/state-views"
 import { Button } from "@/components/ui/button"
 import {
@@ -56,10 +58,17 @@ import {
   refreshQuotaSource,
   updateQuotaSource,
 } from "@/lib/api"
+import {
+  refreshSecFor,
+  readUiPrefs,
+  withRefreshSec,
+  writeUiPrefs,
+  type UiPrefs,
+} from "@/lib/prefs"
 import { cn } from "@/lib/utils"
 
 /** 自动刷新档位（秒）。0 = 关闭。余量接口普遍较慢，因而起点比日志页高。 */
-const REFRESH_OPTIONS = [0, 60, 120, 300, 600]
+const QUOTA_REFRESH_SECONDS = [0, 60, 120, 300, 600]
 
 export default function QuotaPage() {
   const { t } = useTranslation("quota")
@@ -71,7 +80,14 @@ export default function QuotaPage() {
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [updatedAt, setUpdatedAt] = useState(0)
-  const [interval, setIntervalSec] = useState(0)
+  // 刷新档位落 localStorage：三页共用一份偏好，刷新页面后仍在
+  const [uiPrefs, setUiPrefs] = useState(() => readUiPrefs())
+  const interval = refreshSecFor(uiPrefs, "quota", QUOTA_REFRESH_SECONDS)
+
+  const setUiPref = (next: UiPrefs) => {
+    setUiPrefs(next)
+    writeUiPrefs(next)
+  }
 
   const [prefs, setPrefs] = useState<QuotaViewPrefs>(() => {
     try {
@@ -159,21 +175,9 @@ export default function QuotaPage() {
   }, [load])
 
   // 自动刷新：页面隐藏时不打上游，回到前台立刻补一轮
-  useEffect(() => {
-    if (!interval) return
-    const id = window.setInterval(() => {
-      if (document.hidden) return
-      void load({ silent: true })
-    }, interval * 1000)
-    const onVisible = () => {
-      if (!document.hidden) void load({ silent: true })
-    }
-    document.addEventListener("visibilitychange", onVisible)
-    return () => {
-      window.clearInterval(id)
-      document.removeEventListener("visibilitychange", onVisible)
-    }
-  }, [interval, load])
+  useAutoRefresh(interval, () => {
+    void load({ silent: true })
+  })
 
   const refreshOne = useCallback(
     async (id: string) => {
@@ -389,21 +393,11 @@ export default function QuotaPage() {
           {t("show_meta")}
         </Button>
 
-        <select
-          className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+        <RefreshSelect
           value={interval}
-          onChange={(e) => setIntervalSec(Number(e.target.value))}
-          aria-label={t("auto_refresh")}
-          title={t("auto_refresh")}
-        >
-          {REFRESH_OPTIONS.map((s) => (
-            <option key={s} value={s}>
-              {s === 0
-                ? `${t("auto_refresh")}：${t("auto_refresh_off")}`
-                : t("auto_refresh_every", { seconds: s })}
-            </option>
-          ))}
-        </select>
+          options={QUOTA_REFRESH_SECONDS}
+          onChange={(s) => setUiPref(withRefreshSec(uiPrefs, "quota", s))}
+        />
 
         <Button variant="outline" size="sm" disabled={refreshing} onClick={() => void load({ force: true })}>
           <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} />

@@ -1,6 +1,7 @@
 {
   "title": "系統總覽",
   "refresh": "重新整理",
+  "updated_at": "更新於 {{time}}",
   "loading": "正在載入系統總覽",
   "loading_chart": "正在載入圖表...",
   "in_flight": "在途請求",
@@ -57,8 +58,7 @@
     "count": "{{count}} 次",
     "affected_providers": "受影響供應商",
     "affected_models": "受影響模型",
-    "samples": "樣本",
-    "view_log": "檢視請求詳情"
+    "samples": "樣本"
   },
   "breakdown": {
     "title": "分佈",

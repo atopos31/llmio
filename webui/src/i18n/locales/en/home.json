@@ -1,6 +1,7 @@
 {
   "title": "Overview",
   "refresh": "Refresh overview",
+  "updated_at": "Updated {{time}}",
   "loading": "Loading overview",
   "loading_chart": "Loading chart...",
   "in_flight": "In flight",
@@ -57,8 +58,7 @@
     "count": "{{count}}x",
     "affected_providers": "Providers affected",
     "affected_models": "Models affected",
-    "samples": "Samples",
-    "view_log": "View request detail"
+    "samples": "Samples"
   },
   "breakdown": {
     "title": "Breakdown",

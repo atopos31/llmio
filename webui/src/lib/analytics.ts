@@ -1,4 +1,4 @@
-import type { AuthKeyItem, ErrorGroup, GroupStat, StatsQuery, StatsResult } from "@/lib/api"
+import type { AuthKeyItem, ErrorGroup, GroupStat, StatsLogRow, StatsQuery, StatsResult } from "@/lib/api"
 import { toggleValue } from "@/lib/utils"
 
 /**
@@ -361,7 +361,7 @@ export function errorBarWidth(count: number, base: number): number {
  * 模型性能表的呈现维度。
  *
  * 三个而不是两个：`model` 与 `provider` 是两张边际分布，各自把另一半抹平了。
- * 同一个请求名挂在多个上游上时（同一个模型走了几家），`model` 只给一行合计，
+ * 同一个请求名被路由到几家提供商时，`name` 只给一行合计，
  * "这家比那家慢多少"在表里根本读不出来——那正是这张表最该回答的问题。
  */
 export type ModelDimension = "model" | "provider" | "modelProvider"
@@ -385,42 +385,46 @@ export function modelDimensionGroups(stats: StatsResult, dim: ModelDimension): G
   return stats[MODEL_DIMENSION_STAT[dim]] as GroupStat[]
 }
 
-/** 一个模型及其各上游的行。 */
+/** 一个请求名及其各提供商的行。 */
 export interface JointGroup {
-  model: string
+  requestName: string
   rows: GroupStat[]
 }
 
 /**
- * 把模型×上游的行按模型归组，让同一个模型的上游在表里挨着。
+ * 把联合维度的行按请求名归组，让同一请求名的各家提供商在表里挨着。
  *
  * 组的顺序**由各行合计现算**（请求数降序，同量按名称码点升序），而不是另接
- * 一份 `byModel` 进来：两者本就得数相同（同一批日志的和），多传一个入参
- * 只会多一处可能对不上的地方。这样切到这一维时模型之间的相对次序不变，
+ * 一份 `byName` 进来：两者本就得数相同（同一批日志的和），多传一个入参
+ * 只会多一处可能对不上的地方。这样切到这一维时请求名之间的相对次序不变，
  * 用户不会因为换了个维度就看到"第一名"换了人。
  *
- * 模型名取自分量字段而不是从行名里拆：行名是「模型 · 上游」拼的，
- * 而模型名里本身就可能带这个分隔符。
+ * 请求名取自分量字段而不是从行名里拆：行名是「请求名 · 提供商」拼的，
+ * 而请求名里本身就可能带这个分隔符。JSON 契约里这个字段仍叫 `model`
+ * （service/stats.go 的 `GroupStat.Model`），这里按它实际装的东西命名为
+ * requestName——不该让读代码的人被一个叫 model 的请求名误导。
  */
-export function groupByModel(joint: GroupStat[]): JointGroup[] {
-  const byModel = new Map<string, GroupStat[]>()
+export function groupByRequestName(joint: GroupStat[]): JointGroup[] {
+  const byRequestName = new Map<string, GroupStat[]>()
   for (const g of joint) {
-    const model = g.model ?? g.name
-    const rows = byModel.get(model)
+    const requestName = g.model ?? g.name
+    const rows = byRequestName.get(requestName)
     if (rows) rows.push(g)
-    else byModel.set(model, [g])
+    else byRequestName.set(requestName, [g])
   }
 
   // 合计跟组一起存，不再另开一张 Map 反查：反查的键必然命中，
   // 于是 `?? 0` 那类兜底永远走不到，只是给覆盖率留一条假分支。
-  const groups = Array.from(byModel, ([model, rows]) => ({
-    model,
+  const groups = Array.from(byRequestName, ([requestName, rows]) => ({
+    requestName,
     rows,
     total: rows.reduce((n, r) => n + r.total, 0),
   }))
-  groups.sort((a, b) => (a.total === b.total ? compareName(a.model, b.model) : b.total - a.total))
+  groups.sort((a, b) =>
+    a.total === b.total ? compareName(a.requestName, b.requestName) : b.total - a.total
+  )
 
-  return groups.map(({ model, rows }) => ({ model, rows }))
+  return groups.map(({ requestName, rows }) => ({ requestName, rows }))
 }
 
 /**
@@ -532,12 +536,39 @@ function compareName(a: string, b: string): number {
 // ---------------------------------------------------------------------------
 
 /**
- * 日志详情路径。
+ * 请求内容页路径：`/logs/:id/chat-io`。
  *
- * 排行榜与错误样本都跳到 `/logs/:id/chat-io`（请求内容页），而不是弹窗：
- * 分析页需要"从聚合数字跳到那一条请求"的通路，而内容页能同时给出
- * 请求体、响应体与分片重组结果，是排查的终点。
+ * 只用于**成功且有 IO 记录**的行（判据是 `canViewChatIO`）：内容页同时给出
+ * 请求体、响应体与分片重组结果，是排查成功请求的终点。
  */
 export function logDetailPath(id: number): string {
   return `/logs/${id}/chat-io`
+}
+
+/**
+ * 回日志页看这一条的路径：`/logs?id=<id>`（后端按 id 精确过滤）。
+ *
+ * 失败请求没有内容页这条路——后端在失败路径上不写 ChatIO 行，点进去只会得到
+ * 一个空页。所以错误样本一律走这里：列表先收窄成一行，再由详情抽屉给出请求
+ * 元数据与错误原文。别把它换成 logDetailPath，那次死链就是这么来的。
+ */
+export function logPath(id: number): string {
+  return `/logs?id=${id}`
+}
+
+/**
+ * 排行榜一行的两个名字：`model` 是上游模型名，`requestName` 是客户端请求名。
+ *
+ * 多数别名原样转发，两者相同——这时把请求名再写一遍只是噪声，所以取值为
+ * null 让调用方不渲染。别名改路由（同一个请求名落到几个上游）时才显示出来，
+ * 那是"这条慢请求到底发给谁了"唯一能看出来的地方。
+ *
+ * 首页与分析页两张榜共用它，避免出现"一张榜带、一张不带"。
+ */
+export function statsRowNames(row: Pick<StatsLogRow, "model" | "requestName">): {
+  model: string
+  requestName: string | null
+} {
+  const requestName = row.requestName
+  return { model: row.model, requestName: requestName && requestName !== row.model ? requestName : null }
 }

@@ -105,7 +105,7 @@
     "affected_providers": "Providers",
     "affected_models": "Models",
     "table_note": "More than {{limit}} categories — bars stop being a reliable comparison, so this is a table.",
-    "view_log": "View request content",
+    "view_log": "View in logs",
     "columns": {
       "type": "Category",
       "count": "Count",
@@ -118,12 +118,12 @@
   "models": {
     "title": "Model performance",
     "note": "Click a column header to sort; click again to flip the direction. Models with no successful sample (TPS or first chunk of 0) always sort last — they are never treated as the fastest.",
-    "note_joint": "Each model keeps its providers together. Clicking a column sorts within each group; group order stays by request count, so switching dimension never changes which model leads.",
+    "note_joint": "Each request name keeps its providers together. Clicking a column sorts within each group; group order stays by request count, so switching dimension never changes which request name leads.",
     "dimension_label": "Group rows by",
     "dimensions": {
       "model": "Model",
       "provider": "Provider",
-      "modelProvider": "Model × provider"
+      "modelProvider": "Request name × provider"
     },
     "empty": "No model data in the selected range",
     "sort": {
@@ -143,6 +143,7 @@
       "retries": "Retries",
       "cost": "Cost",
       "totalTokens": "Tokens"
-    }
+    },
+    "note_model": "Model is the upstream model id actually sent to the provider — the same name can come from different providers, and one request name can be routed to several of them. Switch to “Request name × provider” to see which providers a request name went to and how they compare. Click a column header to sort; click again to flip the direction. Models with no successful sample (TPS or first chunk of 0) always sort last — they are never treated as the fastest."
   }
 }

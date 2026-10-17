@@ -15,10 +15,11 @@ import {
   errorBarWidth,
   errorViewMode,
   fromLocalInput,
-  groupByModel,
+  groupByRequestName,
   isMissingModelMetric,
   keyFilterOptions,
   logDetailPath,
+  logPath,
   MODEL_DIMENSIONS,
   modelDimensionGroups,
   MODEL_SORT_KEYS,
@@ -26,6 +27,7 @@ import {
   observedOptions,
   presetRange,
   shortenLabel,
+  statsRowNames,
   sortModelGroups,
   toLocalInput,
   toggleDimensionValue,
@@ -432,6 +434,37 @@ describe("logDetailPath", () => {
   })
 })
 
+describe("logPath", () => {
+  it("指向日志页并带上 id 筛选，而不是内容页", () => {
+    // 失败请求没有 ChatIO 行，点进 /logs/:id/chat-io 只会得到空页；
+    // 错误样本必须走"列表收窄成一行 + 详情抽屉"这条路。
+    expect(logPath(42)).toBe("/logs?id=42")
+    expect(logPath(42)).not.toBe(logDetailPath(42))
+  })
+})
+
+describe("statsRowNames", () => {
+  it("请求名与模型名相同时不重复给出", () => {
+    // 多数别名原样转发；重复写一遍只是噪声。
+    expect(statsRowNames({ model: "gpt-4o", requestName: "gpt-4o" })).toEqual({
+      model: "gpt-4o",
+      requestName: null,
+    })
+  })
+
+  it("后端省略（omitempty）与空串同样视为相同", () => {
+    expect(statsRowNames({ model: "gpt-4o" }).requestName).toBeNull()
+    expect(statsRowNames({ model: "gpt-4o", requestName: "" }).requestName).toBeNull()
+  })
+
+  it("别名改路由时把请求名带上", () => {
+    expect(statsRowNames({ model: "gpt-4o-2024-08-06", requestName: "gpt-4o" })).toEqual({
+      model: "gpt-4o-2024-08-06",
+      requestName: "gpt-4o",
+    })
+  })
+})
+
 describe("模型性能排序", () => {
   /** 只取名称次序，断言读起来才像"谁在前谁在后"。 */
   function names(gs: GroupStat[], sort: ModelSort): string[] {
@@ -549,45 +582,46 @@ describe("模型性能的呈现维度", () => {
   })
 })
 
-describe("模型×上游按模型归组", () => {
-  /** 一行「模型 · 上游」。分量字段是服务端另填的，这里一并给上。 */
-  function joint(model: string, provider: string, total: number): GroupStat {
-    return group({ name: `${model} · ${provider}`, model, provider, total })
+describe("联合维度的行按请求名归组", () => {
+  /** 一行「请求名 · 提供商」。分量字段是服务端另填的，这里一并给上。
+   *  字段名仍叫 model：JSON 契约未改，见 groupByRequestName 的说明。 */
+  function joint(requestName: string, provider: string, total: number): GroupStat {
+    return group({ name: `${requestName} · ${provider}`, model: requestName, provider, total })
   }
 
-  it("把同一模型的上游收进一组，并给出组名", () => {
-    const groups = groupByModel([joint("a", "x", 3), joint("a", "y", 2), joint("b", "x", 1)])
-    expect(groups.map((g) => g.model)).toEqual(["a", "b"])
+  it("把同一请求名的各家提供商收进一组，并给出组名", () => {
+    const groups = groupByRequestName([joint("a", "x", 3), joint("a", "y", 2), joint("b", "x", 1)])
+    expect(groups.map((g) => g.requestName)).toEqual(["a", "b"])
     expect(groups[0].rows.map((r) => r.provider)).toEqual(["x", "y"])
   })
 
   it("组的先后按各行合计现算，不跟着输入顺序走", () => {
     // b 单独一行就比 a 的任意一行大，但 a 有两行、合计更大——按分量比会排错
-    const groups = groupByModel([joint("b", "x", 4), joint("a", "x", 3), joint("a", "y", 3)])
-    expect(groups.map((g) => g.model)).toEqual(["a", "b"])
+    const groups = groupByRequestName([joint("b", "x", 4), joint("a", "x", 3), joint("a", "y", 3)])
+    expect(groups.map((g) => g.requestName)).toEqual(["a", "b"])
   })
 
-  it("合计相同时按模型名的码点定序，不随输入顺序跳", () => {
+  it("合计相同时按请求名的码点定序，不随输入顺序跳", () => {
     const input = [joint("b", "x", 1), joint("a", "x", 1)]
-    expect(groupByModel(input).map((g) => g.model)).toEqual(["a", "b"])
-    expect(groupByModel([...input].reverse()).map((g) => g.model)).toEqual(["a", "b"])
+    expect(groupByRequestName(input).map((g) => g.requestName)).toEqual(["a", "b"])
+    expect(groupByRequestName([...input].reverse()).map((g) => g.requestName)).toEqual(["a", "b"])
   })
 
-  it("模型名自己带分隔符时不会被拆开", () => {
-    // 行名是拼出来的，靠拆字符串认模型必然在这里翻车：
-    // 「a · b」这个名字按分隔符拆会得到两个模型，实际是同一个
-    const groups = groupByModel([joint("a · b", "x", 2), joint("a", "b · x", 1)])
-    expect(groups.map((g) => g.model)).toEqual(["a · b", "a"])
+  it("请求名自己带分隔符时不会被拆开", () => {
+    // 行名是拼出来的，靠拆字符串认请求名必然在这里翻车：
+    // 「a · b」这个名字按分隔符拆会得到两个请求名，实际是同一个
+    const groups = groupByRequestName([joint("a · b", "x", 2), joint("a", "b · x", 1)])
+    expect(groups.map((g) => g.requestName)).toEqual(["a · b", "a"])
     expect(groups[0].rows).toHaveLength(1)
   })
 
   it("分量字段缺失时回落到行名——老接口没有 model 字段也还能摆出来", () => {
-    const groups = groupByModel([group({ name: "m · p" }), group({ name: "m · q" })])
+    const groups = groupByRequestName([group({ name: "m · p" }), group({ name: "m · q" })])
     expect(groups).toHaveLength(2)
-    expect(groups.map((g) => g.model)).toEqual(["m · p", "m · q"])
+    expect(groups.map((g) => g.requestName)).toEqual(["m · p", "m · q"])
   })
 
   it("空输入给空数组", () => {
-    expect(groupByModel([])).toEqual([])
+    expect(groupByRequestName([])).toEqual([])
   })
 })

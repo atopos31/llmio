@@ -462,15 +462,24 @@ func TestStatsFilterMatch(t *testing.T) {
 		{name: "状态未命中", f: StatsFilter{Statuses: []string{consts.StatusError}}, want: false},
 		{name: "状态不做子串匹配", f: StatsFilter{Statuses: []string{"succ"}}, want: false},
 
-		// 供应商 / 模型 / 请求名 / UA 为子串匹配
-		{name: "供应商子串命中", f: StatsFilter{Providers: []string{"prov"}}, want: true},
-		{name: "供应商子串未命中", f: StatsFilter{Providers: []string{"other"}}, want: false},
+		// 供应商 / 模型 / 请求名 / UA 全部精确匹配，与 /api/logs 同口径。
+		{name: "供应商精确命中", f: StatsFilter{Providers: []string{"prov-a"}}, want: true},
 		{name: "供应商多值其一命中", f: StatsFilter{Providers: []string{"zzz", "prov-a"}}, want: true},
-		{name: "模型子串命中", f: StatsFilter{Models: []string{"gpt-4o-2024"}}, want: true},
-		{name: "模型子串未命中", f: StatsFilter{Models: []string{"claude"}}, want: false},
-		{name: "请求名子串命中", f: StatsFilter{Names: []string{"gpt"}}, want: true},
+		{name: "供应商前缀不再命中", f: StatsFilter{Providers: []string{"prov"}}, want: false},
+		{name: "供应商未命中", f: StatsFilter{Providers: []string{"other"}}, want: false},
+
+		{name: "模型精确命中", f: StatsFilter{Models: []string{"gpt-4o-2024"}}, want: true},
+		// 前缀不串味：筛 gpt-4o 带不进 gpt-4o-mini，也带不进 gpt-4o-2024
+		{name: "模型前缀不再命中", f: StatsFilter{Models: []string{"gpt-4o"}}, want: false},
+		{name: "模型同名不同后缀不命中", f: StatsFilter{Models: []string{"gpt-4o-mini"}}, want: false},
+		{name: "模型未命中", f: StatsFilter{Models: []string{"claude"}}, want: false},
+
+		{name: "请求名精确命中", f: StatsFilter{Names: []string{"gpt-4o"}}, want: true},
+		{name: "请求名前缀不再命中", f: StatsFilter{Names: []string{"gpt"}}, want: false},
 		{name: "请求名未命中", f: StatsFilter{Names: []string{"llama"}}, want: false},
-		{name: "UA 子串命中", f: StatsFilter{UserAgents: []string{"claude"}}, want: true},
+
+		{name: "UA 精确命中", f: StatsFilter{UserAgents: []string{"claude-cli/1.0"}}, want: true},
+		{name: "UA 前缀不再命中", f: StatsFilter{UserAgents: []string{"claude"}}, want: false},
 		{name: "UA 未命中", f: StatsFilter{UserAgents: []string{"curl"}}, want: false},
 
 		// KeyID 精确匹配，且 0（admin）可被显式选中
@@ -499,7 +508,7 @@ func TestStatsFilterMatchAdminKeyID(t *testing.T) {
 	}
 }
 
-func TestContainsHelpers(t *testing.T) {
+func TestContainsExact(t *testing.T) {
 	t.Parallel()
 
 	if !containsExact([]string{"a", "b"}, "b") {
@@ -508,17 +517,10 @@ func TestContainsHelpers(t *testing.T) {
 	if containsExact([]string{"a", "b"}, "ab") {
 		t.Fatal("containsExact 不应做子串匹配")
 	}
+	if containsExact([]string{"gpt"}, "gpt-4o") {
+		t.Fatal("containsExact 不应让筛选词带进前缀同名的取值")
+	}
 	if containsExact(nil, "a") {
-		t.Fatal("nil 切片不应命中")
-	}
-	// 注意方向：判定的是"日志值是否包含筛选词"
-	if !containsSubstr([]string{"gpt"}, "gpt-4o") {
-		t.Fatal("containsSubstr 应命中")
-	}
-	if containsSubstr([]string{"gpt-4o"}, "gpt") {
-		t.Fatal("containsSubstr 方向应单向：筛选词长于值时不应命中")
-	}
-	if containsSubstr(nil, "x") {
 		t.Fatal("nil 切片不应命中")
 	}
 }
@@ -783,30 +785,31 @@ func TestAggregateGroupsSortedByTotalThenName(t *testing.T) {
 	}
 }
 
-// 模型×上游这一维要能回答"同一个模型的几个上游谁快"。
+// 联合维度（请求名 × 提供商）要能回答"同一个请求名的几家提供商谁快"。
 //
-// 两个边际分布都答不了：byModel 把同一模型的多个上游混成一行，
-// byProvider 又把同一上游的多个模型混成一行。因此这里断言的是
+// 两个边际分布都答不了：byName 把同一请求名的多家提供商混成一行，
+// byProvider 又把同一提供商的多个请求名混成一行。因此这里断言的是
 // **联合**分布的分量，而不是它恰好等于某个边际分布。
-func TestAggregateByModelProvider(t *testing.T) {
+func TestAggregateByNameProvider(t *testing.T) {
 	t.Parallel()
 
 	base := time.Now()
 	mk := func(name, provider string, tps float64, fc time.Duration) models.ChatLog {
 		l := logAt(1, base, consts.StatusSuccess)
-		l.Name = name
-		l.ProviderName = provider
+		// 上游模型名与请求名刻意不同：联合维度按请求名分，
+		// 同名之外的上游 id 不该把一行拆成两行
+		l.Name, l.ProviderModel, l.ProviderName = name, name+"-v1", provider
 		l.Tps = tps
 		l.FirstChunkTime = fc
 		return l
 	}
 
 	res := AggregateWithBucket([]models.ChatLog{
-		// 同一个请求名，两个上游：正是"要对比"的那种情形
+		// 同一个请求名，两家提供商：正是"要对比"的那种情形
 		mk("claude", "快上游", 40, 300*time.Millisecond),
 		mk("claude", "快上游", 60, 500*time.Millisecond),
 		mk("claude", "慢上游", 10, 3*time.Second),
-		// 另一个模型挂在同一个上游上：联合分布要把它分出去
+		// 另一个请求名挂在同一个上游上：联合分布要把它分出去
 		mk("gpt", "快上游", 5, time.Second),
 	}, StatsFilter{}, time.Hour)
 
@@ -824,10 +827,10 @@ func TestAggregateByModelProvider(t *testing.T) {
 	if !ok {
 		t.Fatalf("缺少 claude×快上游：%+v", res.ByModelProvider)
 	}
-	// 分量字段必须原样保留：前端要按模型把上游归成一组，
+	// 分量字段必须原样保留：前端要按请求名把各家提供商归成一组，
 	// 光有一行「claude · 快上游」拆不回来
 	if fast.Name != "claude · 快上游" {
-		t.Fatalf("行名应为「模型 · 上游」，实得 %q", fast.Name)
+		t.Fatalf("行名应为「请求名 · 提供商」，实得 %q", fast.Name)
 	}
 	if fast.Total != 2 || fast.AvgTps != 50 {
 		t.Fatalf("claude×快上游 应有 2 条、平均 50 TPS，实得 %+v", fast)
@@ -838,22 +841,95 @@ func TestAggregateByModelProvider(t *testing.T) {
 	}
 
 	// 边际分布是混着的，这正是要分开的理由：
-	// claude 这一行把两个上游合成了 3 条
-	for _, g := range res.ByModel {
+	// claude 这一行把两家提供商合成了 3 条
+	for _, g := range res.ByName {
 		if g.Name == "claude" && g.Total != 3 {
-			t.Fatalf("byModel 的 claude 应为 3 条，实得 %d", g.Total)
+			t.Fatalf("byName 的 claude 应为 3 条，实得 %d", g.Total)
 		}
 	}
-	// 快上游这一行把两个模型合成了 3 条
+	// 快上游这一行把两个请求名合成了 3 条
 	for _, g := range res.ByProvider {
 		if g.Name == "快上游" && g.Total != 3 {
 			t.Fatalf("byProvider 的快上游应为 3 条，实得 %d", g.Total)
 		}
 	}
+
+	// 上游模型名不参与联合分组：同一个请求名换了模型 id，仍是同一行。
+	// 否则"这家比那家慢多少"会被拆成若干小行，恰恰是这一维要回答的问题。
+	reRouted := AggregateWithBucket([]models.ChatLog{
+		func() models.ChatLog {
+			l := mk("claude", "快上游", 40, 300*time.Millisecond)
+			l.ProviderModel = "claude-sonnet-4"
+			return l
+		}(),
+		func() models.ChatLog {
+			l := mk("claude", "快上游", 60, 500*time.Millisecond)
+			l.ProviderModel = "claude-sonnet-4-5"
+			return l
+		}(),
+	}, StatsFilter{}, time.Hour)
+	if len(reRouted.ByModelProvider) != 1 || reRouted.ByModelProvider[0].Total != 2 {
+		t.Fatalf("同一请求名下的不同上游模型应合为一行：%+v", reRouted.ByModelProvider)
+	}
 }
 
-// 其余维度不该带上模型/上游这两个身份字段——它们只在联合分布里有意义，
-// 到处都填会让前端以为别的维度也能按上游归组。
+// 模型维度与请求名维度必须各自独立：同一个请求名（别名）可以路由到多个
+// 上游模型，两者混成一列就把这个信息丢了。
+func TestAggregateByModelUsesProviderModel(t *testing.T) {
+	t.Parallel()
+
+	mk := func(name, providerModel string) models.ChatLog {
+		l := logAt(1, time.Now(), consts.StatusSuccess)
+		l.Name, l.ProviderModel = name, providerModel
+		return l
+	}
+	logs := []models.ChatLog{
+		// 同一个请求名路由到两个上游模型；后者与前者只差一个后缀
+		mk("chat", "gpt-4o"),
+		mk("chat", "gpt-4o-mini"),
+		mk("chat", "claude-sonnet"),
+	}
+	res := AggregateWithBucket(logs, StatsFilter{}, time.Hour)
+
+	byModel := map[string]GroupStat{}
+	for _, g := range res.ByModel {
+		byModel[g.Name] = g
+	}
+	if got := len(byModel); got != 3 {
+		t.Fatalf("按上游模型名应分成 3 行（前缀同名不能并成一行），实得 %d：%+v", got, res.ByModel)
+	}
+	if byModel["gpt-4o"].Total != 1 || byModel["gpt-4o-mini"].Total != 1 {
+		t.Fatalf("gpt-4o 与 gpt-4o-mini 应各为一行：%+v", res.ByModel)
+	}
+
+	byName := map[string]GroupStat{}
+	for _, g := range res.ByName {
+		byName[g.Name] = g
+	}
+	if byName["chat"].Total != 3 {
+		t.Fatalf("按请求名应合为 1 行 3 条，实得 %+v", res.ByName)
+	}
+
+	// 下钻契约：点分组名筛选，结果恰为该组。这是「按模型下钻显示无数据」
+	// 的直接判据——分组按什么分，筛选就按什么列，两者必须同一列。
+	drill := AggregateWithBucket(logs, StatsFilter{Models: []string{"gpt-4o"}}, time.Hour)
+	if len(drill.ByModel) != 1 || drill.ByModel[0].Name != "gpt-4o" || drill.ByModel[0].Total != 1 {
+		t.Fatalf("按模型分组名下钻应恰好回到该组：%+v", drill.ByModel)
+	}
+	drillByName := AggregateWithBucket(logs, StatsFilter{Names: []string{"chat"}}, time.Hour)
+	if drillByName.KPI.Total != 3 {
+		t.Fatalf("按请求名分组名下钻应为该组 3 条：%+v", drillByName.ByModel)
+	}
+
+	// 反方向：拿另一个维度的名字去点，必须是空表而不是"静默带出别的行"
+	wrong := AggregateWithBucket(logs, StatsFilter{Models: []string{"chat"}}, time.Hour)
+	if wrong.KPI.Total != 0 {
+		t.Fatalf("用请求名去筛上游模型维度应为 0 条：%+v", wrong.KPI)
+	}
+}
+
+// 其余维度不该带上这两个身份字段——它们只在联合分布（请求名·提供商）里
+// 有意义，到处都填会让前端以为别的维度也能按它归组。
 func TestAggregateModelProviderFieldsOnlyOnJoint(t *testing.T) {
 	t.Parallel()
 
@@ -861,8 +937,9 @@ func TestAggregateModelProviderFieldsOnlyOnJoint(t *testing.T) {
 	res := AggregateWithBucket([]models.ChatLog{l}, StatsFilter{}, time.Hour)
 
 	for _, g := range res.ByModelProvider {
+		// 第一个分量是**请求名**（logAt: name=gpt-4o），不是上游模型名（gpt-4o-2024）
 		if g.Model != "gpt-4o" || g.Provider != "prov-a" {
-			t.Fatalf("联合分布应带上分量：%+v", g)
+			t.Fatalf("联合分布应带上分量（请求名，不是上游模型名）：%+v", g)
 		}
 	}
 	for _, g := range res.ByModel {
@@ -883,7 +960,7 @@ func TestAggregateJointLabelDashesEmptyParts(t *testing.T) {
 
 	mk := func(name, provider string) models.ChatLog {
 		l := logAt(1, time.Now(), consts.StatusSuccess)
-		l.Name, l.ProviderName = name, provider
+		l.Name, l.ProviderModel, l.ProviderName = name, name+"-v1", provider
 		return l
 	}
 	res := AggregateWithBucket([]models.ChatLog{
@@ -948,7 +1025,8 @@ func TestAggregateErrors(t *testing.T) {
 	mkErr := func(id uint, ts time.Time, provider, name, errText string) models.ChatLog {
 		l := logAt(id, ts, consts.StatusError)
 		l.ProviderName = provider
-		l.Name = name
+		// 受影响模型按上游模型名统计；这里请求名与它同名，只测计数与截断
+		l.Name, l.ProviderModel = name, name
 		l.Error = errText
 		return l
 	}
@@ -1038,7 +1116,7 @@ func TestAggregateErrorGroupTopN(t *testing.T) {
 		l := logAt(uint(i), base, consts.StatusError)
 		l.Error = `status: 429, body: rate limited`
 		l.ProviderName = fmt.Sprintf("prov-%d", i)
-		l.Name = fmt.Sprintf("model-%d", i)
+		l.Name, l.ProviderModel = fmt.Sprintf("model-%d", i), fmt.Sprintf("model-%d", i)
 		logs = append(logs, l)
 	}
 
@@ -1669,11 +1747,16 @@ func TestLoadChatLogsFilters(t *testing.T) {
 	}{
 		{name: "按状态", f: StatsFilter{Statuses: []string{consts.StatusError}}, wantN: 1},
 		{name: "按状态多值", f: StatsFilter{Statuses: []string{consts.StatusError, consts.StatusRunning}}, wantN: 2},
-		{name: "按供应商子串", f: StatsFilter{Providers: []string{"prov-a"}}, wantN: 2},
+		{name: "按供应商精确", f: StatsFilter{Providers: []string{"prov-a"}}, wantN: 2},
 		{name: "按供应商多值（OR）", f: StatsFilter{Providers: []string{"prov-a", "prov-b"}}, wantN: 3},
-		{name: "按模型子串", f: StatsFilter{Models: []string{"m-b"}}, wantN: 1},
-		{name: "按请求名子串", f: StatsFilter{Names: []string{"gpt"}}, wantN: 2},
-		{name: "按 UA 子串", f: StatsFilter{UserAgents: []string{"ua-b"}}, wantN: 1},
+		{name: "按模型精确", f: StatsFilter{Models: []string{"m-b"}}, wantN: 1},
+		{name: "按请求名精确", f: StatsFilter{Names: []string{"gpt-4o"}}, wantN: 2},
+		{name: "按 UA 精确", f: StatsFilter{UserAgents: []string{"ua-b"}}, wantN: 1},
+		// 精确匹配的下钻契约：前缀不再串味，否则点分组名会带出别的行
+		{name: "供应商前缀不命中", f: StatsFilter{Providers: []string{"prov"}}, wantN: 0},
+		{name: "模型前缀不命中", f: StatsFilter{Models: []string{"m"}}, wantN: 0},
+		{name: "请求名前缀不命中", f: StatsFilter{Names: []string{"gpt"}}, wantN: 0},
+		{name: "UA 前缀不命中", f: StatsFilter{UserAgents: []string{"ua"}}, wantN: 0},
 		{name: "按 KeyID", f: StatsFilter{KeyIDs: []uint{2}}, wantN: 1},
 		{name: "按 KeyID 多值", f: StatsFilter{KeyIDs: []uint{2, 0}}, wantN: 2},
 		{name: "按窗口 From", f: StatsFilter{From: base.Add(150 * time.Second)}, wantN: 1},

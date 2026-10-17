@@ -2,23 +2,27 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { AlertTriangle, ChevronLeft, ChevronRight, Eye, GitCompareArrows, MessageSquare, RefreshCw, Search, Trash2, X } from "lucide-react"
+import { AlertTriangle, ChevronLeft, ChevronRight, Columns3, Eye, GitCompareArrows, MessageSquare, RefreshCw, Search, Trash2, X } from "lucide-react"
 
+import { LogDetailSheet } from "@/components/log-detail-sheet"
 import { MultiSelectFilter, type FilterOption } from "@/components/multi-select-filter"
+import { RefreshSelect } from "@/components/refresh-select"
 import { StatusMark } from "@/components/status-mark"
 import { ErrorState } from "@/components/state-views"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { useAutoRefresh } from "@/hooks/use-auto-refresh"
 import {
   cleanLogs,
   getAuthKeysList,
   getLogs,
   getModelOptions,
+  getObservedProviderModels,
   getProviderTemplates,
   getProviders,
   type AuthKeyItem,
@@ -26,33 +30,43 @@ import {
   type Model,
   type Provider,
 } from "@/lib/api"
-import { compactNumber, formatBytes, formatCost, formatDurationNs, formatFull, formatNumber } from "@/lib/format"
+import { compactNumber } from "@/lib/format"
 import {
   activeMultiCount,
+  canViewChatIO,
+  applyMultiFilter,
   joinMulti,
-  parseMulti,
   readMultiFilter,
+  readMultiValue,
   toggleMulti,
   type LogsMultiKey,
 } from "@/lib/logs"
+import {
+  LOG_COLUMNS,
+  LOG_DEFAULT_VISIBLE_IDS,
+  LOG_TOGGLEABLE_IDS,
+  cacheRate,
+  visibleColumns,
+} from "@/lib/logs-columns"
+import {
+  refreshSecFor,
+  readUiPrefs,
+  withLogsColumns,
+  withRefreshSec,
+  writeUiPrefs,
+  type UiPrefs,
+} from "@/lib/prefs"
 import { cn } from "@/lib/utils"
 
 /** 对比上限。与后端一次返回的详情体积、以及人眼能同时比较的条数都有关。 */
 const MAX_COMPARE = 6
 
 /** 自动刷新档位（秒）。0 表示关闭。 */
-const REFRESH_OPTIONS = [0, 5, 10, 30, 60]
+const LOGS_REFRESH_SECONDS = [0, 5, 10, 30, 60]
 
 /** 请求状态到 i18n 键的映射。后端的 status 是固定的三个英文值。 */
 function statusKey(status: string): "success" | "error" | "running" | "unknown" {
   return status === "success" || status === "error" || status === "running" ? status : "unknown"
-}
-
-/** 缓存命中率（%）。输入为 0 时返回 null，表示"不适用"而非 0%。 */
-function cacheRate(log: ChatLog): number | null {
-  const prompt = log.prompt_tokens ?? 0
-  if (prompt <= 0) return null
-  return ((log.prompt_tokens_details?.cached_tokens ?? 0) / prompt) * 100
 }
 
 export default function LogsPage() {
@@ -66,6 +80,8 @@ export default function LogsPage() {
   const [pages, setPages] = useState(0)
   const [providers, setProviders] = useState<Provider[]>([])
   const [models, setModels] = useState<Model[]>([])
+  // 上游模型名候选来自历史日志（区别于 models 那份本地别名表）
+  const [providerModels, setProviderModels] = useState<string[]>([])
   const [authKeys, setAuthKeys] = useState<AuthKeyItem[]>([])
   const [availableStyles, setAvailableStyles] = useState<string[]>([])
 
@@ -74,7 +90,7 @@ export default function LogsPage() {
   const page = Math.max(1, Number(searchParams.get("page")) || 1)
   const pageSize = Math.max(1, Number(searchParams.get("pageSize")) || 20)
   /**
-   * 五个多选维度。URL 里的取值是逗号拼接的一串（与后端 splitCSV + IN 同口径），
+   * 六个多选维度。URL 里的取值是逗号拼接的一串（与后端 splitCSV + IN 同口径），
    * 页面只认这一份**解析后**的结果：控件的取值、发给后端的参数、有没有在筛选，
    * 全部由它派生。若某处直接读原始串，就会出现"界面上没筛、请求里却带着 all"
    * 这种两处口径不一——而它不会报错，只会筛出意料之外的东西。
@@ -124,11 +140,7 @@ export default function LogsPage() {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev)
-          const csv = joinMulti(toggleMulti(parseMulti(next.get(key)), value))
-          if (csv) next.set(key, csv)
-          else next.delete(key)
-          next.delete("page")
-          return next
+          return applyMultiFilter(next, key, toggleMulti(readMultiValue((k) => next.get(k), key), value))
         },
         { replace: true }
       )
@@ -162,19 +174,28 @@ export default function LogsPage() {
    */
   const [selected, setSelected] = useState<Map<number, ChatLog>>(new Map())
 
-  // 自动刷新
-  const [refreshSec, setRefreshSec] = useState(0)
+  // 自动刷新档位与可见列落 localStorage：三页共用一份偏好，刷新页面后仍在
+  const [uiPrefs, setUiPrefs] = useState(() => readUiPrefs())
+  const refreshSec = refreshSecFor(uiPrefs, "logs", LOGS_REFRESH_SECONDS)
+  const cols = useMemo(() => visibleColumns(uiPrefs.logsColumns), [uiPrefs.logsColumns])
+
+  const setPref = (next: UiPrefs) => {
+    setUiPrefs(next)
+    writeUiPrefs(next)
+  }
 
   const fetchOptions = useCallback(async () => {
     // 筛选下拉的选项来源与日志本身无关，失败只影响可选范围，不阻断列表
-    const [p, m, a, tpl] = await Promise.allSettled([
+    const [p, m, pm, a, tpl] = await Promise.allSettled([
       getProviders(),
       getModelOptions(),
+      getObservedProviderModels(),
       getAuthKeysList(),
       getProviderTemplates(),
     ])
     if (p.status === "fulfilled") setProviders(p.value)
     if (m.status === "fulfilled") setModels(m.value)
+    if (pm.status === "fulfilled") setProviderModels(pm.value)
     if (a.status === "fulfilled") setAuthKeys(a.value)
     if (tpl.status === "fulfilled") setAvailableStyles(tpl.value.map((x) => x.type))
   }, [])
@@ -186,7 +207,8 @@ export default function LogsPage() {
         const result = await getLogs(page, pageSize, {
           // 空列表即"没筛"：拼出来是空串，于是这个参数根本不发
           providerName: joinMulti(multiFilter.providerName) || undefined,
-          name: joinMulti(multiFilter.model) || undefined,
+          name: joinMulti(multiFilter.requestName) || undefined,
+          providerModel: joinMulti(multiFilter.providerModel) || undefined,
           status: joinMulti(multiFilter.status) || undefined,
           style: joinMulti(multiFilter.style) || undefined,
           authKeyId: joinMulti(multiFilter.authKey) || undefined,
@@ -219,23 +241,10 @@ export default function LogsPage() {
     void fetchLogs()
   }, [fetchLogs])
 
-  // 自动刷新：标签页隐藏时跳过（省资源），回到前台立即补一次
-  useEffect(() => {
-    if (refreshSec <= 0) return
-    const tick = () => {
-      if (document.hidden) return
-      void fetchLogs(true)
-    }
-    const timer = window.setInterval(tick, refreshSec * 1000)
-    const onVisible = () => {
-      if (!document.hidden) tick()
-    }
-    document.addEventListener("visibilitychange", onVisible)
-    return () => {
-      window.clearInterval(timer)
-      document.removeEventListener("visibilitychange", onVisible)
-    }
-  }, [refreshSec, fetchLogs])
+  // 自动刷新走静默取数：不闪骨架、失败不落错误条
+  useAutoRefresh(refreshSec, () => {
+    void fetchLogs(true)
+  })
 
   const toggleSelect = useCallback(
     (log: ChatLog) => {
@@ -276,8 +285,6 @@ export default function LogsPage() {
     }
   }
 
-  const canViewChatIO = (log: ChatLog) => log.Status === "success" && log.ChatIO
-
   /** 只有成功请求可参与对比——失败请求没有可比较的输出内容。 */
   const selectable = (log: ChatLog) => log.Status === "success"
   const allOnPageSelected = logs.length > 0 && logs.filter(selectable).every((l) => selected.has(l.ID))
@@ -317,14 +324,25 @@ export default function LogsPage() {
       </div>
 
       {/* 筛选行在内容之上一整行，作用于其下的表格与分页。
-          五个维度都是**多选**：看日志时的诉求多数是"这几个供应商/模型放在一起看"，
+          六个维度都是**多选**：看日志时的诉求多数是"这几个供应商/模型放在一起看"，
           单选时代只能一个一个来回切，切一次还得重看一遍上下文。 */}
       <div className="flex flex-wrap items-center gap-2">
+        {/*
+          两个"名字"维度必须分开：请求名是客户端请求体里写的（本地别名表），
+          模型是真正发给上游的 id（取自历史日志）。同名可跨提供商，
+          两者的取值集合不同源，混在一个下拉里就会筛到对不上的东西。
+        */}
         <DimensionFilter
-          label={t("filters.model")}
-          selected={multiFilter.model}
-          onToggle={(v) => toggleMultiFilter("model", v)}
+          label={t("filters.request_name")}
+          selected={multiFilter.requestName}
+          onToggle={(v) => toggleMultiFilter("requestName", v)}
           options={models.map((m) => ({ value: m.Name, label: m.Name }))}
+        />
+        <DimensionFilter
+          label={t("filters.provider_model")}
+          selected={multiFilter.providerModel}
+          onToggle={(v) => toggleMultiFilter("providerModel", v)}
+          options={providerModels.map((m) => ({ value: m, label: m }))}
         />
         <DimensionFilter
           label={t("filters.project")}
@@ -356,21 +374,55 @@ export default function LogsPage() {
         />
 
         <div className="ml-auto flex items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            <RefreshCw className="size-3.5 text-muted-foreground" aria-hidden="true" />
-            <Select value={String(refreshSec)} onValueChange={(v) => setRefreshSec(Number(v))}>
-              <SelectTrigger className="h-8 w-[104px] text-xs" aria-label={t("auto_refresh.label")}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {REFRESH_OPTIONS.map((s) => (
-                  <SelectItem key={s} value={String(s)}>
-                    {s === 0 ? t("auto_refresh.off") : t("auto_refresh.every", { sec: s })}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <RefreshSelect
+            value={refreshSec}
+            options={LOGS_REFRESH_SECONDS}
+            onChange={(s) => setPref(withRefreshSec(uiPrefs, "logs", s))}
+          />
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="icon" className="size-8" aria-label={t("table.columns")} title={t("table.columns")}>
+                <Columns3 className="size-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 p-3" align="end">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-medium">{t("table.columns")}</span>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => setPref(withLogsColumns(uiPrefs, [...LOG_DEFAULT_VISIBLE_IDS], LOG_TOGGLEABLE_IDS))}
+                >
+                  {t("table.reset_columns")}
+                </button>
+              </div>
+              <div className="space-y-1">
+                {LOG_COLUMNS.filter((c) => !c.always && c.labelKey).map((c) => {
+                  const checked = uiPrefs.logsColumns.length === 0
+                    ? c.defaultVisible === true
+                    : uiPrefs.logsColumns.includes(c.id)
+                  return (
+                    <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(v) => {
+                          const current = uiPrefs.logsColumns.length === 0
+                            ? LOG_DEFAULT_VISIBLE_IDS
+                            : uiPrefs.logsColumns
+                          const next = v
+                            ? [...current, c.id]
+                            : current.filter((id) => id !== c.id)
+                          setPref(withLogsColumns(uiPrefs, next, LOG_TOGGLEABLE_IDS))
+                        }}
+                      />
+                      <span>{t(c.labelKey as never)}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
 
           {hasActiveFilter && (
             <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs" onClick={clearFilters}>
@@ -464,48 +516,39 @@ export default function LogsPage() {
           <Table className="min-w-[1400px]">
             <TableHeader className="sticky top-0 z-10 bg-muted">
               <TableRow className="hover:bg-muted">
-                <TableHead className="w-10">
-                  <Checkbox
-                    checked={allOnPageSelected}
-                    onCheckedChange={(v) => {
-                      if (v) {
-                        setSelected((prev) => {
-                          const next = new Map(prev)
-                          for (const l of logs) {
-                            if (selectable(l) && next.size < MAX_COMPARE) next.set(l.ID, l)
+                {cols.map((col) => (
+                  <TableHead key={col.id} className={cn(col.headClass)}>
+                    {col.id === "select" ? (
+                      <Checkbox
+                        checked={allOnPageSelected}
+                        onCheckedChange={(v) => {
+                          if (v) {
+                            setSelected((prev) => {
+                              const next = new Map(prev)
+                              for (const l of logs) {
+                                if (selectable(l) && next.size < MAX_COMPARE) next.set(l.ID, l)
+                              }
+                              return next
+                            })
+                          } else {
+                            setSelected((prev) => {
+                              const next = new Map(prev)
+                              for (const l of logs) next.delete(l.ID)
+                              return next
+                            })
                           }
-                          return next
-                        })
-                      } else {
-                        setSelected((prev) => {
-                          const next = new Map(prev)
-                          for (const l of logs) next.delete(l.ID)
-                          return next
-                        })
-                      }
-                    }}
-                    aria-label={t("compare.select_all")}
-                  />
-                </TableHead>
-                {/* 冻结 ID 列：横向滚动时保持可见，否则右移后就认不出是哪条 */}
-                <TableHead className="sticky left-0 z-20 w-20 bg-muted">{t("table.id")}</TableHead>
-                <TableHead>{t("table.time")}</TableHead>
-                <TableHead>{t("table.model")}</TableHead>
-                <TableHead>{t("table.project")}</TableHead>
-                <TableHead>{t("table.status")}</TableHead>
-                <TableHead>{t("table.tokens")}</TableHead>
-                <TableHead>{t("table.cache")}</TableHead>
-                <TableHead>{t("table.size")}</TableHead>
-                <TableHead>{t("table.duration")}</TableHead>
-                <TableHead>{t("table.provider_model")}</TableHead>
-                <TableHead>{t("table.type")}</TableHead>
-                <TableHead>{t("table.provider")}</TableHead>
-                <TableHead className="w-24">{t("table.actions")}</TableHead>
+                        }}
+                        aria-label={t("compare.select_all")}
+                      />
+                    ) : col.labelKey ? (
+                      t(col.labelKey as never)
+                    ) : null}
+                  </TableHead>
+                ))}
               </TableRow>
             </TableHeader>
             <TableBody>
               {logs.map((log) => {
-                const rate = cacheRate(log)
                 const isSelected = selected.has(log.ID)
                 return (
                   <TableRow
@@ -514,75 +557,75 @@ export default function LogsPage() {
                     className={cn("cursor-pointer", isSelected && "bg-accent/50")}
                     onClick={() => setDetailLog(log)}
                   >
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <Checkbox
-                        checked={isSelected}
-                        disabled={!selectable(log)}
-                        onCheckedChange={() => toggleSelect(log)}
-                        aria-label={t("compare.select_row", { id: log.ID })}
-                      />
-                    </TableCell>
-                    <TableCell className="reading sticky left-0 z-10 bg-background text-xs text-muted-foreground">
-                      {log.ID}
-                    </TableCell>
-                    <TableCell className="reading whitespace-nowrap text-xs text-muted-foreground">
-                      {formatFull(new Date(log.CreatedAt).getTime())}
-                    </TableCell>
-                    <TableCell className="max-w-[160px] truncate font-medium" title={log.Name}>
-                      {log.Name}
-                    </TableCell>
-                    <TableCell className="max-w-[120px] truncate text-xs" title={log.key_name}>
-                      {log.key_name || "-"}
-                    </TableCell>
-                    <TableCell>
-                      <StatusMark status={log.Status} label={t(`common:status.${statusKey(log.Status)}` as never)} />
-                    </TableCell>
-                    <TableCell className="reading">{formatNumber(log.total_tokens)}</TableCell>
-                    <TableCell className="reading text-xs">
-                      {rate === null ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        t("table.cache_value", { percent: rate.toFixed(0), tokens: compactNumber(log.prompt_tokens_details?.cached_tokens ?? 0) })
-                      )}
-                    </TableCell>
-                    <TableCell className="reading text-xs text-muted-foreground">
-                      {log.Size ? formatBytes(log.Size) : "-"}
-                    </TableCell>
-                    <TableCell className="reading text-xs">
-                      {formatDurationNs(log.ChunkTime + log.FirstChunkTime + log.ProxyTime)}
-                    </TableCell>
-                    <TableCell className="max-w-[140px] truncate text-xs" title={log.ProviderModel}>
-                      {log.ProviderModel}
-                    </TableCell>
-                    <TableCell className="text-xs">{log.Style}</TableCell>
-                    <TableCell className="max-w-[120px] truncate text-xs" title={log.ProviderName}>
-                      {log.ProviderName}
-                    </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7"
-                          onClick={() => setDetailLog(log)}
-                          aria-label={t("detail.title", { id: log.ID })}
-                          title={t("table.detail")}
-                        >
-                          <Eye className="size-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7"
-                          onClick={() => navigate(`/logs/${log.ID}/chat-io`)}
-                          disabled={!canViewChatIO(log)}
-                          aria-label={t("table.view_io")}
-                          title={canViewChatIO(log) ? t("table.view_io") : t("table.io_unavailable")}
-                        >
-                          <MessageSquare className="size-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {cols.map((col) => {
+                      if (col.id === "select") {
+                        return (
+                          <TableCell key={col.id} onClick={(e) => e.stopPropagation()}>
+                            <Checkbox
+                              checked={isSelected}
+                              disabled={!selectable(log)}
+                              onCheckedChange={() => toggleSelect(log)}
+                              aria-label={t("compare.select_row", { id: log.ID })}
+                            />
+                          </TableCell>
+                        )
+                      }
+                      if (col.id === "actions") {
+                        return (
+                          <TableCell key={col.id} onClick={(e) => e.stopPropagation()}>
+                            <div className="flex gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7"
+                                onClick={() => setDetailLog(log)}
+                                aria-label={t("detail.title", { id: log.ID })}
+                                title={t("table.detail")}
+                              >
+                                <Eye className="size-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7"
+                                onClick={() => navigate(`/logs/${log.ID}/chat-io`)}
+                                disabled={!canViewChatIO(log)}
+                                aria-label={t("table.view_io")}
+                                title={canViewChatIO(log) ? t("table.view_io") : t("table.io_unavailable")}
+                              >
+                                <MessageSquare className="size-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        )
+                      }
+                      const value = col.value?.(log) ?? ""
+                      const titleAttr = col.cellClass?.includes("truncate") ? value || undefined : undefined
+                      if (col.kind === "status") {
+                        return (
+                          <TableCell key={col.id} className={cn(col.cellClass)}>
+                            <StatusMark status={log.Status} label={t(`common:status.${statusKey(log.Status)}` as never)} />
+                          </TableCell>
+                        )
+                      }
+                      if (col.kind === "cache") {
+                        const rate = cacheRate(log)
+                        return (
+                          <TableCell key={col.id} className={cn(col.cellClass)}>
+                            {rate === null ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : (
+                              t("table.cache_value", { percent: rate.toFixed(0), tokens: compactNumber(log.prompt_tokens_details?.cached_tokens ?? 0) })
+                            )}
+                          </TableCell>
+                        )
+                      }
+                      return (
+                        <TableCell key={col.id} className={cn(col.cellClass)} title={titleAttr}>
+                          {value}
+                        </TableCell>
+                      )
+                    })}
                   </TableRow>
                 )
               })}
@@ -748,186 +791,5 @@ function DimensionFilter({
           : label
       }
     />
-  )
-}
-
-function DetailField({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[11px] tracking-wide text-muted-foreground uppercase">{label}</div>
-      <div className={cn("text-sm break-words", mono && "reading text-xs")}>{value ?? "-"}</div>
-    </div>
-  )
-}
-
-/**
- * 单条日志详情。
- *
- * 用右侧抽屉而非弹窗：读者要在列表与详情之间来回比对（看这条是不是刚才那条），
- * 遮住整页反而妨碍操作。关闭后焦点由 Radix 归还到触发行。
- */
-function LogDetailSheet({ log, onClose }: { log: ChatLog | null; onClose: () => void }) {
-  const { t } = useTranslation(["logs", "common"])
-  const navigate = useNavigate()
-
-  const cached = log?.prompt_tokens_details?.cached_tokens ?? 0
-  const hasPricing = (log?.input_price ?? 0) > 0 || (log?.output_price ?? 0) > 0
-  // 上游协议与客户端协议不同 = 这次请求走了一层协议转换。直连时后端写入的
-  // upstream_style 与 Style 相同，转换时才分叉
-  const bridged = !!log?.upstream_style && log.upstream_style !== log.Style
-  const bridgeCodes = (log?.bridge_notes ?? "")
-    .split(",")
-    .map((code) => code.trim())
-    .filter(Boolean)
-  const totalCost = log
-    ? (Math.max(0, (log.prompt_tokens ?? 0) - cached) / 1e6) * (log.input_price ?? 0) +
-      (cached / 1e6) * (log.cache_read_price ?? 0) +
-      ((log.completion_tokens ?? 0) / 1e6) * (log.output_price ?? 0)
-    : 0
-
-  return (
-    <Sheet open={log !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent>
-        <SheetHeader>
-          <SheetTitle>{log ? t("logs:detail.title", { id: log.ID }) : ""}</SheetTitle>
-          {log && (
-            <SheetDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <StatusMark status={log.Status} label={t(`common:status.${statusKey(log.Status)}` as never)} />
-              <span className="reading">{formatFull(new Date(log.CreatedAt).getTime())}</span>
-              <span>{log.Name}</span>
-            </SheetDescription>
-          )}
-        </SheetHeader>
-
-        {log && (
-          <SheetBody className="space-y-5">
-            {log.Error && (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3">
-                <p className="mb-1 text-[11px] tracking-wide text-status-critical-ink uppercase">
-                  {t("logs:detail.error_title")}
-                </p>
-                <div className="text-sm break-words whitespace-pre-wrap text-status-critical-ink">{log.Error}</div>
-              </div>
-            )}
-
-            <Section title={t("logs:detail.basic_info")}>
-              <div className="grid grid-cols-2 gap-3">
-                <DetailField label={t("logs:detail.model_name")} value={log.Name} />
-                <DetailField label={t("logs:detail.provider")} value={log.ProviderName || "-"} />
-                <DetailField label={t("logs:detail.provider_model")} value={log.ProviderModel || "-"} mono />
-                <DetailField label={t("logs:detail.type")} value={log.Style || "-"} />
-                {bridged && (
-                  <DetailField
-                    label={t("logs:bridge.upstream_type")}
-                    value={<span className="reading text-xs">{log.upstream_style}</span>}
-                  />
-                )}
-                <DetailField label={t("logs:detail.size")} value={log.Size ? formatBytes(log.Size) : "-"} />
-                <DetailField label={t("logs:detail.remote_ip")} value={log.RemoteIP || "-"} mono />
-                <DetailField
-                  label={t("logs:detail.io_log")}
-                  value={log.ChatIO ? t("logs:detail.io_yes") : t("logs:detail.io_no")}
-                />
-                <DetailField label={t("logs:detail.retry")} value={log.Retry ?? 0} />
-                <DetailField
-                  label={t("logs:detail.trace_id")}
-                  value={log.TraceID ? <span className="reading break-all">{log.TraceID}</span> : "-"}
-                />
-                <DetailField
-                  label={t("logs:detail.session_id")}
-                  value={log.SessionID ? <span className="reading break-all">{log.SessionID}</span> : "-"}
-                />
-              </div>
-              <div className="mt-3">
-                <DetailField label={t("logs:detail.user_agent")} value={log.UserAgent || "-"} mono />
-              </div>
-            </Section>
-
-            {bridged && (
-              <Section title={t("logs:bridge.title")}>
-                <div className="grid grid-cols-2 gap-3">
-                  <DetailField
-                    label={t("logs:bridge.direction")}
-                    value={<span className="reading text-xs">{log.Style} → {log.upstream_style}</span>}
-                  />
-                </div>
-                <div className="mt-3 space-y-1.5">
-                  <div className="text-[11px] tracking-wide text-muted-foreground uppercase">
-                    {bridgeCodes.length > 0 ? t("logs:bridge.changed") : t("logs:bridge.clean")}
-                  </div>
-                  {bridgeCodes.map((code) => (
-                    <div key={code} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      <code className="reading rounded bg-muted px-1.5 py-0.5 text-[11px]">{code}</code>
-                      <span className="text-xs text-muted-foreground">
-                        {t(`logs:bridge.notes.${code}` as never, { defaultValue: t("logs:bridge.unknown_note") })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
-
-            <Section title={t("logs:detail.performance")}>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <DetailField label={t("logs:detail.proxy_time")} value={formatDurationNs(log.ProxyTime)} />
-                <DetailField label={t("logs:detail.first_chunk_time")} value={formatDurationNs(log.FirstChunkTime)} />
-                <DetailField label={t("logs:detail.chunk_time")} value={formatDurationNs(log.ChunkTime)} />
-                <DetailField label={t("logs:detail.tps")} value={log.Tps ? log.Tps.toFixed(2) : "-"} />
-              </div>
-            </Section>
-
-            <Section title={t("logs:detail.token_usage")}>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <DetailField label={t("logs:detail.input")} value={formatNumber(log.prompt_tokens)} />
-                <DetailField label={t("logs:detail.cached")} value={formatNumber(cached)} />
-                <DetailField label={t("logs:detail.output")} value={formatNumber(log.completion_tokens)} />
-                <DetailField label={t("logs:detail.total")} value={formatNumber(log.total_tokens)} />
-              </div>
-            </Section>
-
-            <Section title={t("logs:detail.billing")}>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <DetailField
-                  label={t("logs:detail.billing_input")}
-                  value={hasPricing ? formatCost((Math.max(0, log.prompt_tokens - cached) / 1e6) * log.input_price, log.currency) : "-"}
-                />
-                <DetailField
-                  label={t("logs:detail.billing_cache")}
-                  value={hasPricing ? formatCost((cached / 1e6) * log.cache_read_price, log.currency) : "-"}
-                />
-                <DetailField
-                  label={t("logs:detail.billing_output")}
-                  value={hasPricing ? formatCost((log.completion_tokens / 1e6) * log.output_price, log.currency) : "-"}
-                />
-                <DetailField
-                  label={t("logs:detail.billing_total")}
-                  value={hasPricing ? formatCost(totalCost, log.currency) : "-"}
-                />
-              </div>
-            </Section>
-
-            {canView(log) && (
-              <Button variant="outline" size="sm" className="w-full" onClick={() => navigate(`/logs/${log.ID}/chat-io`)}>
-                <MessageSquare className="mr-1.5 size-3.5" aria-hidden="true" />
-                {t("logs:table.view_io")}
-              </Button>
-            )}
-          </SheetBody>
-        )}
-      </SheetContent>
-    </Sheet>
-  )
-}
-
-function canView(log: ChatLog) {
-  return log.Status === "success" && log.ChatIO
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="space-y-2">
-      <h3 className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{title}</h3>
-      {children}
-    </section>
   )
 }

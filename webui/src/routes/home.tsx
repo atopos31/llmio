@@ -1,35 +1,58 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, ArrowUpRight, RefreshCw } from "lucide-react"
-import { Link } from "react-router-dom"
 
 import { FirstChunkHistogram, RequestTrendChart, TokenTrendChart } from "@/components/charts/trend-charts"
+import { LogDetailSheet } from "@/components/log-detail-sheet"
+import { RefreshSelect } from "@/components/refresh-select"
 import { StatusMark } from "@/components/status-mark"
 import { Button } from "@/components/ui/button"
 import { Panel } from "@/components/panel"
 import { EmptyState, ErrorState } from "@/components/state-views"
 import { Card, CardContent } from "@/components/ui/card"
+import { useAutoRefresh } from "@/hooks/use-auto-refresh"
 import { getStats, type StatsResult } from "@/lib/api"
+import { statsRowNames } from "@/lib/analytics"
 import {
   compactNumber,
+  formatClockSeconds,
   formatCost,
+  formatDateTime,
   formatNumber,
   formatPercent,
   formatSeconds,
 } from "@/lib/format"
+import { cn } from "@/lib/utils"
+import {
+  HOME_RANGES,
+  type HomeRange,
+  refreshSecFor,
+  readUiPrefs,
+  withHomeRange,
+  withRefreshSec,
+  writeUiPrefs,
+  type UiPrefs,
+} from "@/lib/prefs"
 
-/** 时间范围预设。值与后端的 from/to 参数直接对应。 */
-type RangeKey = "today" | "last_24h" | "last_7d" | "last_30d"
-
-const RANGE_HOURS: Record<RangeKey, number | "today"> = {
+/** 时间范围的选项清单在 lib/prefs 的 HOME_RANGES 里，取值即后端的换算口径。 */
+const RANGE_HOURS: Record<HomeRange, number | "today"> = {
   today: "today",
   last_24h: 24,
   last_7d: 24 * 7,
   last_30d: 24 * 30,
 }
 
+/**
+ * 自动刷新档位（秒）。0 表示关闭。
+ *
+ * 起点比日志页高（10 秒而不是 5 秒）：总览的 stats 要把整个窗口内的日志
+ * 拉回来做分组聚合（service/stats.go 的 StatsScanLimit 上限 20 万条），
+ * 比日志页的分页查询重得多，5 秒一次等于把聚合压力放大到没有收益。
+ */
+const HOME_REFRESH_SECONDS = [0, 10, 30, 60, 300]
+
 /** 范围 → 后端接受的秒级时间戳。 */
-function rangeToQuery(key: RangeKey): { from: string; to: string } {
+function rangeToQuery(key: HomeRange): { from: string; to: string } {
   const now = new Date()
   const to = Math.floor(now.getTime() / 1000)
   const spec = RANGE_HOURS[key]
@@ -42,30 +65,63 @@ function rangeToQuery(key: RangeKey): { from: string; to: string } {
 
 export default function Home() {
   const { t } = useTranslation(["home", "common"])
-  const [range, setRange] = useState<RangeKey>("last_24h")
+  // 时间范围与刷新档位都落 localStorage：总览是仪表盘，刷新一次就丢掉
+  // 用户挑好的窗口比什么都不记更伤
+  const [prefs, setPrefs] = useState(() => readUiPrefs())
+  const range = prefs.homeRange
+  const sec = refreshSecFor(prefs, "home", HOME_REFRESH_SECONDS)
   const [stats, setStats] = useState<StatsResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  /**
+   * "有没有一次取数在飞"与"上次取到是什么时候"。
+   *
+   * 轮询是静默的：不闪骨架、不换错误条，页面上连带状的动静都没有。用户看到的是
+   * 一堆不动的数字，于是只会得出"刷新按钮点了才动"的结论——定时器确实在跑，
+   * 但没有任何东西能证明它在跑。这两项就是那份证据：飞着的取数让图标转起来，
+   * 落地的时间戳让秒数往前走。
+   */
+  const [refreshing, setRefreshing] = useState(false)
+  const [updatedAt, setUpdatedAt] = useState(0)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const data = await getStats(rangeToQuery(range))
-      setStats(data)
-      setLoadError(null)
-    } catch (err) {
-      // 失败必须留在页面上。原先只弹一条会自己消失的 toast，而 stats 仍是 null，
-      // 于是 hasData 为假、页面显示"该时间范围内没有请求"——把"没取到"说成了
-      // "确实没有"，而这是打开控制台的第一屏。
-      setLoadError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [range])
+  const setPref = (next: UiPrefs) => {
+    setPrefs(next)
+    writeUiPrefs(next)
+  }
+
+  const load = useCallback(
+    async (silent = false) => {
+      // 静默取数也要置位：轮询的那一次同样在飞，图标该转
+      setRefreshing(true)
+      if (!silent) setLoading(true)
+      try {
+        const data = await getStats(rangeToQuery(range))
+        setStats(data)
+        setLoadError(null)
+        setUpdatedAt(Date.now())
+      } catch (err) {
+        // 失败必须留在页面上。原先只弹一条会自己消失的 toast，而 stats 仍是 null，
+        // 于是 hasData 为假、页面显示"该时间范围内没有请求"——把"没取到"说成了
+        // "确实没有"，而这是打开控制台的第一屏。
+        // 自动刷新的静默失败例外：一次网络瞬断就把整页换成失败态，
+        // 比保留上一次的结果更打扰人（与日志页 fetchLogs(silent) 同一口径）。
+        if (!silent) setLoadError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setRefreshing(false)
+        if (!silent) setLoading(false)
+      }
+    },
+    [range]
+  )
 
   useEffect(() => {
     void load()
   }, [load])
+
+  // 自动刷新走静默取数：不闪骨架、不落成错误条
+  useAutoRefresh(sec, () => {
+    void load(true)
+  })
 
   const kpi = stats?.kpi
   const hasData = (kpi?.total ?? 0) > 0
@@ -88,7 +144,7 @@ export default function Home() {
           aria-label={t("home:range.label")}
           className="flex items-center gap-0.5 rounded-md border border-border bg-background p-0.5"
         >
-          {(["today", "last_24h", "last_7d", "last_30d"] as RangeKey[]).map((key) => {
+          {HOME_RANGES.map((key) => {
             const active = range === key
             return (
               <Button
@@ -103,7 +159,7 @@ export default function Home() {
                     ? "h-7 bg-accent px-2.5 text-xs text-accent-foreground"
                     : "h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
                 }
-                onClick={() => setRange(key)}
+                onClick={() => setPref(withHomeRange(prefs, key))}
               >
                 {t(`home:range.${key}` as never)}
               </Button>
@@ -111,16 +167,33 @@ export default function Home() {
           })}
         </div>
 
+        <RefreshSelect
+          value={sec}
+          options={HOME_REFRESH_SECONDS}
+          onChange={(s) => setPref(withRefreshSec(prefs, "home", s))}
+          pending={refreshing}
+        />
         <Button
           variant="outline"
           size="icon"
           className="size-8"
           onClick={() => void load()}
+          disabled={refreshing}
           aria-label={t("home:refresh")}
           title={t("home:refresh")}
         >
-          <RefreshCw className="size-4" />
+          <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
         </Button>
+        {/*
+          "更新于 HH:MM:SS"是自动刷新在跑的直接证据。秒级而不是分钟级：
+          stats 是全量聚合，10 秒档下同一份数据来回滚动很常见，分钟粒度下
+          根本看不出这一轮有没有取成。
+        */}
+        {updatedAt > 0 && (
+          <span className="text-xs text-muted-foreground">
+            {t("home:updated_at", { time: formatClockSeconds(updatedAt) })}
+          </span>
+        )}
       </div>
 
       {stats?.truncated && (
@@ -355,53 +428,86 @@ function PercentileRow({ stats }: { stats: StatsResult }) {
  * 用**列表而非环形图**：错误类别是要比较的量，环形图对接近的值不可靠；
  * 且类别数可能超过 7，那时图表本就不如表格。类别名 + 计数 + 受影响对象
  * 用文字直给，不依赖颜色传达。
+ *
+ * 每类下面带最多 3 条样本（后端 maxErrorSamples，时间倒序），逐条点开抽屉。
+ * 失败路径不写 ChatIO，所以抽屉里看到的是请求元数据与错误原文，而不是请求体——
+ * 原实现的唯一入口是跳到 /logs/:id/chat-io，而失败行在那里永远是空表。
  */
 function ErrorList({ stats, unavailable }: { stats: StatsResult; unavailable: string }) {
   const { t } = useTranslation(["home", "common"])
+  const [sampleId, setSampleId] = useState<number | null>(null)
+
   if (stats.errors.length === 0) {
     return <p className="py-6 text-center text-sm text-muted-foreground">{unavailable}</p>
   }
+
   return (
-    <ul className="space-y-3">
-      {stats.errors.slice(0, 5).map((g) => (
-        <li key={g.code}>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="flex items-center gap-1.5 text-sm font-medium">
-              <StatusMark status="error" label={g.type} />
-            </span>
-            <span className="reading text-sm text-muted-foreground">
-              {t("home:errors.count", { count: g.count })}
-            </span>
-          </div>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground">
-            {g.providers.length > 0 && (
-              <span>
-                {t("home:errors.affected_providers")}：
-                {g.providers.map((p) => `${p.name}(${p.count})`).join("、")}
+    <>
+      <ul className="space-y-3">
+        {stats.errors.slice(0, 5).map((g) => (
+          <li key={g.code}>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                <StatusMark status="error" label={g.type} />
               </span>
-            )}
-            {g.models.length > 0 && (
-              <span>
-                {t("home:errors.affected_models")}：
-                {g.models.map((m) => `${m.name}(${m.count})`).join("、")}
+              <span className="reading text-sm text-muted-foreground">
+                {t("home:errors.count", { count: g.count })}
               </span>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-muted-foreground">
+              {g.providers.length > 0 && (
+                <span>
+                  {t("home:errors.affected_providers")}：
+                  {g.providers.map((p) => `${p.name}(${p.count})`).join("、")}
+                </span>
+              )}
+              {g.models.length > 0 && (
+                <span>
+                  {t("home:errors.affected_models")}：
+                  {g.models.map((m) => `${m.name}(${m.count})`).join("、")}
+                </span>
+              )}
+            </div>
+            {g.samples.length > 0 && (
+              <ul className="mt-1.5 space-y-0.5" aria-label={t("home:errors.samples")}>
+                {g.samples.map((s) => (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSampleId(s.id)}
+                      className="flex w-full items-baseline gap-2 rounded-sm text-left text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+                    >
+                      <span className="reading shrink-0">{formatDateTime(s.createdAt)}</span>
+                      <span className="truncate" title={s.error}>
+                        {s.error}
+                      </span>
+                      <ArrowUpRight className="ml-auto size-3 shrink-0" aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
-          </div>
-          {g.samples[0] && (
-            <Link
-              to={`/logs/${g.samples[0].id}/chat-io`}
-              className="mt-1 inline-flex items-center gap-1 text-[11px] text-primary underline-offset-2 hover:underline"
-            >
-              {t("home:errors.view_log")}
-              <ArrowUpRight className="size-3" aria-hidden="true" />
-            </Link>
-          )}
-        </li>
-      ))}
-    </ul>
+          </li>
+        ))}
+      </ul>
+
+      <LogDetailSheet logId={sampleId} onClose={() => setSampleId(null)} />
+    </>
   )
 }
 
+/**
+ * 排行榜卡片（TPS 榜首 / 最慢首包 / 最近失败）。
+ *
+ * 三张卡共用一份实现，也共用同一套交互：点开抽屉看那一条的详情。
+ * 原先这里是 `<Link to="/logs/:id/chat-io">`，而失败请求没有请求内容，
+ * 那条链接进去是张空表——同样的"点了没反应"，而且三张卡里只有一张会踩到。
+ * 统一改成抽屉后，能不能看请求内容由抽屉自己按这条日志的状态判断，
+ * 首页再没有通往死链的入口。
+ *
+ * 标签请求名优先：操作台上认得的是 llmio 别名，上游模型 id 只在别名改了
+ * 路由时才是必要信息，所以退到括号里。
+ */
 function LeaderboardCard({
   title,
   rows,
@@ -415,41 +521,57 @@ function LeaderboardCard({
   empty: string
   tone?: "critical"
 }) {
+  const [logId, setLogId] = useState<number | null>(null)
+
   return (
     <Panel title={title}>
       {rows.length === 0 ? (
         <p className="py-4 text-center text-xs text-muted-foreground">{empty}</p>
       ) : (
         <ul className="space-y-1.5">
-          {rows.map((r) => (
-            <li key={r.id}>
-              <Link
-                to={`/logs/${r.id}/chat-io`}
-                className="flex items-baseline justify-between gap-2 rounded-sm px-1 py-0.5 text-xs hover:bg-accent"
-              >
-                {/* 左列吃掉剩余宽度并截断，右列按内容宽度但不许`shrink-0`。
-                    右列装的是错误原文（等宽字体，可达 300px 以上），
-                    `shrink-0` 会让它永不收缩，把整行撑宽后一路顶到内容区——
-                    窄卡片上表现为页面内容区出现一条横向滚动条。 */}
-                <span className="min-w-0 flex-1 truncate" title={`${r.model} · ${r.provider}`}>
-                  {r.model}
-                  <span className="text-muted-foreground"> · {r.provider}</span>
-                </span>
-                <span
-                  className={
-                    tone === "critical"
-                      ? "reading min-w-0 shrink truncate text-status-critical-ink"
-                      : "reading min-w-0 shrink truncate"
-                  }
-                  title={metric(r)}
+          {rows.map((r) => {
+            const names = statsRowNames(r)
+            const requestName = names.requestName
+            const primary = requestName ?? names.model
+            const title = requestName
+              ? `${requestName}（${names.model}） · ${r.provider}`
+              : `${names.model} · ${r.provider}`
+            return (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  onClick={() => setLogId(r.id)}
+                  className="flex w-full items-baseline justify-between gap-2 rounded-sm px-1 py-0.5 text-left text-xs hover:bg-accent"
                 >
-                  {metric(r)}
-                </span>
-              </Link>
-            </li>
-          ))}
+                  {/* 左列吃掉剩余宽度并截断，右列按内容宽度但不许`shrink-0`。
+                      右列装的是错误原文（等宽字体，可达 300px 以上），
+                      `shrink-0` 会让它永不收缩，把整行撑宽后一路顶到内容区——
+                      窄卡片上表现为页面内容区出现一条横向滚动条。 */}
+                  <span className="min-w-0 flex-1 truncate" title={title}>
+                    {primary}
+                    {requestName && (
+                      <span className="text-muted-foreground">（{names.model}）</span>
+                    )}
+                    <span className="text-muted-foreground"> · {r.provider}</span>
+                  </span>
+                  <span
+                    className={
+                      tone === "critical"
+                        ? "reading min-w-0 shrink truncate text-status-critical-ink"
+                        : "reading min-w-0 shrink truncate"
+                    }
+                    title={metric(r)}
+                  >
+                    {metric(r)}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
         </ul>
       )}
+
+      <LogDetailSheet logId={logId} onClose={() => setLogId(null)} />
     </Panel>
   )
 }

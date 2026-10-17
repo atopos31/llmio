@@ -556,7 +556,10 @@ export interface LatencyStat {
 export interface StatsLogRow {
   id: number;
   createdAt: number;
+  /** 上游模型名（后端 provider_model）；与请求名不同时并列显示 */
   model: string;
+  /** 请求名（后端 chat_logs.name），与 model 相同时后端不返回 */
+  requestName?: string;
   provider: string;
   keyName: string;
   tps: number;
@@ -776,6 +779,16 @@ export interface LogsResponse {
 
 export async function getUserAgents(): Promise<string[]> {
   return apiRequest<string[]>('/user-agents');
+}
+
+/**
+ * 日志里出现过的上游模型名（`chat_logs.provider_model` 去重值）。
+ *
+ * 与 `getModelOptions()`（本地配置的别名表）不是一回事：下拉里得是**观测到**
+ * 的上游模型 id，否则筛选项和分组名对不上。
+ */
+export async function getObservedProviderModels(): Promise<string[]> {
+  return apiRequest<string[]>('/provider-models');
 }
 
 export async function getLogs(

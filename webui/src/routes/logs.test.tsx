@@ -8,6 +8,7 @@ import {
   getAuthKeysList,
   getLogs,
   getModelOptions,
+  getObservedProviderModels,
   getProviderTemplates,
   getProviders,
   type ChatLog,
@@ -17,10 +18,11 @@ import {
 
 vi.mock("@/lib/api", () => ({
   getLogs: vi.fn(),
-  // 四个筛选下拉的选项来源。它们走 allSettled，失败只影响可选范围，
+  // 筛选下拉的选项来源。它们走 allSettled，失败只影响可选范围，
   // 但**不能**是 undefined——那样 setState 下去会让下拉自己崩掉。
   getProviders: vi.fn(),
   getModelOptions: vi.fn(),
+  getObservedProviderModels: vi.fn(),
   getAuthKeysList: vi.fn(),
   getProviderTemplates: vi.fn(),
   cleanLogs: vi.fn(),
@@ -30,6 +32,7 @@ const mocked = {
   getLogs: vi.mocked(getLogs),
   getProviders: vi.mocked(getProviders),
   getModelOptions: vi.mocked(getModelOptions),
+  getObservedProviderModels: vi.mocked(getObservedProviderModels),
   getAuthKeysList: vi.mocked(getAuthKeysList),
   getProviderTemplates: vi.mocked(getProviderTemplates),
 }
@@ -101,6 +104,7 @@ beforeEach(async () => {
   mocked.getLogs.mockResolvedValue(response())
   mocked.getProviders.mockResolvedValue([])
   mocked.getModelOptions.mockResolvedValue([])
+  mocked.getObservedProviderModels.mockResolvedValue([])
   mocked.getAuthKeysList.mockResolvedValue([])
   mocked.getProviderTemplates.mockResolvedValue([])
   const i18n = (await import("@/i18n")).default
@@ -198,7 +202,7 @@ describe("日志页 · 多选筛选", () => {
     await screen.findByText("deepseek-chat")
 
     // 触发器在无障碍树上的名字就是维度名（未选时不含计数）
-    await user.click(screen.getByRole("button", { name: "模型名称" }))
+    await user.click(screen.getByRole("button", { name: "请求名" }))
     await user.click(await screen.findByRole("checkbox", { name: "alpha-model" }))
     await user.click(screen.getByRole("checkbox", { name: "beta-model" }))
 
@@ -218,7 +222,7 @@ describe("日志页 · 多选筛选", () => {
     renderPage()
     await screen.findByText("deepseek-chat")
 
-    await user.click(screen.getByRole("button", { name: "模型名称" }))
+    await user.click(screen.getByRole("button", { name: "请求名" }))
     const alpha = await screen.findByRole("checkbox", { name: "alpha-model" })
     await user.click(alpha)
     await waitFor(() => expect(mocked.getLogs).toHaveBeenLastCalledWith(1, 20, expect.objectContaining({ name: "alpha-model" })))
@@ -233,6 +237,47 @@ describe("日志页 · 多选筛选", () => {
     )
     // 一个维度都没筛，就不该摆出"清空筛选"
     expect(screen.queryByRole("button", { name: "清空筛选" })).not.toBeInTheDocument()
+  })
+
+  it("模型下拉按上游模型名筛，走 provider_model 参数", async () => {
+    // 这一支是「按模型下钻显示无数据」的复现路径：分组按上游模型名，
+    // 筛选就必须按同一列。参数名错了后端静默丢弃，表现是"点什么都没反应"。
+    mocked.getObservedProviderModels.mockResolvedValue(["deepseek-chat-v3", "deepseek-chat-v3.1"])
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText("deepseek-chat")
+
+    await user.click(screen.getByRole("button", { name: "模型" }))
+    await user.click(await screen.findByRole("checkbox", { name: "deepseek-chat-v3.1" }))
+
+    await waitFor(() =>
+      expect(mocked.getLogs).toHaveBeenLastCalledWith(
+        1,
+        20,
+        expect.objectContaining({ providerModel: "deepseek-chat-v3.1", name: undefined })
+      )
+    )
+  })
+
+  it("旧链接上的 model 仍按请求名解释（只读别名）", async () => {
+    // 老书签的 `?model=x` 装的是请求名。改键名后它仍得按原意生效，
+    // 而不是变成"什么都没筛"——那是静默的行为回归。
+    render(
+      <MemoryRouter initialEntries={["/logs?model=gpt-4o"]}>
+        <LogsPage />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText("deepseek-chat")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(mocked.getLogs).toHaveBeenLastCalledWith(
+        1,
+        20,
+        expect.objectContaining({ name: "gpt-4o", providerModel: undefined })
+      )
+    )
+    // 触发器上能看到这个已选项，说明它不是"请求带着但界面看不见"
+    expect(screen.getByRole("button", { name: "请求名，已选 1 项" })).toBeInTheDocument()
   })
 
   it("旧链接里的 all 当作没筛，而不是筛一个叫 all 的值", async () => {

@@ -37,6 +37,11 @@
     "prev": "Previous",
     "next": "Next"
   },
+  "auto_refresh": {
+    "label": "Auto refresh",
+    "off": "Off",
+    "every": "Every {{sec}}s"
+  },
   "loading": "Loading",
   "no_data": "No data",
   "no_match": "No matching data found",

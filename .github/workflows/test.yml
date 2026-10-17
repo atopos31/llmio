@@ -89,6 +89,21 @@ jobs:
       - name: go test
         run: go test -count=1 ./...
 
+      # Go 覆盖率门禁：阈值 70%（基线 72.7%，2026-10-15）。
+      # 阈值 = min(70%, 基线向下取整)：70% 是硬底，防止代码量增大但覆盖率
+      # 不变时悄悄跌破底线。改动包不足即红。
+      - name: Go 覆盖率门禁
+        run: |
+          go test -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out | tail -1
+          COV=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}' | tr -d '%')
+          if awk "BEGIN { exit !($COV+0 < 70.0+0) }"; then
+            echo "覆盖率 ${COV}% 低于阈值 70.0%"
+            exit 1
+          fi
+          echo "覆盖率 ${COV}% 达标（阈值 70.0%）"
+          rm -f coverage.out
+
       # 发布形态是 CGO_ENABLED=0 的单二进制，这里按同样方式构建一次：
       # "测试全绿但打不出包"这类问题不该留到发版那天才发现
       - name: 单二进制构建自检

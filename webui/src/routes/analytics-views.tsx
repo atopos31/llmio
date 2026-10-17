@@ -31,11 +31,13 @@ import {
   errorBarWidth,
   errorViewMode,
   logDetailPath,
-  groupByModel,
+  logPath,
+  groupByRequestName,
   MODEL_DIMENSIONS,
   MODEL_SORT_KEYS,
   modelDimensionGroups,
   shortenLabel,
+  statsRowNames,
   sortModelGroups,
   type AnalyticsFilter,
   type DimensionKey,
@@ -336,22 +338,28 @@ export function Board({
         </p>
       ) : (
         <ul className="space-y-1.5">
-          {rows.map((r) => (
-            <li key={r.id}>
-              <Link
-                to={logDetailPath(r.id)}
-                className="flex items-baseline justify-between gap-2 rounded-sm px-1 py-0.5 text-xs hover:bg-accent"
-              >
-                <span className="min-w-0 flex-1 truncate" title={`${r.model} · ${r.provider}`}>
-                  {r.model}
-                  <span className="text-muted-foreground"> · {r.provider}</span>
-                </span>
-                <span className="reading min-w-0 shrink truncate" title={metric(r)}>
-                  {metric(r)}
-                </span>
-              </Link>
-            </li>
-          ))}
+          {rows.map((r) => {
+            const names = statsRowNames(r)
+            // 别名与上游模型名不同时补在模型名后面；括号即"同一件事的两个名字"
+            const alias = names.requestName ? `（${names.requestName}）` : ""
+            return (
+              <li key={r.id}>
+                <Link
+                  to={logDetailPath(r.id)}
+                  className="flex items-baseline justify-between gap-2 rounded-sm px-1 py-0.5 text-xs hover:bg-accent"
+                >
+                  <span className="min-w-0 flex-1 truncate" title={`${names.model}${alias} · ${r.provider}`}>
+                    {names.model}
+                    {alias ? <span className="text-muted-foreground">{alias}</span> : null}
+                    <span className="text-muted-foreground"> · {r.provider}</span>
+                  </span>
+                  <span className="reading min-w-0 shrink truncate" title={metric(r)}>
+                    {metric(r)}
+                  </span>
+                </Link>
+              </li>
+            )
+          })}
         </ul>
       )}
     </Panel>
@@ -526,9 +534,10 @@ function SampleLink({ group }: { group: ErrorGroup }) {
   const { t } = useTranslation("analytics")
   const sample = group.samples[0]
   if (!sample) return null
+  // 失败请求没有 ChatIO 行，所以跳的是日志页（按 id 收窄）而不是请求内容页
   return (
     <Link
-      to={logDetailPath(sample.id)}
+      to={logPath(sample.id)}
       className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline"
       title={sample.error}
     >
@@ -584,9 +593,9 @@ export function ModelsView({
   /**
    * 维度切换。
    *
-   * 「模型 × 提供商」不是前两项的重复：同一批日志按模型求和、按提供商求和，
-   * 两个方向都把另一半边际掉了，于是"这个模型的几家上游谁快"在两行合计里
-   * 都读不出来——而那正是这张性能表要回答的问题。
+   * 「请求名 × 提供商」不是前两项的重复：同一批日志按请求名求和、按提供商
+   * 求和，两个方向都把另一半边际掉了，于是"这个请求名的几家上游谁快"在两行
+   * 合计里都读不出来——而那正是这张性能表要回答的问题。
    */
   const picker = (
     <ToggleGroup
@@ -622,12 +631,12 @@ export function ModelsView({
 
   const rows = sortModelGroups(groups, sort)
   // 联合维度按**未排序**的原数组归组：组内次序由渲染时那次 sortModelGroups
-  // 负责（见下），组间次序由 groupByModel 按各行合计现算。若改成先排序再归组，
-  // 组内次序会被"归组时顺带带进来"，下面那行排序就成了永远等效的多余动作——
-  // 一处真排序比两处互相掩盖的排序可信。
-  const joint = groupByModel(groups)
+  // 负责（见下），组间次序由 groupByRequestName 按各行合计现算。若改成先排序
+  // 再归组，组内次序会被"归组时顺带带进来"，下面那行排序就成了永远等效的
+  // 多余动作——一处真排序比两处互相掩盖的排序可信。
+  const joint = groupByRequestName(groups)
   // 首列的表头跟着维度走：除了"模型"这一维，这一列装的都是提供商
-  // （联合维度里模型名已经升到分组行上去了）
+  // （联合维度里请求名已经升到分组行上去了）
   const nameColumn = dimension === "model" ? t("models.columns.name") : t("models.columns.provider")
 
   /** 一行读数。首列的文字由调用方给：联合维度里它是提供商名，其余是分组名。 */
@@ -654,7 +663,14 @@ export function ModelsView({
     <Panel
       title={t("models.title")}
       // 联合维度的排序语义与另外两维不同（组内排序），得说出来
-      note={t(dimension === "modelProvider" ? "models.note_joint" : "models.note")}
+      // 模型维多一句术语说明：模型是上游模型名，请求名是客户端写的名字
+      note={t(
+        dimension === "modelProvider"
+          ? "models.note_joint"
+          : dimension === "model"
+            ? "models.note_model"
+            : "models.note"
+      )}
     >
       <div className="mb-3">{picker}</div>
       {/* 十列在窄屏放不下：横向滚动而不是砍列，砍掉的往往是用户要找的那列 */}
@@ -670,25 +686,25 @@ export function ModelsView({
           </TableHeader>
           <TableBody>
             {/*
-              联合维度按模型分组渲染：组头一行放模型名，底下是它各家的读数。
-              平铺也能看，但同一个模型的上游会被别的模型隔开——要"对比"
+              联合维度按请求名分组渲染：组头一行放请求名，底下是它各家的读数。
+              平铺也能看，但同一个请求名的上游会被别的请求名隔开——要"对比"
               就得先把它们挪到一起。
 
               组头用 th + scope="rowgroup" 而不是普通单元格加粗：读屏时
-              每一行的提供商名才会被读成"属于某个模型"，否则那一列只剩
+              每一行的提供商名才会被读成"属于某个请求名"，否则那一列只剩
               孤零零的提供商名，读不出它在跟谁比。
             */}
             {dimension === "modelProvider"
               ? joint.map((grp) => (
-                  <Fragment key={grp.model}>
+                  <Fragment key={grp.requestName}>
                     <TableRow className="bg-muted/50 hover:bg-muted/50">
                       <TableHead
                         scope="rowgroup"
                         colSpan={MODEL_SORT_KEYS.length + 1}
                         className="max-w-[220px] font-medium"
                       >
-                        <span className="block truncate" title={grp.model}>
-                          {grp.model}
+                        <span className="block truncate" title={grp.requestName}>
+                          {grp.requestName}
                         </span>
                       </TableHead>
                     </TableRow>

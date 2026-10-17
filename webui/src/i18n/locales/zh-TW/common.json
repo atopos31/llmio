@@ -37,6 +37,11 @@
     "prev": "上一頁",
     "next": "下一頁"
   },
+  "auto_refresh": {
+    "label": "自動重新整理",
+    "off": "不自動",
+    "every": "每 {{sec}} 秒"
+  },
   "loading": "載入中",
   "no_data": "暫無資料",
   "no_match": "找不到符合的資料",

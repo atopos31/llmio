@@ -88,7 +88,7 @@ function fixture(over: Partial<StatsResult> = {}): StatsResult {
       { ts: 1_759_981_800_000, total: 4, success: 3, error: 1, running: 0, tokens: 600, prompt: 400, completion: 200, cached: 100, avgTps: 40, avgFirstChunkMs: 1200 },
     ],
     byModel: [group("gpt-test")],
-    // 联合维度默认留空：它的形状与 byModel 不同（行名是「模型 · 提供商」），
+    // 联合维度默认留空：它的形状与 byModel 不同（行名是「请求名 · 提供商」），
     // 与其在这里编一份可能被误当成真数据的，不如让要它的用例自己给
     byModelProvider: [],
     byProvider: [group("prov-a"), group("prov-b")],
@@ -148,7 +148,7 @@ function queries(): StatsQuery[] {
 /**
  * 表体各行的文本，用来断言先后次序（首行是表头，故从头切掉）。
  *
- * 放在模块层而不是某个 describe 里：模型维度与「模型 × 提供商」两处都要
+ * 放在模块层而不是某个 describe 里：模型维度与「请求名 × 提供商」两处都要
  * 靠它读行序，而这两处的关系恰恰是"换个维度行序怎么变"——断言工具必须是
  * 同一把，否则两边的"第几行"可能各说各的。
  */
@@ -412,14 +412,15 @@ describe("分析页 · 模型性能", () => {
   })
 })
 
-describe("分析页 · 在同一模型的上游之间比", () => {
-  /** 一行「模型 · 上游」。分量字段由服务端另填，展示要按它归组。 */
-  function j(model: string, provider: string, over: Partial<GroupStat> = {}): GroupStat {
-    return group(`${model} · ${provider}`, { model, provider, ...over })
+describe("分析页 · 在同一请求名的各家提供商之间比", () => {
+  /** 一行「请求名 · 提供商」。分量字段由服务端另填，展示要按它归组。
+   *  JSON 契约里第一个分量仍叫 model，见 groupByRequestName 的说明。 */
+  function j(requestName: string, provider: string, over: Partial<GroupStat> = {}): GroupStat {
+    return group(`${requestName} · ${provider}`, { model: requestName, provider, ...over })
   }
 
   /**
-   * alpha 走两家上游（一快一慢），beta 只走一家。
+   * alpha 走两家提供商（一快一慢），beta 只走一家。
    *
    * 合计：alpha 8 条、beta 4 条——两组的分量都不如 beta 的单行大，
    * 于是"组顺序按合计现算"与"按分量算"会给出不同的答案。
@@ -445,12 +446,12 @@ describe("分析页 · 在同一模型的上游之间比", () => {
     return user
   }
 
-  it("同一模型的各家提供商挨在一起，模型名升成组头", async () => {
+  it("同一请求名的各家提供商挨在一起，请求名升成组头", async () => {
     mocked.getStats.mockResolvedValue(jointFixture())
-    await openDimension("模型 × 提供商")
+    await openDimension("请求名 × 提供商")
 
     const rows = bodyRows()
-    // 组头一行 + 该模型的各行。alpha 的两家之间不再夹着 beta 的行
+    // 组头一行 + 该请求名的各行。alpha 的两家之间不再夹着 beta 的行
     expect(rows).toHaveLength(5)
     expect(rows[0]).toContain("alpha")
     expect(rows[1]).toContain("slow-up")
@@ -461,9 +462,9 @@ describe("分析页 · 在同一模型的上游之间比", () => {
     expect(screen.getByRole("rowheader", { name: "alpha" })).toBeInTheDocument()
   })
 
-  it("组内按列排序，但组的先后始终按请求数——第一名的模型不换人", async () => {
+  it("组内按列排序，但组的先后始终按请求数——第一名的请求名不换人", async () => {
     mocked.getStats.mockResolvedValue(jointFixture())
-    const user = await openDimension("模型 × 提供商")
+    const user = await openDimension("请求名 × 提供商")
 
     // 默认按请求数降序：alpha 合计 8 > beta 4，两组都不受分量影响
     expect(bodyRows()[0]).toContain("alpha")
@@ -499,12 +500,12 @@ describe("分析页 · 在同一模型的上游之间比", () => {
   it("该维度没有数据时，切换器留着，说的是没有数据而不是加载失败", async () => {
     // byModel 有数据、联合维度没有：旧接口或还没落地的服务端就是这样
     mocked.getStats.mockResolvedValue(fixture({ byModel: [group("alpha")] }))
-    await openDimension("模型 × 提供商")
+    await openDimension("请求名 × 提供商")
 
     expect(await screen.findByText("所选范围内没有模型数据")).toBeInTheDocument()
     expect(screen.queryByText("数据加载失败")).not.toBeInTheDocument()
     // 切换器不能跟着消失，否则切进来就出不去了
     expect(screen.getByRole("radio", { name: "模型" })).toBeInTheDocument()
-    expect(screen.getByRole("radio", { name: "模型 × 提供商" })).toBeInTheDocument()
+    expect(screen.getByRole("radio", { name: "请求名 × 提供商" })).toBeInTheDocument()
   })
 })

@@ -268,10 +268,11 @@ func Cost(l models.ChatLog) float64 {
 
 // StatsFilter 是聚合的筛选条件。多值字段为空表示不筛选。
 //
-// 匹配口径沿用 dashboard 既有行为（避免静默的行为回归）：
-// 状态、AuthKey 为**精确**匹配；供应商、模型、请求名为**子串**匹配；
-// UserAgent 为子串匹配。子串语义在名字互为前缀时才会与精确匹配产生差异，
-// 而前端下拉提供的都是完整名字，因此实战中两者等价。
+// 匹配口径：全部为**精确**匹配。文本维度（供应商、上游模型名、请求名、
+// UserAgent）与 /api/logs 的查询保持一致——那里一直是 splitCSV + IN。
+// 原来这四个维度用子串匹配，与分组的精确名字对不上：按名字筛出来的行数
+// 与那个分组标的计数不一致，点分组名做下钻就"少了几条"。前缀同名也会
+// 串味（筛 gpt-4o 会带进 gpt-4o-mini），所以下钻语义要求精确。
 type StatsFilter struct {
 	From        time.Time
 	To          time.Time
@@ -296,16 +297,16 @@ func (f StatsFilter) match(l models.ChatLog) bool {
 	if len(f.Statuses) > 0 && !containsExact(f.Statuses, l.Status) {
 		return false
 	}
-	if len(f.Providers) > 0 && !containsSubstr(f.Providers, l.ProviderName) {
+	if len(f.Providers) > 0 && !containsExact(f.Providers, l.ProviderName) {
 		return false
 	}
-	if len(f.Models) > 0 && !containsSubstr(f.Models, l.ProviderModel) {
+	if len(f.Models) > 0 && !containsExact(f.Models, l.ProviderModel) {
 		return false
 	}
-	if len(f.Names) > 0 && !containsSubstr(f.Names, l.Name) {
+	if len(f.Names) > 0 && !containsExact(f.Names, l.Name) {
 		return false
 	}
-	if len(f.UserAgents) > 0 && !containsSubstr(f.UserAgents, l.UserAgent) {
+	if len(f.UserAgents) > 0 && !containsExact(f.UserAgents, l.UserAgent) {
 		return false
 	}
 	if len(f.KeyIDs) > 0 {
@@ -326,15 +327,6 @@ func (f StatsFilter) match(l models.ChatLog) bool {
 func containsExact(hay []string, needle string) bool {
 	for _, s := range hay {
 		if s == needle {
-			return true
-		}
-	}
-	return false
-}
-
-func containsSubstr(hay []string, needle string) bool {
-	for _, s := range hay {
-		if strings.Contains(needle, s) {
 			return true
 		}
 	}
@@ -390,9 +382,9 @@ type TrendPoint struct {
 // GroupStat 是单个分组的统计。
 type GroupStat struct {
 	Name string `json:"name"`
-	// Model / Provider 只在模型×上游这一维填写：行名是「模型 · 上游」，
-	// 但展示要按模型把上游归成一组，光有一行拼好的标签拆不回来
-	// （模型名里完全可能自己就带分隔符）。其余维度留空。
+	// Model / Provider 只在联合维度（请求名 × 提供商）填写：行名是
+	// 「请求名 · 提供商」，但展示要按请求名把各家提供商归成一组，光有一行
+	// 拼好的标签拆不回来（请求名里完全可能自己就带分隔符）。其余维度留空。
 	Model           string  `json:"model,omitempty"`
 	Provider        string  `json:"provider,omitempty"`
 	Total           int64   `json:"total"`
@@ -450,9 +442,12 @@ type LatencyStat struct {
 
 // LogRow 是排行榜里的一行。
 type LogRow struct {
-	ID              uint    `json:"id"`
-	CreatedAt       int64   `json:"createdAt"`
+	ID        uint  `json:"id"`
+	CreatedAt int64 `json:"createdAt"`
+	// Model 是上游模型名（provider_model），与 byModel 同一口径；
+	// RequestName 是客户端请求体里写的名字，两者可能不同。
 	Model           string  `json:"model"`
+	RequestName     string  `json:"requestName,omitempty"`
 	Provider        string  `json:"provider"`
 	KeyName         string  `json:"keyName"`
 	Tps             float64 `json:"tps"`
@@ -473,10 +468,11 @@ type StatsResult struct {
 	Trend       []TrendPoint `json:"trend"`
 	ByModel     []GroupStat  `json:"byModel"`
 	ByProvider  []GroupStat  `json:"byProvider"`
-	// ByModelProvider 是模型×上游的联合分布。
+	// ByModelProvider 是请求名×提供商的联合分布（字段名沿用 JSON 契约）。
 	//
-	// 两个边际分布（byModel / byProvider）推不出它来：同一个模型挂多个上游时，
-	// 谁快谁慢只在联合分布里看得见，而"只按请求名对比"会把它们混成一行。
+	// 两个边际分布（byName / byProvider）推不出它来：同一个请求名被路由到
+	// 几家提供商时，谁快谁慢只在联合分布里看得见，而"只按请求名对比"会把
+	// 它们混成一行。
 	ByModelProvider []GroupStat      `json:"byModelProvider"`
 	ByKey           []GroupStat      `json:"byKey"`
 	ByName          []GroupStat      `json:"byName"`
@@ -529,6 +525,9 @@ const (
 //   - 缓存命中率 = cached / prompt（prompt 为 0 时为 0）
 //   - 分组内延迟分位用最近秩法（Percentile）
 //   - 每个分组与时间序列的时间字段统一用**毫秒**，纳秒按 1e6 换算
+//   - 分组维度与筛选是同一口径：byModel 按 provider_model（上游模型名），
+//     byName 按 name（请求名），筛选也按各自的列精确匹配。点分组名下钻
+//     才会回到「恰好这个组」的行，否则名字与上游 id 不同就筛出 0 行。
 func Aggregate(logs []models.ChatLog, f StatsFilter) StatsResult {
 	bucket, _ := ResolveBucket(f.Granularity, f.To.Sub(f.From))
 	return AggregateWithBucket(logs, f, bucket)
@@ -638,7 +637,16 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 		p.AvgFirstChunkMs += fcMs
 
 		// ---- 分组 ----
-		models.add(l.Name, l)
+		// byModel 按**上游模型名**（provider_model）分组，byName 按**请求名**
+		// （客户端请求体里写的名字 = llmio 别名）。两者原先都按 l.Name 分组，
+		// 于是「按模型」和「按请求名」两列内容完全一样，而筛选走的是
+		// provider_model——名字与上游 id 不同就筛出 0 行。
+		//
+		// 联合维度按**请求名 × 提供商**分组，不是模型 × 提供商：同一个请求名
+		// 可能被路由到好几个上游模型，按模型分会把一次"这个别名走了几家、
+		// 谁快谁慢"的比较拆成若干小行；按请求名分则每组回答的正是这个问题。
+		// 上游模型名在单模型维度（byModel）里看，并可下钻到日志。
+		models.add(l.ProviderModel, l)
 		providers.add(l.ProviderName, l)
 		modelProviders.addJoint(l.Name, l.ProviderName, l)
 		keys.add(keyLabel(l.AuthKeyID), l)
@@ -656,7 +664,8 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 			}
 			g.Count++
 			g.Providers = bump(g.Providers, l.ProviderName)
-			g.Models = bump(g.Models, l.Name)
+			// 与 byModel 同一口径：错误类别受影响的也是上游模型名。
+			g.Models = bump(g.Models, l.ProviderModel)
 			if len(g.Samples) < maxErrorSamples {
 				g.Samples = append(g.Samples, ErrorSample{
 					ID:        l.ID,
@@ -676,7 +685,8 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 		row := LogRow{
 			ID:              l.ID,
 			CreatedAt:       l.CreatedAt.UnixMilli(),
-			Model:           l.Name,
+			Model:           l.ProviderModel,
+			RequestName:     l.Name,
 			Provider:        l.ProviderName,
 			KeyName:         keyLabel(l.AuthKeyID),
 			Tps:             l.Tps,
@@ -882,18 +892,20 @@ func (a *groupAcc) add(name string, l models.ChatLog) {
 	a.count(a.item(name), l)
 }
 
-// addJoint 累计模型×上游这一维。
+// addJoint 累计联合维度（请求名 × 提供商）这一维。
 //
-// 名字取「模型 · 上游」是给**读**用的，两个分量另存字段——表格要按模型把
-// 上游归成一组，而拼好的标签拆不回来：模型名里本身就可能带分隔符，
-// 拆错了会把一个模型的两行上游分到两个组里，看起来像多了一个模型。
+// 名字取「请求名 · 提供商」是给**读**用的，两个分量另存字段——表格要按请求名
+// 把各家提供商归成一组，而拼好的标签拆不回来：请求名里本身就可能带分隔符，
+// 拆错了会把一个请求名的两行提供商分到两个组里，看起来像多了一个请求名。
+// 字段仍叫 Model，是历史命名（前端 groupByModel 早已按"联合维度的第一个
+// 分量"读它，不吃字面含义）。
 func (a *groupAcc) addJoint(model, provider string, l models.ChatLog) {
 	it := a.item(jointLabel(model, provider))
 	it.stat.Model, it.stat.Provider = dashIfEmpty(model), dashIfEmpty(provider)
 	a.count(it, l)
 }
 
-// jointLabel 是模型×上游这一维的行名。
+// jointLabel 是联合维度（请求名 × 提供商）的行名。
 func jointLabel(model, provider string) string {
 	return dashIfEmpty(model) + " · " + dashIfEmpty(provider)
 }
@@ -1081,7 +1093,9 @@ func LoadChatLogs(ctx context.Context, f StatsFilter) ([]models.ChatLog, bool, e
 	if len(f.KeyIDs) > 0 {
 		q = q.Where("auth_key_id IN ?", f.KeyIDs)
 	}
-	// 子串匹配与 StatsFilter.match 的口径保持一致，避免"先宽后窄"两套语义。
+	// 精确匹配，与 StatsFilter.match 及 /api/logs 的口径一致。
+	// 这里必须与 match 同形：先宽后窄两套语义会让"筛出来的行数"与
+	// 分组标的计数对不上，点分组名下钻就少了行。
 	for _, cond := range []struct {
 		col  string
 		vals []string
@@ -1094,13 +1108,7 @@ func LoadChatLogs(ctx context.Context, f StatsFilter) ([]models.ChatLog, bool, e
 		if len(cond.vals) == 0 {
 			continue
 		}
-		parts := make([]string, 0, len(cond.vals))
-		args := make([]any, 0, len(cond.vals))
-		for _, v := range cond.vals {
-			parts = append(parts, cond.col+" LIKE ?")
-			args = append(args, "%"+v+"%")
-		}
-		q = q.Where("("+strings.Join(parts, " OR ")+")", args...)
+		q = q.Where(cond.col+" IN ?", cond.vals)
 	}
 
 	if err := q.Order("created_at DESC").Limit(StatsScanLimit + 1).Find(&logs).Error; err != nil {

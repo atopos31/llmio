@@ -364,6 +364,12 @@ func vacuumOnOneConnection(ctx context.Context, convert bool) error {
 		if err := tx.Exec(`PRAGMA busy_timeout = 60000`).Error; err != nil {
 			return fmt.Errorf("放宽 busy_timeout: %w", err)
 		}
+		// 这条连接**会回到连接池**：耐心必须改回去。等锁时别的连接全在排队，
+		// 一条带着 60 秒耐心的写请求会把一次锁风暴的窗口拉长到分钟级——而它
+		// 本来只需要撑过 VACUUM 这一次等锁。默认值 5000ms 与驱动一致。
+		defer func() {
+			_ = tx.Exec(`PRAGMA busy_timeout = 5000`).Error
+		}()
 		if convert {
 			if err := tx.Exec(`PRAGMA auto_vacuum = 2`).Error; err != nil {
 				return fmt.Errorf("设 auto_vacuum: %w", err)

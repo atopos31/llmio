@@ -429,9 +429,17 @@ func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, pr
 	// 协议互转的记账：响应侧要到流读完才完整，所以在这里（日志落库前）取
 	log.BridgeNotes = bridgeNotes.String()
 	if err := updateChatLog(ctx, logId, *log); err != nil {
-		// 走到这里说明连重试都撞锁。保留 running 是**不撒谎**：那次请求的结论
-		// 还没写进库。下次进程启动时 ReconcileInterruptedLogs 会把它收尾。
-		slog.Error("record log error（日志停在 running，等重启收尾）", "log_id", logId, "error", err)
+		// 连重试都撞锁：这次请求的"成功"结论没落库。**不能留在 running**——
+		// 界面上"一直显示在途"就是它；旧版本还会一直留到下次重启。
+		// 退一步写 error，并把原因写清楚：请求本身已经完成，只是状态没写进去。
+		// 兜底只试一次——前面已经撞满三次 busy_timeout，再久只会拖住这个 goroutine。
+		fallback := models.ChatLog{
+			Status: consts.StatusError,
+			Error:  "记录日志失败：请求已完成，但状态写入数据库时撞锁（" + err.Error() + "）",
+		}
+		if uerr := updateChatLogN(ctx, logId, fallback, 1); uerr != nil {
+			slog.Error("record log error（日志仍停在 running，等重启收尾）", "log_id", logId, "error", uerr)
+		}
 		return
 	}
 	if ioStored && output != nil {
@@ -443,8 +451,13 @@ func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, pr
 
 // updateChatLog 更新一条日志，撞锁重试。
 func updateChatLog(ctx context.Context, logId uint, log models.ChatLog) error {
+	return updateChatLogN(ctx, logId, log, logUpdateAttempts)
+}
+
+// updateChatLogN 是 updateChatLog 的可指定次数版本（兜底路径只需要一次）。
+func updateChatLogN(ctx context.Context, logId uint, log models.ChatLog, attempts int) error {
 	var lastErr error
-	for attempt := 0; attempt < logUpdateAttempts; attempt++ {
+	for attempt := 0; attempt < attempts; attempt++ {
 		if attempt > 0 {
 			sleepBackoff(ctx, attempt)
 		}

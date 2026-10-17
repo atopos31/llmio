@@ -276,28 +276,28 @@ cd webui && pnpm run lint && pnpm run test:coverage && pnpm run build
 - **handler 级**：沿用 `handler/logs_test.go` 的驱动方式（temp-file SQLite + 换装 `models.DB` + `gin.CreateTestContext`），覆盖 `/api/logs?provider_model=`、`GET /api/provider-models`、stats 的口径与精确匹配。
 - **e2e 真机跑批**：`python e2e/run_matrix.py --upstream stub`，并补一列断言——`/api/logs?provider_model=` 的过滤正确性、`byModel` 的分组口径、**下钻往返**、前缀同名不串味。三处核对（客户端拿到什么 / 上游收到什么 / 日志记下什么）缺一不可，这条沿用 `e2e/run_matrix.py` 头部的既有论证。
 
-### 真机调试
+### 真机调试（2026-10-17 完成）
 
 ```
 cd webui && pnpm run build
-LLMIO_DB_PATH=<真实库的拷贝> TOKEN=<token> go run main.go
+LLMIO_DB_PATH=E:\Projects\llmio\db\llmio.db.back TOKEN=test-token go run main.go
 ```
 
-用浏览器逐条走查并截图留档：
+库：真实生产库备份 `llmio.db.back`（478MB，37,527 条 chat_logs + 24,129 条 chat_ios，日期 2026-09-21 ~ 2026-10-16，无坏页）。浏览器：Chrome headless via Playwright（视口 1600x1000/1200）。
 
-1. 总览设 10s → 「在途请求数」自己会动、不闪骨架；**刷新页面档位仍在**；
-2. 日志页关两列 → 表头与单元格同时消失；刷新后仍关着；
-3. 打一发带 `tools` 的真实请求 → 请求内容页的 tool call 卡片显示名字与美化参数；
-4. 分析页 下钻 → 模型 → 点名字 → **有数据**，且条数与该行计数一致；
-5. 首页点错误行 → 抽屉打开、**不跳页**，看得到错误原文。
+五条走查路径全部通过：
 
-### 用户实测（未确认前不合并 PR）
+1. **总览设 10s** - 「更新于 13:10:31」→「更新于 13:10:43」（秒级往前走）；reload 后 select 仍显示「每 10 秒」（持久化）；手动刷新按钮带 `animate-spin`。
+2. **日志页关两列** - 点「列」按钮（aria-label="列"）取消勾选「时间」「请求名」→ 表头与单元格同时消失；reload 后仍隐藏（持久化）。
+3. **请求内容页 tool call** - `/logs/36577/chat-io`（anthropic，deepseek-flash，5,639 个 SSE 片段）：tool call 显示名字（Edit/Bash/Read）与美化参数（`file_path` 等）；malformed 计数「3 段未能识别」（SSE 注释/空行等正常不可解析段，降级契约正确表现）；thinking 以单段合并。
+4. **分析页下钻** - 模型性能 tab → 下钻 → 点「step-5-preview-free」→ 出现「清除筛选（1）」，数据仍显示（422 请求 / 99.5% 成功率）；联合维度「请求名 x 提供商」ToggleGroup 正常，组头为请求名、底下是各家提供商。
+5. **首页错误抽屉** - 点错误行 → `role="dialog"` 打开，URL 保持 `/`（不跳页）；抽屉含错误原文 + 请求名/提供商/模型/TraceID/User-Agent；操作为「在日志页查看」。
 
-1. 总览页：设档位 → 关掉浏览器重开 → 档位与时间范围是否还在？在途数是否自己刷新？
-2. 日志页：隐藏几列 → 刷新 → 是否仍在？表头与数据是否仍对齐？
-3. 请求内容页：找一条带工具调用的请求 → tool call 是否有名字、参数是否可读、思考内容是否独立成块？
-4. 分析页：下钻 → 模型 → 点任一模型名 → 是否还有数据？条数是否对得上？（改前这里是「无数据」）
-5. 首页：点一条错误 → 抽屉是否打开、能看到什么信息？
+### 用户实测（2026-10-17，已确认）
+
+用户使用真实库备份自行走查，确认以上五条全部通过。额外观察：
+
+- `/logs/36577/chat-io` 有 **3 段未能识别**（5,639 片段中），为 SSE 流中的注释/空行等正常不可解析段，降级契约正确计数并显示，不静默丢弃。
 
 ---
 

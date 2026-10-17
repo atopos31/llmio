@@ -548,9 +548,10 @@ export function logDetailPath(id: number): string {
 /**
  * 回日志页看这一条的路径：`/logs?id=<id>`（后端按 id 精确过滤）。
  *
- * 失败请求没有内容页这条路——后端在失败路径上不写 ChatIO 行，点进去只会得到
- * 一个空页。所以错误样本一律走这里：列表先收窄成一行，再由详情抽屉给出请求
- * 元数据与错误原文。别把它换成 logDetailPath，那次死链就是这么来的。
+ * 失败请求在 ioLog 未开启时没有内容页（后端不写 ChatIO 行，点进去只会得到
+ * 一个空页）；ioLog 开启时失败请求也会落 ChatIO.Input，可走内容页。为避免死链，
+ * 错误样本一律走这里：列表先收窄成一行，再由详情抽屉按 canViewChatIO 决定是否
+ * 提供"查看请求内容"。别把它换成 logDetailPath，那次死链就是这么来的。
  */
 export function logPath(id: number): string {
   return `/logs?id=${id}`

@@ -125,13 +125,14 @@ export function activeMultiCount(filter: LogsMultiFilter): number {
 /**
  * 这一条日志有没有可看的请求内容。
  *
- * 判据是后端写入的口径而不是前端猜测：失败路径不落 ChatIO 行，
- * 所以"成功"且"这行有 ChatIO 文件"两条件同时成立才有内容可读。
+ * 判据是后端写入的口径而不是前端猜测：ioLog 开关打开时，成功路径落
+ * ChatIO（请求体 + 响应体），失败路径也落 ChatIO（仅请求体，无响应）。
+ * 因此"这行有 ChatIO 文件"且状态为 success 或 error 时才有内容可读。
  * 详情抽屉与日志列表共用这一条判据——各写一份的话，很快就会出现
  * "按钮可点但页面空白"或反过来的不一致。
  */
 export function canViewChatIO(log: ChatLog): boolean {
-  return log.Status === "success" && !!log.ChatIO
+  return !!log.ChatIO && (log.Status === "success" || log.Status === "error")
 }
 
 /** 在一个维度上切换一个取值。 */

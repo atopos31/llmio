@@ -22,13 +22,55 @@ import (
 	"gorm.io/gorm"
 )
 
+// retryLogEntry 是失败重试日志的载体：除了 ChatLog 本身，还要把**这次请求的原始请求体**
+// 一并带上，以便在 ioLog 开关打开时把请求体写进 chat_ios.input（不写响应）。
+type retryLogEntry struct {
+	Log models.ChatLog
+	Raw []byte
+}
+
+// writeFailedIO 在 ioLog 开关打开时把请求体写进 chat_ios.input（不写响应）。
+// IO 记录是观测性功能，写入失败仅记日志，不传播为请求失败。
+func writeFailedIO(ctx context.Context, logId uint, raw []byte, ioLog bool) {
+	if !ioLog {
+		return
+	}
+	if err := gorm.G[models.ChatIO](models.DB).Create(ctx, &models.ChatIO{
+		Input: models.BodyBytes(raw),
+		LogId: logId,
+	}); err != nil {
+		slog.Error("save failed io error", "error", err)
+	}
+}
+
+// saveFailedLog 为"未进入 BalanceChat"的失败路径（模型不存在、无可用提供商）落一条
+// error 日志，并在 ioLog 开关打开时写 ChatIO.Input。返回新日志 ID。
+func saveFailedLog(ctx context.Context, style string, before Before, errMsg string) (uint, error) {
+	authKeyID, _ := ctx.Value(consts.ContextKeyAuthKeyID).(uint)
+	authKeyIOLog, _ := ctx.Value(consts.ContextKeyAuthKeyIOLog).(bool)
+	logId, err := SaveChatLog(ctx, models.ChatLog{
+		Name:      before.Model,
+		Status:    consts.StatusError,
+		Style:     style,
+		SessionID: before.SessionID,
+		AuthKeyID: authKeyID,
+		ChatIO:    authKeyIOLog,
+		Error:     errMsg,
+	})
+	if err != nil {
+		return 0, err
+	}
+	writeFailedIO(ctx, logId, before.raw, authKeyIOLog)
+	return logId, nil
+}
+
 func BalanceChat(ctx context.Context, start time.Time, style string, before Before, providersWithMeta ProvidersWithMeta, reqMeta models.ReqMeta, bridgeNotes *BridgeNotes) (*http.Response, *models.ChatLog, error) {
 	slog.Info("request", "model", before.Model, "stream", before.Stream, "tool_call", before.toolCall, "structured_output", before.structuredOutput, "image", before.image)
 
 	providerMap := providersWithMeta.ProviderMap
 
 	// 收集重试过程中的err日志
-	retryLog := make(chan models.ChatLog, providersWithMeta.MaxRetry)
+	retryLog := make(chan retryLogEntry, providersWithMeta.MaxRetry)
 	defer close(retryLog)
 
 	go RecordRetryLog(context.Background(), retryLog)
@@ -80,6 +122,9 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			// 加权负载均衡
 			id, err := balancer.Pop()
 			if err != nil {
+				if _, lerr := saveFailedLog(ctx, style, before, fmt.Sprintf("balancer pop err: %v, traceID: %s", err, traceID)); lerr != nil {
+					slog.Error("save failed log error", "error", lerr)
+				}
 				return nil, nil, fmt.Errorf("balancer pop err: %v, traceID: %s", err, traceID)
 			}
 
@@ -147,7 +192,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			// 而"这一家失败时我们丢了什么"正是排查重试时要看的东西
 			fail := func(err error) {
 				log.BridgeNotes = bridgeNotes.String()
-				retryLog <- log.WithError(err)
+				retryLog <- retryLogEntry{Log: log.WithError(err), Raw: before.raw}
 			}
 			// 根据请求原始请求头 是否透传请求头 自定义请求头 构建新的请求头
 			withHeader := lo.FromPtrOr(modelWithProvider.WithHeader, false)
@@ -281,11 +326,15 @@ func buildUpstreamBody(raw []byte, extraBody map[string]any) ([]byte, error) {
 	return rawBody, nil
 }
 
-func RecordRetryLog(ctx context.Context, retryLog chan models.ChatLog) {
-	for log := range retryLog {
-		if _, err := SaveChatLog(ctx, log); err != nil {
+func RecordRetryLog(ctx context.Context, retryLog chan retryLogEntry) {
+	for entry := range retryLog {
+		log := entry.Log
+		logId, err := SaveChatLog(ctx, log)
+		if err != nil {
 			slog.Error("save chat log error", "error", err)
+			continue
 		}
+		writeFailedIO(ctx, logId, entry.Raw, log.ChatIO)
 	}
 }
 
@@ -383,13 +432,7 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 	model, err := gorm.G[models.Model](models.DB).Where("name = ?", before.Model).First(ctx)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			if _, err := SaveChatLog(ctx, models.ChatLog{
-				Name:      before.Model,
-				Status:    consts.StatusError,
-				Style:     style,
-				SessionID: before.SessionID,
-				Error:     err.Error(),
-			}); err != nil {
+			if _, err := saveFailedLog(ctx, style, before, err.Error()); err != nil {
 				return nil, err
 			}
 			return nil, errors.New("not found model " + before.Model)
@@ -417,6 +460,9 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 	}
 
 	if len(modelWithProviders) == 0 {
+		if _, err := saveFailedLog(ctx, style, before, "not provider for model "+before.Model); err != nil {
+			return nil, err
+		}
 		return nil, errors.New("not provider for model " + before.Model)
 	}
 

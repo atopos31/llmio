@@ -250,6 +250,14 @@ describe("canViewChatIO", () => {
     expect(canViewChatIO(logOf({ Status: "error", ChatIO: false }))).toBe(false)
   })
 
+  it("失败请求但 ioLog 开启、落了 ChatIO：可看", () => {
+    expect(canViewChatIO(logOf({ Status: "error", ChatIO: true }))).toBe(true)
+  })
+
+  it("进行中的请求：不可看", () => {
+    expect(canViewChatIO(logOf({ Status: "running", ChatIO: true }))).toBe(false)
+  })
+
   it("成功但未开启 IO 记录：同样不可看", () => {
     expect(canViewChatIO(logOf({ Status: "success", ChatIO: false }))).toBe(false)
   })

@@ -430,8 +430,8 @@ function PercentileRow({ stats }: { stats: StatsResult }) {
  * 用文字直给，不依赖颜色传达。
  *
  * 每类下面带最多 3 条样本（后端 maxErrorSamples，时间倒序），逐条点开抽屉。
- * 失败路径不写 ChatIO，所以抽屉里看到的是请求元数据与错误原文，而不是请求体——
- * 原实现的唯一入口是跳到 /logs/:id/chat-io，而失败行在那里永远是空表。
+ * ioLog 未开启时失败路径不写 ChatIO，抽屉里看到的是请求元数据与错误原文，而不是请求体；
+ * ioLog 开启时失败请求也会落 ChatIO.Input，详情抽屉按 canViewChatIO 提供"查看请求内容"入口。
  */
 function ErrorList({ stats, unavailable }: { stats: StatsResult; unavailable: string }) {
   const { t } = useTranslation(["home", "common"])

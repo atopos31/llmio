@@ -100,12 +100,18 @@ BEGIN IMMEDIATE 在事务开头就拿到 RESERVED，并发写者改由 busy_time
   启动日志 `已收尾上次进程中断的日志 rows=3`；部署后 10 分钟内
   `SQLITE_BUSY` / `cannot start a transaction` / `record log error` 计数均为 0；
   `/api/logs?status=running` 为 0 条；`/root/db` 无残留 `-journal`。
+- 最终二进制（含 P1 兜底与 busy_timeout 恢复）再跑一轮：accept `fails=0 warns=0`；
+  30 秒压测 6 条读 lane 共 871 次请求 0 非 200、3 个 30 KiB body 聊天全 200
+  （max 4.02s，上游耗时）；窗口内 `SQLITE_BUSY` / `cannot start` / `HTTP 500` 均为 0。
 
 ## 六、部署与回滚（2026-10-17 真机）
 
-- 新二进制：`v0.9.5-fixbusy`（linux/amd64，`CGO_ENABLED=0`，静态）。
-- 旧二进制归档：`/root/llmio-deploy/backup/llmio-old-20261017-194025`
-- 库备份：`/root/db-backup/llmio.db.20261017-194025`
+- 新二进制：`v0.9.5-fixbusy`（linux/amd64，`CGO_ENABLED=0`，静态；
+  md5 `b45d73a3ec1bc11aa44efd1d1159fbe1`，容器内 sha256
+  `a0456eb220760b8d1b9731106fa4f2c089627ccfca71cb83445bda9581cd4afd`）。
+- 原始 v0.9.5 二进制归档：`/root/llmio-deploy/backup/llmio-old-20261017-194025`
+  （最终上线前的那一版 fixbusy 在 `...-194913`）
+- 部署前库备份：`/root/db-backup/llmio.db.20261017-194025`
 - 交换方式：`docker stop llmio` → `docker cp <new> llmio:/app/llmio` →
   `docker start llmio`（容器文件系统在 restart 后保留）。
 - 回滚：`docker stop llmio && docker cp <old> llmio:/app/llmio && docker start llmio`

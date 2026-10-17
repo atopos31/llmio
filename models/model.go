@@ -146,6 +146,13 @@ type ChatIO struct {
 	// 钉的是 TEXT，但帧按 BLOB 落进去——SQLite 的列亲和性只转换 TEXT↔数字，
 	// 不碰 BLOB，所以 `typeof(input)` 仍然分得清明文与帧。
 	Input BodyBytes `gorm:"type:text"`
+	// SkipCompress 只对**这一次写入**生效：压不动或撞锁时退回明文存储。
+	//
+	// 它不是数据库列（gorm:"-"），也不参与读路径——读只认帧头。存在的理由是
+	// "压缩是优化，IO 记录是观测"：线上并发写把库锁住时，入块表失败被当成整条
+	// 记录失败，结果成功的聊天请求被标成 error；撞锁时退回明文重写一次，
+	// 代价是多占几百 KB，换的是这条 IO 记录还在、请求状态不撒谎。
+	SkipCompress bool `gorm:"-" json:"-"`
 	OutputUnion
 }
 

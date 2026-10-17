@@ -140,7 +140,7 @@ func (c *ChatIO) packBody(tx *gorm.DB) error {
 	if len(plain) == 0 || compress.LooksLikeFrame(plain) {
 		return nil
 	}
-	if !compressionEnabled() {
+	if !compressionEnabled() || c.SkipCompress {
 		return nil
 	}
 	packed, err := PackBodies(tx.Statement.Context, tx, [][]byte{plain})

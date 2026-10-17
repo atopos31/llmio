@@ -29,16 +29,67 @@ type retryLogEntry struct {
 	Raw []byte
 }
 
+// 撞锁重试的三个常数。
+//
+// 一次 SQLITE_BUSY 至少要等满驱动的 busy_timeout（5000ms）才会返回，所以次数
+// 不能多：这些重试都跑在 RecordLog 的后台 goroutine 里，不占请求的连接。
+// 退避用 attempt 的线性倍数——撞锁通常是"另一笔写还没提交"，几十毫秒就够。
+const (
+	ioCreateAttempts   = 3
+	logUpdateAttempts  = 3
+	transientRetryBase = 150 * time.Millisecond
+)
+
+// sleepBackoff 是撞锁后的退避，可被 ctx 提前打断。
+func sleepBackoff(ctx context.Context, attempt int) {
+	d := transientRetryBase * time.Duration(attempt)
+	if d > time.Second {
+		d = time.Second
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+}
+
+// createChatIO 落一条 IO 记录。撞锁时**退回明文**重试。
+//
+// 压缩是优化、IO 记录是观测，两者都不该让一次成功的聊天变成失败：
+// 第一次按正常形态写（可能走块表），之后每次都带 SkipCompress——明文行没有块表
+// 写入，事务小得多，在锁竞争里活下来的概率高得多。丢掉的只是压缩率。
+func createChatIO(ctx context.Context, logId uint, raw []byte) error {
+	var lastErr error
+	for attempt := 0; attempt < ioCreateAttempts; attempt++ {
+		if attempt > 0 {
+			sleepBackoff(ctx, attempt)
+		}
+		rec := &models.ChatIO{
+			Input:        models.BodyBytes(raw),
+			LogId:        logId,
+			SkipCompress: attempt > 0,
+		}
+		err := gorm.G[models.ChatIO](models.DB).Create(ctx, rec)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !IsBusyErr(err) {
+			return err
+		}
+		slog.Warn("chat io 撞锁，退回明文重试", "attempt", attempt+1, "error", err)
+	}
+	return lastErr
+}
+
 // writeFailedIO 在 ioLog 开关打开时把请求体写进 chat_ios.input（不写响应）。
 // IO 记录是观测性功能，写入失败仅记日志，不传播为请求失败。
 func writeFailedIO(ctx context.Context, logId uint, raw []byte, ioLog bool) {
 	if !ioLog {
 		return
 	}
-	if err := gorm.G[models.ChatIO](models.DB).Create(ctx, &models.ChatIO{
-		Input: models.BodyBytes(raw),
-		LogId: logId,
-	}); err != nil {
+	if err := createChatIO(ctx, logId, raw); err != nil {
 		slog.Error("save failed io error", "error", err)
 	}
 }
@@ -338,51 +389,117 @@ func RecordRetryLog(ctx context.Context, retryLog chan retryLogEntry) {
 	}
 }
 
+// RecordLog 是请求的**记录路径**：落 IO、读响应、把结果写回日志。
+//
+// 它跑在 handler 起的后台 goroutine 里（context.Background），所以这里的任何失败
+// 都不该反过来影响已经发给客户端的响应。2026-10-17 线上教训：数据库被锁住时，
+// 这里在落 ChatIO 那一步就把错误抛给"把请求标成 error"的分支，于是**成功的聊天
+// 全被记成失败**；结束时的 UPDATE 又跟着失败，那些行就永远停在 running。
+//
+// 现在三条规矩：
+//  1. IO 记录失败只降级（createChatIO 内部先退回明文重试），不改请求结论；
+//  2. 只有"读响应真的失败"才把日志标 error；
+//  3. 落库失败按撞锁重试——日志宁可晚到，不要永远在途。
 func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, processer Processer, logId uint, before Before, ioLog bool, bridgeNotes *BridgeNotes) {
-	recordFunc := func() error {
-		defer reader.Close()
-		if ioLog {
-			// BodyBytes 不做拷贝：before.raw 由本请求独占，而 Create 是同步的，
-			// 等它读完才会继续往下走。真正的分块与压缩都在 BeforeCreate 里发生。
-			if err := gorm.G[models.ChatIO](models.DB).Create(ctx, &models.ChatIO{
-				Input: models.BodyBytes(before.raw),
-				LogId: logId,
-			}); err != nil {
-				return err
-			}
+	defer reader.Close()
+
+	ioStored := false
+	if ioLog {
+		// BodyBytes 不做拷贝：before.raw 由本请求独占，而 Create 是同步的，
+		// 等它读完才会继续往下走。真正的分块与压缩都在 BeforeCreate 里发生。
+		if err := createChatIO(ctx, logId, before.raw); err != nil {
+			slog.Warn("save chat io error（本次请求不记录 IO，请求本身不受影响）", "error", err)
+		} else {
+			ioStored = true
 		}
-		log, output, err := processer(ctx, reader, before.Stream, reqStart)
-		if err != nil {
-			return err
-		}
-		log.Status = consts.StatusSuccess
-		// 协议互转的记账：响应侧要到流读完才完整，所以在这里（日志落库前）取
-		log.BridgeNotes = bridgeNotes.String()
-		if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, *log); err != nil {
-			return err
-		}
-		if ioLog {
-			if _, err := gorm.G[models.ChatIO](models.DB).Where("log_id = ?", logId).Updates(ctx, models.ChatIO{OutputUnion: *output}); err != nil {
-				return err
-			}
-		}
-		return nil
 	}
-	if err := recordFunc(); err != nil {
-		if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, models.ChatLog{
+
+	log, output, err := processer(ctx, reader, before.Stream, reqStart)
+	if err != nil {
+		if uerr := updateChatLog(ctx, logId, models.ChatLog{
 			Status: consts.StatusError,
 			Error:  err.Error(),
-		}); err != nil {
-			slog.Error("record log error", "error", err)
+		}); uerr != nil {
+			slog.Error("record log error", "error", uerr)
+		}
+		return
+	}
+
+	log.Status = consts.StatusSuccess
+	// 协议互转的记账：响应侧要到流读完才完整，所以在这里（日志落库前）取
+	log.BridgeNotes = bridgeNotes.String()
+	if err := updateChatLog(ctx, logId, *log); err != nil {
+		// 走到这里说明连重试都撞锁。保留 running 是**不撒谎**：那次请求的结论
+		// 还没写进库。下次进程启动时 ReconcileInterruptedLogs 会把它收尾。
+		slog.Error("record log error（日志停在 running，等重启收尾）", "log_id", logId, "error", err)
+		return
+	}
+	if ioStored && output != nil {
+		if err := updateChatIOOutput(ctx, logId, output); err != nil {
+			slog.Warn("record chat io output error", "log_id", logId, "error", err)
 		}
 	}
 }
 
-func SaveChatLog(ctx context.Context, log models.ChatLog) (uint, error) {
-	if err := gorm.G[models.ChatLog](models.DB).Create(ctx, &log); err != nil {
-		return 0, err
+// updateChatLog 更新一条日志，撞锁重试。
+func updateChatLog(ctx context.Context, logId uint, log models.ChatLog) error {
+	var lastErr error
+	for attempt := 0; attempt < logUpdateAttempts; attempt++ {
+		if attempt > 0 {
+			sleepBackoff(ctx, attempt)
+		}
+		if _, err := gorm.G[models.ChatLog](models.DB).Where("id = ?", logId).Updates(ctx, log); err != nil {
+			lastErr = err
+			if !IsBusyErr(err) {
+				return err
+			}
+			continue
+		}
+		return nil
 	}
-	return log.ID, nil
+	return lastErr
+}
+
+// updateChatIOOutput 回填响应体，撞锁重试（条数少，一次成功即可）。
+func updateChatIOOutput(ctx context.Context, logId uint, output *models.OutputUnion) error {
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			sleepBackoff(ctx, attempt)
+		}
+		if _, err := gorm.G[models.ChatIO](models.DB).Where("log_id = ?", logId).
+			Updates(ctx, models.ChatIO{OutputUnion: *output}); err != nil {
+			lastErr = err
+			if !IsBusyErr(err) {
+				return err
+			}
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
+// SaveChatLog 插入一条日志。撞锁重试：这条 INSERT 在响应发出**之前**同步执行，
+// 失败会直接把一次正常聊天打成 500。重试时重置 ID，避免失败那次的 LAST_INSERT_ID
+// 被带进第二次 INSERT（GORM 会把它当显式主键）。
+func SaveChatLog(ctx context.Context, log models.ChatLog) (uint, error) {
+	var lastErr error
+	for attempt := 0; attempt < logUpdateAttempts; attempt++ {
+		if attempt > 0 {
+			sleepBackoff(ctx, attempt)
+			log.ID = 0
+		}
+		if err := gorm.G[models.ChatLog](models.DB).Create(ctx, &log); err != nil {
+			lastErr = err
+			if !IsBusyErr(err) {
+				return 0, err
+			}
+			continue
+		}
+		return log.ID, nil
+	}
+	return 0, lastErr
 }
 
 func BuildHeaders(source http.Header, withHeader bool, customHeaders map[string]string, stream bool, vars HeaderVars) http.Header {

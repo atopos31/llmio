@@ -298,10 +298,16 @@ and the tightest item is surfaced as a page-level summary. Display text is rende
 Three kinds of data source:
 
 - **Built-in adapters**: `deepseek` (balance), `moonshot` (balance), `scnet` (National Supercomputing Center
-  TokenPlan, login-based), `opencode` (plan, login-based) and `custom` (a generic endpoint whose path you
-  supply, read through `itemsPath` plus a field mapping). Login-based adapters need their credentials in the
-  source's own `env` (keys `SCNET_USER` / `SCNET_PASS` and `OPENCODE_COOKIE` / `OPENCODE_ORG_ID`): those
-  upstreams require a real login and session, which a script cannot reproduce, so they live in Go.
+  TokenPlan, login-based), `opencode` (plan, login-based), `commandcode` (Command Code plan quotas plus the
+  subscription period, Bearer API key) and `custom` (a generic endpoint whose path you supply, read through
+  `itemsPath` plus a field mapping). Login-based adapters need their credentials in the source's own `env`
+  (keys `SCNET_USER` / `SCNET_PASS` and `OPENCODE_COOKIE` / `OPENCODE_ORG_ID`): those upstreams require a real
+  login and session, which a script cannot reproduce, so they live in Go. `commandcode` reads its API key from
+  the source's `apiKey` and hits two endpoints in one refresh — `/alpha/billing/credits` for the 5-hour, weekly
+  and monthly credit windows, and `/alpha/billing/subscriptions` for the plan id, status and period end (the
+  monthly cap is derived from the plan id). Usage scripts that may issue a single request have to pick one of
+  the two; this adapter shows all three used windows and the plan period on the same card. The subscription
+  call is best-effort: when it fails the monthly row degrades to a remaining-only entry.
 - **HTTP**: configuration only, no code — URL, method, query, headers, body and auth style
   (`bearer` / `header` / `basic` / `none`), with `{{apiKey}}`, `{{baseUrl}}`, `{{id}}` and `{{name}}`
   placeholders.

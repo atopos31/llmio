@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -30,7 +31,7 @@ func TestListBuiltins(t *testing.T) {
 	for _, b := range list {
 		byID[b.ID] = b
 	}
-	for _, want := range []string{"deepseek", "moonshot", "scnet", "opencode", "custom"} {
+	for _, want := range []string{"deepseek", "moonshot", "scnet", "opencode", "commandcode", "custom"} {
 		if _, ok := byID[want]; !ok {
 			t.Fatalf("缺少内置适配器 %q", want)
 		}
@@ -45,6 +46,10 @@ func TestListBuiltins(t *testing.T) {
 	}
 	if byID["deepseek"].Generic {
 		t.Fatal("deepseek 不应是 Generic")
+	}
+	// commandcode 走 API Key 鉴权，既不是登录型也不是通用占位
+	if byID["commandcode"].Generic || byID["commandcode"].NeedsLogin {
+		t.Fatal("commandcode 不应标记 Generic/NeedsLogin")
 	}
 }
 
@@ -1228,6 +1233,495 @@ func TestRunOpencodeCustomPath(t *testing.T) {
 	}
 	if gotPath != "/custom/status" {
 		t.Fatalf("应走自定义路径，实得 %q", gotPath)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// commandcode
+// ---------------------------------------------------------------------------
+
+// 下面两份是 2026-10-20 实测响应（结构说明见 quota/commandcode.go 顶部注释）。
+// 单测直接用真实载荷，而不是照着实现手写一份"刚好对得上"的 JSON——那种用例
+// 只能证明代码自洽，证明不了它读得懂上游。
+const commandCodeCreditsPayload = `{"credits":{"belowThreshold":false,"creditThreshold":0,"monthlyCredits":69.7968224856,"purchasedCredits":0,"freeCredits":0},"windowLimits":{"limited":true,"fiveHour":{"used":0.2031775144,"cap":14,"exceeded":false,"resetAt":1792494834039},"weekly":{"used":0.2031775144,"cap":35,"exceeded":false,"resetAt":1793081634039}},"sandboxAccess":true}`
+
+const commandCodeSubsPayload = `{"success":true,"data":{"planId":"individual-goat","status":"active","currentPeriodStart":"2026-10-20T06:05:41.000Z","currentPeriodEnd":"2026-11-20T06:05:41.000Z","cancelAtPeriodEnd":false}}`
+
+// commandCodeHit 是假上游收到的一次请求。
+type commandCodeHit struct {
+	Path string
+	Auth string
+}
+
+// newCommandCodeServer 起一个同时提供两个端点的假上游。
+//
+// 请求记录走缓冲通道而不是共享字段：handler 在别的 goroutine 里跑，
+// 共享字段在 -race 下就是数据竞争。
+func newCommandCodeServer(t *testing.T, creditsBody, subsBody string, creditsStatus, subsStatus int) (*httptest.Server, <-chan commandCodeHit) {
+	t.Helper()
+	hits := make(chan commandCodeHit, 8)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits <- commandCodeHit{Path: r.URL.Path, Auth: r.Header.Get("Authorization")}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case commandCodeCreditsPath:
+			w.WriteHeader(creditsStatus)
+			_, _ = w.Write([]byte(creditsBody))
+		case commandCodeSubscriptionsPath:
+			w.WriteHeader(subsStatus)
+			_, _ = w.Write([]byte(subsBody))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`not found`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, hits
+}
+
+// drainCommandCodeHits 取出通道里已完成的请求记录。
+//
+// RunBuiltin 返回时两次请求的响应都已读完，handler 里的 send 必然发生在返回之前，
+// 因此此刻 len(hits) 就是全部记录数。
+func drainCommandCodeHits(hits <-chan commandCodeHit) []commandCodeHit {
+	n := len(hits)
+	out := make([]commandCodeHit, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, <-hits)
+	}
+	return out
+}
+
+// commandCodeFixture 返回真实载荷解析出的两个入参。
+func commandCodeFixture(t *testing.T) (map[string]any, commandCodePlan) {
+	t.Helper()
+	credits, ok := parseJSONAny(t, commandCodeCreditsPayload).(map[string]any)
+	if !ok {
+		t.Fatal("credits 载荷应为对象")
+	}
+	return credits, commandCodeParseSubscription(parseJSONAny(t, commandCodeSubsPayload))
+}
+
+func closeTo(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
+
+func TestRunCommandCodeEndToEnd(t *testing.T) {
+	srv, hits := newCommandCodeServer(t, commandCodeCreditsPayload, commandCodeSubsPayload, 200, 200)
+
+	res, err := RunBuiltin(BuiltinConfig{
+		BuiltinID: "commandcode", BaseURL: srv.URL, APIKey: "user_test_key",
+	}, nil)
+	if err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+	if len(res.Items) != 3 {
+		t.Fatalf("应得 3 条（5 小时/每周/每月），实得 %d：%#v", len(res.Items), res.Items)
+	}
+
+	got := drainCommandCodeHits(hits)
+	if len(got) != 2 {
+		t.Fatalf("应打两个端点，实得 %d 次请求：%#v", len(got), got)
+	}
+	if got[0].Path != commandCodeCreditsPath || got[1].Path != commandCodeSubscriptionsPath {
+		t.Fatalf("端点顺序不符: %#v", got)
+	}
+	for _, h := range got {
+		if h.Auth != "Bearer user_test_key" {
+			t.Fatalf("%s 的鉴权头不符: %q", h.Path, h.Auth)
+		}
+	}
+
+	// 月度那行要知道上限才能算已用，上限只能从订阅端点拿到
+	monthly := res.Items[2]
+	if monthly["id"] != "monthly" || monthly["total"] != float64(70) {
+		t.Fatalf("月度行不符: %#v", monthly)
+	}
+	used, _ := monthly["used"].(float64)
+	if !closeTo(used, 70-69.7968224856) {
+		t.Fatalf("月度已用应等于上限减剩余，实得 %v", used)
+	}
+
+	raw, ok := res.Raw.(map[string]any)
+	if !ok {
+		t.Fatalf("Raw 应是对象: %#v", res.Raw)
+	}
+	if _, ok := raw["subscriptionsError"]; ok {
+		t.Fatalf("订阅成功时不应有 subscriptionsError：%v", raw["subscriptionsError"])
+	}
+	if raw["credits"] == nil || raw["subscriptions"] == nil {
+		t.Fatal("原始数据应同时保留两个端点的响应")
+	}
+	meta, _ := raw["meta"].(map[string]any)
+	if meta["planName"] != "GOAT" || meta["status"] != "active" {
+		t.Fatalf("元信息不符: %#v", meta)
+	}
+}
+
+func TestRunCommandCodeMissingAPIKey(t *testing.T) {
+	_, err := RunBuiltin(BuiltinConfig{BuiltinID: "commandcode", BaseURL: "http://127.0.0.1:1"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "apiKey") {
+		t.Fatalf("缺 API Key 应报错并指明填在哪，实得 %v", err)
+	}
+}
+
+func TestRunCommandCodeCreditsNotObject(t *testing.T) {
+	srv, _ := newCommandCodeServer(t, `[1,2]`, commandCodeSubsPayload, 200, 200)
+	_, err := RunBuiltin(BuiltinConfig{BuiltinID: "commandcode", BaseURL: srv.URL, APIKey: "k"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "不是对象") {
+		t.Fatalf("credits 非对象应报错，实得 %v", err)
+	}
+}
+
+func TestRunCommandCodeSubscriptionsFailureTolerated(t *testing.T) {
+	srv, _ := newCommandCodeServer(t, commandCodeCreditsPayload, `{"error":"boom"}`, 200, 500)
+
+	res, err := RunBuiltin(BuiltinConfig{BuiltinID: "commandcode", BaseURL: srv.URL, APIKey: "k"}, nil)
+	if err != nil {
+		t.Fatalf("订阅失败不该让整次取数失败: %v", err)
+	}
+	if len(res.Items) != 3 {
+		t.Fatalf("两个窗口 + 月度剩余仍应出数，实得 %d", len(res.Items))
+	}
+	raw := res.Raw.(map[string]any)
+	if _, ok := raw["subscriptionsError"]; !ok {
+		t.Fatal("订阅失败的原因应留在 subscriptionsError 里，否则查不出为什么缺上限")
+	}
+	monthly := res.Items[2]
+	if monthly["remaining"] == nil || monthly["total"] != nil {
+		t.Fatalf("上限未知时月度行应只报剩余，实得 %#v", monthly)
+	}
+	if monthly["format"] != `{remaining:2} CREDITS` {
+		t.Fatalf("上限未知时格式应只报剩余，实得 %q", monthly["format"])
+	}
+	meta := raw["meta"].(map[string]any)
+	if meta["monthlyCapKnown"] != false {
+		t.Fatalf("认不出套餐时 monthlyCapKnown 应为 false: %#v", meta)
+	}
+}
+
+func TestRunCommandCodeStatusHints(t *testing.T) {
+	cases := []struct {
+		status int
+		want   string
+	}{
+		{401, "API Key 无效"},
+		{404, "path 覆盖"},
+		{429, "刷新间隔"},
+	}
+	for _, c := range cases {
+		srv, _ := newCommandCodeServer(t, `boom`, `boom`, c.status, c.status)
+		_, err := RunBuiltin(BuiltinConfig{BuiltinID: "commandcode", BaseURL: srv.URL, APIKey: "k"}, nil)
+		if err == nil {
+			t.Fatalf("HTTP %d 应报错", c.status)
+		}
+		if !strings.Contains(err.Error(), "取 credits 失败") {
+			t.Fatalf("HTTP %d 的错误应指明是 credits 失败: %v", c.status, err)
+		}
+		if !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("HTTP %d 应提示「%s」，实得 %v", c.status, c.want, err)
+		}
+	}
+}
+
+func TestRunCommandCodeCustomPath(t *testing.T) {
+	paths := make(chan string, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths <- r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/custom/credits" {
+			_, _ = w.Write([]byte(commandCodeCreditsPayload))
+			return
+		}
+		_, _ = w.Write([]byte(commandCodeSubsPayload))
+	}))
+	defer srv.Close()
+
+	// 只覆盖 credits 的路径；订阅端点仍走默认路径（它没有配置项）
+	if _, err := RunBuiltin(BuiltinConfig{
+		BuiltinID: "commandcode", BaseURL: srv.URL, Path: "/custom/credits", APIKey: "k",
+	}, nil); err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+	if first := <-paths; first != "/custom/credits" {
+		t.Fatalf("credits 应走自定义路径，实得 %q", first)
+	}
+	if second := <-paths; second != commandCodeSubscriptionsPath {
+		t.Fatalf("订阅端点应走默认路径，实得 %q", second)
+	}
+}
+
+func TestCommandCodePlanCredits(t *testing.T) {
+	// 这张表是月度上限的唯一来源，错了会让「已用 = 上限 - 剩余」整体偏移
+	want := map[string]float64{
+		"individual-goat":     70,
+		"individual-pro":      30,
+		"individual-pro-v1":   80,
+		"individual-provider": 15,
+		"individual-max":      150,
+		"individual-ultra":    300,
+		"teams-pro":           40,
+	}
+	if len(commandCodePlanCredits) != len(want) {
+		t.Fatalf("套餐数量与参考映射不符：%d vs %d", len(commandCodePlanCredits), len(want))
+	}
+	for id, credits := range want {
+		if got, ok := commandCodePlanCredits[id]; !ok || got != credits {
+			t.Fatalf("%s 的月度上限应为 %v，实得 %v（存在=%v）", id, credits, got, ok)
+		}
+	}
+}
+
+func TestCommandCodePlanName(t *testing.T) {
+	cases := map[string]string{
+		"individual-goat":  "GOAT",
+		"individual-ultra": "ULTRA",
+		"teams-pro":        "TEAMS-PRO",
+		" individual-max ": "MAX",
+		"individual-":      "",
+		"":                 "",
+	}
+	for in, want := range cases {
+		if got := commandCodePlanName(in); got != want {
+			t.Fatalf("planName(%q) 应为 %q，实得 %q", in, want, got)
+		}
+	}
+}
+
+func TestCommandCodeParseSubscription(t *testing.T) {
+	t.Run("真实载荷", func(t *testing.T) {
+		plan := commandCodeParseSubscription(parseJSONAny(t, commandCodeSubsPayload))
+		if plan.ID != "individual-goat" || plan.Name != "GOAT" || plan.Status != "active" {
+			t.Fatalf("套餐信息不符: %#v", plan)
+		}
+		if !plan.CapKnown || plan.MonthlyCap != 70 {
+			t.Fatalf("GOAT 的月度上限应为 70: %#v", plan)
+		}
+		if plan.CancelAtPeriod {
+			t.Fatal("cancelAtPeriodEnd=false 不应读成 true")
+		}
+		if plan.PeriodStart == nil || plan.PeriodEnd == nil {
+			t.Fatalf("计费周期应保留原始值: %#v", plan)
+		}
+	})
+
+	t.Run("取消续费", func(t *testing.T) {
+		plan := commandCodeParseSubscription(parseJSONAny(t, `{"data":{"planId":"individual-max","cancelAtPeriodEnd":true}}`))
+		if !plan.CancelAtPeriod {
+			t.Fatal("cancelAtPeriodEnd=true 应读出来")
+		}
+		if !plan.CapKnown || plan.MonthlyCap != 150 {
+			t.Fatalf("MAX 的月度上限应为 150: %#v", plan)
+		}
+	})
+
+	t.Run("认不出的套餐", func(t *testing.T) {
+		plan := commandCodeParseSubscription(parseJSONAny(t, `{"data":{"planId":"individual-unknown"}}`))
+		if plan.CapKnown || plan.MonthlyCap != 0 {
+			t.Fatalf("认不出的套餐不该编出上限: %#v", plan)
+		}
+		if plan.Name != "UNKNOWN" {
+			t.Fatalf("认不出的套餐仍应给出名字，实得 %q", plan.Name)
+		}
+	})
+
+	t.Run("结构不符返回零值", func(t *testing.T) {
+		for _, raw := range []any{
+			nil, "x", []any{}, 42,
+			map[string]any{"data": 42},
+			map[string]any{"data": map[string]any{}},
+		} {
+			plan := commandCodeParseSubscription(raw)
+			if plan.ID != "" || plan.CapKnown || plan.CancelAtPeriod {
+				t.Fatalf("结构不符应返回零值，输入 %#v 得到 %#v", raw, plan)
+			}
+		}
+	})
+}
+
+func TestCommandCodeBuildItems(t *testing.T) {
+	t.Run("真实载荷三行", func(t *testing.T) {
+		credits, plan := commandCodeFixture(t)
+		items, err := commandCodeBuildItems(credits, plan)
+		if err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if len(items) != 3 {
+			t.Fatalf("应得 3 行，实得 %d：%#v", len(items), items)
+		}
+		for i, wantID := range []string{"fiveHour", "weekly", "monthly"} {
+			if items[i]["id"] != wantID {
+				t.Fatalf("第 %d 行 id 应为 %q，实得 %v", i, wantID, items[i]["id"])
+			}
+		}
+
+		fiveHour := items[0]
+		if fiveHour["label"] != "5 小时限额" || fiveHour["window"] != string(Window5h) {
+			t.Fatalf("5 小时行的标签/窗口不符: %#v", fiveHour)
+		}
+		if fiveHour["unit"] != string(UnitCredits) {
+			t.Fatalf("单位应为 CREDITS: %#v", fiveHour)
+		}
+		if u, _ := fiveHour["used"].(float64); !closeTo(u, 0.2031775144) {
+			t.Fatalf("5 小时已用不符: %v", fiveHour["used"])
+		}
+		if fiveHour["total"] != float64(14) {
+			t.Fatalf("5 小时总量应取 cap(14): %v", fiveHour["total"])
+		}
+		// resetAt 原样交给契约的 CoerceTime（毫秒 epoch），这里不该提前转
+		if fiveHour["resetAt"] != float64(1792494834039) {
+			t.Fatalf("resetAt 应原样保留，实得 %#v", fiveHour["resetAt"])
+		}
+		if _, ok := fiveHour["status"]; ok {
+			t.Fatalf("未超限的窗口不该带状态: %#v", fiveHour)
+		}
+
+		if items[1]["total"] != float64(35) {
+			t.Fatalf("每周总量应取 cap(35): %v", items[1]["total"])
+		}
+
+		monthly := items[2]
+		if monthly["label"] != "每月额度" || monthly["window"] != string(WindowMonth) {
+			t.Fatalf("月度行的标签/窗口不符: %#v", monthly)
+		}
+		if u, _ := monthly["used"].(float64); !closeTo(u, 70-69.7968224856) {
+			t.Fatalf("月度已用应为上限减剩余: %v", monthly["used"])
+		}
+		if monthly["total"] != float64(70) {
+			t.Fatalf("月度总量应取套餐上限: %v", monthly["total"])
+		}
+		extra, _ := monthly["extra"].(map[string]any)
+		if extra["planName"] != "GOAT" || extra["note"] != "GOAT 套餐" {
+			t.Fatalf("月度行应带套餐信息: %#v", extra)
+		}
+		if extra["periodEnd"] == nil || extra["periodStart"] == nil {
+			t.Fatalf("月度行应带计费周期: %#v", extra)
+		}
+	})
+
+	t.Run("认不出套餐时月度只报剩余", func(t *testing.T) {
+		credits, _ := commandCodeFixture(t)
+		items, err := commandCodeBuildItems(credits, commandCodePlan{})
+		if err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		monthly := items[2]
+		if r, _ := monthly["remaining"].(float64); !closeTo(r, 69.7968224856) {
+			t.Fatalf("月度剩余不符: %#v", monthly["remaining"])
+		}
+		if _, ok := monthly["used"]; ok {
+			t.Fatalf("上限未知时不该编出已用（那是拿剩余当总数算的）: %#v", monthly)
+		}
+		if monthly["format"] != `{remaining:2} CREDITS` {
+			t.Fatalf("上限未知时格式应只报剩余: %q", monthly["format"])
+		}
+	})
+
+	t.Run("低于阈值标记预警", func(t *testing.T) {
+		raw := strings.Replace(commandCodeCreditsPayload, `"belowThreshold":false`, `"belowThreshold":true`, 1)
+		credits := parseJSONAny(t, raw).(map[string]any)
+		items, err := commandCodeBuildItems(credits, commandCodePlan{})
+		if err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if items[2]["status"] != string(StatusWarning) {
+			t.Fatalf("belowThreshold=true 应标记预警，实得 %#v", items[2]["status"])
+		}
+	})
+
+	t.Run("窗口超限标记用尽", func(t *testing.T) {
+		raw := strings.Replace(commandCodeCreditsPayload, `"exceeded":false`, `"exceeded":true`, 1)
+		credits := parseJSONAny(t, raw).(map[string]any)
+		items, err := commandCodeBuildItems(credits, commandCodePlan{})
+		if err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if items[0]["status"] != string(StatusExhausted) {
+			t.Fatalf("exceeded=true 应标记用尽，实得 %#v", items[0]["status"])
+		}
+	})
+
+	t.Run("缺 windowLimits 仍有月度", func(t *testing.T) {
+		credits := map[string]any{"credits": map[string]any{"monthlyCredits": float64(5)}}
+		items, err := commandCodeBuildItems(credits, commandCodePlan{})
+		if err != nil {
+			t.Fatalf("不应报错: %v", err)
+		}
+		if len(items) != 1 || items[0]["id"] != "monthly" {
+			t.Fatalf("应只剩月度行: %#v", items)
+		}
+	})
+
+	t.Run("两者皆空报错", func(t *testing.T) {
+		_, err := commandCodeBuildItems(map[string]any{}, commandCodePlan{})
+		if err == nil || !strings.Contains(err.Error(), "没有可识别的额度") {
+			t.Fatalf("空响应应明确报错，实得 %v", err)
+		}
+	})
+}
+
+func TestRunCommandCodeNormalizes(t *testing.T) {
+	srv, _ := newCommandCodeServer(t, commandCodeCreditsPayload, commandCodeSubsPayload, 200, 200)
+	res, err := RunBuiltin(BuiltinConfig{BuiltinID: "commandcode", BaseURL: srv.URL, APIKey: "k"}, nil)
+	if err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+
+	items, err := Normalize(res.Items, NormalizeOptions{})
+	if err != nil {
+		t.Fatalf("适配器产出应能被契约归一: %v", err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("应归一出 3 条，实得 %d", len(items))
+	}
+
+	// 契约的 toFloat 只认数值本体，所以适配器必须写解引用后的 float64；
+	// 这几条断言就是那一课的回回归测试。
+	fiveHour := items[0]
+	if fiveHour.Used == nil || fiveHour.Total == nil || fiveHour.Percent == nil {
+		t.Fatalf("三个分量都不该丢: %#v", fiveHour)
+	}
+	if !closeTo(*fiveHour.Used, 0.2031775144) || !closeTo(*fiveHour.Total, 14) {
+		t.Fatalf("5 小时行数值不符: used=%v total=%v", *fiveHour.Used, *fiveHour.Total)
+	}
+	if !closeTo(*fiveHour.Percent, 0.2031775144/14*100) {
+		t.Fatalf("5 小时百分比不符: %v", *fiveHour.Percent)
+	}
+	if fiveHour.Window != Window5h || fiveHour.Unit != UnitCredits {
+		t.Fatalf("单位/窗口不符: %#v", fiveHour)
+	}
+	if fiveHour.Text != `0.20 / 14.00 CREDITS` {
+		t.Fatalf("展示文本不符: %q", fiveHour.Text)
+	}
+	wantReset := time.UnixMilli(1792494834039).UTC().Format(time.RFC3339)
+	if fiveHour.ResetAt != wantReset {
+		t.Fatalf("resetAt 应归一成 %s，实得 %q", wantReset, fiveHour.ResetAt)
+	}
+	if fiveHour.Status != StatusOK {
+		t.Fatalf("用量尚浅应判 OK，实得 %q", fiveHour.Status)
+	}
+
+	weekly := items[1]
+	if weekly.Window != WindowWeek || !closeTo(*weekly.Total, 35) {
+		t.Fatalf("每周行不符: %#v", weekly)
+	}
+
+	monthly := items[2]
+	if monthly.Window != WindowMonth || monthly.Remaining == nil {
+		t.Fatalf("月度行不符: %#v", monthly)
+	}
+	if !closeTo(*monthly.Remaining, 69.7968224856) {
+		t.Fatalf("月度剩余不符: %v", *monthly.Remaining)
+	}
+	if !closeTo(*monthly.Percent, 0.2031775144/70*100) {
+		t.Fatalf("月度百分比不符: %v", *monthly.Percent)
+	}
+	if monthly.Text != `0.20 / 70.00 CREDITS` {
+		t.Fatalf("月度展示文本不符: %q", monthly.Text)
+	}
+	if monthly.Extra["planName"] != "GOAT" {
+		t.Fatalf("套餐名应进 extra: %#v", monthly.Extra)
+	}
+	if monthly.ResetAt == "" {
+		t.Fatal("月度重置时间应来自计费周期结束")
 	}
 }
 

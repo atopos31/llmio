@@ -236,9 +236,14 @@ SQLite 删除行只是把页放回空闲列表；默认配置（`auto_vacuum=0`�
 数据源分三类：
 
 - **内置适配器**：`deepseek`（余额）、`moonshot`（余额）、`scnet`（国家超算 TokenPlan，登录型）、
-  `opencode`（套餐，登录型）与 `custom`（通用端点，需自填路径，再用 `itemsPath` 与映射表取数）。
+  `opencode`（套餐，登录型）、`commandcode`（Command Code 套餐额度与订阅周期，Bearer API Key）与
+  `custom`（通用端点，需自填路径，再用 `itemsPath` 与映射表取数）。
   登录型适配器需要在数据源自己的 `env` 中给出凭据（键名分别为 `SCNET_USER` / `SCNET_PASS`
   与 `OPENCODE_COOKIE` / `OPENCODE_ORG_ID`），这类上游的登录与会话机制不是脚本能复现的，因此写在 Go 侧。
+  `commandcode` 的 API Key 填在该数据源的 `apiKey`，一次刷新会同时请求两个端点：`/alpha/billing/credits`
+  给出 5 小时、每周与每月三档额度，`/alpha/billing/subscriptions` 给出套餐 id、状态与周期结束时间
+  （月度总额度由套餐 id 推出）。只能发一次请求的用量脚本必须在两者之间二选一，而这个适配器能把三档
+  已用量与套餐周期放在同一张卡片上。订阅请求是尽力而为的：失败时月度条目退化为只报剩余额度。
 - **HTTP**：纯配置、不写代码，自填地址、方法、查询、请求头、请求体与鉴权方式
   （`bearer` / `header` / `basic` / `none`），支持 `{{apiKey}}`、`{{baseUrl}}`、`{{id}}`、`{{name}}` 占位符。
 - **脚本**：一段 JavaScript（goja，以 ES5.1 为基准），在独立子进程中执行，超时默认 30 秒。

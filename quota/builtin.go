@@ -93,6 +93,15 @@ var builtinRegistry = []builtinSpec{
 	},
 	{
 		info: BuiltinInfo{
+			ID: "commandcode", Label: "Command Code 套餐（额度 + 订阅周期）", Verified: true,
+			Doc:            "GET /alpha/billing/credits + /alpha/billing/subscriptions。Bearer API Key 鉴权",
+			DefaultBaseURL: "https://api.commandcode.ai",
+			DefaultPath:    "/alpha/billing/credits",
+		},
+		defaultTimeout: 20 * time.Second,
+	},
+	{
+		info: BuiltinInfo{
 			ID: "custom", Label: "自定义端点（配 path + 字段映射）", Verified: true,
 			Doc:            "自己填 path / 请求头，并用 itemsPath + 字段映射解析响应",
 			DefaultBaseURL: "https://api.example.com",
@@ -168,6 +177,8 @@ func RunBuiltin(cfg BuiltinConfig, client *http.Client) (*HTTPAdapterResult, err
 		return runSCNet(cfg, base)
 	case "opencode":
 		return runOpencode(cfg, base)
+	case "commandcode":
+		return runCommandCode(cfg, base)
 	}
 
 	// deepseek / moonshot / custom：都是「拉一个 JSON 端点再解析」

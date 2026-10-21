@@ -46,7 +46,7 @@ integrity_check、行/值保留、老列不删、当前列/索引补齐、二次
 | 触发 | 条件 |
 |---|---|
 | `pull_request` | 改动落在 `models/**`、`tools/versiondb/**`、`go.mod`、`go.sum`、本工作流自身 |
-| `workflow_dispatch` | 布尔输入 `all`：`true` = 跑全部 151 个 tag，默认只跑代表（50 个） |
+| `workflow_dispatch` | 布尔输入 `all`：`true` = 跑全部 tag（本机克隆 151 个，上游仓库 142 个），默认只跑代表（本机 50 个，上游 46 个） |
 | `schedule` | 每周一 03:17 UTC 兜底（代码没动也可能因依赖抖动而变红） |
 
 `permissions: contents: read`、`concurrency: <workflow>-<ref>` + `cancel-in-progress`，
@@ -93,7 +93,11 @@ git rev-parse <tag>:go.sum   # 同上；老 tag 可能没有，用 none 占位
 | `models/` 树 + `go.mod` + `go.sum` | **50** |
 
 即：`go.sum` 不额外拆组，`go.mod` 多拆 6 组（同一份 models 代码、不同依赖版本）。
-CI 实际跑 **50 个 job**（tag 总数 151）。
+CI 实际跑 **50 个 job**（本地克隆的 tag 总数 151）。
+
+> 上游仓库的 tag 集不一样：`atopos31/llmio` 现有 **142 个** v* tag（`v0.8.17`–`v0.8.25` 这 9 个
+> 只存在于本地克隆、没推到上游），所以在真实 runner 上 discover 分成 **46 组**、矩阵 **46 个 job**。
+> 矩阵规模永远按「被跑仓库自己的 tag 集」算，workflow 里没有写死任何数字。
 
 同组等价性举例（[测]）：v0.1.0 组的 8 个 tag
 `v0.1.0 v0.1.1 v0.1.2 v0.1.3 v0.1.4 v0.2.0 v0.2.1 v0.2.2` 共享同一组键，代表 v0.2.2；
@@ -113,7 +117,7 @@ v0.9.3 v0.9.5 v0.9.7
 
 `workflow_dispatch` 勾 `all` 时跳过分组直接跑 151 个——分组逻辑被改坏时的兜底。
 
-本机全量实测（[测] 2026-10-21，Windows + go1.26.6）：151 个 tag **逐个**建库 + 用当前代码升级，
+本机全量实测（[测] 2026-10-21，Windows + go1.26.6）：本地克隆的 151 个 tag **逐个**建库 + 用当前代码升级，
 一个不跳（与 `workflow_dispatch` 勾 `all` 时同款跑法）：
 
 | 指标 | 结果 |
@@ -124,9 +128,17 @@ v0.9.3 v0.9.5 v0.9.7
 | 旧库形态 | 4 张表 ×34、5 张表 ×32、6 张表 ×1、7 张表 ×55、8 张表 ×19、10 张表 ×10 个 tag；从 4 张表到 10 张表全部收敛到当前 10 张表 |
 | 典型输出 | `[v0.2.2] 旧库 4 张表 / 8 行 → 升级后 10 张表 / 10 行`；`[v0.9.7] 旧库 10 张表 / 22 行 → 升级后 10 张表 / 22 行` |
 
-为什么还要跑 151 个：下面的 50 个代表是按「同组等价」推出来的（[推]），而 CI 默认只跑这 50 个。
-把 151 个全跑一遍，是为了证明代表法没漏——结果 151/151 与只跑代表的 51/51 一致，
-没有哪个只在被跳过的 tag 上才炸的升级路径。
+CI 首跑（[测] 2026-10-21，PR #90，run 39558071376，ubuntu-latest）：
+
+| 指标 | 结果 |
+|---|---|
+| discover | pass，6 s；输出 `142 个 tag → 46 组（每组取版本最高的代表）` |
+| compat 矩阵 | **46/46 全绿**（`fail-fast: false`、`max-parallel: 4`，单个 job 20–38 s） |
+| 整条 run | 14:52:03 → 14:58:16，约 6 分 13 秒，零重跑 |
+| 同一个 PR 上的 test.yml | pass，2 分 12 秒 |
+
+为什么还要单独跑全量：50 个代表是按「同组等价」推出来的，分组逻辑万一算错就会静默漏掉一整代。
+把本地 151 个逐个跑一遍，是为了证明代表法没漏——结果 151/151 与只跑代表的 51/51 一致。
 
 本地看分组（不用起 CI）：把 YAML 里 `discover` 的 `run` 段落原样存成 `discover.sh`，
 `bash discover.sh` 会打印 `151 个 tag → 50 组` 和 `matrix={...}`；`ALL=true bash discover.sh`
@@ -258,12 +270,15 @@ stdout（看"那一代到底建了什么"，不用打开库）；`-keep -work <d
   红本身是信号（要么修 GOPROXY/缓存，要么确认该依赖真的取不到了），加白名单只会把问题藏起来。
 - **fork PR 不受影响**：`checkout` 的 `origin` 永远指向**运行本工作流的仓库**（fork PR 时是 base 仓库），
   tag 也在那里，所以 discover 与 `git archive` 都能拿到 tag。唯一会红的情况是 base 仓库自己没有任何 v* tag。
+  PR #90 走的就是这条路径（tktogether 的 fork 分支 → atopos31/llmio）：上游 142 个 tag → 46 组，
+  46 个 compat job 加 discover 全绿。
 - **会拉低 Go 覆盖率门禁约 0.7 个百分点**：`tools/versiondb` 新增 109 条语句、单测覆盖 26 条（23.9%），
   全仓 `go tool cover -func` 口径 72.8% → **72.1%**（[测] 2026-10-21，阈值 70%，仍达标；`test.yml` 的
   门禁命令没变，仍是 `go test -coverprofile=coverage.out ./...` + `go tool cover -func` 取 total）。
   想让数字回去就得给它补测试，或者把 `tools/` 从 `coverage.out` 里排除——后者会把工具代码变成盲区，不建议。
 - **只验证 SQLite + `ubuntu-latest`**：`glebarez/sqlite` 纯 Go 驱动；macOS / Windows runner 没跑。
 - **每个矩阵 job 全量克隆**：仓库 `.git` 实测 9.9 MB，克隆成本可忽略，换来 `git archive` 一定可用。
-- **耗时是估算**（[推]）：单版本约 2~4 分钟（下载旧依赖 + 编译两代代码），`max-parallel: 4` 下
-  50 个 job 粗估 25~50 分钟；未在真实 runner 上实测。
+- **耗时**（[测] 2026-10-21，PR #90 首跑）：discover 6 s；46 个 compat job 每个 20–38 s；
+  `max-parallel: 4` 下整条矩阵约 6 分钟；同一个 PR 上的 `test.yml` 2 分 12 秒。
+  runner 上 Go 依赖有缓存，比本地（每版本 2.5–4.3 s 建库 + 2.2–4.8 s 断言）快一些。
 - **这套 CI 的两根支柱是 `tools/versiondb` 与 `models/compat_db_test.go`**，改它们之前先读 §一。

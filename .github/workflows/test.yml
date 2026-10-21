@@ -1,9 +1,11 @@
 name: test
 
-# 与另外两条 workflow 的分工：
-#   test.yml     每次 push 与 PR 都跑——lint、单测、覆盖率门禁、构建自检
-#   releaser.yml 仅 tag 触发——goreleaser 发 Release
-#   cicd.yml     仅 tag 触发——构建并推送 Docker 镜像
+# 与另外三条 workflow 的分工（db-compat.yml 顶部有同一份清单）：
+#   test.yml      每次 push 与 PR 都跑——lint、单测、覆盖率门禁、构建自检
+#   releaser.yml  仅 tag 触发——goreleaser 发 Release
+#   cicd.yml      仅 tag 触发——构建并推送 Docker 镜像
+#   db-compat.yml 只在动到数据库层时跑——用每个历史 tag 自己的代码建库，再用当前代码升级它
+#                 （测试本身在 models/compat_db_test.go，未设置 LLMIO_COMPAT_DB 时自动 skip）
 on:
   push:
   pull_request:
@@ -92,6 +94,7 @@ jobs:
       # Go 覆盖率门禁：阈值 70%（基线 72.7%，2026-10-15）。
       # 阈值 = min(70%, 基线向下取整)：70% 是硬底，防止代码量增大但覆盖率
       # 不变时悄悄跌破底线。改动包不足即红。
+      # 加入 tools/versiondb 后全仓实测 72.1%（2026-10-21），仍高于阈值，见 docs/db-compat-ci.md §七。
       - name: Go 覆盖率门禁
         run: |
           go test -coverprofile=coverage.out ./...

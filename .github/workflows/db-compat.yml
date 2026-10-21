@@ -1,0 +1,191 @@
+name: db-compat
+
+# 与另外三条 workflow 的分工（test.yml 顶部有同一份清单）：
+#   test.yml      每次 push 与 PR 都跑——lint、单测、覆盖率门禁、构建自检
+#   releaser.yml  仅 tag 触发——goreleaser 发 Release
+#   cicd.yml      仅 tag 触发——构建并推送 Docker 镜像
+#   db-compat.yml 只在动到数据库层时跑——用每个历史 tag 自己的代码建库，再用当前代码升级它
+#
+# 为什么不是"手写一份旧 DDL 当 testdata"：手写只能证明「按我以为的旧结构能升级」。
+# 真实历史库的形态差得远——v0.1.0 的 models 表还带着 io_log 列、连 configs 表都还没有。
+# 只有让那一代的 models.Init 亲自跑一遍，拿到的才是那一代真实的表结构。
+# tools/versiondb 干的正是这件事：git archive 导出该 tag 源码 → 注入一个只调用它自己
+# models.Init 的探针 → 在那个旧模块里 go run。探针不 import 当前代码，新结构混不进旧库。
+# 具体断言见 models/compat_db_test.go 的文件头注释。
+on:
+  pull_request:
+    paths:
+      - 'models/**'
+      - 'tools/versiondb/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/db-compat.yml'
+  workflow_dispatch:
+    inputs:
+      all:
+        description: '跑全部历史 tag（默认只跑每个结构分组里版本最高的那个代表）'
+        type: boolean
+        default: false
+  schedule:
+    # 每周一 03:17 UTC 兜底跑一次：代码没动也可能出问题——go.sum 一抖、驱动小版本一换，
+    # 某个历史版本的建库/升级路径就可能变红，越晚发现越难查
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+# 同一分支连推多次时取消上一轮：满矩阵几十个 job 排队很贵（写法同 test.yml）
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    # 151 个 tag 先按结构分组，结构相同的只留版本最高的代表：不分组每次要起 151 个
+    # job，分完是 50 个（2026-10-21 实测）。分组只看"会不会建出不同的库"，不看 tag 个数。
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.group.outputs.matrix }}
+      count: ${{ steps.group.outputs.count }}
+      total: ${{ steps.group.outputs.total }}
+    steps:
+      # fetch-depth: 0 是硬要求：后面 compat job 的 git archive <tag> 要用到 tag 对象
+      # 和它指向的提交，浅克隆里这两样都不保证在
+      - name: Checkout（需要全部 tag）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 再显式抓一次 tag：checkout 的抓 tag 行为随版本变过（v4 早期是不抓的），
+      # 已有对象时这一步只更新几条 ref，几 KB
+      - name: 补齐 tag 引用
+        run: git fetch --force --prune --tags origin
+
+      - name: 按 (models 树, go.mod, go.sum) 分组
+        id: group
+        env:
+          ALL: ${{ inputs.all || 'false' }}
+        run: |
+          all_tags="$(git tag --list 'v*' --sort=version:refname)"
+          if [ -z "$all_tags" ]; then
+            echo "::error::仓库里没有任何 v* tag：checkout 必须带 fetch-depth: 0"
+            exit 1
+          fi
+          total="$(printf '%s\n' "$all_tags" | wc -l | tr -d ' ')"
+
+          if [ "${ALL:-false}" = "true" ]; then
+            refs="$all_tags"
+            groups="$total"
+            echo "workflow_dispatch all=true：跑全部 ${total} 个 tag"
+          else
+            # 分组键 = 该 tag 的（models/ 目录树 OID, go.mod blob OID, go.sum blob OID）。
+            # 三者相同 ⇒ 建库跑的是同一份 models 代码、同一组依赖版本 ⇒ 建出来的库结构相同，
+            # 只留版本号最高的那个 tag 当代表。
+            # 老版本可能没有 go.sum（依赖直接塞进 go.mod），用 none 占位，别让 rev-parse 失败中断脚本。
+            grouped="$(printf '%s\n' "$all_tags" | while IFS= read -r tag; do
+              tree="$(git rev-parse --verify --quiet "${tag}:models" || echo none)"
+              gomod="$(git rev-parse --verify --quiet "${tag}:go.mod" || echo none)"
+              gosum="$(git rev-parse --verify --quiet "${tag}:go.sum" || echo none)"
+              printf '%s %s %s\t%s\n' "$tree" "$gomod" "$gosum" "$tag"
+            done)"
+
+            # 组内按版本号升序排，取每组最后一行 = 该组版本最高的 tag。
+            # -V 是 GNU 版本排序：v0.8.9 < v0.8.25（字典序会反过来）。
+            refs="$(printf '%s\n' "$grouped" \
+              | LC_ALL=C sort -t $'\t' -k1,1 -k2,2V \
+              | awk -F'\t' 'prev == $1 { rep = $2; next }
+                             { if (prev != "") print rep; prev = $1; rep = $2 }
+                             END { if (prev != "") print rep }' \
+              | sort -V)"
+            if [ -z "$refs" ]; then
+              echo "::error::分组结果为空"
+              exit 1
+            fi
+            groups="$(printf '%s\n' "$refs" | wc -l | tr -d ' ')"
+            echo "${total} 个 tag → ${groups} 组（每组取版本最高的代表）"
+          fi
+
+          # 矩阵用 {"ref":[...]} 形状：compat job 里写 matrix.ref 取值
+          json="$(printf '%s\n' "$refs" | awk 'NF { printf "%s\"%s\"", (n++ ? "," : ""), $0 }')"
+          echo "matrix={\"ref\":[$json]}"
+          if [ -n "${GITHUB_OUTPUT:-}" ]; then
+            {
+              printf 'matrix={"ref":[%s]}\n' "$json"
+              printf 'count=%s\n' "$groups"
+              printf 'total=%s\n' "$total"
+            } >> "$GITHUB_OUTPUT"
+          fi
+          echo "代表 tag 前 10：$(printf '%s\n' "$refs" | head -n 10 | tr '\n' ' ')"
+          echo "代表 tag 总数：${groups}（tag 总数 ${total}）"
+          {
+            echo "### db-compat 结构分组"
+            echo
+            echo "- v* tag 总数：${total}"
+            echo "- 分组数（= 矩阵 job 数）：${groups}"
+            echo
+            echo "~~~"
+            printf '%s\n' "$refs"
+            echo "~~~"
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+  compat:
+    needs: discover
+    runs-on: ubuntu-latest
+    # 单个版本上限：编译旧模块（下载该代依赖）+ 编译当前 models 包，实测单版本 2~4 分钟
+    timeout-minutes: 20
+    strategy:
+      # 一个版本红不代表别的版本红：让整条矩阵跑完，一次看清哪些代际真有问题
+      fail-fast: false
+      # 每个 job 都要编译旧模块，并发太高会互相抢 CPU 和模块缓存；4 是稳的取值
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    name: compat / ${{ matrix.ref }}
+    steps:
+      - name: Checkout（需要该 tag 的对象）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          # 与 test.yml 一致：版本只从 go.mod 取，别在这里再写一份
+          go-version-file: go.mod
+          cache: true
+
+      # 产物落在 runner 的临时目录：矩阵 job 之间不共享工作区，别写到仓库里让
+      # models 的测试去扫到
+      - name: 生成该版本自己的库
+        env:
+          REF: ${{ matrix.ref }}
+        run: |
+          set -euo pipefail
+          # 该 tag 必须真的在本地仓库里，git archive 才不会扑空
+          git fetch --force origin "refs/tags/$REF:refs/tags/$REF"
+          mkdir -p "$RUNNER_TEMP/db"
+          go run ./tools/versiondb -ref "$REF" -out "$RUNNER_TEMP/db/$REF.db"
+
+      # 未设置 LLMIO_COMPAT_DB 时这个测试会 skip，所以必须显式传（传错就等于永远绿）
+      - name: 用当前代码升级这个库并断言
+        env:
+          REF: ${{ matrix.ref }}
+          LLMIO_COMPAT_TAG: ${{ matrix.ref }}
+          LLMIO_COMPAT_DB: ${{ runner.temp }}/db/${{ matrix.ref }}.db
+        run: |
+          # tee 之后退出码取的是 tee 的，必须开 pipefail 才能把测试失败传出去
+          set -o pipefail
+          go test ./models -run TestUpgradeFromReleaseDB -count=1 -v 2>&1 \
+            | tee "$RUNNER_TEMP/compat-$REF.log"
+
+      # 失败时把那一代建出的库和完整测试日志一起带走：本地复现靠的就是这两个文件
+      - name: 失败时保留现场
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-compat-${{ matrix.ref }}
+          path: |
+            ${{ runner.temp }}/db/${{ matrix.ref }}.db
+            ${{ runner.temp }}/compat-${{ matrix.ref }}.log
+          if-no-files-found: ignore
+          retention-days: 7

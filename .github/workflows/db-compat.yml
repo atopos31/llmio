@@ -132,7 +132,8 @@ jobs:
   compat:
     needs: discover
     runs-on: ubuntu-latest
-    # 单个版本上限：编译旧模块（下载该代依赖）+ 编译当前 models 包，实测单版本 2~4 分钟
+    # 单个版本上限：编译旧模块（下载该代依赖）+ 编译当前 models 包。2026-10-21 首跑实测
+    # 单版本 20~38 秒，20 分钟是留给依赖下载抖动的余量
     timeout-minutes: 20
     strategy:
       # 一个版本红不代表别的版本红：让整条矩阵跑完，一次看清哪些代际真有问题

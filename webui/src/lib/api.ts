@@ -44,6 +44,9 @@ export interface ModelWithProvider {
   StructuredOutput: boolean;
   Image: boolean;
   WithHeader: boolean;
+  /** 是否为备用关联：不参与日常轮询，仅当主关联在本请求内全部不可用后接管。
+   *  老接口快照可能没有该键，按 false 处理。 */
+  Backup?: boolean | null;
   CustomerHeaders: Record<string, string> | null;
   ExtraBody: Record<string, unknown> | null;
   Status: boolean | null;
@@ -743,6 +746,9 @@ export interface ChatLog {
   ChunkTime: number;
   Tps: number;
   ChatIO: boolean;
+  // 本次响应是否由备用关联提供：主关联在本请求内全部失败出局后降级接管
+  // （见 service/chat.go 的分池逻辑）。老行（回填前）后端也给 false。
+  Backup?: boolean;
   Size: number;
   prompt_tokens: number;
   completion_tokens: number;

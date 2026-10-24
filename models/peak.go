@@ -78,29 +78,29 @@ const (
 	DateOverrideRest = "rest"
 )
 
-// DefaultPeakTerms 返回一份新的峰谷条款模板：**关闭**状态，两段示例时段。
+// DefaultPeakTerms 返回一份新的峰谷条款模板：**关闭**状态，三段示例时段。
 //
 // 默认关闭是刻意的——分时段计费会改变成本数字的语义，
 // 在用户明确配置前不应静默启用。
 //
-// 关着也给两段示例：打开开关的人马上要填的是时段，空白列表只会让人
-// 先去别处找格式；照抄示例改数字比从零写起快得多，也不影响"没配就不生效"。
+// 时段照 **DeepSeek 现行峰谷方案** 出的模板（2026-08-16 起生效；官方文档
+// api-docs.deepseek.com/quick_start/pricing，2026-10-24 核对）：峰时为工作日
+// （法定节假日除外）UTC 01:00–04:00 与 06:00–10:00，即东八区 09:00–12:00 与
+// 14:00–18:00，其余全部为谷时。乘数的方向以**基础价的来源**为准：关联行上的
+// 三档价由自动填充（models.dev 一类聚合源）写入，那是官方标价 = **谷价**，
+// 因此峰时 ×2、谷时 ×1——不是谷价 ×0.5。
+//
+// 三段而不是只给两个峰时窗的理由：谷时段虽然乘数与"未命中回落 ×1"相同，
+// 但它让 peak_period 记得出「谷时」这个名字，且用户改乘数时 scaffold 就位；
+// 段放最后，峰时未命中的时刻（无论哪天）都落到它头上，无需跨零点。
 func DefaultPeakTerms() PeakTerms {
+	work := true
 	return PeakTerms{
 		Enabled: false,
 		Periods: []PeakPeriod{
-			{
-				Name:       "标准时段",
-				Start:      "08:30",
-				End:        "00:30",
-				Multiplier: 1,
-			},
-			{
-				Name:       "夜间优惠",
-				Start:      "00:30",
-				End:        "08:30",
-				Multiplier: 0.25,
-			},
+			{Name: "峰时·上午", Start: "09:00", End: "12:00", Multiplier: 2, Workday: &work},
+			{Name: "峰时·下午", Start: "14:00", End: "18:00", Multiplier: 2, Workday: &work},
+			{Name: "谷时", Start: "00:00", End: "24:00", Multiplier: 1},
 		},
 	}
 }

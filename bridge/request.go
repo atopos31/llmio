@@ -32,6 +32,17 @@ func OpenAIRequestToAnthropic(raw []byte, opt Options) ([]byte, []Note, error) {
 		StopSequences: parseOpenAIStop(req.Stop),
 	}
 
+	if req.ResponseFormat != nil && req.ResponseFormat.Type != "text" {
+		outputConfig, err := openAIResponseFormatToOutputConfig(req.ResponseFormat)
+		if err != nil {
+			return nil, nil, err
+		}
+		if outputConfig != nil {
+			out.OutputConfig = outputConfig
+			notes = append(notes, NoteTranslatedOutputFormat)
+		}
+	}
+
 	tools, err := anthropicTools(req.Tools, &notes)
 	if err != nil {
 		return nil, nil, err
@@ -90,11 +101,52 @@ func rejectUnsupportedOpenAIFields(req *OpenAIRequest) error {
 		return &Unsupported{Field: "logprobs", Reason: "the upstream does not return token log probabilities"}
 	case req.TopLogprobs != nil && *req.TopLogprobs > 0:
 		return &Unsupported{Field: "top_logprobs", Reason: "the upstream does not return token log probabilities"}
-	case req.ResponseFormat != nil && req.ResponseFormat.Type != "" && req.ResponseFormat.Type != "text":
-		// 静默丢掉等于让调用方以为 JSON 保证还在（Anthropic 自己的兼容层就是这么做的）
-		return &Unsupported{Field: "response_format", Reason: "the upstream has no JSON mode"}
+	case req.ResponseFormat != nil && req.ResponseFormat.Type != "" &&
+		req.ResponseFormat.Type != "text" &&
+		req.ResponseFormat.Type != "json_schema" && req.ResponseFormat.Type != "json_object":
+		// json_schema / json_object 放行——翻译成 output_config.format（见下）。
+		// 其余 type 静默丢掉等于让调用方以为保证还在（Anthropic 自己的兼容层
+		// 就是这么做的），仍拒绝
+		return &Unsupported{Field: "response_format", Reason: fmt.Sprintf("unsupported response_format type %q", req.ResponseFormat.Type)}
 	}
 	return nil
+}
+
+// openAIResponseFormatToOutputConfig 把 OpenAI 的 response_format 翻成 Anthropic
+// 的 output_config.format（2025-11 起原生结构化输出；现行参数是 output_config，
+// 旧名 output_format 已弃用，2026-10-24 核对官方文档）。
+//
+//	json_schema → {"format":{"type":"json_schema","schema": <schema 原样搬运>}}
+//	json_object → {"format":{"type":"json_schema","schema":{"type":"object"}}}
+//	              （合成"任意 JSON 对象"——官方文档只记档了 json_schema 一档，
+//	               不依赖未核实的 json 档形状）
+//
+// json_schema.name 是 OpenAI 侧的标识、strict 由 Anthropic 侧默认严格，都不翻译。
+// 这是**保证级契约**：上游（老模型 / 兼容网关）不认而 400 时**不降级不静默丢**
+// ——静默丢等于装作答应了，失败原因经收尾错误透给客户端。
+func openAIResponseFormatToOutputConfig(rf *OpenAIResponseFormat) (json.RawMessage, error) {
+	if rf == nil {
+		return nil, nil
+	}
+	var schema json.RawMessage
+	switch rf.Type {
+	case "json_schema":
+		if rf.JsonSchema == nil || len(rf.JsonSchema.Schema) == 0 {
+			return nil, &Unsupported{Field: "response_format.json_schema", Reason: "json_schema without a schema"}
+		}
+		schema = rf.JsonSchema.Schema
+	case "json_object":
+		schema = json.RawMessage(`{"type":"object"}`)
+	default:
+		return nil, nil // text 或不认识的 type：不翻译（后者已在拒绝层拦下）
+	}
+	body, err := json.Marshal(map[string]any{
+		"format": map[string]any{"type": "json_schema", "schema": schema},
+	})
+	if err != nil {
+		return nil, &Unsupported{Field: "response_format", Reason: err.Error()}
+	}
+	return body, nil
 }
 
 // anthropicMaxTokens 取 Anthropic 必填的 max_tokens。
@@ -241,17 +293,49 @@ func openAIMessagesToAnthropic(msgs []OpenAIMessage, notes *[]Note) (string, []A
 			if err != nil {
 				return "", nil, &Unsupported{Field: fmt.Sprintf("messages[%d].content", i), Reason: err.Error()}
 			}
+			content := stringJSON(text)
 			if parts != nil {
-				// 工具结果在 OpenAI 里可以是块数组，Anthropic 的 tool_result 收字符串。
-				// 里面夹着的图片在 OpenAI 的 tool 消息里本来也放不下，索性一并拒绝
-				if text, err = textOnlyParts(parts); err != nil {
-					return "", nil, &Unsupported{Field: fmt.Sprintf("messages[%d].content[].type", i), Reason: err.Error()}
+				// 工具结果在 OpenAI 里可以是块数组。text 拼回字符串、image 块搬成
+				// Anthropic 的 image 块（tool_result.content 本就收 image 块）——
+				// 曾经"索性一并拒绝"，拒的是双方协议都装得下的东西。其余类型
+				// （Anthropic 侧没有对应物）仍拒绝。纯文本仍给字符串：只有真夹了
+				// 图片才升级成块数组，与 openAIContentJSON 的约定同一条
+				var texts []string
+				var imgBlocks []AnthropicBlock
+				carried := false
+				for _, p := range parts {
+					switch p.Type {
+					case "text", "input_text":
+						texts = append(texts, p.Text)
+					case "image_url":
+						b, err := anthropicImageBlock(p.ImageURL, notes)
+						if err != nil {
+							return "", nil, &Unsupported{Field: fmt.Sprintf("messages[%d].content[].image_url", i), Reason: err.Error()}
+						}
+						imgBlocks = append(imgBlocks, b)
+						*notes = append(*notes, NoteCarriedToolResultImage)
+						carried = true
+					default:
+						return "", nil, &Unsupported{Field: fmt.Sprintf("messages[%d].content[].type", i), Reason: fmt.Sprintf("the anthropic protocol cannot carry a %q block inside a tool result", p.Type)}
+					}
+				}
+				if carried {
+					blocks := make([]AnthropicBlock, 0, len(texts)+len(imgBlocks))
+					for _, t := range texts {
+						blocks = append(blocks, AnthropicBlock{Type: blockText, Text: t})
+					}
+					blocks = append(blocks, imgBlocks...)
+					if body, err := json.Marshal(blocks); err == nil {
+						content = body
+					}
+				} else {
+					content = stringJSON(strings.Join(texts, ""))
 				}
 			}
 			turns = append(turns, anthropicTurn{role: "user", blocks: []AnthropicBlock{{
 				Type:      blockToolResult,
 				ToolUseID: m.ToolCallID,
-				Content:   stringJSON(text),
+				Content:   content,
 			}}})
 		default:
 			return "", nil, &Unsupported{
@@ -694,20 +778,22 @@ func anthropicMessagesToOpenAI(msgs []AnthropicMessage, notes *[]Note) ([]OpenAI
 					if hasOther {
 						reordered = true
 					}
-					text, err := anthropicToolResultText(b.Content)
+					content, err := anthropicToolResultContent(b.Content, notes)
 					if err != nil {
 						return nil, err
 					}
 					if b.IsError != nil && *b.IsError {
 						// OpenAI 的 tool 消息没有"这是失败"这个位。丢了模型会以为工具成功了，
-						// 于是接着用一份不存在的数据往下推——把失败写进正文是唯一的信息通道
-						text = toolErrorPrefix + text
+						// 于是接着用一份不存在的数据往下推——把失败写进正文是唯一的信息通道。
+						// 字符串照旧拼前缀；块数组拼进首个 text 块（没有就插一个纯前缀块），
+						// 图片块不受影响
+						content = prefixToolError(content)
 						*notes = append(*notes, NotePrefixedToolError)
 					}
 					toolMessages = append(toolMessages, OpenAIMessage{
 						Role:       "tool",
 						ToolCallID: b.ToolUseID,
-						Content:    stringJSON(text),
+						Content:    content,
 					})
 				case blockText:
 					if strings.TrimSpace(b.Text) == "" {
@@ -814,33 +900,59 @@ func anthropicAssistantToOpenAI(index int, m AnthropicMessage, notes *[]Note) ([
 	return texts, calls, nil
 }
 
-// anthropicToolResultText 取 tool_result 的正文：协议允许字符串或块数组。
+// anthropicToolResultContent 取 tool_result 的正文：协议允许字符串或块数组。
 //
-// 块数组按顺序拼成一段（纯结构，不记 Note）；但里面若夹着图片之类的非文本块就直接
-// 拒绝——OpenAI 的 tool 消息正文是字符串，装不下它，丢掉等于让模型瞎着往下推。
-func anthropicToolResultText(raw json.RawMessage) (string, error) {
+// 纯文本（字符串或全 text 块）拼成一段字符串——兼容性最好，与 openAIContentJSON
+// 的约定一致：只有文本给字符串，夹了图片才给块数组。图片块搬运成 OpenAI 的
+// image_url 块（tool 消息 content 支持块数组，2025 起；曾经按"装不下"拒绝，
+// 前提已过期，见 NoteCarriedToolResultImage）。document / search_result 等
+// OpenAI 侧没有对应物的块仍拒绝——丢掉等于让模型瞎着往下推。
+func anthropicToolResultContent(raw json.RawMessage, notes *[]Note) (json.RawMessage, error) {
 	if len(raw) == 0 {
-		return "", nil
+		return stringJSON(""), nil
 	}
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
-		return s, nil
+		return stringJSON(s), nil
 	}
 	var blocks []AnthropicBlock
 	if err := json.Unmarshal(raw, &blocks); err != nil {
-		return "", &Unsupported{Field: "tool_result.content", Reason: "neither a string nor a block array"}
+		return nil, &Unsupported{Field: "tool_result.content", Reason: "neither a string nor a block array"}
 	}
-	var sb strings.Builder
+	var texts []string
+	var parts []OpenAIContentPart
 	for _, b := range blocks {
-		if b.Type != blockText {
-			return "", &Unsupported{
+		switch b.Type {
+		case blockText:
+			texts = append(texts, b.Text)
+		case blockImage:
+			part, err := openAIImagePart(b.Source)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, part)
+			*notes = append(*notes, NoteCarriedToolResultImage)
+		default:
+			return nil, &Unsupported{
 				Field:  "tool_result.content",
 				Reason: fmt.Sprintf("the openai protocol cannot carry a %q block inside a tool result", b.Type),
 			}
 		}
-		sb.WriteString(b.Text)
 	}
-	return sb.String(), nil
+	if len(parts) == 0 {
+		return stringJSON(strings.Join(texts, "")), nil
+	}
+	// 先文本后图片：tool 结果的正文在前，图随后
+	out := make([]OpenAIContentPart, 0, len(texts)+len(parts))
+	for _, t := range texts {
+		out = append(out, OpenAIContentPart{Type: "text", Text: t})
+	}
+	out = append(out, parts...)
+	body, err := json.Marshal(out)
+	if err != nil {
+		return nil, &Unsupported{Field: "tool_result.content", Reason: err.Error()}
+	}
+	return body, nil
 }
 
 // anthropicSystemText 取 system 的文本：协议允许字符串或块数组。
@@ -997,6 +1109,37 @@ func openAIImagePart(src *AnthropicImageSource) (OpenAIContentPart, error) {
 
 // toolErrorPrefix 是 OpenAI 方向上表达"这个工具结果是失败的"的唯一通道。
 const toolErrorPrefix = "[tool_error] "
+
+// prefixToolError 把 is_error 前缀拼进 tool 消息正文：content 是字符串时照旧
+// 前缀拼接；是块数组时拼进首个 text 块、没有 text 块就插一个纯前缀块——
+// 图片块原样保留。拼错了不是提示问题：模型会拿着一份被标成"成功"的失败数据
+// 继续推。
+func prefixToolError(content json.RawMessage) json.RawMessage {
+	var s string
+	if err := json.Unmarshal(content, &s); err == nil {
+		return stringJSON(toolErrorPrefix + s)
+	}
+	var parts []OpenAIContentPart
+	if err := json.Unmarshal(content, &parts); err != nil {
+		// 既不是字符串也不是块数组：原样返回，让上游去报（与现状一致）
+		return content
+	}
+	for i := range parts {
+		if parts[i].Type == "text" {
+			parts[i].Text = toolErrorPrefix + parts[i].Text
+			out, err := json.Marshal(parts)
+			if err != nil {
+				return content
+			}
+			return out
+		}
+	}
+	out, err := json.Marshal(append([]OpenAIContentPart{{Type: "text", Text: toolErrorPrefix}}, parts...))
+	if err != nil {
+		return content
+	}
+	return out
+}
 
 // openAIContent 解析消息的 content 字段：字符串、块数组或 null。
 // 返回 (文本, 块数组)；块数组为 nil 表示"不是数组形状"。

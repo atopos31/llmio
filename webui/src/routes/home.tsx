@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle, ArrowUpRight, RefreshCw } from "lucide-react"
 
-import { FirstChunkHistogram, RequestTrendChart, TokenTrendChart } from "@/components/charts/trend-charts"
+import { CostTrendChart, FirstChunkHistogram, RequestTrendChart, TokenTrendChart } from "@/components/charts/trend-charts"
 import { LogDetailSheet } from "@/components/log-detail-sheet"
 import { RefreshSelect } from "@/components/refresh-select"
 import { StatusMark } from "@/components/status-mark"
@@ -248,14 +248,21 @@ export default function Home() {
 
             <KpiRow stats={stats!} />
 
-            {/* 趋势拆成两张单轴图。原实现把请求数与 Token 放一张图用双轴，
-                那会凭空造出数据里没有的相关性（规范里的头号禁项）。 */}
+            {/* 趋势拆成三张单轴图。原实现把请求数与 Token 放一张图用双轴，
+                那会凭空造出数据里没有的相关性（规范里的头号禁项）。成本同样
+                独立成图——它又是一个量级。 */}
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
               <Panel title={t("home:trend.requests")}>
                 <RequestTrendChart data={stats!.trend} />
               </Panel>
               <Panel title={t("home:trend.tokens")}>
                 <TokenTrendChart data={stats!.trend} />
+              </Panel>
+              <Panel
+                title={t("home:trend.cost")}
+                note={t("home:kpi.cost_hint")}
+              >
+                <CostTrendChart data={stats!.trend} currency={stats!.kpi.currency} />
               </Panel>
             </div>
 

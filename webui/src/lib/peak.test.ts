@@ -336,9 +336,12 @@ describe("条款：表单 ↔ 载荷", () => {
     // 关闭是刻意的：分时段计费会改变成本数字的语义，不该在用户打开开关前生效
     expect(f.enabled).toBe(false)
     expect(validateTermsForm(f)).toEqual([])
+    // DeepSeek 现行峰谷方案（2026-08-16 起）：两个工作日峰时窗 ×2 + 谷时兜底 ×1
+    // （基础价是自动填充写进的官方标价即谷价，方向不是谷价 ×0.5）
     expect(termsFormToPayload(f).periods).toEqual([
-      { name: "标准时段", start: "08:30", end: "00:30", multiplier: 1 },
-      { name: "夜间优惠", start: "00:30", end: "08:30", multiplier: 0.25 },
+      { name: "峰时·上午", start: "09:00", end: "12:00", multiplier: 2, workday: true },
+      { name: "峰时·下午", start: "14:00", end: "18:00", multiplier: 2, workday: true },
+      { name: "谷时", start: "00:00", end: "24:00", multiplier: 1 },
     ])
     // 每次调用都得是新对象：两个对话框各拿一份，改一个不能动到另一个
     expect(defaultTermsForm()).not.toBe(f)

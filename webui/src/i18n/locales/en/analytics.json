@@ -50,7 +50,9 @@
     "requests": "Request trend",
     "requests_note": "{{total}} total · {{success}} succeeded · {{error}} failed · {{running}} in flight",
     "tokens": "Token trend",
-    "tokens_note": "{{prompt}} input · {{completion}} output, {{cached}} of the input served from cache"
+    "tokens_note": "{{prompt}} input · {{completion}} output, {{cached}} of the input served from cache",
+    "cost": "Cost trend",
+    "cost_note": "Accumulated from price snapshots taken at request time"
   },
   "breakdown": {
     "dimension_label": "Breakdown dimension",
@@ -74,6 +76,8 @@
       "avg_first_chunk": "Avg first chunk",
       "p95_first_chunk": "P95 first chunk",
       "cache_hit": "Cache hit",
+      "tokens": "Tokens",
+      "tokens_title": "Input {{prompt}} / Output {{completion}}",
       "retries": "Retries",
       "avg_proxy": "Avg proxy"
     }

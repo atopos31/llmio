@@ -493,6 +493,8 @@ export interface TrendPoint {
   completion: number;
   /** prompt 中命中缓存的部分，供 Token 构成图拆出"非缓存输入" */
   cached: number;
+  /** 桶成本，口径同 kpi.cost（三档价快照计价），单位由 kpi.currency 决定 */
+  cost: number;
   avgTps: number;
   avgFirstChunkMs: number;
 }

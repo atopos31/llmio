@@ -374,7 +374,10 @@ type TrendPoint struct {
 	// Cached 是 prompt 中命中缓存的部分。单列出来的原因：Token 构成图要画
 	// "非缓存输入 + 缓存读 + 输出"，若只有 prompt 就无法把缓存单独拆出，
 	// 而缓存命中正是本项目的观测重点（见 KPI 的 CacheHitRate）。
-	Cached          int64   `json:"cached"`
+	Cached int64 `json:"cached"`
+	// Cost 该桶的成本。口径同 KPI.Cost（见 Cost）：三档价 × 三类 token / 1e6，
+	// 价格取请求时快照。单位由 StatsResult.KPI.Currency 决定，桶内不带币种。
+	Cost            float64 `json:"cost"`
 	AvgTps          float64 `json:"avgTps"`
 	AvgFirstChunkMs float64 `json:"avgFirstChunkMs"`
 }
@@ -633,6 +636,7 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 		p.Prompt += l.PromptTokens
 		p.Completion += l.CompletionTokens
 		p.Cached += l.PromptTokensDetails.CachedTokens
+		p.Cost += Cost(l)
 		p.AvgTps += l.Tps
 		p.AvgFirstChunkMs += fcMs
 

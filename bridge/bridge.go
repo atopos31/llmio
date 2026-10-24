@@ -85,6 +85,23 @@ const (
 	// 被并进了顶层 tools。OpenAI 没有"这一刻才出现"的时序，模型从对话起就能看见它
 	// ——比 Anthropic 的语义宽了一档，可这是 OpenAI 侧给得出的最忠实近似。
 	NoteMergedToolDefinition Note = "merged_tool_definition"
+	// NoteCarriedToolResultImage 工具结果里的图片按块数组搬运而非拒绝/丢弃。
+	// 两个方向都搬：OpenAI 2025 起支持 tool 消息 content 为块数组（含 image_url），
+	// Anthropic 的 tool_result.content 本就收 image 块。曾经按"OpenAI 的 tool
+	// 消息正文是字符串"拒绝——该前提已过期（审计见 docs/plans/usage-insights-plan.md
+	// §3.11 表第 1/2 行，2026-10-24 核对），拒收双方协议都装得下的东西等于让
+	// 路由器换掉本来服务得了的上游。记 Note 是因为第三方 OpenAI 兼容上游未必
+	// 支持这个形状，运维要看得见发出去了什么（不收时的运行时降级见 selfheal）。
+	NoteCarriedToolResultImage Note = "carried_tool_result_image"
+	// NoteDroppedToolResultImage 上游明确拒收 tool 消息的块数组 content（400
+	// 类型错），运行时降级把它压回纯文本、图片被丢弃。搬运在前（NoteCarried-
+	// ToolResultImage）、降级在后：网关不猜上游支不支持，让上游的实际反应裁决。
+	// 与自愈删参同一认识论——先发完整形状，被点名拒收才降级且留痕。
+	NoteDroppedToolResultImage Note = "dropped_tool_result_image"
+	// NoteTranslatedOutputFormat OpenAI 的 response_format 被翻译成 Anthropic 的
+	// output_config.format（2025-11 起原生结构化输出，审计 §3.11 表第 3 行）。
+	// 保证级契约：上游不认而 400 时不降级不静默丢——静默丢等于装作答应了。
+	NoteTranslatedOutputFormat Note = "translated_output_format"
 
 	// 以下几条约只出现在**响应**侧：那边没有重试的机会（字已经生成出来了），
 	// 做不到的地方只能带上并记账，不能像请求侧那样拒绝。

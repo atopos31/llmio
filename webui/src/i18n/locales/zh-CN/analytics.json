@@ -50,7 +50,9 @@
     "requests": "请求趋势",
     "requests_note": "共 {{total}} 次，成功 {{success}} · 失败 {{error}} · 在途 {{running}}",
     "tokens": "Token 趋势",
-    "tokens_note": "输入 {{prompt}} · 输出 {{completion}}，其中命中缓存 {{cached}}"
+    "tokens_note": "输入 {{prompt}} · 输出 {{completion}}，其中命中缓存 {{cached}}",
+    "cost": "成本趋势",
+    "cost_note": "按请求时的价格快照累计"
   },
   "breakdown": {
     "dimension_label": "下钻维度",
@@ -74,6 +76,8 @@
       "avg_first_chunk": "平均首包",
       "p95_first_chunk": "P95 首包",
       "cache_hit": "缓存命中",
+      "tokens": "Token",
+      "tokens_title": "输入 {{prompt}} / 输出 {{completion}}",
       "retries": "重试",
       "avg_proxy": "平均代理"
     }

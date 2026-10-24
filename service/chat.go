@@ -120,8 +120,9 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 	providerMap := providersWithMeta.ProviderMap
 
-	// 收集重试过程中的err日志
-	retryLog := make(chan retryLogEntry, providersWithMeta.MaxRetry)
+	// 收集重试过程中的err日志。容量按"每轮最多 1+MaxDrops 条"放大：自愈内层
+	// 每次失败也走 fail 推一条，通道打满会阻塞转发路径。
+	retryLog := make(chan retryLogEntry, providersWithMeta.MaxRetry*(1+SelfHealMaxDrops))
 	defer close(retryLog)
 
 	go RecordRetryLog(context.Background(), retryLog)
@@ -157,6 +158,11 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		return nil, nil, err
 	}
 
+	// 最后一次失败的真实原因（由 fail 闭包在每轮失败时刷新）。轮询池空或
+	// 重试耗尽时跟着收尾错误一起透给客户端——没有它，客户端只看得到一句
+	// 无从下手的 "All retry failed"，真实原因要进库翻 chat_logs.error 才有。
+	lastErr := error(nil)
+
 	// 会话键在重试循环外解析一次：同一次请求的各次重试共用同一会话��，
 	// 避免重试期间会话漂移（随机兜底分支尤其需要）
 	sessionKey := ResolveSessionKey(reqMeta.Header, before.SessionID, before.Model, authKeyID, before.raw)
@@ -173,10 +179,11 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			// 加权负载均衡
 			id, err := balancer.Pop()
 			if err != nil {
-				if _, lerr := saveFailedLog(ctx, style, before, fmt.Sprintf("balancer pop err: %v, traceID: %s", err, traceID)); lerr != nil {
+				msg := fmt.Sprintf("balancer pop err: %v, traceID: %s%s", err, traceID, lastErrorSuffix(lastErr))
+				if _, lerr := saveFailedLog(ctx, style, before, msg); lerr != nil {
 					slog.Error("save failed log error", "error", lerr)
 				}
-				return nil, nil, fmt.Errorf("balancer pop err: %v, traceID: %s", err, traceID)
+				return nil, nil, errors.New(msg)
 			}
 
 			modelWithProvider, ok := providersWithMeta.ModelWithProviderMap[id]
@@ -240,8 +247,12 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				PeakPeriod:     peakPeriod,
 			}
 			// 这次尝试失败的记录。记账要在这里快照：下一次尝试开头会把盒子清空，
-			// 而"这一家失败时我们丢了什么"正是排查重试时要看的东西
+			// 而"这一家失败时我们丢了什么"正是排查重试时要看的东西。
+			// lastErr 一并收下：全部尝试耗尽后客户端只拿得到一句 "All retry failed"，
+			// 真实原因（预检拒绝的原文、上游的 400 报文）必须跟着透出去，否则排查
+			// 只能进库里翻 chat_logs.error。
 			fail := func(err error) {
+				lastErr = err
 				log.BridgeNotes = bridgeNotes.String()
 				retryLog <- retryLogEntry{Log: log.WithError(err), Raw: before.raw}
 			}
@@ -280,27 +291,92 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				continue
 			}
 
-			req, err := chatModel.BuildReq(ctx, headers, modelWithProvider.ProviderModel, rawBody)
-			if err != nil {
-				fail(err)
-				// 构建请求失败 移除待选
-				balancer.Delete(id)
-				continue
+			// ---- 内层自愈闭环（计划 §3.5）：上游点名"不认识的参数"时，从实发
+			// 请求体删掉该参数、同一家立即重发。改的是实发字节，不重跑翻译与
+			// extra_body（同一家上游的翻译产物是确定的）；drops 随本轮外层迭代
+			// 生命周期，不跨家携带——A 家不收的参数 B 家可能收，每家用一次 400
+			// 换判据，代价可接受。自愈成功不触发 Delete，不污染熔断计数。
+			selfHeal := GetSelfHealPolicy(ctx)
+			maxDrops := selfHeal.MaxDrops
+			if maxDrops <= 0 {
+				maxDrops = SelfHealMaxDrops
 			}
+			drops := map[string]bool{}
+			healed := 0
+			downgraded := false
 
-			res, err := client.Do(req)
-			if err != nil {
-				fail(err)
-				// 请求失败 移除待选
-				balancer.Delete(id)
-				continue
-			}
-
-			if res.StatusCode != http.StatusOK {
-				byteBody, err := io.ReadAll(res.Body)
-				if err != nil {
-					slog.Error("read body error", "error", err)
+			var res *http.Response
+			nextProvider := false // 跳出内层后是否换下一家
+			for {
+				// 自愈的多发也受总超时约束：timer 是全请求预算
+				select {
+				case <-ctx.Done():
+					return nil, nil, ctx.Err()
+				case <-timer.C:
+					return nil, nil, errors.New("retry time out")
+				default:
 				}
+
+				// 每次都重建请求：删参改的是 rawBody，BuildReq 必须带着新字节重打
+				req, err := chatModel.BuildReq(ctx, headers, modelWithProvider.ProviderModel, rawBody)
+				if err != nil {
+					fail(err)
+					// 构建请求失败 移除待选
+					balancer.Delete(id)
+					nextProvider = true
+					break
+				}
+
+				res, err = client.Do(req)
+				if err != nil {
+					fail(err)
+					// 请求失败 移除待选
+					balancer.Delete(id)
+					nextProvider = true
+					break
+				}
+
+				if res.StatusCode == http.StatusOK {
+					break
+				}
+
+				byteBody, rerr := io.ReadAll(res.Body)
+				res.Body.Close()
+				if rerr != nil {
+					slog.Error("read body error", "error", rerr)
+				}
+
+				// 自愈判定：判据三层全过（状态码 + 短语提取 + 四道闸）才删参
+				if selfHeal.Enabled && healed < maxDrops && healableStatusCodes[res.StatusCode] {
+					if path, ok := DetectParamComplaint(res.StatusCode, byteBody); ok && PlanDrop(rawBody, path, drops) {
+						drops[path] = true
+						healed++
+						rawBody = ApplyDrop(rawBody, path)
+						bridgeNotes.record([]bridge.Note{bridge.Note(SelfHealNotePrefix + path)})
+						// 自愈也是一次真实上游调用，失败行与最终成功行都如实计数
+						log.Retry = retry + healed
+						fail(fmt.Errorf("status: %d, body: %s (self-heal: dropped %s)", res.StatusCode, string(byteBody), path))
+						continue
+					}
+				}
+
+				// 工具内容数组的运行时降级：搬运过去的块数组被上游以类型错点名时，
+				// 压回纯文本（丢图、留文本）重发。与删参同一认识论——先发完整形状，
+				// 被点名拒收才降级且留痕；一条独立于删参预算（每家最多一次）
+				if selfHeal.Enabled && !downgraded && healableStatusCodes[res.StatusCode] &&
+					toolContentArrayPattern.MatchString(complaintText(byteBody)) {
+					if next, droppedImgs := FlattenToolContent(rawBody); droppedImgs >= 0 && !bytes.Equal(next, rawBody) {
+						downgraded = true
+						rawBody = next
+						if droppedImgs > 0 {
+							bridgeNotes.record([]bridge.Note{bridge.NoteDroppedToolResultImage})
+						}
+						log.Retry = retry + healed + 1
+						fail(fmt.Errorf("status: %d, body: %s (downgrade: tool content to text, %d image(s) dropped)", res.StatusCode, string(byteBody), droppedImgs))
+						continue
+					}
+				}
+
 				fail(fmt.Errorf("status: %d, body: %s", res.StatusCode, string(byteBody)))
 
 				if res.StatusCode == http.StatusTooManyRequests {
@@ -310,7 +386,11 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 					// 非RPM限制 移除待选
 					balancer.Delete(id)
 				}
-				res.Body.Close()
+				res = nil
+				nextProvider = true
+				break
+			}
+			if nextProvider {
 				continue
 			}
 
@@ -355,7 +435,17 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		}
 	}
 
-	return nil, nil, fmt.Errorf("All retry failed, trace ID: %s", traceID)
+	return nil, nil, fmt.Errorf("All retry failed, trace ID: %s%s", traceID, lastErrorSuffix(lastErr))
+}
+
+// lastErrorSuffix 把最后一次失败的原因拼进收尾错误。截断 500 字符，与
+// ClassifyError 对 raw 的截断同款——错误体可能是整份上游报文，不截会爆破
+// 客户端的 500 响应。没有失败过（首轮就池空）时返回空串。
+func lastErrorSuffix(lastErr error) string {
+	if lastErr == nil {
+		return ""
+	}
+	return ", last error: " + Truncate(lastErr.Error(), 500)
 }
 
 func buildUpstreamBody(raw []byte, extraBody map[string]any) ([]byte, error) {

@@ -98,7 +98,17 @@ type OpenAIFunctionDef struct {
 	Strict      *bool           `json:"strict,omitempty"`
 }
 
-// OpenAIResponseFormat 期望的输出格式。只有 anthropic 装不下它的 type 才会被读到。
+// OpenAIResponseFormat 期望的输出格式。json_schema / json_object 会被翻译成
+// Anthropic 的 output_config.format（2025-11 起原生结构化输出）；其余 type 仍拒绝。
 type OpenAIResponseFormat struct {
 	Type string `json:"type"`
+	// JsonSchema 只在 type=json_schema 时有值：name 是 OpenAI 侧的标识
+	// （Anthropic 不收），strict 由 Anthropic 侧默认严格（无显式位），两者都不翻译。
+	JsonSchema *OpenAIJsonSchema `json:"json_schema,omitempty"`
+}
+
+// OpenAIJsonSchema 是 response_format.json_schema 的子结构。Schema 原样搬运。
+type OpenAIJsonSchema struct {
+	Name   string          `json:"name,omitempty"`
+	Schema json.RawMessage `json:"schema,omitempty"`
 }

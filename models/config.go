@@ -28,6 +28,9 @@ const (
 	// KeyModelAutofillPolicy 是「模型能力与价格自动填写」的策略。
 	// 见 ModelAutofillPolicy。
 	KeyModelAutofillPolicy = "model_autofill_policy"
+	// KeySelfHealPolicy 是"上游拒收请求体参数时的同家删参重试"策略。
+	// 见 SelfHealPolicy。
+	KeySelfHealPolicy = "self_heal_policy"
 )
 
 type AnthropicCountTokens struct {
@@ -39,6 +42,18 @@ type AnthropicCountTokens struct {
 type LogCleanupPolicy struct {
 	Enabled       bool `json:"enabled"`
 	RetentionDays int  `json:"retention_days"`
+}
+
+// SelfHealPolicy 是"上游拒收请求体参数时的同家删参重试"策略。
+//
+// Enabled 默认 true：自愈只发生在"上游明确拒收"之后，替代方案是整单失败
+// （全换家后 500）；每次删参都落记账短码（self_heal_dropped:*）与失败行，
+// 可观测、可追溯，关掉即回到现状。
+type SelfHealPolicy struct {
+	Enabled bool `json:"enabled"`
+	// MaxDrops 是一家上游最多删几个参数（多发自几次请求）。<=0 视为未配置，
+	// 消费侧归一到 service.SelfHealMaxDrops。
+	MaxDrops int `json:"max_drops"`
 }
 
 // ModelAutofillPolicy 是「模型 × 上游」关联弹窗里自动填写模型能力与价格的策略。

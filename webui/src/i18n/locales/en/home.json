@@ -36,6 +36,7 @@
     "title": "Trend",
     "requests": "Requests",
     "tokens": "Token consumption",
+    "cost": "Cost trend",
     "success": "Success",
     "error": "Failed",
     "running": "In flight",

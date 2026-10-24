@@ -383,7 +383,12 @@ GOCACHE=$PWD/.gocache go test -count=1 ./...        # 跑完删 .gocache
 cd webui && corepack pnpm run lint && corepack pnpm run test:coverage && corepack pnpm run build
 go vet ./...                                        # 前置：先 pnpm build（//go:embed）
 python e2e/run_matrix.py --upstream stub
+python e2e/selfheal_check.py                        # 功能 C 的可执行验收车（12 条用例）
 ```
+
+功能 C 的用例矩阵、基线实测与逐条预计行为见 `docs/plans/usage-insights-test-plan.md`
+（验收车已随设计落地：S 组 8 条应自愈用例在实现前红、落地后必须绿；N 组 4 条判据
+边界在任何时候都必须绿）。
 
 真机走查清单（用真实库备份，`LLMIO_DB_PATH` 指过去）：
 

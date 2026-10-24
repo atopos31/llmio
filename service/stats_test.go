@@ -700,10 +700,43 @@ func TestAggregateTrendBuckets(t *testing.T) {
 	if res.Trend[1].Total != 0 || res.Trend[1].Tokens != 0 {
 		t.Fatalf("中间桶应为空：%+v", res.Trend[1])
 	}
+	// 空桶以零值构造，Cost 同样应为 0
+	if res.Trend[1].Cost != 0 {
+		t.Fatalf("空桶 Cost 应为 0，实得 %v", res.Trend[1].Cost)
+	}
 
 	// 末桶
 	if res.Trend[2].Total != 1 || res.Trend[2].Success != 1 {
 		t.Fatalf("桶 3 计数不符：%+v", res.Trend[2])
+	}
+}
+
+// TestAggregateTrendCostPinnedByThreeTierPricing 钉死"桶成本按费用计"的口径：
+// 非缓存输入 × input_price + 缓存读 × cache_read_price + 输出 × output_price，
+// 除以 1e6。曾经 dashboard 原实现把 Σ单价 当成本，量纲错误——这条用例防它回潮。
+func TestAggregateTrendCostPinnedByThreeTierPricing(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)
+	l := logAt(1, base, consts.StatusSuccess)
+	l.PromptTokens = 1000
+	l.PromptTokensDetails = models.PromptTokensDetails{CachedTokens: 400}
+	l.CompletionTokens = 200
+	l.InputPrice = 3
+	l.CacheReadPrice = 0.3
+	l.OutputPrice = 15
+
+	res := AggregateWithBucket([]models.ChatLog{l}, StatsFilter{}, time.Hour)
+	if len(res.Trend) != 1 {
+		t.Fatalf("应只有 1 个桶，实得 %d", len(res.Trend))
+	}
+	want := (600*3 + 400*0.3 + 200*15) / 1e6 // = 0.00522
+	if diff := res.Trend[0].Cost - want; diff > 1e-12 || diff < -1e-12 {
+		t.Fatalf("桶 Cost 应为 %v（三档计价），实得 %v", want, res.Trend[0].Cost)
+	}
+	// 币种在 KPI 层，桶内不带
+	if res.KPI.Currency != "CNY" {
+		t.Fatalf("KPI.Currency 应为 CNY，实得 %q", res.KPI.Currency)
 	}
 }
 

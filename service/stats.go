@@ -166,8 +166,13 @@ type textRule struct {
 //
 // 顺序上"超时"必须排在"网络错误"之前：Go 的拨号超时错误形如
 // `dial tcp 1.2.3.4:443: i/o timeout`，同时含两类特征，而归因为超时对运维更有用。
+//
+// "客户端断开"必须排在"重试耗尽"之前：cancel 会让 BalanceChat 提前收尾，
+// 错误文本里可能同时带着 "All retry failed" 外壳，但根因是对端先跑了——
+// 归成"重试耗尽"会让人误以为上游有问题。
 var textRules = []textRule{
 	{class: ErrorClass{Type: "超时", Code: "timeout"}, patterns: []string{"context deadline exceeded", "deadline exceeded", "timeout", "timed out"}},
+	{class: ErrorClass{Type: "客户端断开", Code: "client-cancel"}, patterns: []string{"context canceled", "context cancelled", "canceled by client"}},
 	{class: ErrorClass{Type: "上游业务错误", Code: "upstream-body"}, patterns: []string{"matched provider error sample"}},
 	{class: ErrorClass{Type: "重试耗尽", Code: "exhausted"}, patterns: []string{"all retry failed"}},
 	{class: ErrorClass{Type: "网络错误", Code: "network"}, patterns: []string{

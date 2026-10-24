@@ -18,8 +18,9 @@
 | C1 | `service/selfheal.go` 判据与改写（表驱动） | ⬜ | |
 | C2 | `BalanceChat` 内层自愈重试 + 记账 | ⬜ | |
 | C3 | 配置键 `self_heal_policy` | ⬜ | |
-| C4 | e2e：`stub-picky` 行为 + 用例 | ⬜ | |
-| C5 | 实测报错校验轮（等用户样本） | ⬜ | |
+| C4 | e2e：`stub-picky` 行为 + 用例 | ✅ | `e4dffed` |
+| C5 | 实测报错校验轮（等用户样本） | 🟡 样本①已判定，见 §3.9 | |
+| C6 | bridge 搬运 tool_result 图片 + 运行时降级 + 错误透出（§3.10） | ⬜ | |
 
 ---
 
@@ -331,7 +332,9 @@ type SelfHealPolicy struct {
 
 ### 3.8 刻意不做
 
-- **`bridge.Unsupported` 不降级为丢弃**（3.3 的立场）。
+- **`bridge.Unsupported` 不降级为丢弃**（3.3 的立场）。样本 ① 引出的
+  tool_result 图片一支**升级为搬运**（§3.10）——搬运不是丢弃，判据仍是
+  "目标协议装得下就搬"。
 - **不做请求前预净化 / 参数黑名单配置**：未知厂商行为无法穷举，运行时判据
   （上游实际反应）是唯一可靠来源；配置面是猜的。
 - **drops 不跨 provider 记忆**：跨家共享会引入"上游类型 → 参数集"的假设，
@@ -340,15 +343,85 @@ type SelfHealPolicy struct {
 - **`Invalid type` / 值域类 400 不自愈**：删参数改的是"参数在不在"，值错误删参
   等于替客户端改语义。
 
-### 3.9 校验轮（等用户提供实测报错）
+### 3.9 校验轮（实测报错逐条判定）
 
-设计完成后，用户将提供真实测试报错核对判据完备性。届时逐条走
-`DetectParamComplaint` 的表驱动路径：
+用户每提供一条真实报错，逐条走 `DetectParamComplaint` 的表驱动路径判定：
 
 - 命中现有模式 → 补一条用例固化；
 - 新措辞 → 模式表加一行正则 + 用例（数据变更，不动逻辑）；
 - 提取不出参数名 / 属值域错误 → 归入"明确不自愈"，同样补负控用例——
   **判不了比乱判好**，这是 3.4 三层判据的兜底立场。
+
+**样本 ①（2026-10-24，用户提供）**
+
+```
+bridge request: cannot bridge to the upstream protocol:
+tool_result.content: the openai protocol cannot carry a "image" block inside a tool result
+```
+
+判定：
+
+1. **类别**：`bridge.Unsupported` 预检拒绝（`bridge/request.go:835-839`
+   `anthropicToolResultText`），发生在翻译阶段——请求**从未发往上游**。功能 C 的
+   判据挂在非 2xx 分支（`chat.go:299-315`），结构上不可能看到这条错误；模式表
+   逐条核对也无一命中（无 "unknown/unsupported parameter" 类短语）。**与自愈
+   机制零交互，判据表不需要为此加行。**
+2. **设计归属**：按 §3.3/§3.8 的立场**不自愈**——删掉工具结果里的截图是内容级
+   损失（模型瞎着往下推），不是参数不适应。这个判定维持不变。
+3. **但样本暴露了两个真缺口**，见 §3.10：拒绝的前提已过时（双方协议现在都装得下
+   工具结果图片，应搬运而非拒绝）；且预检拒绝的原因对客户端不可见（客户端只看到
+   `All retry failed` / `balancer pop err`）。
+
+### 3.10 C6：工具结果图片的搬运、降级与错误透出（样本 ① 引出）
+
+**根因：bridge 的前提过时了。** `anthropicToolResultText` 的注释
+（`request.go:819-820`）写着"OpenAI 的 tool 消息正文是字符串，装不下它"；反向
+转换的注释（`request.go:245-246`）同款前提。两点事实已变：
+
+- OpenAI Chat Completions 自 2025 起支持 `role:"tool"` 消息的 `content` 为**块
+  数组**（含 `image_url`，工具结果图片，gpt-4.1 / o 系列可用）——代理侧基建
+  全都在：`openAIImagePart`（`request.go:971`）已会把 Anthropic 图片源转成
+  `image_url` 块（user 消息在用，`:719-725`），`OpenAIMessage.Content` 是
+  `RawMessage`（"字符串、块数组或 null 三选一"，`openai.go:39-40`）装得下数组。
+- Anthropic 的 `tool_result.content` 本就收块数组（text / image 块）——Claude
+  Code 截图进工具结果走的就是这条路。即 O→A 方向（`:244-250`）也在拒收
+  双方协议都装得下的东西。
+
+按 bridge 自己的最高判据——"能搬却不搬"比"搬不了"更糟（run_matrix 用例 10 的
+立论）——正确处置是**搬运**，不是拒绝，更不是自愈删图。
+
+**C6a 搬运（bridge 层，双向）**
+
+- A→O：`tool_result` 块数组含图片时，`role:"tool"` 消息的 `content` 改为块数组
+  `[text…, image_url…]`（复用 `openAIImagePart`）；`is_error` 前缀逻辑保留，
+  拼在首个 text 块前。记 Note `carried_tool_result_image`——第三方 OpenAI 兼容
+  上游未必支持这个形状，记账让运维看得见发出了什么。
+- O→A：`openAIContent` 解析出的 image 块转成 `tool_result.content` 的 image 块
+  （不再 `textOnlyParts` 拒绝），同记 Note。
+
+**C6b 运行时降级（与功能 C 同构，挂同一处内层重试）**
+
+上游若不收 tool 块数组，回的是 400 类型错（如 `Invalid type for 'content':
+expected a string`）——按 §3.4 这**不进**通用删参（类型错误类，刻意排除；正确
+动作也不是删参数而是压形状）。给它一条**协议感知的降级规则**：识别 tool content
+类型错 → 把 tool 消息 content 压回纯文本字符串（丢图、留文本）→ 记
+`dropped_tool_result_image` → **同家重发**。认识论与功能 C 一致：网关不猜上游
+支不支持，让上游的实际反应裁决——能收就收完整形状，明确拒收才降级且留痕。
+
+**C6c 错误透出（独立小改，先行落地）**
+
+`BalanceChat` 全部尝试耗尽时的最终错误（`chat.go:358`）与 `balancer pop err`
+（`:176-179`）带上**最后一次失败的真实原因**（预检拒绝或上游报错原文，截断防
+爆破）。现状客户端只拿到 `All retry failed, trace ID: …`，真实原因只在
+`chat_logs.error` 里——样本 ① 的用户视角就是"一句没用的 500"。
+
+**测试**：bridge 表驱动双向用例（tool_result 带图往返、`is_error` + 图、
+base64/url 两种源）；stub 新成员（如 `picky-toolimg`：tool content 为数组即
+400 `Invalid type for 'content'`）驱动 C6b 的 e2e；`selfheal_check.py` 加一条
+「降级后成功」用例；run_matrix 既有 23 条回归。
+
+**实施顺序**：C6c 独立可先落；C6a 是 bridge 保真升级（改的是拒绝分支，风险低）；
+C6b 依赖 C2 的内层重试结构，排在其后。
 
 ---
 
@@ -418,8 +491,10 @@ python e2e/selfheal_check.py                        # 功能 C 的可执行验�
 
 1. **A1**（独立提交，最小）：下钻 Token 列 + i18n + 测试。
 2. **B1 → B2**（两个提交，先后端后前端）：`TrendPoint.Cost` → 图表与接线。
-3. **C1 → C2 → C3 → C4**（每步独立提交，C1 先行钉死判据语义，C2 只做接线）：
-   `selfheal.go` → `BalanceChat` 内层闭环 → 配置键 → e2e。
-4. **C5**：等用户提供实测报错，补模式表与用例（可单独一轮提交）。
+3. **C1 → C2 → C3**（每步独立提交，C1 先行钉死判据语义，C2 只做接线）：
+   `selfheal.go` → `BalanceChat` 内层闭环 → 配置键；C4 的桩与验收车已就绪。
+4. **C5**：实测报错逐条判定（样本 ① 已判定并引出 C6，后续样本继续走 §3.9）。
+5. **C6c → C6a → C6b**：错误透出（独立小改，可先行）→ tool_result 图片搬运
+   （bridge 保真升级）→ 运行时降级（依赖 C2 的内层重试结构）。
 
 每步提交前跑第六节命令；A/B 与 C 无相互依赖，可分别评审分别合并。

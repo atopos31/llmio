@@ -54,13 +54,10 @@ func ProcesserOpenAI(ctx context.Context, pr io.Reader, stream bool, start time.
 		}
 		output.OfStringArray = append(output.OfStringArray, chunk)
 
-		// 部分厂商openai格式中 每段sse响应都会返回usage 兼容性考虑
-		// if usageStr != "" {
-		// 	break
-		// }
-
+		// OpenAI reports a final snapshot; compatible providers may repeat cumulative
+		// snapshots. Keep the latest explicit total, including zero, and ignore null.
 		usage := gjson.Get(chunk, "usage")
-		if usage.Exists() && usage.Get("total_tokens").Int() != 0 {
+		if usage.IsObject() && usage.Get("total_tokens").Exists() {
 			usageStr = usage.String()
 		}
 	}
@@ -179,6 +176,7 @@ func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start ti
 	var once sync.Once
 
 	var usageStr string
+	var anthropicUsage AnthropicUsage
 
 	var output models.OutputUnion
 	var size int
@@ -208,31 +206,44 @@ func ProcesserAnthropic(ctx context.Context, pr io.Reader, stream bool, start ti
 		}
 
 		output.OfStringArray = append(output.OfStringArray, after)
-		if event == "message_delta" {
+		switch event {
+		case "message_start":
+			usageStr = gjson.Get(after, "message.usage").String()
+		case "message_delta":
 			usageStr = gjson.Get(after, "usage").String()
+		default:
+			continue
+		}
+		// Usage updates are cumulative and may omit the input/cache fields from
+		// message_start. Unmarshal into the current snapshot: absent fields stay,
+		// while explicit zeros replace previous values.
+		if usage := []byte(usageStr); json.Valid(usage) {
+			if err := json.Unmarshal(usage, &anthropicUsage); err != nil {
+				return nil, nil, err
+			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, nil, err
 	}
 
-	var anthropicUsage AnthropicUsage
 	usage := []byte(usageStr)
-	if json.Valid(usage) {
+	if !stream && json.Valid(usage) {
 		if err := json.Unmarshal(usage, &anthropicUsage); err != nil {
 			return nil, nil, err
 		}
 	}
 
 	chunkTime := time.Since(start) - firstChunkTime
+	promptTokens := anthropicUsage.InputTokens + anthropicUsage.CacheCreationInputTokens + anthropicUsage.CacheReadInputTokens
 
 	return &models.ChatLog{
 		FirstChunkTime: firstChunkTime,
 		ChunkTime:      chunkTime,
 		Usage: models.Usage{
-			PromptTokens:     anthropicUsage.InputTokens + anthropicUsage.CacheReadInputTokens,
+			PromptTokens:     promptTokens,
 			CompletionTokens: anthropicUsage.OutputTokens,
-			TotalTokens:      anthropicUsage.InputTokens + anthropicUsage.CacheReadInputTokens + anthropicUsage.OutputTokens,
+			TotalTokens:      promptTokens + anthropicUsage.OutputTokens,
 			PromptTokensDetails: models.PromptTokensDetails{
 				CachedTokens: anthropicUsage.CacheReadInputTokens,
 			},

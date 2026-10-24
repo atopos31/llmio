@@ -797,9 +797,10 @@ func TestOpenAIToAnthropicFlattensToolResultParts(t *testing.T) {
 		}
 	})
 
-	t.Run("夹图片的工具结果整份拒绝", func(t *testing.T) {
-		// 模型要看的图搬不过去，丢了答案就不一样——拒绝，由路由器换下一家
-		rejected(t, `{
+	t.Run("夹图片的工具结果搬成 image 块", func(t *testing.T) {
+		// Anthropic 的 tool_result.content 本就收 image 块——曾经"索性一并拒绝"，
+		// 拒的是双方协议都装得下的东西
+		out, notes := toAnthropic(t, `{
 			"messages": [
 				{"role": "user", "content": "查图"},
 				{"role": "assistant", "tool_calls": [{"id": "call_1", "function": {"name": "f", "arguments": "{}"}}]},
@@ -807,7 +808,42 @@ func TestOpenAIToAnthropicFlattensToolResultParts(t *testing.T) {
 					{"type": "image_url", "image_url": {"url": "data:image/png;base64,QUJD"}}
 				]}
 			]
-		}`, "messages[2].content[].type")
+		}`, Options{})
+		results := blocks(t, out, 2)
+		content, ok := results[0]["content"].([]any)
+		if !ok || len(content) != 1 {
+			t.Fatalf("工具结果应搬成块数组: %v", results[0]["content"])
+		}
+		img := content[0].(map[string]any)
+		if img["type"] != "image" {
+			t.Fatalf("应搬成 image 块: %v", img)
+		}
+		src := img["source"].(map[string]any)
+		if src["type"] != "base64" || src["media_type"] != "image/png" || src["data"] != "QUJD" {
+			t.Fatalf("data URL 应拆回 base64 源: %v", src)
+		}
+		requireNote(t, notes, NoteCarriedToolResultImage)
+	})
+
+	t.Run("https 源搬成 url 图片块并记账", func(t *testing.T) {
+		out, notes := toAnthropic(t, `{
+			"messages": [
+				{"role": "user", "content": "查图"},
+				{"role": "assistant", "tool_calls": [{"id": "call_1", "function": {"name": "f", "arguments": "{}"}}]},
+				{"role": "tool", "tool_call_id": "call_1", "content": [
+					{"type": "image_url", "image_url": {"url": "https://example.com/shot.png"}}
+				]}
+			]
+		}`, Options{})
+		results := blocks(t, out, 2)
+		content := results[0]["content"].([]any)
+		img := content[0].(map[string]any)
+		src := img["source"].(map[string]any)
+		if src["type"] != "url" || src["url"] != "https://example.com/shot.png" {
+			t.Fatalf("https 源应搬成 url 图片块: %v", src)
+		}
+		requireNote(t, notes, NoteCarriedToolResultImage)
+		requireNote(t, notes, NoteImageByURL)
 	})
 
 	t.Run("system 里夹图片也拒绝", func(t *testing.T) {
@@ -1164,9 +1200,10 @@ func TestAnthropicToOpenAIToolResults(t *testing.T) {
 }
 
 func TestAnthropicToOpenAIToolResultImage(t *testing.T) {
-	// 工具返回的截图在 OpenAI 的 tool 消息里放不下（正文只有字符串）。丢掉等于让模型
-	// 瞎着往下推，所以整份拒绝，由路由器换一家能原样收下的上游
-	rejectedReverse(t, `{
+	// 工具返回的截图搬成 OpenAI 的 image_url 块（tool 消息 content 支持块数组，
+	// 2025 起）。曾经按"正文只有字符串"整份拒绝——该前提已过期，拒收双方协议
+	// 都装得下的东西等于让路由器换掉本来服务得了的上游
+	out, notes := toOpenAI(t, `{
 		"max_tokens": 10,
 		"messages": [
 			{"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_1", "name": "shot", "input": {}}]},
@@ -1174,6 +1211,69 @@ func TestAnthropicToOpenAIToolResultImage(t *testing.T) {
 				{"type": "tool_result", "tool_use_id": "toolu_1", "content": [
 					{"type": "text", "text": "截好了"},
 					{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "QUJD"}}
+				]}
+			]}
+		]
+	}`)
+	messages := out["messages"].([]any)
+	tool := messages[1].(map[string]any)
+	if tool["role"] != "tool" {
+		t.Fatalf("第二条应是 tool 消息: %v", messages)
+	}
+	parts, ok := tool["content"].([]any)
+	if !ok || len(parts) != 2 {
+		t.Fatalf("工具结果应搬成两块（text + image_url）: %v", tool["content"])
+	}
+	first := parts[0].(map[string]any)
+	if first["type"] != "text" || first["text"] != "截好了" {
+		t.Fatalf("首块应是原文 text: %v", first)
+	}
+	second := parts[1].(map[string]any)
+	if second["type"] != "image_url" {
+		t.Fatalf("次块应是 image_url: %v", second)
+	}
+	url := second["image_url"].(map[string]any)["url"].(string)
+	if url != "data:image/png;base64,QUJD" {
+		t.Fatalf("base64 源应拼成 data URL: %q", url)
+	}
+	requireNote(t, notes, NoteCarriedToolResultImage)
+}
+
+func TestAnthropicToOpenAIToolResultImageWithError(t *testing.T) {
+	// is_error + 图：前缀拼进首个 text 块，图片块不受影响
+	out, notes := toOpenAI(t, `{
+		"max_tokens": 10,
+		"messages": [
+			{"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_1", "name": "shot", "input": {}}]},
+			{"role": "user", "content": [
+				{"type": "tool_result", "tool_use_id": "toolu_1", "is_error": true, "content": [
+					{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "QUJD"}}
+				]}
+			]}
+		]
+	}`)
+	messages := out["messages"].([]any)
+	parts := messages[1].(map[string]any)["content"].([]any)
+	first := parts[0].(map[string]any)
+	if first["type"] != "text" || first["text"] != toolErrorPrefix {
+		t.Fatalf("无 text 块时应插入纯前缀块: %v", first)
+	}
+	if parts[1].(map[string]any)["type"] != "image_url" {
+		t.Fatalf("图片块应原样保留: %v", parts[1])
+	}
+	requireNote(t, notes, NotePrefixedToolError)
+	requireNote(t, notes, NoteCarriedToolResultImage)
+}
+
+func TestAnthropicToOpenAIToolResultDocumentStillRejected(t *testing.T) {
+	// document / search_result 在 OpenAI 侧没有对应物：丢了模型就瞎了，仍拒绝
+	rejectedReverse(t, `{
+		"max_tokens": 10,
+		"messages": [
+			{"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_1", "name": "f", "input": {}}]},
+			{"role": "user", "content": [
+				{"type": "tool_result", "tool_use_id": "toolu_1", "content": [
+					{"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": "AAAA"}}
 				]}
 			]}
 		]

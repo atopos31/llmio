@@ -203,8 +203,8 @@ OpenAI → Anthropic：
 - **收尾不在看见 `finish_reason` 的那一刻发生，而是等到 `[DONE]` 或上游断开**。开了
   `stream_options.include_usage` 的上游会把收尾拆成两段：先是带 `finish_reason`、
   `usage` 为空的那条，紧跟着才是 `choices` 为空、只带 `usage` 的那条。前一条一到就
-  收尾的话，用量永远落在收尾之后被丢掉——而 llmio 记 Anthropic 用量只认 `message_delta`
-  这一条（`service.ProcesserAnthropic`），输入 token 会被记成 0
+  收尾的话，用量永远落在收尾之后被丢掉。完整累计快照需要在 `message_delta` 中补齐，
+  覆盖 `message_start` 中尚未取得实际用量时的占位值
 - 流中间报错（`{"error":{...}}`）→ 转成 Anthropic 的 `error` 事件，**此后再不补收尾**：
   补出来的 `message_stop` 会让客户端把半截回答当成一次完整的生成
 
@@ -216,10 +216,28 @@ Anthropic → OpenAI 是逆过程：
   块就会出现 0/1/2），后者必须从 0 起连续编号，要维护一张映射表
 - `thinking` / `redacted_thinking` 块与 `thinking_delta` / `signature_delta` 没有对应物，
   丢掉并记 `Note`
-- `message_delta` 的 `usage` 要并进最后一个 chunk（llmio 的 OpenAI 用量统计只认收尾那
-  一条），末尾补 `[DONE]`
+- 合并 `message_start` 与后续 `message_delta` 的累计用量；带 `stop_reason` 的事件或
+  `message_stop` 才结束转换，把用量放进最后一个 chunk，末尾补 `[DONE]`
 
 两边的收尾事件都保证**恰好发一次**，即使上游断流（`Close` 兜底）或出现重复的收尾标记。
+
+### 用量快照的约定
+
+原生解析和协议转换采用相同口径：Anthropic 的输入、缓存创建与缓存读取通常来自
+`message_start.message.usage`，后续 `message_delta.usage` 按字段替换累计值，不求和。
+未提供的字段保留已有值，明确的 `0` 会覆盖旧值；`null` 或空对象不清空已有快照。
+总输入量为 `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`，
+其中只有缓存读取计入 `prompt_tokens_details.cached_tokens`。非流式转换使用同一公式。
+现有数据库没有独立的缓存写入价位，本改动将其纳入非缓存命中输入量，不新增价格规则。
+
+OpenAI Chat Completions 使用最后一个带明确 `total_tokens` 的用量对象，包括全零结果。
+这支持官方的单次最终快照和兼容上游的累计快照；`usage: null` 表示未提供新用量。
+不支持把每帧数字解释为增量后相加：协议没有可靠的标识可以区分增量和累计值，
+增量型上游须先在适配层转换为累计快照。
+
+协议依据：[Anthropic 流式消息](https://platform.claude.com/docs/en/build-with-claude/streaming)、
+[缓存用量分解](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)、
+[OpenAI 流式用量](https://developers.openai.com/api/reference/resources/chat/subresources/completions/streaming-events)。
 
 ## 7. 接线
 

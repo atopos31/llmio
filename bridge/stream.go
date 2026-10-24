@@ -372,9 +372,8 @@ func (s *OpenAIToAnthropicStream) finish() string {
 		// 见没见过工具调用是唯一能拿来推断的依据，不发 message_delta 客户端会一直等
 		stop = "tool_use"
 	}
-	// 用量放进收尾事件：Anthropic 的 message_delta 里的 usage 是**累计值**，llmio 记
-	// Anthropic 用量时也只认这一条（service.ProcesserAnthropic），所以输入侧的数字
-	// 必须在这里补齐，否则这条链路上的输入 token 会被记成 0
+	// OpenAI 的用量可能直到收尾才出现；把完整累计快照放进 message_delta，
+	// 覆盖 message_start 中的占位值。
 	usage := map[string]int64{"input_tokens": 0, "output_tokens": 0}
 	if s.usage != nil {
 		usage["input_tokens"] = s.usage.InputTokens
@@ -469,7 +468,12 @@ type anthropicStreamEvent struct {
 		PartialJSON string `json:"partial_json"`
 		StopReason  string `json:"stop_reason"`
 	} `json:"delta"`
-	Usage *AnthropicUsage `json:"usage"`
+	Usage *struct {
+		InputTokens              *int64 `json:"input_tokens"`
+		CacheCreationInputTokens *int64 `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     *int64 `json:"cache_read_input_tokens"`
+		OutputTokens             *int64 `json:"output_tokens"`
+	} `json:"usage"`
 	Error json.RawMessage `json:"error"`
 }
 
@@ -521,9 +525,7 @@ type AnthropicToOpenAIStream struct {
 	toolIndex map[int]int
 	nextTool  int
 
-	inputTokens  int64
-	cacheRead    int64
-	outputTokens int64
+	usage AnthropicUsage
 }
 
 // NewAnthropicToOpenAIStream 起一条 Anthropic → OpenAI 的流。
@@ -561,8 +563,7 @@ func (s *AnthropicToOpenAIStream) handleEvent(name, data string) string {
 		s.id = ev.Message.ID
 		s.model = ev.Message.Model
 		if ev.Message.Usage != nil {
-			s.inputTokens = ev.Message.Usage.InputTokens
-			s.cacheRead = ev.Message.Usage.CacheReadInputTokens
+			s.usage = *ev.Message.Usage
 		}
 		out.WriteString(s.start())
 	case "content_block_start":
@@ -596,13 +597,23 @@ func (s *AnthropicToOpenAIStream) handleEvent(name, data string) string {
 		}
 	case "message_delta":
 		if ev.Usage != nil {
-			s.outputTokens = ev.Usage.OutputTokens
-			// 有些上游在收尾事件里才把输入用量补齐
-			if ev.Usage.InputTokens > 0 {
-				s.inputTokens = ev.Usage.InputTokens
+			// Only supplied fields replace the cumulative snapshot; zero is a value.
+			if ev.Usage.InputTokens != nil {
+				s.usage.InputTokens = *ev.Usage.InputTokens
+			}
+			if ev.Usage.CacheCreationInputTokens != nil {
+				s.usage.CacheCreationInputTokens = *ev.Usage.CacheCreationInputTokens
+			}
+			if ev.Usage.CacheReadInputTokens != nil {
+				s.usage.CacheReadInputTokens = *ev.Usage.CacheReadInputTokens
+			}
+			if ev.Usage.OutputTokens != nil {
+				s.usage.OutputTokens = *ev.Usage.OutputTokens
 			}
 		}
-		out.WriteString(s.finish(ev.Delta.StopReason))
+		if ev.Delta.StopReason != "" {
+			out.WriteString(s.finish(ev.Delta.StopReason))
+		}
 	case "message_stop":
 		out.WriteString(s.finish(""))
 	case "error":
@@ -648,7 +659,6 @@ func (s *AnthropicToOpenAIStream) finish(stopReason string) string {
 	var out strings.Builder
 	out.WriteString(s.start())
 	reason := openAIFinishReason(stopReason, &s.notes)
-	prompt := s.inputTokens + s.cacheRead
 	// 用量放进收尾那一条：OpenAI 的流只在最后报 token，llmio 的用量统计也是从这条里取的
 	out.WriteString(marshalSSE("", openAIStreamOut{
 		ID:      s.openAIID(),
@@ -656,14 +666,7 @@ func (s *AnthropicToOpenAIStream) finish(stopReason string) string {
 		Created: s.created,
 		Model:   s.model,
 		Choices: []openAIStreamChoice{{Index: 0, Delta: openAIStreamDelta{}, FinishReason: &reason}},
-		Usage: &OpenAIUsage{
-			PromptTokens:     prompt,
-			CompletionTokens: s.outputTokens,
-			TotalTokens:      prompt + s.outputTokens,
-			PromptTokensDetails: &struct {
-				CachedTokens int64 `json:"cached_tokens"`
-			}{CachedTokens: s.cacheRead},
-		},
+		Usage:   openAIUsage(&s.usage),
 	}))
 	out.WriteString(encodeSSE("", "[DONE]"))
 	return out.String()

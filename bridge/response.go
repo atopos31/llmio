@@ -336,13 +336,13 @@ func openAIFinishReason(stop string, notes *[]Note) string {
 	}
 }
 
-// openAIUsage 转换用量。llmio 自己记 Anthropic 用量时把缓存命中并进 prompt_tokens
+// openAIUsage 转换用量。llmio 自己记 Anthropic 用量时把缓存创建和命中并进 prompt_tokens
 // （见 service.ProcesserAnthropic），这里照同一个口径还原，两边的成本算法才对得上。
 func openAIUsage(usage *AnthropicUsage) *OpenAIUsage {
 	if usage == nil {
 		return nil
 	}
-	prompt := usage.InputTokens + usage.CacheReadInputTokens
+	prompt := usage.InputTokens + usage.CacheCreationInputTokens + usage.CacheReadInputTokens
 	return &OpenAIUsage{
 		PromptTokens:     prompt,
 		CompletionTokens: usage.OutputTokens,

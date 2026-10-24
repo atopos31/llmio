@@ -98,6 +98,10 @@ const (
 	// ToolResultImage）、降级在后：网关不猜上游支不支持，让上游的实际反应裁决。
 	// 与自愈删参同一认识论——先发完整形状，被点名拒收才降级且留痕。
 	NoteDroppedToolResultImage Note = "dropped_tool_result_image"
+	// NoteTranslatedOutputFormat OpenAI 的 response_format 被翻译成 Anthropic 的
+	// output_config.format（2025-11 起原生结构化输出，审计 §3.11 表第 3 行）。
+	// 保证级契约：上游不认而 400 时不降级不静默丢——静默丢等于装作答应了。
+	NoteTranslatedOutputFormat Note = "translated_output_format"
 
 	// 以下几条约只出现在**响应**侧：那边没有重试的机会（字已经生成出来了），
 	// 做不到的地方只能带上并记账，不能像请求侧那样拒绝。

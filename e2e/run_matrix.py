@@ -422,9 +422,19 @@ def stub_cases(providers):
                         upstream=dict(path="/anthropic/messages", model="stub-text", equals={"top_k": 40}),
                         log=dict(style="openai", upstream_style="anthropic", status="success",
                                  notes_absent=["dropped_top_k"]))),
-        # 11 翻不过去的：结构化输出在 Anthropic 侧没有表示法 —— 不能装作答应了
-        dict(name="拒绝·结构化输出", client="openai", assoc=[{"provider": oa, "provider_model": "stub-text"}],
+        # 11 翻译·结构化输出：Anthropic 2025-11 起有原生结构化输出（output_config.format），
+        # 曾经一律拒绝——审计逮到的过期前提。现在翻译成 output_config 送出去
+        dict(name="翻译·结构化输出成 output_config", client="openai", assoc=[{"provider": oa, "provider_model": "stub-text"}],
              body=dict(text, max_tokens=64, response_format={"type": "json_schema", "json_schema": {"name": "r", "schema": {"type": "object"}}}),
+             check=dict(content="stub-text",
+                        upstream=dict(path="/anthropic/messages", model="stub-text",
+                                      dump=['"output_config":{"format":{"schema":{"type":"object"},"type":"json_schema"}}'],
+                                      dump_absent=['"name":"r"']),
+                        log=dict(style="openai", upstream_style="anthropic", status="success",
+                                 notes=["translated_output_format"]))),
+        # 11b 仍拒绝：认不出的 response_format type（调用方的保证装不下就要说清楚）
+        dict(name="拒绝·认不出的结构化输出类型", client="openai", assoc=[{"provider": oa, "provider_model": "stub-text"}],
+             body=dict(text, max_tokens=64, response_format={"type": "yaml"}),
              check=dict(shape="error", upstream=dict(none=True),
                         log=dict(style="openai", status="error"))),
         # 11 响应侧的有损：content_filter 只能记成 refusal

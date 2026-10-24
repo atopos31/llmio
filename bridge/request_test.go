@@ -300,8 +300,10 @@ func TestOpenAIToAnthropicRejectsObservableLoss(t *testing.T) {
 		{"frequency_penalty", `{"messages":[{"role":"user","content":"hi"}],"frequency_penalty":-0.5}`, "frequency_penalty"},
 		{"logprobs", `{"messages":[{"role":"user","content":"hi"}],"logprobs":true}`, "logprobs"},
 		{"top_logprobs", `{"messages":[{"role":"user","content":"hi"}],"top_logprobs":3}`, "top_logprobs"},
-		{"response_format", `{"messages":[{"role":"user","content":"hi"}],"response_format":{"type":"json_object"}}`, "response_format"},
-		{"json_schema", `{"messages":[{"role":"user","content":"hi"}],"response_format":{"type":"json_schema"}}`, "response_format"},
+		// json_schema / json_object 已改为翻译（见 TestOpenAIToAnthropicTranslatesResponseFormat）；
+		// 仍拒绝的是认不出的 type 与缺 schema 的 json_schema
+		{"response_format 未知 type", `{"messages":[{"role":"user","content":"hi"}],"response_format":{"type":"yaml"}}`, "response_format"},
+		{"json_schema 缺 schema", `{"messages":[{"role":"user","content":"hi"}],"response_format":{"type":"json_schema"}}`, "response_format.json_schema"},
 		{"未知 role", `{"messages":[{"role":"user","content":"hi"},{"role":"critic","content":"x"}]}`, "messages[1].role"},
 		{"未知 content 块", `{"messages":[{"role":"user","content":[{"type":"audio","text":"x"}]}]}`, "messages[0].content[].type"},
 		{"助手消息里的图片", `{"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"image_url","image_url":{"url":"https://a/b.png"}}]}]}`, "messages[1].content[].type"},
@@ -327,6 +329,55 @@ func TestOpenAIToAnthropicRejectsObservableLoss(t *testing.T) {
 			rejected(t, tc.body, tc.field)
 		})
 	}
+}
+
+func TestOpenAIToAnthropicTranslatesResponseFormat(t *testing.T) {
+	// Anthropic 2025-11 起有原生结构化输出（output_config.format，旧名
+	// output_format 已弃用）。曾经一律拒绝——审计 §3.11 表第 3 行逮到的
+	// 第二条过期前提。保证级契约：不降级不静默丢。
+	t.Run("json_schema 翻译且 schema 原样搬运", func(t *testing.T) {
+		out, notes := toAnthropic(t, `{
+			"messages": [{"role": "user", "content": "hi"}],
+			"response_format": {"type": "json_schema", "json_schema": {"name": "r", "strict": true, "schema": {"type": "object", "properties": {"a": {"type": "string"}}}}}
+		}`, Options{})
+		oc := out["output_config"].(map[string]any)
+		format := oc["format"].(map[string]any)
+		if format["type"] != "json_schema" {
+			t.Fatalf("format.type 应为 json_schema: %v", format)
+		}
+		schema := format["schema"].(map[string]any)
+		if schema["type"] != "object" || len(schema) != 2 {
+			t.Fatalf("schema 应原样搬运: %v", schema)
+		}
+		// name 是 OpenAI 侧的标识，Anthropic 不收
+		if _, ok := format["name"]; ok {
+			t.Fatalf("format 不该带 name: %v", format)
+		}
+		requireNote(t, notes, NoteTranslatedOutputFormat)
+	})
+
+	t.Run("json_object 合成任意对象 schema", func(t *testing.T) {
+		out, notes := toAnthropic(t, `{
+			"messages": [{"role": "user", "content": "hi"}],
+			"response_format": {"type": "json_object"}
+		}`, Options{})
+		schema := out["output_config"].(map[string]any)["format"].(map[string]any)["schema"].(map[string]any)
+		if len(schema) != 1 || schema["type"] != "object" {
+			t.Fatalf("应合成 {\"type\":\"object\"}: %v", schema)
+		}
+		requireNote(t, notes, NoteTranslatedOutputFormat)
+	})
+
+	t.Run("text 不翻译", func(t *testing.T) {
+		out, notes := toAnthropic(t, `{
+			"messages": [{"role": "user", "content": "hi"}],
+			"response_format": {"type": "text"}
+		}`, Options{})
+		if _, ok := out["output_config"]; ok {
+			t.Fatalf("text 不该产生 output_config: %v", out)
+		}
+		requireNoNote(t, notes, NoteTranslatedOutputFormat)
+	})
 }
 
 func TestOpenAIToAnthropicAcceptsHarmlessHints(t *testing.T) {

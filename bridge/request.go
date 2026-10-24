@@ -32,6 +32,17 @@ func OpenAIRequestToAnthropic(raw []byte, opt Options) ([]byte, []Note, error) {
 		StopSequences: parseOpenAIStop(req.Stop),
 	}
 
+	if req.ResponseFormat != nil && req.ResponseFormat.Type != "text" {
+		outputConfig, err := openAIResponseFormatToOutputConfig(req.ResponseFormat)
+		if err != nil {
+			return nil, nil, err
+		}
+		if outputConfig != nil {
+			out.OutputConfig = outputConfig
+			notes = append(notes, NoteTranslatedOutputFormat)
+		}
+	}
+
 	tools, err := anthropicTools(req.Tools, &notes)
 	if err != nil {
 		return nil, nil, err
@@ -90,11 +101,52 @@ func rejectUnsupportedOpenAIFields(req *OpenAIRequest) error {
 		return &Unsupported{Field: "logprobs", Reason: "the upstream does not return token log probabilities"}
 	case req.TopLogprobs != nil && *req.TopLogprobs > 0:
 		return &Unsupported{Field: "top_logprobs", Reason: "the upstream does not return token log probabilities"}
-	case req.ResponseFormat != nil && req.ResponseFormat.Type != "" && req.ResponseFormat.Type != "text":
-		// 静默丢掉等于让调用方以为 JSON 保证还在（Anthropic 自己的兼容层就是这么做的）
-		return &Unsupported{Field: "response_format", Reason: "the upstream has no JSON mode"}
+	case req.ResponseFormat != nil && req.ResponseFormat.Type != "" &&
+		req.ResponseFormat.Type != "text" &&
+		req.ResponseFormat.Type != "json_schema" && req.ResponseFormat.Type != "json_object":
+		// json_schema / json_object 放行——翻译成 output_config.format（见下）。
+		// 其余 type 静默丢掉等于让调用方以为保证还在（Anthropic 自己的兼容层
+		// 就是这么做的），仍拒绝
+		return &Unsupported{Field: "response_format", Reason: fmt.Sprintf("unsupported response_format type %q", req.ResponseFormat.Type)}
 	}
 	return nil
+}
+
+// openAIResponseFormatToOutputConfig 把 OpenAI 的 response_format 翻成 Anthropic
+// 的 output_config.format（2025-11 起原生结构化输出；现行参数是 output_config，
+// 旧名 output_format 已弃用，2026-10-24 核对官方文档）。
+//
+//	json_schema → {"format":{"type":"json_schema","schema": <schema 原样搬运>}}
+//	json_object → {"format":{"type":"json_schema","schema":{"type":"object"}}}
+//	              （合成"任意 JSON 对象"——官方文档只记档了 json_schema 一档，
+//	               不依赖未核实的 json 档形状）
+//
+// json_schema.name 是 OpenAI 侧的标识、strict 由 Anthropic 侧默认严格，都不翻译。
+// 这是**保证级契约**：上游（老模型 / 兼容网关）不认而 400 时**不降级不静默丢**
+// ——静默丢等于装作答应了，失败原因经收尾错误透给客户端。
+func openAIResponseFormatToOutputConfig(rf *OpenAIResponseFormat) (json.RawMessage, error) {
+	if rf == nil {
+		return nil, nil
+	}
+	var schema json.RawMessage
+	switch rf.Type {
+	case "json_schema":
+		if rf.JsonSchema == nil || len(rf.JsonSchema.Schema) == 0 {
+			return nil, &Unsupported{Field: "response_format.json_schema", Reason: "json_schema without a schema"}
+		}
+		schema = rf.JsonSchema.Schema
+	case "json_object":
+		schema = json.RawMessage(`{"type":"object"}`)
+	default:
+		return nil, nil // text 或不认识的 type：不翻译（后者已在拒绝层拦下）
+	}
+	body, err := json.Marshal(map[string]any{
+		"format": map[string]any{"type": "json_schema", "schema": schema},
+	})
+	if err != nil {
+		return nil, &Unsupported{Field: "response_format", Reason: err.Error()}
+	}
+	return body, nil
 }
 
 // anthropicMaxTokens 取 Anthropic 必填的 max_tokens。

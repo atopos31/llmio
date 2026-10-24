@@ -22,6 +22,10 @@ type AnthropicRequest struct {
 	ToolChoice    *AnthropicToolChoice `json:"tool_choice,omitempty"`
 	Thinking      json.RawMessage      `json:"thinking,omitempty"`
 	Metadata      json.RawMessage      `json:"metadata,omitempty"`
+	// OutputConfig 是 2025-11 起的原生结构化输出（output_config.format），由
+	// OpenAI 的 response_format 翻译而来。保证级契约：上游不认而 400 时不降级
+	// 不静默丢，失败原因经收尾错误透给客户端。
+	OutputConfig json.RawMessage `json:"output_config,omitempty"`
 }
 
 // AnthropicMessage 一条消息。Content 归一成块数组，字符串简写在 UnmarshalJSON 里展开。

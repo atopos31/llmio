@@ -74,6 +74,8 @@
       "avg_first_chunk": "Avg first chunk",
       "p95_first_chunk": "P95 first chunk",
       "cache_hit": "Cache hit",
+      "tokens": "Tokens",
+      "tokens_title": "Input {{prompt}} / Output {{completion}}",
       "retries": "Retries",
       "avg_proxy": "Avg proxy"
     }

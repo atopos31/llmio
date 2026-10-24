@@ -227,6 +227,17 @@ describe("分析页 · 有数据", () => {
     expect(await screen.findByText(/掃描已達上限|扫描已达上限/)).toBeInTheDocument()
   })
 
+  it("下钻表带 Token 列：精确千分位，悬浮给出输入/输出构成", async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText("请求趋势")
+
+    await user.click(screen.getByRole("radio", { name: "下钻" }))
+    // fixture 的 group() 默认 totalTokens=1500、prompt=1000、completion=500
+    const cell = await screen.findByTitle("输入 1,000 / 输出 500")
+    expect(cell).toHaveTextContent("1,500")
+  })
+
   it("下钻：点名称即按该值筛选，再次点击取消", async () => {
     const user = userEvent.setup()
     renderPage()

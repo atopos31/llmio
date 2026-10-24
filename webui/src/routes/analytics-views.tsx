@@ -117,10 +117,10 @@ export function BreakdownView({
             {t("breakdown.empty")}
           </p>
         ) : (
-          // 十列在窄屏上放不下，横向滚动而不是砍列：砍掉的列往往是
+          // 十一列在窄屏上放不下，横向滚动而不是砍列：砍掉的列往往是
           // 用户正在找的那一列，而横向滚动至少保证信息都在
           <div className="overflow-x-auto">
-            <Table className="min-w-[880px]">
+            <Table className="min-w-[960px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>{t("breakdown.columns.name")}</TableHead>
@@ -139,6 +139,7 @@ export function BreakdownView({
                   <TableHead className="text-right">
                     {t("breakdown.columns.cache_hit")}
                   </TableHead>
+                  <TableHead className="text-right">{t("breakdown.columns.tokens")}</TableHead>
                   <TableHead className="text-right">{t("breakdown.columns.retries")}</TableHead>
                   <TableHead className="text-right">
                     {t("breakdown.columns.avg_proxy")}
@@ -185,6 +186,15 @@ export function BreakdownView({
                           而不是"缓存率"——它说的是输入的哪一部分来自缓存 */}
                       <TableCell className="reading text-right">
                         {formatPercent(g.cacheHitRate)}
+                      </TableCell>
+                      <TableCell
+                        className="reading text-right"
+                        title={t("breakdown.columns.tokens_title", {
+                          prompt: formatNumber(g.prompt),
+                          completion: formatNumber(g.completion),
+                        })}
+                      >
+                        {formatNumber(g.totalTokens)}
                       </TableCell>
                       <TableCell className="reading text-right">{formatNumber(g.retries)}</TableCell>
                       <TableCell className="reading text-right">

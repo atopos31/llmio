@@ -74,6 +74,8 @@
       "avg_first_chunk": "平均首包",
       "p95_first_chunk": "P95 首包",
       "cache_hit": "快取命中",
+      "tokens": "Token",
+      "tokens_title": "輸入 {{prompt}} / 輸出 {{completion}}",
       "retries": "重試",
       "avg_proxy": "平均代理"
     }

@@ -1,11 +1,16 @@
 package service
 
 import (
+	"context"
+	"encoding/json"
 	"regexp"
 	"strings"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"gorm.io/gorm"
+
+	"github.com/atopos31/llmio/models"
 )
 
 // 请求体参数自愈：上游因请求体里含有它不认识的参数而报 400/422 时，把被点名
@@ -129,4 +134,26 @@ func ApplyDrop(raw []byte, path string) []byte {
 		return raw
 	}
 	return out
+}
+
+// DefaultSelfHealPolicy 默认开启：自愈替代的是"整单失败"，不是某个正常工作的
+// 功能；且每次删参都有记账与失败行可查，不是静默改写。
+func DefaultSelfHealPolicy() *models.SelfHealPolicy {
+	return &models.SelfHealPolicy{Enabled: true, MaxDrops: SelfHealMaxDrops}
+}
+
+// GetSelfHealPolicy 读自愈策略。缺行、空值、坏 JSON 一律回默认继续服务——
+// 一个装饰性配置读坏了不该让请求跟着失败。每请求一次单行 KV 点查，与转发
+// 路径上既有的关联表读同量级，v1 不做缓存。
+func GetSelfHealPolicy(ctx context.Context) *models.SelfHealPolicy {
+	config, err := gorm.G[models.Config](models.DB).
+		Where("key = ?", models.KeySelfHealPolicy).First(ctx)
+	if err != nil || strings.TrimSpace(config.Value) == "" {
+		return DefaultSelfHealPolicy()
+	}
+	policy := DefaultSelfHealPolicy()
+	if err := json.Unmarshal([]byte(config.Value), policy); err != nil {
+		return DefaultSelfHealPolicy()
+	}
+	return policy
 }

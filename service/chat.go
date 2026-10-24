@@ -157,6 +157,11 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		return nil, nil, err
 	}
 
+	// 最后一次失败的真实原因（由 fail 闭包在每轮失败时刷新）。轮询池空或
+	// 重试耗尽时跟着收尾错误一起透给客户端——没有它，客户端只看得到一句
+	// 无从下手的 "All retry failed"，真实原因要进库翻 chat_logs.error 才有。
+	lastErr := error(nil)
+
 	// 会话键在重试循环外解析一次：同一次请求的各次重试共用同一会话��，
 	// 避免重试期间会话漂移（随机兜底分支尤其需要）
 	sessionKey := ResolveSessionKey(reqMeta.Header, before.SessionID, before.Model, authKeyID, before.raw)
@@ -173,10 +178,11 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			// 加权负载均衡
 			id, err := balancer.Pop()
 			if err != nil {
-				if _, lerr := saveFailedLog(ctx, style, before, fmt.Sprintf("balancer pop err: %v, traceID: %s", err, traceID)); lerr != nil {
+				msg := fmt.Sprintf("balancer pop err: %v, traceID: %s%s", err, traceID, lastErrorSuffix(lastErr))
+				if _, lerr := saveFailedLog(ctx, style, before, msg); lerr != nil {
 					slog.Error("save failed log error", "error", lerr)
 				}
-				return nil, nil, fmt.Errorf("balancer pop err: %v, traceID: %s", err, traceID)
+				return nil, nil, errors.New(msg)
 			}
 
 			modelWithProvider, ok := providersWithMeta.ModelWithProviderMap[id]
@@ -239,12 +245,16 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				Currency:       modelWithProvider.Currency,
 				PeakPeriod:     peakPeriod,
 			}
-			// 这次尝试失败的记录。记账要在这里快照：下一次尝试开头会把盒子清空，
-			// 而"这一家失败时我们丢了什么"正是排查重试时要看的东西
-			fail := func(err error) {
-				log.BridgeNotes = bridgeNotes.String()
-				retryLog <- retryLogEntry{Log: log.WithError(err), Raw: before.raw}
-			}
+		// 这次尝试失败的记录。记账要在这里快照：下一次尝试开头会把盒子清空，
+		// 而"这一家失败时我们丢了什么"正是排查重试时要看的东西。
+		// lastErr 一并收下：全部尝试耗尽后客户端只拿得到一句 "All retry failed"，
+		// 真实原因（预检拒绝的原文、上游的 400 报文）必须跟着透出去，否则排查
+		// 只能进库里翻 chat_logs.error。
+		fail := func(err error) {
+			lastErr = err
+			log.BridgeNotes = bridgeNotes.String()
+			retryLog <- retryLogEntry{Log: log.WithError(err), Raw: before.raw}
+		}
 			// 根据请求原始请求头 是否透传请求头 自定义请求头 构建新的请求头
 			withHeader := lo.FromPtrOr(modelWithProvider.WithHeader, false)
 			headers := BuildHeaders(reqMeta.Header, withHeader, modelWithProvider.CustomerHeaders, before.Stream, HeaderVars{
@@ -355,7 +365,17 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		}
 	}
 
-	return nil, nil, fmt.Errorf("All retry failed, trace ID: %s", traceID)
+	return nil, nil, fmt.Errorf("All retry failed, trace ID: %s%s", traceID, lastErrorSuffix(lastErr))
+}
+
+// lastErrorSuffix 把最后一次失败的原因拼进收尾错误。截断 500 字符，与
+// ClassifyError 对 raw 的截断同款——错误体可能是整份上游报文，不截会爆破
+// 客户端的 500 响应。没有失败过（首轮就池空）时返回空串。
+func lastErrorSuffix(lastErr error) string {
+	if lastErr == nil {
+		return ""
+	}
+	return ", last error: " + Truncate(lastErr.Error(), 500)
 }
 
 func buildUpstreamBody(raw []byte, extraBody map[string]any) ([]byte, error) {

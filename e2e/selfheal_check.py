@@ -292,7 +292,9 @@ def check_logs(exp, alias):
                     f"成功行 prompt_tokens={s.get('prompt_tokens')}，期望 {exp['prompt_tokens']}")
     else:
         rm.need(not succ, "不该出现成功行")
-    n400 = sum(1 for r in errs if "status: 400" in (r.get("Error") or ""))
+    # 按"行首"数 400 失败行：C6c 之后收尾错误（balancer pop err / All retry
+    # failed）也会内嵌最后一次的 status: 400 原文，子串计数会把它误计进去
+    n400 = sum(1 for r in errs if (r.get("Error") or "").startswith("status: 400"))
     if "err400" in exp:
         rm.need(n400 == exp["err400"], f"400 失败行 {n400} 条，期望 {exp['err400']}")
     if "error_phrase" in exp:

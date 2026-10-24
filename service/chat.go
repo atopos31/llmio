@@ -120,8 +120,9 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 	providerMap := providersWithMeta.ProviderMap
 
-	// 收集重试过程中的err日志
-	retryLog := make(chan retryLogEntry, providersWithMeta.MaxRetry)
+	// 收集重试过程中的err日志。容量按"每轮最多 1+MaxDrops 条"放大：自愈内层
+	// 每次失败也走 fail 推一条，通道打满会阻塞转发路径。
+	retryLog := make(chan retryLogEntry, providersWithMeta.MaxRetry*(1+SelfHealMaxDrops))
 	defer close(retryLog)
 
 	go RecordRetryLog(context.Background(), retryLog)
@@ -290,27 +291,74 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				continue
 			}
 
-			req, err := chatModel.BuildReq(ctx, headers, modelWithProvider.ProviderModel, rawBody)
-			if err != nil {
-				fail(err)
-				// 构建请求失败 移除待选
-				balancer.Delete(id)
-				continue
+			// ---- 内层自愈闭环（计划 §3.5）：上游点名"不认识的参数"时，从实发
+			// 请求体删掉该参数、同一家立即重发。改的是实发字节，不重跑翻译与
+			// extra_body（同一家上游的翻译产物是确定的）；drops 随本轮外层迭代
+			// 生命周期，不跨家携带——A 家不收的参数 B 家可能收，每家用一次 400
+			// 换判据，代价可接受。自愈成功不触发 Delete，不污染熔断计数。
+			selfHeal := GetSelfHealPolicy(ctx)
+			maxDrops := selfHeal.MaxDrops
+			if maxDrops <= 0 {
+				maxDrops = SelfHealMaxDrops
 			}
+			drops := map[string]bool{}
+			healed := 0
 
-			res, err := client.Do(req)
-			if err != nil {
-				fail(err)
-				// 请求失败 移除待选
-				balancer.Delete(id)
-				continue
-			}
-
-			if res.StatusCode != http.StatusOK {
-				byteBody, err := io.ReadAll(res.Body)
-				if err != nil {
-					slog.Error("read body error", "error", err)
+			var res *http.Response
+			nextProvider := false // 跳出内层后是否换下一家
+			for {
+				// 自愈的多发也受总超时约束：timer 是全请求预算
+				select {
+				case <-ctx.Done():
+					return nil, nil, ctx.Err()
+				case <-timer.C:
+					return nil, nil, errors.New("retry time out")
+				default:
 				}
+
+				// 每次都重建请求：删参改的是 rawBody，BuildReq 必须带着新字节重打
+				req, err := chatModel.BuildReq(ctx, headers, modelWithProvider.ProviderModel, rawBody)
+				if err != nil {
+					fail(err)
+					// 构建请求失败 移除待选
+					balancer.Delete(id)
+					nextProvider = true
+					break
+				}
+
+				res, err = client.Do(req)
+				if err != nil {
+					fail(err)
+					// 请求失败 移除待选
+					balancer.Delete(id)
+					nextProvider = true
+					break
+				}
+
+				if res.StatusCode == http.StatusOK {
+					break
+				}
+
+				byteBody, rerr := io.ReadAll(res.Body)
+				res.Body.Close()
+				if rerr != nil {
+					slog.Error("read body error", "error", rerr)
+				}
+
+				// 自愈判定：判据三层全过（状态码 + 短语提取 + 四道闸）才删参
+				if selfHeal.Enabled && healed < maxDrops && healableStatusCodes[res.StatusCode] {
+					if path, ok := DetectParamComplaint(res.StatusCode, byteBody); ok && PlanDrop(rawBody, path, drops) {
+						drops[path] = true
+						healed++
+						rawBody = ApplyDrop(rawBody, path)
+						bridgeNotes.record([]bridge.Note{bridge.Note(SelfHealNotePrefix + path)})
+						// 自愈也是一次真实上游调用，失败行与最终成功行都如实计数
+						log.Retry = retry + healed
+						fail(fmt.Errorf("status: %d, body: %s (self-heal: dropped %s)", res.StatusCode, string(byteBody), path))
+						continue
+					}
+				}
+
 				fail(fmt.Errorf("status: %d, body: %s", res.StatusCode, string(byteBody)))
 
 				if res.StatusCode == http.StatusTooManyRequests {
@@ -320,7 +368,11 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 					// 非RPM限制 移除待选
 					balancer.Delete(id)
 				}
-				res.Body.Close()
+				res = nil
+				nextProvider = true
+				break
+			}
+			if nextProvider {
 				continue
 			}
 

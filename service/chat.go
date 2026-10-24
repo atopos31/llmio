@@ -172,7 +172,9 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	for retry := range providersWithMeta.MaxRetry {
 		select {
 		case <-ctx.Done():
-			return nil, nil, ctx.Err()
+			// 走到这里说明请求 context 已经取消：客户端断开，或中间代理掐了连接。
+			// 裸的 ctx.Err() 只有一句 "context canceled"，打上阶段再往上抛。
+			return nil, nil, MarkStage(StageUpstreamRequest, ctx, ctx.Err())
 		case <-timer.C:
 			return nil, nil, errors.New("retry time out")
 		default:
@@ -311,7 +313,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				// 自愈的多发也受总超时约束：timer 是全请求预算
 				select {
 				case <-ctx.Done():
-					return nil, nil, ctx.Err()
+					return nil, nil, MarkStage(StageUpstreamRequest, ctx, ctx.Err())
 				case <-timer.C:
 					return nil, nil, errors.New("retry time out")
 				default:
@@ -329,7 +331,10 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 				res, err = client.Do(req)
 				if err != nil {
-					fail(err)
+					// client.Do 失败常常是裸的 "context canceled"：客户端一断开，绑定在
+					// 请求 ctx 上的上游调用会被一并取消。打上阶段与归因后再落库，
+					// 否则日志里只剩下六个字母，看不出是客户端跑了还是上游没连上。
+					fail(MarkStage(StageUpstreamRequest, ctx, err))
 					// 请求失败 移除待选
 					balancer.Delete(id)
 					nextProvider = true
@@ -506,9 +511,14 @@ func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, pr
 
 	log, output, err := processer(ctx, reader, before.Stream, reqStart)
 	if err != nil {
+		// 这里的 err 多半已经被上层（handler 的 io.Copy）打过阶段标记，
+		// MarkStage 幂等会原样放行；只有 processer 自己新产生的错误
+		// （如上游 SSE 里的 error 字段）才会在这里被补上阶段前缀。
+		// 本 goroutine 拿的是 Background ctx，补不出客户端归因，所以前缀
+		// 必须由 handler 在转发失败时打好。
 		if uerr := updateChatLog(ctx, logId, models.ChatLog{
 			Status: consts.StatusError,
-			Error:  err.Error(),
+			Error:  MarkStage(StageResponseStream, ctx, err).Error(),
 		}); uerr != nil {
 			slog.Error("record log error", "error", uerr)
 		}
@@ -525,7 +535,9 @@ func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, pr
 		// 兜底只试一次——前面已经撞满三次 busy_timeout，再久只会拖住这个 goroutine。
 		fallback := models.ChatLog{
 			Status: consts.StatusError,
-			Error:  "记录日志失败：请求已完成，但状态写入数据库时撞锁（" + err.Error() + "）",
+			// 落库失败也是一类失败，标上阶段让日志页能和上游/流错误分开。
+			Error: MarkStage(StageLogPersist, ctx,
+				fmt.Errorf("记录日志失败：请求已完成，但状态写入数据库时撞锁（%s）", err.Error())).Error(),
 		}
 		if uerr := updateChatLogN(ctx, logId, fallback, 1); uerr != nil {
 			slog.Error("record log error（日志仍停在 running，等重启收尾）", "log_id", logId, "error", uerr)

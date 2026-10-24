@@ -21,6 +21,7 @@
 | C4 | e2e：`stub-picky` 行为 + 用例 | ✅ | `e4dffed` |
 | C5 | 实测报错校验轮（等用户样本） | 🟡 样本①已判定，见 §3.9 | |
 | C6 | bridge 搬运 tool_result 图片 + 运行时降级 + 错误透出（§3.10） | ⬜ | |
+| C7 | `response_format`→`output_format` 翻译（§3.11 首轮审计逮到的第二条过期前提） | ⬜ | |
 
 ---
 
@@ -422,6 +423,52 @@ base64/url 两种源）；stub 新成员（如 `picky-toolimg`：tool content �
 
 **实施顺序**：C6c 独立可先落；C6a 是 bridge 保真升级（改的是拒绝分支，风险低）；
 C6b 依赖 C2 的内层重试结构，排在其后。
+
+### 3.11 预检先进性的审计方法与首轮结果（2026-10-24）
+
+**问题的一般化**：预检拒绝（`bridge.Unsupported`）每条都是「目标协议装不下 X」的
+断言。断言会随上游 API 演进过期，而仓库里没有任何机制能发现它过期——桩上游与
+e2e 校验的是与**我们自己假设**的一致性（循环论证），`tool_result 图片`这条过期
+前提能在 100% 通过的 e2e 里活到今天，就是这个原因。
+
+**确定先进性的三层方法**：
+
+1. **枚举与分类**（仓内一次 grep）：`grep "&Unsupported{" bridge/` 共 40 处，
+   按 Reason 文本分两类——**输入形状错**（"not a JSON request"、"image part
+   without a url"、"tool choice without a name" 等约 33 处：拒绝的是畸形输入，
+   不对上游能力做断言，**不会过期，无需审计**）与**能力断言**（7 条，会过期）。
+2. **外部真相源核对**（唯一权威途径）：逐条对官方 API reference + changelog
+   核对并记录日期。这是主动通道；用户实测报错（§3.9 的 C5 循环）是被动反证通道。
+3. **运行时事实替代预测**（设计规则，管未来）：对「OpenAI/Anthropic 兼容」的第
+   三方上游，官方文档说了也不算（vLLM / OpenRouter / 自建网关实现各异）。凡是
+   **按上游实现而异**的前提，不该做成预检硬拒绝——搬运 + 运行时降级（C6 模式），
+   让上游的实际 400 裁决。**保证级契约是例外**（如 JSON schema）：不许静默降级，
+   失败时透出真实原因。
+
+**首轮审计结果**（2026-10-24，官方文档核对）：
+
+| # | 断言（拒绝点） | 位置 | 核实结果 | 处置 |
+|---|---|---|---|---|
+| 1 | OpenAI tool 消息装不下图片 | `request.go:836`（A→O） | **过期**：Chat Completions 的 `role:"tool"` content 支持块数组含 `image_url`（视觉模型） | C6a 搬运 + C6b 降级 |
+| 2 | Anthropic tool_result 收不了非文本 | `request.go:244-250`（O→A） | **过期**：官方文档 tool_result content 可为块数组，块类型含 text/**image**/document/search_result | C6a 反向搬运（document/search_result 在 OpenAI 侧无对应物，仍拒绝） |
+| 3 | Anthropic 没有 JSON mode | `request.go:95`（response_format 拒绝） | **过期**：2025-11 起原生结构化输出，参数 `output_format`（JSON mode + JSON Schema 两档），Sonnet 4.5 / Opus 4.1 起支持 | **新工作项 C7**（见下） |
+| 4 | Anthropic 不返回 logprobs | `request.go:90/92` | 仍成立：官方无此能力，社区仍在请求 | 维持拒绝 |
+| 5 | Anthropic 无 penalty 参数 | `request.go:86/88` | 仍成立：官方参数表无 presence/frequency_penalty | 维持拒绝 |
+| 6 | Anthropic 单候选（n>1） | `request.go:84` | 仍成立：无 n 参数 | 维持拒绝 |
+| 7 | Anthropic 首条消息须为 user | `request.go:275` | 仍成立：官方要求第一条为 user（末条可 assistant 作 prefill） | 维持拒绝（结构性规则） |
+
+**C7：`response_format` → `output_format` 翻译**（样本①引出的审计又逮到一条）：
+Anthropic 侧有原生结构化输出后，O→A 的 `response_format: json_schema/json_object`
+应翻译为 `output_format`（字段形状按官方文档核对后映射），让带结构化输出要求的
+请求**能用** Anthropic 上游，而不是一律预检拒绝。与 C6b 的关键差别：这是
+**保证级契约**——上游（老模型 / 兼容网关）不认 `output_format` 而报 400 时
+**不降级、不静默丢**（丢了等于装作答应了，正是 bridge 立场反对的），走 C6c
+把上游真实报错透出给客户端。记 Note `translated_output_format`。
+
+**可重复性纪律（本轮立规）**：凡能力断言类的拒绝点，注释里记
+「断言内容 + 依据来源 + 核对日期」，与上表同步维护（落在
+`docs/protocol-bridge.md` 或本表）；上游 changelog 出新特性事件时重审对应条目。
+下一轮审计是核一张表，不是重新考古。
 
 ---
 

@@ -56,6 +56,17 @@ def behavior(model):
         "pause",
         "refusal",
         "thinking",
+        "picky-chain",
+        "picky-injected",
+        "picky-openai",
+        "picky-unknown",
+        "picky-unsupported",
+        "picky-py",
+        "picky-type",
+        "picky-ghost",
+        "picky-protect",
+        "picky-ctx",
+        "picky",
         "boom",
         "tool",
         "text",
@@ -63,6 +74,61 @@ def behavior(model):
         if name.endswith(b):
             return b
     return "text"
+
+
+# ── picky 家族：请求体参数自愈的测试面 ─────────────────────────────────────
+#
+# 每个成员都是"对参数挑剔的上游"：请求体里带了指名的参数就 400，措辞按成员各不
+# 相同——正好把自愈判据的模式表逐条摆到真机上。删掉参数后请求合法，于是"能不能
+# 自愈"只取决于 llmio 的判据，不取决于桩。
+#
+# 正向成员（应自愈）：picky / picky-openai / picky-unknown / picky-py /
+#   picky-unsupported（拒转换器搬过去的 top_k）/ picky-injected（拒转换器注入的
+#   stream_options）/ picky-chain（按序拒一串，前一个删掉才轮到下一个）
+# 负向成员（不该自愈，行为与没有这个功能时一致）：picky-type（值类型错）/
+#   picky-ghost（点名没发过的参数）/ picky-protect（点名保护字段 messages）/
+#   picky-ctx（上下文超长）
+#
+# 用例脚本见 e2e/selfheal_check.py；设计见 docs/plans/usage-insights-plan.md §3。
+
+PICKY_CHAIN = ["top_k", "logit_bias", "frequency_penalty", "presence_penalty"]
+
+
+def picky_complaint(model, req):
+    """返回点名字样的报错文本，或 None（不挑剔 / 参数已删干净）。"""
+    b = behavior(model)
+    if not b.startswith("picky"):
+        return None
+
+    def reject(param, phrase):
+        return phrase if param in req else None
+
+    if b in ("picky", "picky-openai"):
+        return reject("top_k", "Unrecognized request argument supplied: top_k")
+    if b == "picky-unknown":
+        return reject("top_k", "Unknown parameter: 'top_k'.")
+    if b == "picky-py":
+        return reject("top_k", "top_k: Extra inputs are not permitted")
+    if b == "picky-unsupported":
+        return reject("top_k", "Unsupported parameter: 'top_k'")
+    if b == "picky-injected":
+        return reject("stream_options", "Unrecognized request argument supplied: stream_options")
+    if b == "picky-chain":
+        for p in PICKY_CHAIN:
+            if p in req:
+                return f"Unrecognized request argument supplied: {p}"
+        return None
+    # 负向成员：同样 400，但按判据都不该触发自愈
+    if b == "picky-type":
+        return "Invalid type for 'top_k': expected an integer, but got a string"
+    if b == "picky-ghost":
+        # 点名的 logit_bias 从没发过：删无可删，判据必须拒自愈
+        return "Unrecognized request argument supplied: logit_bias"
+    if b == "picky-protect":
+        return "Unknown parameter: 'messages'"
+    if b == "picky-ctx":
+        return "This model's maximum context length is 8192 tokens. However, your messages resulted in 10000 tokens."
+    return None
 
 
 # ── Anthropic 侧的校验与响应 ────────────────────────────────────────────────
@@ -343,6 +409,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"type": "error", "error": {"type": "invalid_request_error", "message": "; ".join(errs)}})
             else:
                 self._json(400, {"error": {"message": "; ".join(errs), "type": "invalid_request_error"}})
+            return
+
+        complaint = picky_complaint(model, req)
+        if complaint:
+            # 参数挑剔的成员：措辞模仿真实上游，信封按路径走（与 boom 同一约定）
+            if is_anthropic:
+                self._json(400, {"type": "error", "error": {"type": "invalid_request_error", "message": complaint}})
+            else:
+                self._json(400, {"error": {"message": complaint, "type": "invalid_request_error"}})
             return
 
         if is_anthropic:

@@ -246,16 +246,16 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				Currency:       modelWithProvider.Currency,
 				PeakPeriod:     peakPeriod,
 			}
-		// 这次尝试失败的记录。记账要在这里快照：下一次尝试开头会把盒子清空，
-		// 而"这一家失败时我们丢了什么"正是排查重试时要看的东西。
-		// lastErr 一并收下：全部尝试耗尽后客户端只拿得到一句 "All retry failed"，
-		// 真实原因（预检拒绝的原文、上游的 400 报文）必须跟着透出去，否则排查
-		// 只能进库里翻 chat_logs.error。
-		fail := func(err error) {
-			lastErr = err
-			log.BridgeNotes = bridgeNotes.String()
-			retryLog <- retryLogEntry{Log: log.WithError(err), Raw: before.raw}
-		}
+			// 这次尝试失败的记录。记账要在这里快照：下一次尝试开头会把盒子清空，
+			// 而"这一家失败时我们丢了什么"正是排查重试时要看的东西。
+			// lastErr 一并收下：全部尝试耗尽后客户端只拿得到一句 "All retry failed"，
+			// 真实原因（预检拒绝的原文、上游的 400 报文）必须跟着透出去，否则排查
+			// 只能进库里翻 chat_logs.error。
+			fail := func(err error) {
+				lastErr = err
+				log.BridgeNotes = bridgeNotes.String()
+				retryLog <- retryLogEntry{Log: log.WithError(err), Raw: before.raw}
+			}
 			// 根据请求原始请求头 是否透传请求头 自定义请求头 构建新的请求头
 			withHeader := lo.FromPtrOr(modelWithProvider.WithHeader, false)
 			headers := BuildHeaders(reqMeta.Header, withHeader, modelWithProvider.CustomerHeaders, before.Stream, HeaderVars{

@@ -774,27 +774,27 @@ func anthropicMessagesToOpenAI(msgs []AnthropicMessage, notes *[]Note) ([]OpenAI
 
 			for _, b := range m.Content {
 				switch b.Type {
-			case blockToolResult:
-				if hasOther {
-					reordered = true
-				}
-				content, err := anthropicToolResultContent(b.Content, notes)
-				if err != nil {
-					return nil, err
-				}
-				if b.IsError != nil && *b.IsError {
-					// OpenAI 的 tool 消息没有"这是失败"这个位。丢了模型会以为工具成功了，
-					// 于是接着用一份不存在的数据往下推——把失败写进正文是唯一的信息通道。
-					// 字符串照旧拼前缀；块数组拼进首个 text 块（没有就插一个纯前缀块），
-					// 图片块不受影响
-					content = prefixToolError(content)
-					*notes = append(*notes, NotePrefixedToolError)
-				}
-				toolMessages = append(toolMessages, OpenAIMessage{
-					Role:       "tool",
-					ToolCallID: b.ToolUseID,
-					Content:    content,
-				})
+				case blockToolResult:
+					if hasOther {
+						reordered = true
+					}
+					content, err := anthropicToolResultContent(b.Content, notes)
+					if err != nil {
+						return nil, err
+					}
+					if b.IsError != nil && *b.IsError {
+						// OpenAI 的 tool 消息没有"这是失败"这个位。丢了模型会以为工具成功了，
+						// 于是接着用一份不存在的数据往下推——把失败写进正文是唯一的信息通道。
+						// 字符串照旧拼前缀；块数组拼进首个 text 块（没有就插一个纯前缀块），
+						// 图片块不受影响
+						content = prefixToolError(content)
+						*notes = append(*notes, NotePrefixedToolError)
+					}
+					toolMessages = append(toolMessages, OpenAIMessage{
+						Role:       "tool",
+						ToolCallID: b.ToolUseID,
+						Content:    content,
+					})
 				case blockText:
 					if strings.TrimSpace(b.Text) == "" {
 						*notes = append(*notes, NoteDroppedEmptyText)

@@ -502,10 +502,11 @@ export interface TrendPoint {
 export interface GroupStat {
   name: string;
   /**
-   * 模型名与上游名，**只在 `byModelProvider` 这一维有值**。
+   * 模型名与上游名，**只在联合维度（`byModelProvider` / `byProviderModel`）有值**。
    *
-   * 行名（`name`）是拼好的「模型 · 上游」，但表格要按模型把上游归成一组，
-   * 拿拼好的字符串去拆是不行的：模型名里本身就可能带分隔符。
+   * 行名（`name`）是拼好的「第一分量 · 第二分量」，但表格要按第一分量把各行
+   * 归成一组，拿拼好的字符串去拆是不行的：分量名里本身就可能带分隔符。
+   * `byModelProvider` 的第一分量是请求名；`byProviderModel` 的是上游模型名。
    */
   model?: string;
   provider?: string;
@@ -584,6 +585,8 @@ export interface StatsResult {
   byProvider: GroupStat[];
   /** 模型×上游的联合分布。两个边际分布推不出它来，见 service/stats.go。 */
   byModelProvider: GroupStat[];
+  /** 上游模型×实际供应商的联合分布："哪家供应商的哪个模型在吃 token"。 */
+  byProviderModel: GroupStat[];
   byKey: GroupStat[];
   byName: GroupStat[];
   byUa: GroupStat[];

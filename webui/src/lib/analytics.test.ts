@@ -566,8 +566,8 @@ describe("模型性能排序", () => {
 })
 
 describe("模型性能的呈现维度", () => {
-  it("三个维度齐备且顺序稳定", () => {
-    expect(MODEL_DIMENSIONS).toEqual(["model", "provider", "modelProvider"])
+  it("四个维度齐备且顺序稳定", () => {
+    expect(MODEL_DIMENSIONS).toEqual(["model", "provider", "modelProvider", "providerModel"])
   })
 
   it("每个维度取到对应的数组", () => {
@@ -575,10 +575,12 @@ describe("模型性能的呈现维度", () => {
       byModel: [group({ name: "m" })],
       byProvider: [group({ name: "p" })],
       byModelProvider: [group({ name: "m · p" })],
+      byProviderModel: [group({ name: "m · p2" })],
     })
     expect(modelDimensionGroups(stats, "model").map((g) => g.name)).toEqual(["m"])
     expect(modelDimensionGroups(stats, "provider").map((g) => g.name)).toEqual(["p"])
     expect(modelDimensionGroups(stats, "modelProvider").map((g) => g.name)).toEqual(["m · p"])
+    expect(modelDimensionGroups(stats, "providerModel").map((g) => g.name)).toEqual(["m · p2"])
   })
 })
 

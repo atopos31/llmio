@@ -603,9 +603,9 @@ export function ModelsView({
   /**
    * 维度切换。
    *
-   * 「请求名 × 提供商」不是前两项的重复：同一批日志按请求名求和、按提供商
-   * 求和，两个方向都把另一半边际掉了，于是"这个请求名的几家上游谁快"在两行
-   * 合计里都读不出来——而那正是这张性能表要回答的问题。
+   * 「请求名 × 提供商」与「上游模型 × 提供商」不是前两项的重复：边际分布
+   * 各自把另一半抹平了——前者回答"这个请求名的几家上游谁快谁慢"，
+   * 后者回答"哪家供应商的哪个上游模型在吃 token"。
    */
   const picker = (
     <ToggleGroup
@@ -616,7 +616,7 @@ export function ModelsView({
         if (v) onDimension(v as ModelDimension)
       }}
       aria-label={t("models.dimension_label")}
-      // 三个选项在窄屏上比容器宽，不换行会被外壳裁掉
+      // 四个选项在窄屏上比容器宽，不换行会被外壳裁掉
       className="flex-wrap"
     >
       {MODEL_DIMENSIONS.map((d) => (
@@ -644,9 +644,12 @@ export function ModelsView({
   // 负责（见下），组间次序由 groupByRequestName 按各行合计现算。若改成先排序
   // 再归组，组内次序会被"归组时顺带带进来"，下面那行排序就成了永远等效的
   // 多余动作——一处真排序比两处互相掩盖的排序可信。
+  //
+  // 两个联合维度共用同一套归组：modelProvider 的组头是请求名，
+  // providerModel 的组头是上游模型名——都是「第一分量 · 提供商」的第一分量。
   const joint = groupByRequestName(groups)
   // 首列的表头跟着维度走：除了"模型"这一维，这一列装的都是提供商
-  // （联合维度里请求名已经升到分组行上去了）
+  // （联合维度里第一分量已经升到分组行上去了）
   const nameColumn = dimension === "model" ? t("models.columns.name") : t("models.columns.provider")
 
   /** 一行读数。首列的文字由调用方给：联合维度里它是提供商名，其余是分组名。 */
@@ -677,9 +680,11 @@ export function ModelsView({
       note={t(
         dimension === "modelProvider"
           ? "models.note_joint"
-          : dimension === "model"
-            ? "models.note_model"
-            : "models.note"
+          : dimension === "providerModel"
+            ? "models.note_joint_provider_model"
+            : dimension === "model"
+              ? "models.note_model"
+              : "models.note"
       )}
     >
       <div className="mb-3">{picker}</div>
@@ -696,32 +701,34 @@ export function ModelsView({
           </TableHeader>
           <TableBody>
             {/*
-              联合维度按请求名分组渲染：组头一行放请求名，底下是它各家的读数。
-              平铺也能看，但同一个请求名的上游会被别的请求名隔开——要"对比"
-              就得先把它们挪到一起。
+              联合维度按第一分量分组渲染：组头一行放请求名（或上游模型名），
+              底下是它各家的读数。平铺也能看，但同属一组的行会被别的组隔开
+              ——要"对比"就得先把它们挪到一起。
 
               组头用 th + scope="rowgroup" 而不是普通单元格加粗：读屏时
-              每一行的提供商名才会被读成"属于某个请求名"，否则那一列只剩
+              每一行的提供商名才会被读成"属于某个组"，否则那一列只剩
               孤零零的提供商名，读不出它在跟谁比。
             */}
-            {dimension === "modelProvider"
-              ? joint.map((grp) => (
-                  <Fragment key={grp.requestName}>
-                    <TableRow className="bg-muted/50 hover:bg-muted/50">
-                      <TableHead
-                        scope="rowgroup"
-                        colSpan={MODEL_SORT_KEYS.length + 1}
-                        className="max-w-[220px] font-medium"
-                      >
-                        <span className="block truncate" title={grp.requestName}>
-                          {grp.requestName}
-                        </span>
-                      </TableHead>
-                    </TableRow>
-                    {sortModelGroups(grp.rows, sort).map((g) => row(g, g.provider ?? g.name))}
-                  </Fragment>
-                ))
-              : rows.map((g) => row(g, g.name))}
+            {dimension === "model" || dimension === "provider" ? (
+              rows.map((g) => row(g, g.name))
+            ) : (
+              joint.map((grp) => (
+                <Fragment key={grp.requestName}>
+                  <TableRow className="bg-muted/50 hover:bg-muted/50">
+                    <TableHead
+                      scope="rowgroup"
+                      colSpan={MODEL_SORT_KEYS.length + 1}
+                      className="max-w-[220px] font-medium"
+                    >
+                      <span className="block truncate" title={grp.requestName}>
+                        {grp.requestName}
+                      </span>
+                    </TableHead>
+                  </TableRow>
+                  {sortModelGroups(grp.rows, sort).map((g) => row(g, g.provider ?? g.name))}
+                </Fragment>
+              ))
+            )}
           </TableBody>
         </Table>
       </div>

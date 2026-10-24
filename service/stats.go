@@ -385,9 +385,11 @@ type TrendPoint struct {
 // GroupStat 是单个分组的统计。
 type GroupStat struct {
 	Name string `json:"name"`
-	// Model / Provider 只在联合维度（请求名 × 提供商）填写：行名是
-	// 「请求名 · 提供商」，但展示要按请求名把各家提供商归成一组，光有一行
-	// 拼好的标签拆不回来（请求名里完全可能自己就带分隔符）。其余维度留空。
+	// Model / Provider 只在联合维度填写：行名是「第一分量 · 第二分量」，
+	// 但展示要按第一分量把各行归成一组，光有一行拼好的标签拆不回来
+	// （第一分量里完全可能自己就带分隔符）。其余维度留空。
+	// 两处使用：byModelProvider 的第一分量是请求名；byProviderModel 的
+	// 第一分量是上游模型名。
 	Model           string  `json:"model,omitempty"`
 	Provider        string  `json:"provider,omitempty"`
 	Total           int64   `json:"total"`
@@ -476,7 +478,14 @@ type StatsResult struct {
 	// 两个边际分布（byName / byProvider）推不出它来：同一个请求名被路由到
 	// 几家提供商时，谁快谁慢只在联合分布里看得见，而"只按请求名对比"会把
 	// 它们混成一行。
-	ByModelProvider []GroupStat      `json:"byModelProvider"`
+	ByModelProvider []GroupStat `json:"byModelProvider"`
+	// ByProviderModel 是上游模型×实际供应商的联合分布。
+	//
+	// 回答的是"哪家供应商的哪个上游模型实际吃掉了 token"：byModel 把供应商
+	// 抹平（同名上游模型可能来自多家），byProvider 把模型抹平（一家供应商
+	// 通常挂好几个模型），两个边际都读不出这个视角。备用关联接管时，流量
+	// 落在哪家也在这里现形。
+	ByProviderModel []GroupStat `json:"byProviderModel"`
 	ByKey           []GroupStat      `json:"byKey"`
 	ByName          []GroupStat      `json:"byName"`
 	ByUserAgent     []GroupStat      `json:"byUa"`
@@ -547,6 +556,7 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 		ByModel:         []GroupStat{},
 		ByProvider:      []GroupStat{},
 		ByModelProvider: []GroupStat{},
+		ByProviderModel: []GroupStat{},
 		ByKey:           []GroupStat{},
 		ByName:          []GroupStat{},
 		ByUserAgent:     []GroupStat{},
@@ -567,6 +577,7 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 		models          = newGroupAcc()
 		providers       = newGroupAcc()
 		modelProviders  = newGroupAcc()
+		providerModels  = newGroupAcc()
 		keys            = newGroupAcc()
 		names           = newGroupAcc()
 		uas             = newGroupAcc()
@@ -650,9 +661,16 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 		// 可能被路由到好几个上游模型，按模型分会把一次"这个别名走了几家、
 		// 谁快谁慢"的比较拆成若干小行；按请求名分则每组回答的正是这个问题。
 		// 上游模型名在单模型维度（byModel）里看，并可下钻到日志。
+		//
+		// 另一路联合维度是**上游模型 × 提供商**（byProviderModel）：前两路
+		// 都回答不了"哪家供应商的哪个上游模型在吃 token"——byModel 把供应商
+		// 抹平，byProvider 把模型抹平。两路联合各自归组，互不合并。
 		models.add(l.ProviderModel, l)
 		providers.add(l.ProviderName, l)
 		modelProviders.addJoint(l.Name, l.ProviderName, l)
+		// 供应商×上游模型：第一分量是实发的模型 id，第二分量是实际接单的供应商。
+		// provider_name 为空的行归 "-"（与其它分组的兜底一致）。
+		providerModels.addJoint(l.ProviderModel, l.ProviderName, l)
 		keys.add(keyLabel(l.AuthKeyID), l)
 		names.add(l.Name, l)
 		uas.add(l.UserAgent, l)
@@ -756,6 +774,7 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 	res.ByModel = models.result()
 	res.ByProvider = providers.result()
 	res.ByModelProvider = modelProviders.result()
+	res.ByProviderModel = providerModels.result()
 	res.ByKey = keys.result()
 	res.ByName = names.result()
 	res.ByUserAgent = uas.result()

@@ -360,17 +360,20 @@ export function errorBarWidth(count: number, base: number): number {
 /**
  * 模型性能表的呈现维度。
  *
- * 三个而不是两个：`model` 与 `provider` 是两张边际分布，各自把另一半抹平了。
+ * 四个而不是两个：`model` 与 `provider` 是两张边际分布，各自把另一半抹平了。
  * 同一个请求名被路由到几家提供商时，`name` 只给一行合计，
  * "这家比那家慢多少"在表里根本读不出来——那正是这张表最该回答的问题。
+ * `providerModel` 是上游模型×实际供应商的联合分布，回答
+ * "哪家供应商的哪个上游模型在吃 token"，备用关联接管时也在这里现形。
  */
-export type ModelDimension = "model" | "provider" | "modelProvider"
+export type ModelDimension = "model" | "provider" | "modelProvider" | "providerModel"
 
 /** 界面顺序。 */
 export const MODEL_DIMENSIONS = [
   "model",
   "provider",
   "modelProvider",
+  "providerModel",
 ] as const satisfies readonly ModelDimension[]
 
 /** 维度 → 结果字段。与 DIMENSION_STAT 同一套查表办法。 */
@@ -378,6 +381,7 @@ const MODEL_DIMENSION_STAT: Record<ModelDimension, keyof StatsResult> = {
   model: "byModel",
   provider: "byProvider",
   modelProvider: "byModelProvider",
+  providerModel: "byProviderModel",
 }
 
 /** 取某维度下的分组。顺序沿用服务端（按请求数降序）。 */
@@ -385,24 +389,25 @@ export function modelDimensionGroups(stats: StatsResult, dim: ModelDimension): G
   return stats[MODEL_DIMENSION_STAT[dim]] as GroupStat[]
 }
 
-/** 一个请求名及其各提供商的行。 */
+/** 一个联合维度组：第一分量（请求名或上游模型名）及其各提供商的行。 */
 export interface JointGroup {
   requestName: string
   rows: GroupStat[]
 }
 
 /**
- * 把联合维度的行按请求名归组，让同一请求名的各家提供商在表里挨着。
+ * 把联合维度的行按第一分量归组，让同属一个第一分量的各家提供商在表里挨着。
  *
  * 组的顺序**由各行合计现算**（请求数降序，同量按名称码点升序），而不是另接
- * 一份 `byName` 进来：两者本就得数相同（同一批日志的和），多传一个入参
- * 只会多一处可能对不上的地方。这样切到这一维时请求名之间的相对次序不变，
+ * 一份边际分布进来：两者本就得数相同（同一批日志的和），多传一个入参
+ * 只会多一处可能对不上的地方。这样切到联合维度时第一分量之间的相对次序不变，
  * 用户不会因为换了个维度就看到"第一名"换了人。
  *
- * 请求名取自分量字段而不是从行名里拆：行名是「请求名 · 提供商」拼的，
- * 而请求名里本身就可能带这个分隔符。JSON 契约里这个字段仍叫 `model`
- * （service/stats.go 的 `GroupStat.Model`），这里按它实际装的东西命名为
- * requestName——不该让读代码的人被一个叫 model 的请求名误导。
+ * 第一分量取自分量字段而不是从行名里拆：行名是「第一分量 · 提供商」拼的，
+ * 而分量名里本身就可能带这个分隔符。JSON 契约里这个字段仍叫 `model`
+ * （service/stats.go 的 `GroupStat.Model`）——`modelProvider` 维里它装请求名，
+ * `providerModel` 维里它装上游模型名，这里按 `modelProvider` 的含义沿用了
+ * requestName 这个字段名。
  */
 export function groupByRequestName(joint: GroupStat[]): JointGroup[] {
   const byRequestName = new Map<string, GroupStat[]>()

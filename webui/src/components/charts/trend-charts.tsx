@@ -19,7 +19,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart"
-import { bucketLabelFormatter, compactNumber } from "@/lib/format"
+import { bucketLabelFormatter, compactNumber, currencySymbol, formatCost } from "@/lib/format"
 import { seriesVar } from "@/lib/palette"
 import type { TrendPoint } from "@/lib/api"
 
@@ -160,6 +160,75 @@ export function TokenTrendChart({ data }: { data: TrendPoint[] }) {
           stackId="tok"
           stroke="var(--color-completion)"
           fill="var(--color-completion)"
+          fillOpacity={0.1}
+          strokeWidth={2}
+        />
+      </AreaChart>
+    </ChartContainer>
+  )
+}
+
+/**
+ * 成本趋势。请求 / Token / 成本三张各自单轴（双轴是规范头号禁项）。
+ *
+ * 单系列不画 legend（标题即系列名）。颜色取 4 号槽（琥珀）：0/1/2/3/5/7 已被
+ * 前两张图占用，且琥珀与「铜金 = 强调色」的项目语义一致——成本是要被注意的量。
+ * Y 轴用币种符号 + 紧凑数；tooltip 走 formatter 用四位小数——单桶成本常在
+ * 0.01 量级，默认的 toLocaleString 会把它显示成 0.052 这种丢精度的整数段。
+ * 单系列 + dot 指示器时时间 label 渲染在行外，formatter 替换行内容不影响它。
+ */
+export function CostTrendChart({ data, currency }: { data: TrendPoint[]; currency: string }) {
+  const { t } = useTranslation("home")
+  const label = useMemo(() => bucketLabelFormatter(data), [data])
+
+  const config = {
+    cost: { label: t("trend.cost"), color: seriesVar(4) },
+  } satisfies ChartConfig
+
+  return (
+    <ChartContainer config={config} className="aspect-auto h-[220px] w-full">
+      <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+        <CartesianGrid vertical={false} stroke="var(--border)" strokeWidth={1} />
+        <XAxis
+          dataKey="ts"
+          tickLine={false}
+          axisLine={false}
+          tickMargin={8}
+          minTickGap={24}
+          tickFormatter={(v: number) => label(v)}
+        />
+        <YAxis
+          tickLine={false}
+          axisLine={false}
+          width={44}
+          tickFormatter={(v: number) => `${currencySymbol(currency)}${compactNumber(v)}`}
+        />
+        <ChartTooltip
+          content={
+            <ChartTooltipContent
+              labelFormatter={(v) => label(Number(v))}
+              formatter={(value, name) => (
+                <>
+                  <div
+                    className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                    style={{ background: "var(--color-cost)" }}
+                  />
+                  <div className="flex flex-1 items-center justify-between leading-none">
+                    <span className="text-muted-foreground">{name}</span>
+                    <span className="text-foreground font-mono font-medium tabular-nums">
+                      {formatCost(Number(value), currency)}
+                    </span>
+                  </div>
+                </>
+              )}
+            />
+          }
+        />
+        <Area
+          type="monotone"
+          dataKey="cost"
+          stroke="var(--color-cost)"
+          fill="var(--color-cost)"
           fillOpacity={0.1}
           strokeWidth={2}
         />

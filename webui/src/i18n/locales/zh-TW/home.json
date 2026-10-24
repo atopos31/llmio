@@ -36,6 +36,7 @@
     "title": "趨勢",
     "requests": "請求趨勢",
     "tokens": "Token 消耗趨勢",
+    "cost": "成本趨勢",
     "success": "成功",
     "error": "失敗",
     "running": "在途",

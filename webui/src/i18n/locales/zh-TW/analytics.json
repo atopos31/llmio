@@ -50,7 +50,9 @@
     "requests": "請求趨勢",
     "requests_note": "共 {{total}} 次，成功 {{success}} · 失敗 {{error}} · 在途 {{running}}",
     "tokens": "Token 趨勢",
-    "tokens_note": "輸入 {{prompt}} · 輸出 {{completion}}，其中命中快取 {{cached}}"
+    "tokens_note": "輸入 {{prompt}} · 輸出 {{completion}}，其中命中快取 {{cached}}",
+    "cost": "成本趨勢",
+    "cost_note": "按請求時的價格快照累計"
   },
   "breakdown": {
     "dimension_label": "下鑽維度",

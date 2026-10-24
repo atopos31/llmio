@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import { AlertTriangle } from "lucide-react"
 import { toast } from "sonner"
 
-import { RequestTrendChart, TokenTrendChart } from "@/components/charts/trend-charts"
+import { CostTrendChart, RequestTrendChart, TokenTrendChart } from "@/components/charts/trend-charts"
 import { Panel } from "@/components/panel"
 import { EmptyState, ErrorState } from "@/components/state-views"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -40,7 +40,7 @@ import {
   type AuthKeyItem,
   type StatsResult,
 } from "@/lib/api"
-import { compactNumber, formatNumber, formatPercent } from "@/lib/format"
+import { compactNumber, formatCost, formatNumber, formatPercent } from "@/lib/format"
 
 /**
  * 分析页。
@@ -321,8 +321,8 @@ export default function AnalyticsPage() {
 /**
  * 趋势视图。
  *
- * 两张图而不是一张双轴图：请求数与 Token 量级差着几个数量级，双轴会把
- * 缩放对齐关系变成任意的，从而凭空造出数据里不存在的相关性。
+ * 三张图而不是一张双轴图：请求数与 Token 量级差着几个数量级，双轴会把
+ * 缩放对齐关系变成任意的，从而凭空造出数据里不存在的相关性。成本同理独立。
  *
  * 图与读数并列而不是只给图：读者问的第一个问题往往是"一共多少"，
  * 而这个数字在图里读不出来（要加起来）。
@@ -355,6 +355,15 @@ function TrendView({ stats }: { stats: StatsResult }) {
         })} · ${formatPercent(k.cacheHitRate)}`}
       >
         <TokenTrendChart data={stats.trend} />
+      </Panel>
+
+      {/* 点下钻任一分组名后本视图随同一筛选重取——成本趋势因此天然支持
+          按模型/提供商/Key/请求名/UA 切片，不需要给每个分组单独开趋势接口 */}
+      <Panel
+        title={t("trend.cost")}
+        note={`${t("trend.cost_note")} · ${formatCost(k.cost, k.currency)}`}
+      >
+        <CostTrendChart data={stats.trend} currency={k.currency} />
       </Panel>
     </>
   )

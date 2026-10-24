@@ -11,17 +11,24 @@
 
 | 步 | 内容 | 状态 | 提交 |
 |---|---|---|---|
-| 0 | 本文档 | ✅ | |
-| A1 | 下钻表加 Token 列（纯前端） | ⬜ | |
-| B1 | 后端 `TrendPoint.Cost` + 累计 | ⬜ | |
-| B2 | 前端 `CostTrendChart` + 主页 / 分析页接线 | ⬜ | |
-| C1 | `service/selfheal.go` 判据与改写（表驱动） | ⬜ | |
-| C2 | `BalanceChat` 内层自愈重试 + 记账 | ⬜ | |
-| C3 | 配置键 `self_heal_policy` | ⬜ | |
+| 0 | 本文档 | ✅ | `a1c08f7` |
+| A1 | 下钻表加 Token 列（纯前端） | ✅ | `cd9d3e9` |
+| B1 | 后端 `TrendPoint.Cost` + 累计 | ✅ | `56221a4` |
+| B2 | 前端 `CostTrendChart` + 主页 / 分析页接线 | ✅ | `5a94a54` |
+| C1 | `service/selfheal.go` 判据与改写（表驱动） | ✅ | `301f2c6` |
+| C2 | `BalanceChat` 内层自愈重试 + 记账 | ✅ | `fba7f4d` |
+| C3 | 配置键 `self_heal_policy` | ✅ | `c694e3e` |
 | C4 | e2e：`stub-picky` 行为 + 用例 | ✅ | `e4dffed` |
-| C5 | 实测报错校验轮（等用户样本） | 🟡 样本①已判定，见 §3.9 | |
-| C6 | bridge 搬运 tool_result 图片 + 运行时降级 + 错误透出（§3.10） | ⬜ | |
-| C7 | `response_format`→`output_format` 翻译（§3.11 首轮审计逮到的第二条过期前提） | ⬜ | |
+| C5 | 实测报错校验轮（等用户样本） | 🟡 样本①已判定，见 §3.9 | `185d054` |
+| C6 | bridge 搬运 tool_result 图片 + 运行时降级 + 错误透出（§3.10） | ✅ | `56aa542` · `bba0cd2` · `32359e3` |
+| C7 | `response_format`→`output_format` 翻译（§3.11 首轮审计逮到的第二条过期前提） | ✅ | `d2f9845` |
+
+实施记录（2026-10-24，按 `docs/plans/usage-insights-impl.md` 的分步册执行完毕）：
+验收线达成——`selfheal_check.py` S 组 0/8→**9/9**（C6b 落地后加 S9）、N 组 **4/4** 恒绿；
+`run_matrix.py` 23→**24/24**（C7 改用例 11 为翻译断言并新增 11b）；`go vet` 干净；
+覆盖率 **78.1%**（阈值 70，高于 72.7% 基线——自愈测试抬高了它）；前端 lint /
+1088 例 / build 全绿。C7 实施中的修正：现行参数为 `output_config.format`
+（旧名 `output_format` 已弃用），e2e dump 断言按 Go map 键序（schema 在 type 前）。
 
 ---
 

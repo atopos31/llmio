@@ -405,9 +405,10 @@ export interface PeakTermsForm {
  * 一份新的条款模板：**关闭**状态，三段示例时段。
  *
  * 与后端 models.DefaultPeakTerms 逐字对齐（DeepSeek 现行峰谷方案，2026-08-16
- * 起生效、2026-10-24 核对官方文档）：工作日 09:00–12:00 与 14:00–18:00 为峰时
- * （×1），其余全部为谷时（×0.5）——含工作日午间空档与夜间、周末与节假日
- * 全天。默认关闭是刻意的——分时段计费会改变成本数字的语义，在用户明确打开
+ * 起生效、2026-10-24 核对官方文档）：工作日 09:00–12:00 与 14:00–18:00 为峰时，
+ * 其余全部为谷时——含工作日午间空档与夜间、周末与节假日全天。乘数以基础价
+ * 的来源为准：自动填充写进的是官方标价即谷价，故峰时 ×2、谷时 ×1。
+ * 默认关闭是刻意的——分时段计费会改变成本数字的语义，在用户明确打开
  * 开关前不该静默生效；给示例则是因为打开开关的人马上要填的就是时段，照抄
  * 示例改数字比从零写起快得多。
  */
@@ -415,9 +416,9 @@ export function defaultTermsForm(): PeakTermsForm {
   return {
     enabled: false,
     periods: [
-      { name: "峰时·上午", start: "09:00", end: "12:00", multiplier: "1", days: [], workday: "work" },
-      { name: "峰时·下午", start: "14:00", end: "18:00", multiplier: "1", days: [], workday: "work" },
-      { name: "谷时", start: "00:00", end: "24:00", multiplier: "0.5", days: [], workday: "any" },
+      { name: "峰时·上午", start: "09:00", end: "12:00", multiplier: "2", days: [], workday: "work" },
+      { name: "峰时·下午", start: "14:00", end: "18:00", multiplier: "2", days: [], workday: "work" },
+      { name: "谷时", start: "00:00", end: "24:00", multiplier: "1", days: [], workday: "any" },
     ],
   }
 }

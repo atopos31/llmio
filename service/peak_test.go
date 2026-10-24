@@ -1295,9 +1295,9 @@ func TestFetchHolidaysFromRemoteContextCancelled(t *testing.T) {
 }
 
 // TestDefaultPeakTermsMatchesDeepSeek 钉住默认模板与 DeepSeek 现行峰谷方案的
-// 对齐（2026-08-16 起：峰时=工作日 09:00–12:00 与 14:00–18:00 东八区，其余
-// 全部 ×0.5，含周末与法定节假日）。模板是示例，但示例错了照抄的人全错——
-// 尤其"谷时靠排除法定义、必须显式成段"这一点，靠这条用例防回退。
+// 对齐（2026-08-16 起：峰时=工作日 09:00–12:00 与 14:00–18:00 东八区 ×2，
+// 其余全部 ×1 谷价——基础价是自动填充写进的官方标价即谷价，方向不是
+// 谷价 ×0.5）。模板是示例，但示例错了照抄的人全错，靠这条用例防回退。
 func TestDefaultPeakTermsMatchesDeepSeek(t *testing.T) {
 	terms := models.DefaultPeakTerms()
 	if terms.Enabled {
@@ -1313,13 +1313,13 @@ func TestDefaultPeakTermsMatchesDeepSeek(t *testing.T) {
 		multi  float64
 		period string
 	}{
-		{"工作日上午峰时", sh(t, 2026, 10, 21, 10, 0), 1, "峰时·上午"},  // 周三
-		{"工作日下午峰时", sh(t, 2026, 10, 21, 15, 0), 1, "峰时·下午"},  // 周三
-		{"工作日午间空档落谷时", sh(t, 2026, 10, 21, 13, 0), 0.5, "谷时"}, // 12:00–14:00 不在两个峰时窗内
-		{"工作日傍晚落谷时", sh(t, 2026, 10, 21, 18, 30), 0.5, "谷时"},
-		{"工作日凌晨落谷时", sh(t, 2026, 10, 21, 3, 0), 0.5, "谷时"},
-		{"周末白天落谷时", sh(t, 2026, 10, 24, 10, 0), 0.5, "谷时"}, // 周六
-		{"周末深夜落谷时", sh(t, 2026, 10, 25, 2, 0), 0.5, "谷时"},  // 周日
+		{"工作日上午峰时", sh(t, 2026, 10, 21, 10, 0), 2, "峰时·上午"},  // 周三
+		{"工作日下午峰时", sh(t, 2026, 10, 21, 15, 0), 2, "峰时·下午"},  // 周三
+		{"工作日午间空档落谷时", sh(t, 2026, 10, 21, 13, 0), 1, "谷时"}, // 12:00–14:00 不在两个峰时窗内
+		{"工作日傍晚落谷时", sh(t, 2026, 10, 21, 18, 30), 1, "谷时"},
+		{"工作日凌晨落谷时", sh(t, 2026, 10, 21, 3, 0), 1, "谷时"},
+		{"周末白天落谷时", sh(t, 2026, 10, 24, 10, 0), 1, "谷时"}, // 周六
+		{"周末深夜落谷时", sh(t, 2026, 10, 25, 2, 0), 1, "谷时"},  // 周日
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1337,8 +1337,8 @@ func TestDefaultPeakTermsMatchesDeepSeek(t *testing.T) {
 		cal.DateOverrides["2026-10-21"] = models.DateOverrideRest
 		r := NewPeakResolver(terms, cal)
 		multi, period := r.ResolveMultiplier(sh(t, 2026, 10, 21, 10, 0))
-		if multi != 0.5 || period != "谷时" {
-			t.Fatalf("节假日峰时应落谷价，实得 (%v, %q)", multi, period)
+		if multi != 1 || period != "谷时" {
+			t.Fatalf("节假日峰时应落谷价（×1），实得 (%v, %q)", multi, period)
 		}
 	})
 }

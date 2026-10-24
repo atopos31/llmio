@@ -119,6 +119,29 @@ func waitChatLogs(t *testing.T, name string, want int) []models.ChatLog {
 	return nil
 }
 
+// waitForFailRows 只等异步落库写完、不做内容断言。retryLog 的 channel 在
+// BalanceChat 返回前已关闭，见到期望行数即代表全部 SaveChatLog 完成、
+// goroutine 不会再碰库文件——不等到这一点，t.TempDir 的 RemoveAll 可能与
+// 最后一次写并发，Linux 上会以 "directory not empty" 把测试标成失败
+// （CI 实测：TestBalanceChat429NotSelfHealed 因此 flaky）。
+func waitForFailRows(t *testing.T, name string, want int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var n int64
+		if err := models.DB.Model(&models.ChatLog{}).Where("name = ?", name).Count(&n).Error; err != nil {
+			t.Fatalf("count chat logs: %v", err)
+		}
+		if n >= int64(want) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("等不到 %d 条失败日志，实得 %d", want, n)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func TestBalanceChatSelfHealsDroppedParam(t *testing.T) {
 	setupSelfHealChatDB(t)
 	up := &pickyUpstream{errors: []string{"Unrecognized request argument supplied: top_k"}}
@@ -218,6 +241,7 @@ func TestBalanceChatSelfHealBudgetExhausted(t *testing.T) {
 	if !last.Get("metadata").Exists() {
 		t.Fatal("第四个参数不该被删（预算已尽）")
 	}
+	waitForFailRows(t, "gpt-selfheal", 4)
 }
 
 func TestBalanceChatSelfHealDisabled(t *testing.T) {
@@ -242,6 +266,7 @@ func TestBalanceChatSelfHealDisabled(t *testing.T) {
 	if up.requestCount() != 1 {
 		t.Fatalf("关闭自愈后上游只应收 1 发，实得 %d", up.requestCount())
 	}
+	waitForFailRows(t, "gpt-selfheal", 1)
 }
 
 func TestBalanceChatDowngradesToolContentArray(t *testing.T) {
@@ -315,4 +340,5 @@ func TestBalanceChat429NotSelfHealed(t *testing.T) {
 	if hits != 1 {
 		t.Fatalf("429 不该重发，实发 %d 次", hits)
 	}
+	waitForFailRows(t, "gpt-selfheal", 1)
 }

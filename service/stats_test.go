@@ -262,6 +262,14 @@ func TestClassifyError(t *testing.T) {
 		{name: "重试耗尽", in: `All retry failed, trace ID: abc123`, wantCode: "exhausted", wantType: "重试耗尽"},
 		{name: "业务错误样本", in: `response matched provider error sample "quota"`, wantCode: "upstream-body", wantType: "上游业务错误"},
 		{name: "超时", in: `context deadline exceeded`, wantCode: "timeout", wantType: "超时"},
+		// 客户端断开必须排在"重试耗尽"之前：cancel 收尾的错误常带 All retry failed
+		// 外壳，根因是对端先跑了，不能归成重试耗尽
+		{name: "客户端断开（裸 cancel）", in: `context canceled`, wantCode: "client-cancel", wantType: "客户端断开"},
+		{name: "客户端断开（英式拼写）", in: `context cancelled`, wantCode: "client-cancel", wantType: "客户端断开"},
+		{name: "客户端断开压过重试耗尽外壳", in: `All retry failed: context canceled, trace ID: abc123`, wantCode: "client-cancel", wantType: "客户端断开"},
+		{name: "客户端断开（P2 新文案）", in: `[response_stream] canceled by client or intermediary proxy`, wantCode: "client-cancel", wantType: "客户端断开"},
+		// 防串位：deadline 类错误不含 cancel 串，仍归超时
+		{name: "超时不被断开规则抢走", in: `context deadline exceeded while awaiting headers`, wantCode: "timeout", wantType: "超时"},
 		{name: "超时（timed out）", in: `request timed out`, wantCode: "timeout", wantType: "超时"},
 		{name: "超时（timeout 通用）", in: `i/o timeout`, wantCode: "timeout", wantType: "超时"},
 		// 拨号超时同时含"网络"与"超时"特征，必须归为超时（顺序保证）

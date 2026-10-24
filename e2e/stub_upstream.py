@@ -58,6 +58,7 @@ def behavior(model):
         "thinking",
         "picky-chain",
         "picky-injected",
+        "picky-toolimg",
         "picky-openai",
         "picky-unknown",
         "picky-unsupported",
@@ -113,6 +114,13 @@ def picky_complaint(model, req):
         return reject("top_k", "Unsupported parameter: 'top_k'")
     if b == "picky-injected":
         return reject("stream_options", "Unrecognized request argument supplied: stream_options")
+    if b == "picky-toolimg":
+        # 只收字符串 content 的老式兼容上游：tool 消息 content 为块数组即 400。
+        # 这是类型错——按判据不进通用删参，正确动作是压形状（运行时降级）
+        for m in req.get("messages") or []:
+            if m.get("role") == "tool" and isinstance(m.get("content"), list):
+                return "Invalid type for 'content': expected a string, but got an array instead"
+        return None
     if b == "picky-chain":
         for p in PICKY_CHAIN:
             if p in req:

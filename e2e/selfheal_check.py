@@ -189,6 +189,31 @@ def build_cases(oc, oa):
                 success_notes=["self_heal_dropped:top_k"], success_retry=1,
             ),
         ),
+        dict(
+            name="S9 桥接·工具结果图片：搬运后被拒，降级后成功",
+            client="anthropic",
+            assoc=[{"provider": oc, "provider_model": "stub-picky-toolimg"}],
+            body={"max_tokens": 64, "messages": [
+                {"role": "user", "content": "查图"},
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "toolu_1", "name": "shot", "input": {}}]},
+                {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "toolu_1", "content": [
+                        {"type": "text", "text": "截好了"},
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}},
+                    ]},
+                ]},
+            ]},
+            expect=dict(
+                client_ok=True,
+                upstream=dict(path="/openai/chat/completions", count=2,
+                              first_dump=['"type":"image_url"'],
+                              last_absent=["image_url"]),
+                rows=2, err400=1, error_phrase="Invalid type for 'content'",
+                success_notes=["carried_tool_result_image", "dropped_tool_result_image"],
+                success_retry=1,
+                upstream_style="openai",
+            ),
+        ),
         # ── N 组：判据边界，一律不自愈，实现前后都必须绿 ──
         dict(
             name="N1 边界·值类型错不删参",
@@ -260,6 +285,10 @@ def check_upstream(exp, stub, primary_pm):
         rm.need(r["path"].endswith(up["path"]), f"上游路径 {r['path']}，期望以 {up['path']} 结尾")
     for key in up.get("first_has", []):
         rm.need(key in got[0]["body"], f"第一发上游请求里没有 {key}——用例前提不成立")
+    if got and up.get("first_dump"):
+        first_dump = json.dumps(got[0]["body"], ensure_ascii=False, separators=(",", ":"))
+        for frag in up["first_dump"]:
+            rm.need(frag in first_dump, f"第一发上游请求里找不到 {frag}")
     last = got[-1]["body"]
     for key in up.get("last_has", []):
         rm.need(key in last, f"最后一发上游请求里没有 {key}")

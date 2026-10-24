@@ -303,6 +303,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			}
 			drops := map[string]bool{}
 			healed := 0
+			downgraded := false
 
 			var res *http.Response
 			nextProvider := false // 跳出内层后是否换下一家
@@ -355,6 +356,23 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 						// 自愈也是一次真实上游调用，失败行与最终成功行都如实计数
 						log.Retry = retry + healed
 						fail(fmt.Errorf("status: %d, body: %s (self-heal: dropped %s)", res.StatusCode, string(byteBody), path))
+						continue
+					}
+				}
+
+				// 工具内容数组的运行时降级：搬运过去的块数组被上游以类型错点名时，
+				// 压回纯文本（丢图、留文本）重发。与删参同一认识论——先发完整形状，
+				// 被点名拒收才降级且留痕；一条独立于删参预算（每家最多一次）
+				if selfHeal.Enabled && !downgraded && healableStatusCodes[res.StatusCode] &&
+					toolContentArrayPattern.MatchString(complaintText(byteBody)) {
+					if next, droppedImgs := FlattenToolContent(rawBody); droppedImgs >= 0 && !bytes.Equal(next, rawBody) {
+						downgraded = true
+						rawBody = next
+						if droppedImgs > 0 {
+							bridgeNotes.record([]bridge.Note{bridge.NoteDroppedToolResultImage})
+						}
+						log.Retry = retry + healed + 1
+						fail(fmt.Errorf("status: %d, body: %s (downgrade: tool content to text, %d image(s) dropped)", res.StatusCode, string(byteBody), droppedImgs))
 						continue
 					}
 				}

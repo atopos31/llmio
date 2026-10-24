@@ -153,3 +153,65 @@ func TestApplyDrop(t *testing.T) {
 		})
 	}
 }
+
+func TestFlattenToolContent(t *testing.T) {
+	t.Parallel()
+
+	t.Run("混合 text+image 数组压回字符串并计数", func(t *testing.T) {
+		t.Parallel()
+		raw := []byte(`{"messages":[{"role":"user","content":"查图"},{"role":"tool","tool_call_id":"t1","content":[{"type":"text","text":"截好了"},{"type":"image_url","image_url":{"url":"data:image/png;base64,QUJD"}}]}]}`)
+		out, dropped := FlattenToolContent(raw)
+		if dropped != 1 {
+			t.Fatalf("应丢弃 1 张图，实得 %d", dropped)
+		}
+		got := gjson.GetBytes(out, "messages.1.content")
+		if got.Type != gjson.String || got.String() != "截好了" {
+			t.Fatalf("tool content 应压回字符串，实得 %v", got)
+		}
+		if gjson.GetBytes(out, "messages.0.content").String() != "查图" {
+			t.Fatalf("user 消息不该被动到：%s", out)
+		}
+	})
+
+	t.Run("纯 text 数组无损压缩不计数", func(t *testing.T) {
+		t.Parallel()
+		raw := []byte(`{"messages":[{"role":"tool","tool_call_id":"t1","content":[{"type":"text","text":"第一段"},{"type":"input_text","text":"第二段"}]}]}`)
+		out, dropped := FlattenToolContent(raw)
+		if dropped != 0 {
+			t.Fatalf("无图时 dropped 应为 0，实得 %d", dropped)
+		}
+		if gjson.GetBytes(out, "messages.0.content").String() != "第一段第二段" {
+			t.Fatalf("纯文本应拼接保序：%s", out)
+		}
+	})
+
+	t.Run("非数组 content 与无 tool 消息原样返回", func(t *testing.T) {
+		t.Parallel()
+		a := []byte(`{"messages":[{"role":"tool","content":"字符串"}]}`)
+		b := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"x"}]}]}`)
+		for _, raw := range [][]byte{a, b} {
+			out, dropped := FlattenToolContent(raw)
+			if dropped != -1 || string(out) != string(raw) {
+				t.Fatalf("应原样返回，实得 dropped=%d out=%s", dropped, out)
+			}
+		}
+	})
+
+	t.Run("幂等：二次运行为原样", func(t *testing.T) {
+		t.Parallel()
+		raw := []byte(`{"messages":[{"role":"tool","tool_call_id":"t1","content":[{"type":"text","text":"x"},{"type":"image_url","image_url":{"url":"u"}}]}]}`)
+		once, _ := FlattenToolContent(raw)
+		twice, dropped := FlattenToolContent(once)
+		if dropped != -1 || string(twice) != string(once) {
+			t.Fatalf("二次运行应原样返回，实得 dropped=%d", dropped)
+		}
+	})
+
+	t.Run("值类型错的 top_k 不触发降级判据", func(t *testing.T) {
+		t.Parallel()
+		// N 组负控的判据侧钉子：toolContentArrayPattern 只认 content 的类型错
+		if toolContentArrayPattern.MatchString("Invalid type for 'top_k': expected an integer") {
+			t.Fatal("top_k 的类型错不该命中工具内容降级判据")
+		}
+	})
+}

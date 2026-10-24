@@ -244,6 +244,50 @@ func TestBalanceChatSelfHealDisabled(t *testing.T) {
 	}
 }
 
+func TestBalanceChatDowngradesToolContentArray(t *testing.T) {
+	setupSelfHealChatDB(t)
+	// 搬运过去的块数组被上游以类型错点名 → 压回纯文本重发成功
+	up := &pickyUpstream{errors: []string{"Invalid type for 'content': expected a string, but got an array instead"}}
+	server := httptest.NewServer(http.HandlerFunc(up.handler))
+	t.Cleanup(server.Close)
+
+	meta, before := selfHealFixture(t, server)
+	before.raw = []byte(`{"model":"gpt-selfheal","messages":[{"role":"user","content":"hi"},{"role":"tool","tool_call_id":"t1","content":[{"type":"text","text":"结果"},{"type":"image_url","image_url":{"url":"data:image/png;base64,QUJD"}}]}]}`)
+	notes := NewBridgeNotes()
+
+	res, log, err := BalanceChat(context.Background(), time.Now(), "openai", before, meta, models.ReqMeta{}, notes)
+	if err != nil {
+		t.Fatalf("BalanceChat: %v", err)
+	}
+	defer res.Body.Close()
+	log.Status = consts.StatusSuccess
+	if _, err := SaveChatLog(context.Background(), *log); err != nil {
+		t.Fatalf("save success log: %v", err)
+	}
+
+	if up.requestCount() != 2 {
+		t.Fatalf("上游应收 2 发（数组被拒 + 压回字符串成功），实得 %d", up.requestCount())
+	}
+	last := gjson.Parse(up.lastBody())
+	if got := last.Get("messages.1.content"); got.Type != gjson.String || got.String() != "结果" {
+		t.Fatalf("重发的 tool content 应压回字符串，实得 %v", got)
+	}
+	rows := waitChatLogs(t, "gpt-selfheal", 2)
+	for _, r := range rows {
+		if r.Status == consts.StatusSuccess {
+			if !strings.Contains(r.BridgeNotes, "dropped_tool_result_image") {
+				t.Fatalf("成功行记账缺 dropped_tool_result_image，实得 %q", r.BridgeNotes)
+			}
+			if strings.Contains(r.BridgeNotes, "self_heal_dropped") {
+				t.Fatalf("类型错不该走删参，记账里不该有 self_heal 短码：%q", r.BridgeNotes)
+			}
+			if r.Retry != 1 {
+				t.Fatalf("成功行 Retry 应为 1（降级一次），实得 %d", r.Retry)
+			}
+		}
+	}
+}
+
 func TestBalanceChat429NotSelfHealed(t *testing.T) {
 	setupSelfHealChatDB(t)
 	// 429 不进自愈：即使报错文本命中模式也不删参，走 Reduce 降权

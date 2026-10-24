@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -156,4 +157,53 @@ func GetSelfHealPolicy(ctx context.Context) *models.SelfHealPolicy {
 		return DefaultSelfHealPolicy()
 	}
 	return policy
+}
+
+// toolContentArrayPattern 识别"上游不收 tool 消息的块数组 content"这类 400。
+// 它是**类型错**，按 §3.4 不进通用删参（正确动作不是删参数而是压形状），
+// 单独一条协议感知的降级规则处理。
+var toolContentArrayPattern = regexp.MustCompile(`(?i)invalid type for 'content': expected a string`)
+
+// ToolContentDowngradeNote 工具结果图片被降级丢弃的记账短码。
+const ToolContentDowngradeNote = "dropped_tool_result_image"
+
+// FlattenToolContent 把 rawBody 里所有 role:"tool" 且 content 为块数组的消息
+// 压回纯文本字符串（丢 image 块、保 text 块）。返回 (新 body, 丢弃的图片块数)；
+// 没有可压的目标时返回 (原 body, -1)。幂等：再跑一遍找不到目标，原样返回。
+func FlattenToolContent(raw []byte) ([]byte, int) {
+	msgs := gjson.GetBytes(raw, "messages")
+	if !msgs.IsArray() {
+		return raw, -1
+	}
+	out := raw
+	dropped := 0
+	changed := false
+	i := 0
+	msgs.ForEach(func(_, msg gjson.Result) bool {
+		if msg.Get("role").String() == "tool" && msg.Get("content").IsArray() {
+			var texts []string
+			msg.Get("content").ForEach(func(_, part gjson.Result) bool {
+				if part.Get("type").String() == "image_url" {
+					dropped++
+					return true
+				}
+				if part.Get("type").String() == "text" || part.Get("type").String() == "input_text" {
+					texts = append(texts, part.Get("text").String())
+				}
+				return true
+			})
+			next, err := sjson.SetBytes(out, fmt.Sprintf("messages.%d.content", i), strings.Join(texts, ""))
+			if err != nil {
+				return true // 单条失败不动整份 body，保守继续
+			}
+			out = next
+			changed = true
+		}
+		i++
+		return true
+	})
+	if !changed {
+		return raw, -1
+	}
+	return out, dropped
 }

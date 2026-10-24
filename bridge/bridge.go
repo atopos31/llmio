@@ -93,6 +93,11 @@ const (
 	// 路由器换掉本来服务得了的上游。记 Note 是因为第三方 OpenAI 兼容上游未必
 	// 支持这个形状，运维要看得见发出去了什么（不收时的运行时降级见 selfheal）。
 	NoteCarriedToolResultImage Note = "carried_tool_result_image"
+	// NoteDroppedToolResultImage 上游明确拒收 tool 消息的块数组 content（400
+	// 类型错），运行时降级把它压回纯文本、图片被丢弃。搬运在前（NoteCarried-
+	// ToolResultImage）、降级在后：网关不猜上游支不支持，让上游的实际反应裁决。
+	// 与自愈删参同一认识论——先发完整形状，被点名拒收才降级且留痕。
+	NoteDroppedToolResultImage Note = "dropped_tool_result_image"
 
 	// 以下几条约只出现在**响应**侧：那边没有重试的机会（字已经生成出来了），
 	// 做不到的地方只能带上并记账，不能像请求侧那样拒绝。

@@ -1,0 +1,61 @@
+name: beta image
+
+# Beta 镜像渠道：手动触发，构建并推送到本仓库（fork）自己的 Docker Hub 命名空间。
+# 与 cicd.yml 互不干扰——正式版本仍走 tag 触发的 semver + latest；本工作流
+# 只服务 beta 渠道，不写任何版本 tag，也不触碰上游 atopos31 的任何资源。
+#
+# 每次触发推送两个 tag：
+#   - 可移动的渠道 tag（默认 beta，可在 inputs 里改）
+#   - 固定的可回溯 tag beta-<UTC日期>-<短sha>（同时作为镜像内的版本号，
+#     /api/version 可查到容器跑的是哪次构建）
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '渠道 tag（固定 tag beta-<日期>-<sha> 总是同步推送）'
+        required: false
+        default: 'beta'
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-push-beta:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute pinned tag
+        id: stamp
+        run: echo "pinned=beta-$(date -u +%Y%m%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            docker.io/${{ env.IMAGE_NAME }}:${{ inputs.tag }}
+            docker.io/${{ env.IMAGE_NAME }}:${{ steps.stamp.outputs.pinned }}
+          build-args: |
+            VERSION=${{ steps.stamp.outputs.pinned }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

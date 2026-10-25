@@ -58,6 +58,7 @@ function stats(over: Partial<StatsResult> = {}): StatsResult {
     ],
     byModel: [group("deepseek-chat")],
     byModelProvider: [],
+    byProviderModel: [],
     byProvider: [group("scnet")],
     byKey: [group("dev-key")],
     byName: [group("claude-code")],

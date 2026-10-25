@@ -181,7 +181,9 @@
         "same_protocol": "同协议",
         "context": "上下文 {{value}}"
       }
-    }
+    },
+    "backup": "备用关联",
+    "backup_hint": "不参与日常轮询，仅当所有主关联都失败时才接管；请确保「重试次数限制」留有余量。"
   },
   "test_dialog": {
     "title": "模型测试",

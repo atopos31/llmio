@@ -32,7 +32,11 @@ const demoSeedLogCount = 120
 // 抽成常量并在构造行时校验：列与占位符靠手数对齐，数错一个就是运行时
 // "N values for M columns" 的硬错误，而这条路径只在演示部署上跑，
 // 本地测试覆盖不到。让它在构造时就自己炸出来。
-const demoSeedLogCols = 28
+const demoSeedLogCols = 29
+
+// demoSeedFallbackPairs 是「主关联失败 → 备用接管」成对演示行的对数。
+// 固定 3 对：日志页与「提供商 × 模型」维度里能看出这个故事，又不至于喧宾夺主。
+const demoSeedFallbackPairs = 3
 
 // demoSeedFlagKey 是"演示数据已灌过"的标记配置项。
 const demoSeedFlagKey = "llmio_demo_data"
@@ -134,6 +138,14 @@ func demoSeedAll(ctx context.Context, tx *gorm.DB) error {
 			Config:  `{"base_url":"https://generativelanguage.googleapis.com","api_key":"sk-demo-gemini"}`,
 			Console: "https://aistudio.google.com/apikey",
 		},
+		{
+			// 第四条是**备用**演示渠：只服务「主关联全挂后接管」这一个故事，
+			// 日常轮询永远轮不到它（pickAssoc 会跳过备用关联，见下）。
+			Name:    "备份演示渠",
+			Type:    consts.StyleOpenAI,
+			Config:  `{"base_url":"https://api.deepseek.com","api_key":"sk-demo-backup"}`,
+			Console: "https://platform.deepseek.com/usage",
+		},
 	}
 	if err := tx.Create(&providers).Error; err != nil {
 		return fmt.Errorf("seed providers: %w", err)
@@ -144,7 +156,7 @@ func demoSeedAll(ctx context.Context, tx *gorm.DB) error {
 	// 一个开熔断、一个不开：策略与熔断是重点，两个都摆出来才看得出差别。
 	modelsList := []models.Model{
 		{
-			Name: "gpt-4o-mini", Remark: "演示用主力模型：三条上游、加权 3:2:1",
+			Name: "gpt-4o-mini", Remark: "演示用主力模型：三条主上游加权 3:2:1，另有一条备用关联演示降级接管",
 			MaxRetry: 2, TimeOut: 60,
 			Strategy: consts.BalancerLottery, Breaker: new(true), PreferDirect: new(true),
 			DisplayOrder: 2,
@@ -182,6 +194,14 @@ func demoSeedAll(ctx context.Context, tx *gorm.DB) error {
 			Weight: 1, ToolCall: new(true), StructuredOutput: new(false), Image: new(true),
 			WithHeader: new(false), Status: new(true),
 			Currency: "CNY", InputPrice: new(0.1), CacheReadPrice: new(0.05), OutputPrice: new(0.4),
+		},
+		{
+			// 备用关联：不参与日常轮询，只在日志里以「降级接管」的形态出现
+			//（demoSeedChatLogs 里那几对失败行+接管行）。
+			ModelID: modelsList[0].ID, ProviderID: providers[3].ID, ProviderModel: "deepseek-chat",
+			Weight: 1, ToolCall: new(true), StructuredOutput: new(true), Image: new(false),
+			WithHeader: new(false), Status: new(true), Backup: new(true),
+			Currency: "CNY", InputPrice: new(2.0), CacheReadPrice: new(0.5), OutputPrice: new(8.0),
 		},
 		{
 			ModelID: modelsList[1].ID, ProviderID: providers[0].ID, ProviderModel: "gpt-4o",
@@ -225,11 +245,13 @@ func demoSeedAll(ctx context.Context, tx *gorm.DB) error {
 //
 // 照权重挑而不是均匀挑：日志里 3:2:1 的分布正是负载均衡那页要展示的东西，
 // 均匀分布会让"配了权重"这件事在页面上看不出来。
+// 备用关联必须跳过——它不参与日常轮询，出现在常规日志里就是假数据
+// （真实调度见 service/splitWeightItems 的分池）。
 func pickAssoc(rng *rand.Rand, assoc []models.ModelWithProvider, modelID uint) (models.ModelWithProvider, string) {
 	candidates := make([]models.ModelWithProvider, 0, 3)
 	total := 0
 	for _, a := range assoc {
-		if a.ModelID != modelID {
+		if a.ModelID != modelID || (a.Backup != nil && *a.Backup) {
 			continue
 		}
 		candidates = append(candidates, a)
@@ -302,13 +324,51 @@ func demoSeedChatLogs(
 	latency := []time.Duration{820 * time.Millisecond, 1150 * time.Millisecond, 480 * time.Millisecond}
 	uas := []string{"Claude-Code/1.0.44", "OpenAI-Python/1.58.1", "curl/8.7.1"}
 	// 错误按真实会遇到的分类给，错误分析页的分组才不至于只有一种。
+	// context canceled 单独给一类：P1 的「客户端断开」分类要有样本可归，
+	// 否则演示页的错误分布里永远见不到这个类目。
 	errSamples := []string{
 		`{"error":{"type":"rate_limit_error","message":"Rate limit reached for gpt-4o-mini"}}`,
 		`{"error":{"type":"server_error","message":"upstream connect timeout"}}`,
+		"context canceled",
 	}
 
-	values := make([]string, 0, demoSeedLogCount)
-	args := make([]any, 0, demoSeedLogCount*demoSeedLogCols)
+	values := make([]string, 0, demoSeedLogCount+demoSeedFallbackPairs)
+	args := make([]any, 0, (demoSeedLogCount+demoSeedFallbackPairs)*demoSeedLogCols)
+
+	// 备用关联的接管演示：主关联先吃一发 502（失败行），紧接着同 trace 的
+	// 成功行由备用关联产出（Backup=true、Retry=1）——日志页「角色」列与
+	// 「提供商 × 模型」维度里，降级接管的故事就是这么讲的。
+	// 槽位先按"落在带备用关联的模型上的行"等距挑好：不能写死 i 的奇偶或
+	// 固定余数——那会随模型数量变化悄悄落空（实测 3 个模型时 3 对变 0 对）。
+	backupOf := make(map[uint]models.ModelWithProvider)
+	for _, a := range assoc {
+		if a.Backup != nil && *a.Backup {
+			backupOf[a.ModelID] = a
+		}
+	}
+	fallbackSlots := func() map[int]bool {
+		var hits []int
+		for i := 0; i < demoSeedLogCount; i++ {
+			if _, ok := backupOf[modelIDs[i%len(modelIDs)]]; ok {
+				hits = append(hits, i)
+			}
+		}
+		slots := make(map[int]bool, demoSeedFallbackPairs)
+		if len(hits) == 0 {
+			return slots
+		}
+		step := len(hits) / demoSeedFallbackPairs
+		if step == 0 {
+			for _, i := range hits {
+				slots[i] = true
+			}
+			return slots
+		}
+		for j := 0; j < len(hits) && len(slots) < demoSeedFallbackPairs; j += step {
+			slots[hits[j]] = true
+		}
+		return slots
+	}()
 
 	for i := 0; i < demoSeedLogCount; i++ {
 		// 均匀铺满 24 小时，再加一点抖动，避免分桶边界上堆成一列。
@@ -322,6 +382,13 @@ func demoSeedChatLogs(
 		modelName := modelNames[slot]
 
 		failed := rng.Float64() < 0.08 // 8% 失败率，成功率 92% 上下，图上好看又好解释
+
+		// 备用接管演示槽位（预计算见上）：主关联先吃一发 502，
+		// 紧接着的接管行由备用关联产出成功响应。
+		fallbackSlot := fallbackSlots[i]
+		if fallbackSlot {
+			failed = true
+		}
 
 		prompt := int64(180 + rng.Intn(1400))
 		completion := int64(60 + rng.Intn(900))
@@ -358,7 +425,13 @@ func demoSeedChatLogs(
 		errText := ""
 		if failed {
 			status = consts.StatusError
-			errText = errSamples[rng.Intn(len(errSamples))]
+			if fallbackSlot {
+				// 502 而不是随机样本：接管的因果要能从错误原文读出来
+				//（上游 5xx → 移出候选 → 备用接管），换家才有依据。
+				errText = "status: 502, body: bad gateway"
+			} else {
+				errText = errSamples[rng.Intn(len(errSamples))]
+			}
 		}
 
 		// 价格三档 + 币种必须给全：ChatLog 上它们是非指针的 float64/string，
@@ -379,14 +452,20 @@ func demoSeedChatLogs(
 			currency = price.Currency
 		}
 
+		// 同一次请求的重试行共享 trace / 会话 / UA / IP——日志页靠它们把
+		// 「失败在主关联、成功在备用」读成同一个故事。
+		traceID := fmt.Sprintf("trace-demo-%04d", i)
+		sessionID := fmt.Sprintf("sess-demo-%d", i/5)
+		ua := uas[rng.Intn(len(uas))]
+		ip := fmt.Sprintf("203.0.113.%d", 10+rng.Intn(200))
+
 		row := []any{
 			created, created,
 			modelName,
-			fmt.Sprintf("trace-demo-%04d", i),
+			traceID,
 			upstreamModel, providerName[a.ProviderID], status, consts.StyleOpenAI,
-			uas[rng.Intn(len(uas))],
-			fmt.Sprintf("203.0.113.%d", 10+rng.Intn(200)),
-			key.ID, fmt.Sprintf("sess-demo-%d", i/5), false,
+			ua, ip,
+			key.ID, sessionID, false,
 			errText, 0,
 			// Duration 按**纳秒**存（GORM 的约定，见 models/migrate_test.go 的上游夹具），
 			// 所以直接给 time.Duration 本身，不是 Microseconds()。
@@ -397,12 +476,54 @@ func demoSeedChatLogs(
 			// 喂整数落库后读路径反序列化会直接报错；空值也不行（列上有序列化器）。
 			fmt.Sprintf(`{"cached_tokens":%d,"audio_tokens":0}`, cached),
 			inputPrice, cacheReadPrice, outputPrice, currency,
+			false,
 		}
-		if len(row) != demoSeedLogCols {
-			return fmt.Errorf("seed chat logs: 列数对不上，row=%d 期望=%d", len(row), demoSeedLogCols)
+		if err := appendSeedRow(&values, &args, row); err != nil {
+			return err
 		}
-		values = append(values, "("+strings.TrimSuffix(strings.Repeat("?,", demoSeedLogCols), ",")+")")
-		args = append(args, row...)
+
+		// 接管行：主关联失败 3 秒后，备用关联交出同 trace 的成功响应。
+		// Retry=1 与真实调度一致（重试第 1 轮降级命中备用）。
+		if fallbackSlot {
+			ba := backupOf[modelID]
+			created2 := created.Add(3 * time.Second)
+			completion2 := int64(60 + rng.Intn(900))
+			tps2 := 18.0 + rng.Float64()*46.0
+			proxy2 := time.Duration(float64(completion2)/tps2*float64(time.Second)) + base
+			cached2 := int64(0)
+			if rng.Float64() < 0.4 {
+				cached2 = prompt / 2
+			}
+			bPrice := ba
+			bInput, bCache, bOutput := 0.0, 0.0, 0.0
+			if bPrice.InputPrice != nil {
+				bInput = *bPrice.InputPrice
+			}
+			if bPrice.CacheReadPrice != nil {
+				bCache = *bPrice.CacheReadPrice
+			}
+			if bPrice.OutputPrice != nil {
+				bOutput = *bPrice.OutputPrice
+			}
+			row2 := []any{
+				created2, created2,
+				modelName,
+				traceID,
+				ba.ProviderModel, providerName[ba.ProviderID], consts.StatusSuccess, consts.StyleOpenAI,
+				ua, ip,
+				key.ID, sessionID, false,
+				"", 1,
+				int64(proxy2), int64(base / 3), int64(proxy2),
+				tps2, int(completion2 * 4),
+				prompt, completion2, prompt + completion2,
+				fmt.Sprintf(`{"cached_tokens":%d,"audio_tokens":0}`, cached2),
+				bInput, bCache, bOutput, currency,
+				true,
+			}
+			if err := appendSeedRow(&values, &args, row2); err != nil {
+				return err
+			}
+		}
 	}
 
 	stmt := `INSERT INTO chat_logs (
@@ -416,11 +537,24 @@ func demoSeedChatLogs(
 		tps, size,
 		prompt_tokens, completion_tokens, total_tokens,
 		prompt_tokens_details,
-		input_price, cache_read_price, output_price, currency
+		input_price, cache_read_price, output_price, currency,
+		backup
 	) VALUES ` + strings.Join(values, ",")
 
 	if err := tx.WithContext(ctx).Exec(stmt, args...).Error; err != nil {
 		return fmt.Errorf("seed chat logs: %w", err)
 	}
+	return nil
+}
+
+// appendSeedRow 把一行值挂到批量 INSERT 上，并在构造时就校验列数：
+// 列与占位符靠手数对齐，数错一个就是运行时 "N values for M columns" 的硬错误。
+// 主行与备用接管行都走这一道，两条构造路径共享同一份列数守卫。
+func appendSeedRow(values *[]string, args *[]any, row []any) error {
+	if len(row) != demoSeedLogCols {
+		return fmt.Errorf("seed chat logs: 列数对不上，row=%d 期望=%d", len(row), demoSeedLogCols)
+	}
+	*values = append(*values, "("+strings.TrimSuffix(strings.Repeat("?,", demoSeedLogCols), ",")+")")
+	*args = append(*args, row...)
 	return nil
 }

@@ -369,6 +369,34 @@ export function ModelProviderFormDialog({
                 )}
               />
 
+              {/*
+                备用开关放在参数组末尾：它改变的不是"这一条怎么发"而是
+                "这一条什么时候发"——不参与日常轮询，只在主关联全部失败后接管。
+                放在能力/价格中间会让人以为它影响请求内容。
+              */}
+              <FormField
+                control={form.control}
+                name="backup"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value ?? false}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <div className="space-y-1 leading-none">
+                      <FormLabel>
+                        {t('association_form.backup')}
+                      </FormLabel>
+                      <p className="text-xs text-muted-foreground">
+                        {t('association_form.backup_hint')}
+                      </p>
+                    </div>
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name="customer_headers"

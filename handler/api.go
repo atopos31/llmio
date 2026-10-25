@@ -47,23 +47,23 @@ type ModelOrderRequest struct {
 
 // ModelWithProviderRequest represents the request body for creating/updating a model-provider association
 type ModelWithProviderRequest struct {
-	ModelID          uint              `json:"model_id"`
-	ProviderModel    string            `json:"provider_name"`
-	ProviderID       uint              `json:"provider_id"`
-	ToolCall         bool              `json:"tool_call"`
-	StructuredOutput bool              `json:"structured_output"`
-	Image            bool              `json:"image"`
-	WithHeader       bool              `json:"with_header"`
+	ModelID          uint   `json:"model_id"`
+	ProviderModel    string `json:"provider_name"`
+	ProviderID       uint   `json:"provider_id"`
+	ToolCall         bool   `json:"tool_call"`
+	StructuredOutput bool   `json:"structured_output"`
+	Image            bool   `json:"image"`
+	WithHeader       bool   `json:"with_header"`
 	// Backup 是否为备用关联：不参与日常轮询，仅当主关联在本请求内全部不可用后接管。
 	// 老客户端不传即 false，天然兼容。
-	Backup           bool              `json:"backup"`
-	CustomerHeaders  map[string]string `json:"customer_headers"`
-	ExtraBody        map[string]any    `json:"extra_body"`
-	Weight           int               `json:"weight"`
-	InputPrice       float64           `json:"input_price"`
-	CacheReadPrice   float64           `json:"cache_read_price"`
-	OutputPrice      float64           `json:"output_price"`
-	Currency         string            `json:"currency"`
+	Backup          bool              `json:"backup"`
+	CustomerHeaders map[string]string `json:"customer_headers"`
+	ExtraBody       map[string]any    `json:"extra_body"`
+	Weight          int               `json:"weight"`
+	InputPrice      float64           `json:"input_price"`
+	CacheReadPrice  float64           `json:"cache_read_price"`
+	OutputPrice     float64           `json:"output_price"`
+	Currency        string            `json:"currency"`
 	// Peak 这一条关联自己的峰谷条款，nil 表示没配（按基础价计费）。
 	Peak *models.PeakTerms `json:"peak"`
 }

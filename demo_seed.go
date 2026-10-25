@@ -246,7 +246,7 @@ func demoSeedAll(ctx context.Context, tx *gorm.DB) error {
 // 照权重挑而不是均匀挑：日志里 3:2:1 的分布正是负载均衡那页要展示的东西，
 // 均匀分布会让"配了权重"这件事在页面上看不出来。
 // 备用关联必须跳过——它不参与日常轮询，出现在常规日志里就是假数据
-//（真实调度见 service/splitWeightItems 的分池）。
+// （真实调度见 service/splitWeightItems 的分池）。
 func pickAssoc(rng *rand.Rand, assoc []models.ModelWithProvider, modelID uint) (models.ModelWithProvider, string) {
 	candidates := make([]models.ModelWithProvider, 0, 3)
 	total := 0

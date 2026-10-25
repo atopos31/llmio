@@ -485,7 +485,7 @@ type StatsResult struct {
 	// 抹平（同名上游模型可能来自多家），byProvider 把模型抹平（一家提供商
 	// 通常挂好几个模型），两个边际都读不出这个视角。备用关联接管时，流量
 	// 落在哪家也在这里现形。
-	ByProviderModel []GroupStat `json:"byProviderModel"`
+	ByProviderModel []GroupStat      `json:"byProviderModel"`
 	ByKey           []GroupStat      `json:"byKey"`
 	ByName          []GroupStat      `json:"byName"`
 	ByUserAgent     []GroupStat      `json:"byUa"`

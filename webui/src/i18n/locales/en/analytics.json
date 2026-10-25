@@ -123,11 +123,13 @@
     "title": "Model performance",
     "note": "Click a column header to sort; click again to flip the direction. Models with no successful sample (TPS or first chunk of 0) always sort last — they are never treated as the fastest.",
     "note_joint": "Each request name keeps its providers together. Clicking a column sorts within each group; group order stays by request count, so switching dimension never changes which request name leads.",
+    "note_joint_provider_model": "Rows for the same provider keep their upstream models together. Each marginal distribution flattens the other half; this is the only view that answers \"which provider's which upstream model is consuming the tokens\".",
     "dimension_label": "Group rows by",
     "dimensions": {
       "model": "Model",
       "provider": "Provider",
-      "modelProvider": "Request name × provider"
+      "modelProvider": "Request name × provider",
+      "providerModel": "Provider × model"
     },
     "empty": "No model data in the selected range",
     "sort": {

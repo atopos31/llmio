@@ -638,7 +638,7 @@ func TestAggregateEmptyInput(t *testing.T) {
 	}
 	// 所有集合都必须是非 nil 的空切片，保证 JSON 序列化为 [] 而不是 null
 	if res.Trend == nil || res.ByModel == nil || res.ByProvider == nil ||
-		res.ByModelProvider == nil ||
+		res.ByModelProvider == nil || res.ByProviderModel == nil ||
 		res.ByKey == nil || res.ByName == nil || res.ByUserAgent == nil ||
 		res.Errors == nil || res.ErrorTrend == nil ||
 		res.TopTps == nil || res.Slowest == nil || res.RecentError == nil {
@@ -911,6 +911,87 @@ func TestAggregateByNameProvider(t *testing.T) {
 	}, StatsFilter{}, time.Hour)
 	if len(reRouted.ByModelProvider) != 1 || reRouted.ByModelProvider[0].Total != 2 {
 		t.Fatalf("同一请求名下的不同上游模型应合为一行：%+v", reRouted.ByModelProvider)
+	}
+}
+
+// 供应商×上游模型的联合分布：两个边际各自抹平另一半，只有联合看得清
+// "哪家供应商的哪个上游模型在吃 token"。
+func TestAggregateByProviderModel(t *testing.T) {
+	t.Parallel()
+
+	base := time.Now()
+	mk := func(providerModel, provider string, total int64) models.ChatLog {
+		l := logAt(1, base, consts.StatusSuccess)
+		l.ProviderModel, l.ProviderName = providerModel, provider
+		l.TotalTokens = total
+		l.PromptTokens = total
+		return l
+	}
+
+	logs := []models.ChatLog{
+		// 同一家供应商的两个上游模型：按模型要拆成两行
+		mk("gpt-4o", "openai", 10),
+		mk("gpt-4o-mini", "openai", 20),
+		// 同一个上游模型经由两家供应商：按供应商要拆成两行
+		mk("claude-sonnet", "anthropic", 40),
+		mk("claude-sonnet", "proxy-a", 80),
+	}
+	res := AggregateWithBucket(logs, StatsFilter{}, time.Hour)
+
+	if len(res.ByProviderModel) != 4 {
+		t.Fatalf("应有 4 行，实得 %d：%+v", len(res.ByProviderModel), res.ByProviderModel)
+	}
+	byKey := map[string]GroupStat{}
+	for _, g := range res.ByProviderModel {
+		byKey[g.Model+"|"+g.Provider] = g
+	}
+	// 分量字段必须原样保留：前端要按上游模型把各家供应商归成一组
+	joint, ok := byKey["claude-sonnet|anthropic"]
+	if !ok {
+		t.Fatalf("缺少 claude-sonnet×anthropic：%+v", res.ByProviderModel)
+	}
+	if joint.Name != "claude-sonnet · anthropic" {
+		t.Fatalf("行名应为「上游模型 · 提供商」，实得 %q", joint.Name)
+	}
+	if joint.Total != 1 || joint.TotalTokens != 40 {
+		t.Fatalf("claude-sonnet×anthropic 应为 1 条 40 tokens，实得 %+v", joint)
+	}
+	if byKey["claude-sonnet|proxy-a"].TotalTokens != 80 {
+		t.Fatalf("claude-sonnet×proxy-a 不符：%+v", byKey["claude-sonnet|proxy-a"])
+	}
+
+	// 边际一致性：联合分布按任一分量求和，必须等于对应的边际分布。
+	// 对不上就是分桶串了行，下钻对账会少数。
+	marginalTotals := func(groups []GroupStat) map[string]int64 {
+		out := map[string]int64{}
+		for _, g := range groups {
+			out[g.Name] += g.TotalTokens
+		}
+		return out
+	}
+	sumByModel := map[string]int64{}
+	for _, g := range res.ByProviderModel {
+		sumByModel[g.Model] += g.TotalTokens
+	}
+	for name, want := range marginalTotals(res.ByModel) {
+		if sumByModel[name] != want {
+			t.Fatalf("按模型求和与 byModel 不一致：%s 联合=%d 边际=%d", name, sumByModel[name], want)
+		}
+	}
+	sumByProvider := map[string]int64{}
+	for _, g := range res.ByProviderModel {
+		sumByProvider[g.Provider] += g.TotalTokens
+	}
+	for name, want := range marginalTotals(res.ByProvider) {
+		if sumByProvider[name] != want {
+			t.Fatalf("按供应商求和与 byProvider 不一致：%s 联合=%d 边际=%d", name, sumByProvider[name], want)
+		}
+	}
+
+	// provider_name 为空的行归 "-"：与其它分组的兜底一致，不能凭空丢行
+	blank := AggregateWithBucket([]models.ChatLog{mk("m1", "", 5)}, StatsFilter{}, time.Hour)
+	if len(blank.ByProviderModel) != 1 || blank.ByProviderModel[0].Provider != "-" {
+		t.Fatalf("空供应商应归 \"-\"：%+v", blank.ByProviderModel)
 	}
 }
 

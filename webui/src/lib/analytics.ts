@@ -360,17 +360,20 @@ export function errorBarWidth(count: number, base: number): number {
 /**
  * 模型性能表的呈现维度。
  *
- * 三个而不是两个：`model` 与 `provider` 是两张边际分布，各自把另一半抹平了。
+ * 四个而不是两个：`model` 与 `provider` 是两张边际分布，各自把另一半抹平了。
  * 同一个请求名被路由到几家提供商时，`name` 只给一行合计，
  * "这家比那家慢多少"在表里根本读不出来——那正是这张表最该回答的问题。
+ * `providerModel` 是上游模型×实际供应商的联合分布，回答
+ * "哪家供应商的哪个上游模型在吃 token"，备用关联接管时也在这里现形。
  */
-export type ModelDimension = "model" | "provider" | "modelProvider"
+export type ModelDimension = "model" | "provider" | "modelProvider" | "providerModel"
 
 /** 界面顺序。 */
 export const MODEL_DIMENSIONS = [
   "model",
   "provider",
   "modelProvider",
+  "providerModel",
 ] as const satisfies readonly ModelDimension[]
 
 /** 维度 → 结果字段。与 DIMENSION_STAT 同一套查表办法。 */
@@ -378,6 +381,7 @@ const MODEL_DIMENSION_STAT: Record<ModelDimension, keyof StatsResult> = {
   model: "byModel",
   provider: "byProvider",
   modelProvider: "byModelProvider",
+  providerModel: "byProviderModel",
 }
 
 /** 取某维度下的分组。顺序沿用服务端（按请求数降序）。 */
@@ -385,46 +389,61 @@ export function modelDimensionGroups(stats: StatsResult, dim: ModelDimension): G
   return stats[MODEL_DIMENSION_STAT[dim]] as GroupStat[]
 }
 
-/** 一个请求名及其各提供商的行。 */
+/** 一个联合维度组：组头分量及其各行。
+ *
+ * `header` 这个名字是刻意的：两个联合维度的组头不是同一种东西——
+ * `modelProvider` 维组头是请求名（行是各家提供商），`providerModel` 维
+ * 组头是提供商（行是各个上游模型）。字段名不押在哪一边的含义上。
+ */
 export interface JointGroup {
-  requestName: string
+  header: string
   rows: GroupStat[]
 }
 
 /**
- * 把联合维度的行按请求名归组，让同一请求名的各家提供商在表里挨着。
+ * 把联合维度的行归组，让同属一组的行在表里挨着。
  *
  * 组的顺序**由各行合计现算**（请求数降序，同量按名称码点升序），而不是另接
- * 一份 `byName` 进来：两者本就得数相同（同一批日志的和），多传一个入参
- * 只会多一处可能对不上的地方。这样切到这一维时请求名之间的相对次序不变，
+ * 一份边际分布进来：两者本就得数相同（同一批日志的和），多传一个入参
+ * 只会多一处可能对不上的地方。这样切到联合维度时组与组之间的相对次序不变，
  * 用户不会因为换了个维度就看到"第一名"换了人。
  *
- * 请求名取自分量字段而不是从行名里拆：行名是「请求名 · 提供商」拼的，
- * 而请求名里本身就可能带这个分隔符。JSON 契约里这个字段仍叫 `model`
- * （service/stats.go 的 `GroupStat.Model`），这里按它实际装的东西命名为
- * requestName——不该让读代码的人被一个叫 model 的请求名误导。
+ * 组头分量取自分量字段而不是从行名里拆：行名是「模型 · 提供商」拼的，
+ * 而分量名里本身就可能带这个分隔符。JSON 契约里分量字段仍叫 `model`
+ * （service/stats.go 的 `GroupStat.Model`，历史命名），按内容装东西：
+ * `modelProvider` 维里它装请求名，`providerModel` 维里它装上游模型名。
  */
-export function groupByRequestName(joint: GroupStat[]): JointGroup[] {
-  const byRequestName = new Map<string, GroupStat[]>()
+function groupJoint(joint: GroupStat[], pickHeader: (g: GroupStat) => string): JointGroup[] {
+  const byHeader = new Map<string, GroupStat[]>()
   for (const g of joint) {
-    const requestName = g.model ?? g.name
-    const rows = byRequestName.get(requestName)
+    const header = pickHeader(g)
+    const rows = byHeader.get(header)
     if (rows) rows.push(g)
-    else byRequestName.set(requestName, [g])
+    else byHeader.set(header, [g])
   }
 
   // 合计跟组一起存，不再另开一张 Map 反查：反查的键必然命中，
   // 于是 `?? 0` 那类兜底永远走不到，只是给覆盖率留一条假分支。
-  const groups = Array.from(byRequestName, ([requestName, rows]) => ({
-    requestName,
+  const groups = Array.from(byHeader, ([header, rows]) => ({
+    header,
     rows,
     total: rows.reduce((n, r) => n + r.total, 0),
   }))
   groups.sort((a, b) =>
-    a.total === b.total ? compareName(a.requestName, b.requestName) : b.total - a.total
+    a.total === b.total ? compareName(a.header, b.header) : b.total - a.total
   )
 
-  return groups.map(({ requestName, rows }) => ({ requestName, rows }))
+  return groups.map(({ header, rows }) => ({ header, rows }))
+}
+
+/** `modelProvider` 维（请求名 × 提供商）：按请求名归组，行是各家提供商。 */
+export function groupByRequestName(joint: GroupStat[]): JointGroup[] {
+  return groupJoint(joint, (g) => g.model ?? g.name)
+}
+
+/** `providerModel` 维（提供商 × 模型）：按提供商归组，行是各个上游模型。 */
+export function groupByProvider(joint: GroupStat[]): JointGroup[] {
+  return groupJoint(joint, (g) => g.provider ?? g.name)
 }
 
 /**

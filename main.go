@@ -70,7 +70,7 @@ func main() {
 
 	router := gin.Default()
 	// gzip压缩
-	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1"})))
+	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1", "/p"})))
 	// 跨域
 	router.Use(middleware.Cors())
 	// webui
@@ -115,6 +115,13 @@ func main() {
 			v1beta.GET("/models", handler.GeminiModelsHandler)
 			v1beta.POST("/models/*modelAction", handler.GeminiGenerateContentHandler)
 		}
+	}
+
+	// 提供商专属地址 /p/{name}/*：已知端点与全局 /v1 同语义（正常负载均衡），
+	// 未知路径透传给 URL 指名的提供商；ForwardMode 下全量直转。见 handler/provider_route.go。
+	p := router.Group("/p", authOpenAI)
+	{
+		p.Any("/:name/*path", handler.ProviderDedicatedRoute)
 	}
 
 	// 兼容性保留

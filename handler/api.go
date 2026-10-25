@@ -26,6 +26,7 @@ type ProviderRequest struct {
 	Console      string `json:"console"`
 	Proxy        string `json:"proxy"`
 	ErrorMatcher string `json:"error_matcher"`
+	ForwardMode  bool   `json:"forward_mode"`
 }
 
 // ModelRequest represents the request body for creating/updating a model
@@ -157,6 +158,7 @@ func CreateProvider(c *gin.Context) {
 		Console:      req.Console,
 		Proxy:        req.Proxy,
 		ErrorMatcher: req.ErrorMatcher,
+		ForwardMode:  req.ForwardMode,
 	}
 
 	if err := gorm.G[models.Provider](models.DB).Create(c.Request.Context(), &provider); err != nil {
@@ -200,9 +202,14 @@ func UpdateProvider(c *gin.Context) {
 		Console:      req.Console,
 		Proxy:        req.Proxy,
 		ErrorMatcher: req.ErrorMatcher,
+		ForwardMode:  req.ForwardMode,
 	}
 
-	if _, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {
+	// 显式列出列名：struct Updates 会跳过零值字段，导致 false/空串无法写回
+	// （关不掉 forward_mode、清不掉 proxy 这类全量更新语义缺陷）。
+	if _, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).
+		Select("name", "type", "config", "console", "proxy", "error_matcher", "forward_mode").
+		Updates(c.Request.Context(), updates); err != nil {
 		common.InternalServerError(c, "Failed to update provider: "+err.Error())
 		return
 	}

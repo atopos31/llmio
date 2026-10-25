@@ -23,7 +23,10 @@
     "type": "Type",
     "config": "Config",
     "console": "Console",
-    "actions": "Actions"
+    "actions": "Actions",
+    "dedicated_url": "Dedicated URL",
+    "dedicated_url_copy": "Click to copy the dedicated API URL",
+    "forward_mode_badge": "Forward"
   },
   "delete_dialog": {
     "title": "Delete this provider?",
@@ -47,7 +50,15 @@
     "error_matcher_placeholder": "Example (one per line or semicolon-separated):\n\"status\":\"439\"\n\"status\":\"500\"\nAPI Token has expired",
     "error_matcher_hint": "Any matched sample is treated as an error. Useful for channels that return errors with HTTP 200.",
     "console_label": "Console URL",
-    "console_placeholder": "https://example.com/console"
+    "console_placeholder": "https://example.com/console",
+    "name_hint": "The name supports letters, digits, and - _ . only, must start with a letter or digit, and is limited to 64 characters. The name is also used as the path segment of the dedicated URL.",
+    "name_unsafe": "The current name contains unsupported characters and cannot be used in a dedicated URL. It still works for model bindings, but no dedicated URL will be available.",
+    "forward_mode_label": "Forwarding Mode",
+    "forward_mode_mixed_title": "Mixed (default)",
+    "forward_mode_mixed_desc": "Known endpoints (chat, completions, etc.) are load-balanced across all providers; all other paths are forwarded to this provider as-is, with bound model names rewritten automatically.",
+    "forward_mode_pure_title": "Forward-only",
+    "forward_mode_pure_desc": "All requests are forwarded unconditionally to this provider without modification; clients must use the provider's native model names directly.",
+    "forward_mode_hint": "Both modes require an access key. Forward-only mode is not model-aware, so only keys with permission to all models may use it."
   },
   "models_dialog": {
     "title": "{{name}} Model List",
@@ -62,6 +73,7 @@
     "delete_failed": "Failed to delete provider: {{message}}",
     "copy_model": "Copied model name: {{name}}",
     "copy_failed": "Copy failed",
-    "fetch_model_failed": "Failed to fetch provider models: {{message}}"
+    "fetch_model_failed": "Failed to fetch provider models: {{message}}",
+    "copy_dedicated_url": "Copied dedicated URL: /p/{{name}}/v1"
   }
 }

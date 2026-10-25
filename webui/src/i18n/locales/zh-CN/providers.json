@@ -23,7 +23,10 @@
     "type": "类型",
     "config": "配置",
     "console": "控制台",
-    "actions": "操作"
+    "actions": "操作",
+    "dedicated_url": "专属地址",
+    "dedicated_url_copy": "点击复制专属 API 地址",
+    "forward_mode_badge": "纯转发"
   },
   "delete_dialog": {
     "title": "确定要删除这个提供商吗？",
@@ -47,7 +50,15 @@
     "error_matcher_placeholder": "示例（每行或分号分隔）:\n\"status\":\"439\"\n\"status\":\"500\"\nAPI Token has expired",
     "error_matcher_hint": "命中任意 sample 即视为错误，用于 200 但 body 返回错误的渠道。",
     "console_label": "控制台地址",
-    "console_placeholder": "https://example.com/console"
+    "console_placeholder": "https://example.com/console",
+    "name_hint": "名称仅支持字母、数字以及 - _ .，且须以字母或数字开头，长度不超过 64 个字符。该名称同时用作专属地址的路径标识。",
+    "name_unsafe": "当前名称包含不支持的字符，无法生成专属地址；保存后可正常用于模型绑定，但不会出现在专属地址中。",
+    "forward_mode_label": "转发模式",
+    "forward_mode_mixed_title": "混合模式（默认）",
+    "forward_mode_mixed_desc": "已知接口（对话、补全等）在全部提供商之间负载均衡；其余路径原样转发至本提供商，并自动改写为绑定的模型名。",
+    "forward_mode_pure_title": "纯转发模式",
+    "forward_mode_pure_desc": "所有请求无条件转发至本提供商，不进行任何改写；客户端需直接使用该提供商的原生模型名称。",
+    "forward_mode_hint": "两种模式均需通过访问密钥鉴权；纯转发模式不区分模型，因此仅允许具备全部模型权限的密钥访问。"
   },
   "models_dialog": {
     "title": "{{name}} 模型列表",
@@ -62,6 +73,7 @@
     "delete_failed": "删除提供商失败: {{message}}",
     "copy_model": "已复制模型名称: {{name}}",
     "copy_failed": "复制失败",
-    "fetch_model_failed": "获取提供商模型失败: {{message}}"
+    "fetch_model_failed": "获取提供商模型失败: {{message}}",
+    "copy_dedicated_url": "已复制专属地址: /p/{{name}}/v1"
   }
 }

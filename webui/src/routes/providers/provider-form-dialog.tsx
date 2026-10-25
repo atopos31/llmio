@@ -24,6 +24,7 @@ import {
 import { Label } from "@/components/ui/label";
 import type { Provider, ProviderTemplate } from "@/lib/api";
 import type { ConfigFieldMap } from "./provider-form-utils";
+import { dedicatedBaseUrl, isSafeProviderName } from "./provider-form-utils";
 import type { ProviderFormValues } from "./use-provider-form";
 
 type ProviderFormDialogProps = {
@@ -50,6 +51,8 @@ export function ProviderFormDialog({
   onSubmit,
 }: ProviderFormDialogProps) {
   const { t } = useTranslation(['providers', 'common']);
+  const nameValue = form.watch("name") ?? "";
+  const nameSafe = isSafeProviderName(nameValue);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -73,6 +76,20 @@ export function ProviderFormDialog({
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
+                  <p className="text-xs text-muted-foreground">
+                    {t('form.name_hint')}
+                  </p>
+                  {nameValue && (
+                    nameSafe ? (
+                      <p className="text-xs font-mono break-all rounded bg-muted px-2 py-1">
+                        {dedicatedBaseUrl(nameValue)}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-destructive">
+                        {t('form.name_unsafe')}
+                      </p>
+                    )
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
@@ -238,6 +255,44 @@ export function ProviderFormDialog({
                   <FormControl>
                     <Input {...field} placeholder="https://example.com/console" />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="forward_mode"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('form.forward_mode_label')}</FormLabel>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {([
+                      { value: false, title: t('form.forward_mode_mixed_title'), desc: t('form.forward_mode_mixed_desc') },
+                      { value: true, title: t('form.forward_mode_pure_title'), desc: t('form.forward_mode_pure_desc') },
+                    ]).map((option) => {
+                      const selected = field.value === option.value;
+                      return (
+                        <label
+                          key={String(option.value)}
+                          className={`flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm ${selected
+                            ? "border-primary bg-primary/10"
+                            : "border-border"
+                            }`}
+                          onClick={() => field.onChange(option.value)}
+                        >
+                          <span className="flex items-center gap-2 font-medium">
+                            <Checkbox checked={selected} aria-hidden="true" tabIndex={-1} className="pointer-events-none" />
+                            {option.title}
+                          </span>
+                          <span className="text-xs text-muted-foreground">{option.desc}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t('form.forward_mode_hint')}
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}

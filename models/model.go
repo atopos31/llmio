@@ -16,6 +16,10 @@ type Provider struct {
 	Console      string // 控制台地址
 	Proxy        string // HTTP 代理地址
 	ErrorMatcher string // 响应体错误识别规则，多行或分号分隔 sample
+	// ForwardMode 纯转发模式：专属地址 /p/{name}/* 上的所有请求（含已知端点）
+	// 无条件直转给该提供商，不改写模型名，客户端直接使用上游原生模型名。
+	// 默认 false（混合模式：已知端点走正常负载均衡，未知路径才透传给该提供商）。
+	ForwardMode bool `gorm:"default:false"`
 }
 
 type AnthropicConfig struct {

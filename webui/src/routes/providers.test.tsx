@@ -47,6 +47,7 @@ function provider(over: Partial<Provider> = {}): Provider {
     Console: "https://console.example.com",
     Proxy: "",
     ErrorMatcher: "",
+    ForwardMode: false,
     ...over,
   }
 }

@@ -20,6 +20,7 @@ export const providerFormSchema = z.object({
   console: z.string().optional(),
   proxy: z.string().optional(),
   error_matcher: z.string().optional(),
+  forward_mode: z.boolean(),
 });
 
 export type ProviderFormValues = z.infer<typeof providerFormSchema>;
@@ -31,6 +32,7 @@ const defaultFormValues: ProviderFormValues = {
   console: "",
   proxy: "",
   error_matcher: "",
+  forward_mode: false,
 };
 
 type UseProviderFormParams = {
@@ -129,6 +131,7 @@ export const useProviderForm = ({
       console: provider.Console || "",
       proxy: provider.Proxy || "",
       error_matcher: provider.ErrorMatcher || "",
+      forward_mode: provider.ForwardMode ?? false,
     });
     setOpen(true);
   };
@@ -150,6 +153,7 @@ export const useProviderForm = ({
       console: "",
       proxy: "",
       error_matcher: "",
+      forward_mode: false,
     });
     setOpen(true);
   };
@@ -164,6 +168,7 @@ export const useProviderForm = ({
           console: values.console || "",
           proxy: values.proxy || "",
           error_matcher: values.error_matcher || "",
+          forward_mode: values.forward_mode,
         });
         toast.success(`提供商 ${values.name} 更新成功`);
         setEditingProvider(null);
@@ -175,6 +180,7 @@ export const useProviderForm = ({
           console: values.console || "",
           proxy: values.proxy || "",
           error_matcher: values.error_matcher || "",
+          forward_mode: values.forward_mode,
         });
         toast.success(`提供商 ${values.name} 创建成功`);
       }

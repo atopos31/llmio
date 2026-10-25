@@ -7,6 +7,9 @@ const (
 	StyleOpenAIRes Style = "openai-res"
 	StyleAnthropic Style = "anthropic"
 	StyleGemini    Style = "gemini"
+	// StylePassthrough 提供商专属地址上未知路径的透传请求（见 handler/provider_route.go）。
+	// 此类请求多数没有 token 用量可记，Size/ProxyTime 仍可观测。
+	StylePassthrough Style = "passthrough"
 )
 
 const (

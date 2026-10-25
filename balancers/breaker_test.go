@@ -26,6 +26,9 @@ func (s *spyBalancer) Success(key uint) {
 	s.successes = append(s.successes, key)
 }
 
+// Empty 满足 Balancer 接口新增的方法：spy 始终当作"池里还有候选"。
+func (s *spyBalancer) Empty() bool { return false }
+
 func resetBreakerState(t *testing.T) {
 	t.Helper()
 	mu.Lock()

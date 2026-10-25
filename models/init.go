@@ -67,6 +67,9 @@ func Init(ctx context.Context, path string) {
 	if _, err := gorm.G[ModelWithProvider](DB).Where("status IS NULL").Update(ctx, "status", true); err != nil {
 		panic(err)
 	}
+	if _, err := gorm.G[ModelWithProvider](DB).Where("backup IS NULL").Update(ctx, "backup", false); err != nil {
+		panic(err)
+	}
 	if _, err := gorm.G[ModelWithProvider](DB).Where("customer_headers IS NULL").Updates(ctx, ModelWithProvider{
 		CustomerHeaders: map[string]string{},
 	}); err != nil {
@@ -85,6 +88,11 @@ func Init(ctx context.Context, path string) {
 		panic(err)
 	}
 	if _, err := gorm.G[ChatLog](DB).Where("auth_key_id IS NULL").Update(ctx, "auth_key_id", 0); err != nil {
+		panic(err)
+	}
+	// 备用标记是后加的非指针 bool：AutoMigrate 加列不会给存量行填默认值，
+	// 留 NULL 会导致日志列表扫描 bool 时报错（与 auth_key_id 同一类问题）
+	if _, err := gorm.G[ChatLog](DB).Where("backup IS NULL").Update(ctx, "backup", false); err != nil {
 		panic(err)
 	}
 	if err := ensureLogCleanupPolicyConfig(ctx); err != nil {

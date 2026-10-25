@@ -39,6 +39,54 @@ func TestLotteryDelete(t *testing.T) {
 	}
 }
 
+// Empty 是上层判断「主池是否耗尽、要不要降级到备用池」的依据。
+// 关键语义：Reduce（429 降权）不移出候选，不能算耗尽。
+func TestLotteryEmpty(t *testing.T) {
+	w := NewLottery(map[uint]int{})
+	if !w.Empty() {
+		t.Fatal("Empty() = false on empty set, want true")
+	}
+
+	w = NewLottery(map[uint]int{1: 10})
+	if w.Empty() {
+		t.Fatal("Empty() = true with one item, want false")
+	}
+
+	w.Reduce(1)
+	if w.Empty() {
+		t.Fatal("Empty() = true after Reduce, want false（429 降权仍留在池里）")
+	}
+
+	w.Delete(1)
+	if !w.Empty() {
+		t.Fatal("Empty() = false after deleting the only key, want true")
+	}
+}
+
+func TestRotorEmpty(t *testing.T) {
+	w := NewRotor(map[uint]int{})
+	if !w.Empty() {
+		t.Fatal("Empty() = false on empty list, want true")
+	}
+
+	w = NewRotor(map[uint]int{1: 5, 2: 3})
+	if w.Empty() {
+		t.Fatal("Empty() = true with two items, want false")
+	}
+
+	// Reduce 只把元素移到队尾，不移出
+	w.Reduce(1)
+	if w.Empty() {
+		t.Fatal("Empty() = true after Reduce, want false")
+	}
+
+	w.Delete(1)
+	w.Delete(2)
+	if !w.Empty() {
+		t.Fatal("Empty() = false after deleting all items, want true")
+	}
+}
+
 func TestRotor(t *testing.T) {
 	t.Run("NewRotor", func(t *testing.T) {
 		items := map[uint]int{

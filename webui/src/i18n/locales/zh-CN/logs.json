@@ -68,7 +68,8 @@
     "upstream_style": "上游协议",
     "bridge_notes": "桥接说明",
     "columns": "列",
-    "reset_columns": "恢复默认"
+    "reset_columns": "恢复默认",
+    "role": "角色"
   },
   "mobile": {
     "tokens": "Tokens",
@@ -212,5 +213,9 @@
     "clear": "清空选择",
     "open": "对比"
   },
-  "retry": "重试"
+  "retry": "重试",
+  "role": {
+    "primary": "主关联",
+    "backup": "备用关联"
+  }
 }

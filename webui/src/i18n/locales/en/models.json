@@ -181,7 +181,9 @@
         "same_protocol": "same protocol",
         "context": "context {{value}}"
       }
-    }
+    },
+    "backup": "Backup Association",
+    "backup_hint": "Excluded from daily load balancing; only takes over after every primary association fails. Make sure Max Retry leaves enough attempts for the backup pool."
   },
   "test_dialog": {
     "title": "Model Test",

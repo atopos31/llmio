@@ -14,6 +14,9 @@ type Balancer interface {
 	Delete(key uint)
 	Reduce(key uint)
 	Success(key uint)
+	// Empty 报告候选池是否已无可用项。调用方用它判断何时降级到备用池，
+	// 语义是「池里没有任何可能被 Pop 出来的候选」，而非「全部候选都成功过」。
+	Empty() bool
 }
 
 // 按权重概率抽取，类似抽签。
@@ -65,6 +68,10 @@ func (w *Lottery) Reduce(key uint) {
 
 func (w *Lottery) Success(key uint) {
 	w.success = key
+}
+
+func (w *Lottery) Empty() bool {
+	return len(w.store) == 0
 }
 
 // 按顺序循环轮转，每次降低权重后移到队尾
@@ -121,4 +128,8 @@ func (w *Rotor) Reduce(key uint) {
 
 func (w *Rotor) Success(key uint) {
 	w.success = key
+}
+
+func (w *Rotor) Empty() bool {
+	return w.Len() == 0
 }

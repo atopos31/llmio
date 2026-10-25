@@ -181,7 +181,9 @@
         "same_protocol": "同協定",
         "context": "上下文 {{value}}"
       }
-    }
+    },
+    "backup": "備用關聯",
+    "backup_hint": "不參與日常輪詢，僅當所有主關聯都失敗時才會接管；請確認「重試次數限制」留有餘量。"
   },
   "test_dialog": {
     "title": "模型測試",

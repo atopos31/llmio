@@ -78,7 +78,9 @@ func ProviderDedicatedRoute(c *gin.Context) {
 //
 // 客户端约定的 base_url 是 /p/{name}/v1（与已知端点对齐），而提供商配置的
 // base_url 按惯例自带版本段（如 https://api.example.com/v1），因此转发前剥掉
-// 客户端写法里的 /v1 前缀，避免拼出 /v1/v1/...。其余前缀原样拼接。
+// 客户端写法里的 /v1 前缀，避免拼出 /v1/v1/...。只剥到段边界：/v1beta/... 这类
+// 版本变体不能被咬成 beta/...（否则 Gemini 原生路径透传直接 400）。其余前缀原样拼接。
+// 客户端 Content-Type 原样透传：multipart 上传（audio 转写等）的 boundary 不能丢。
 func passthroughUnknown(c *gin.Context, provider models.Provider, path string) {
 	switch c.Request.Method {
 	case http.MethodGet, http.MethodPost:
@@ -130,7 +132,11 @@ func passthroughUnknown(c *gin.Context, provider models.Provider, path string) {
 		common.InternalServerError(c, "invalid provider config: "+err.Error())
 		return
 	}
-	forwardPath := strings.TrimPrefix(path, "/v1")
+	// 只剥到段边界，规则见函数注释。
+	forwardPath := path
+	if rest, ok := strings.CutPrefix(path, "/v1"); ok && (rest == "" || rest[0] == '/') {
+		forwardPath = rest
+	}
 	if _, err := providers.SanitizeForwardPath(forwardPath); err != nil {
 		common.ErrorWithHttpStatus(c, http.StatusBadRequest, http.StatusBadRequest, err.Error())
 		return
@@ -138,10 +144,10 @@ func passthroughUnknown(c *gin.Context, provider models.Provider, path string) {
 
 	start := time.Now()
 	res, err := providers.Forward(ctx, target, c.Request.Method, forwardPath, c.Request.URL.Query(),
-		c.GetHeader("Accept"), "", body)
+		c.GetHeader("Accept"), c.GetHeader("Content-Type"), body)
 	log := newPassthroughLog(ctx, provider, model, upstreamModel, start)
 	if err != nil {
-		savePassthroughLog(ctx, log.WithError(err))
+		savePassthroughLog(log.WithError(err))
 		common.ErrorWithHttpStatus(c, http.StatusBadGateway, http.StatusBadGateway,
 			"upstream request failed: "+err.Error())
 		return
@@ -160,7 +166,7 @@ func passthroughUnknown(c *gin.Context, provider models.Provider, path string) {
 	if copyErr != nil {
 		log = log.WithError(copyErr)
 	}
-	savePassthroughLog(ctx, log)
+	savePassthroughLog(log)
 }
 
 // forwardAll 纯转发模式：所有路径与方法无条件直转，不做任何改写。
@@ -194,7 +200,7 @@ func forwardAll(c *gin.Context, provider models.Provider, path string) {
 		c.Request.URL.Query(), c.GetHeader("Accept"), c.GetHeader("Content-Type"), body)
 	log := newPassthroughLog(c.Request.Context(), provider, "", "", start)
 	if err != nil {
-		savePassthroughLog(c.Request.Context(), log.WithError(err))
+		savePassthroughLog(log.WithError(err))
 		common.ErrorWithHttpStatus(c, http.StatusBadGateway, http.StatusBadGateway,
 			"upstream request failed: "+err.Error())
 		return
@@ -213,7 +219,7 @@ func forwardAll(c *gin.Context, provider models.Provider, path string) {
 	if copyErr != nil {
 		log = log.WithError(copyErr)
 	}
-	savePassthroughLog(c.Request.Context(), log)
+	savePassthroughLog(log)
 }
 
 // rewriteModelForProvider 把请求模型名改写为该提供商绑定上的上游模型名。
@@ -290,8 +296,13 @@ func newPassthroughLog(ctx context.Context, provider models.Provider, model, ups
 	}
 }
 
-func savePassthroughLog(ctx context.Context, log models.ChatLog) {
-	if _, err := service.SaveChatLog(ctx, log); err != nil {
+// savePassthroughLog 落库。用脱离请求生命周期的 ctx：客户端断连（流式里很常见）
+// 会取消请求 ctx，而断连现场恰是 client-cancel、上游断流这些最需要日志的时候，
+// 不能跟着请求一起丢。authKeyID 等取值已在 newPassthroughLog 里从请求 ctx 完成后才到这里。
+func savePassthroughLog(log models.ChatLog) {
+	saveCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := service.SaveChatLog(saveCtx, log); err != nil {
 		slog.Error("save passthrough log", "err", err)
 	}
 }

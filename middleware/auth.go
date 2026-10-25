@@ -62,15 +62,10 @@ func AuthOpenAI(adminToken string) gin.HandlerFunc {
 	}
 }
 
-// 用于Anthropic接口鉴权
-//
-// 两种携带方式都收，因为客户端有两种约定：
-//   - x-api-key：Anthropic 原生。Claude Code 读的是 ANTHROPIC_API_KEY；
-//   - Authorization: Bearer：Claude Code 读 ANTHROPIC_AUTH_TOKEN 时发的就是它（issue #38）。
-//
-// 两者都在时 **x-api-key 优先**。优先级写死才可预期：否则"哪个头生效"会随客户端
-// 的实现细节漂移，而 401 现场看不出是哪一半出的问题。
-func AuthAnthropic(adminToken string) gin.HandlerFunc {
+// authXAPIKeyOrBearer 双头解析的共用实现：x-api-key 优先，回落 Bearer。
+// 优先级写死才可预期：否则"哪个头生效"会随客户端的实现细节漂移，
+// 而 401 现场看不出是哪一半出的问题。
+func authXAPIKeyOrBearer(adminToken string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authKey := c.GetHeader("x-api-key")
 		if authKey == "" {
@@ -78,6 +73,26 @@ func AuthAnthropic(adminToken string) gin.HandlerFunc {
 		}
 		checkAuthKey(c, authKey, adminToken)
 	}
+}
+
+// 用于Anthropic接口鉴权
+//
+// 两种携带方式都收，因为客户端有两种约定：
+//   - x-api-key：Anthropic 原生。Claude Code 读的是 ANTHROPIC_API_KEY；
+//   - Authorization: Bearer：Claude Code 读 ANTHROPIC_AUTH_TOKEN 时发的就是它（issue #38）。
+//
+// 两者都在时 **x-api-key 优先**。
+func AuthAnthropic(adminToken string) gin.HandlerFunc {
+	return authXAPIKeyOrBearer(adminToken)
+}
+
+// 用于提供商专属地址 /p/{name}（见 handler/provider_route.go）。
+//
+// 同一个 base_url 上既有 OpenAI 形态（Bearer）也有 Anthropic 形态（x-api-key）
+// 的端点，双头解析与 AuthAnthropic 共用。不能只收 Bearer：配 ANTHROPIC_API_KEY
+// 的 Claude Code 客户端会在专属地址上撞出全局 /anthropic 没有的 401。
+func AuthDedicated(adminToken string) gin.HandlerFunc {
+	return authXAPIKeyOrBearer(adminToken)
 }
 
 // 用于Gemini原生接口鉴权

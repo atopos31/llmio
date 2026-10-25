@@ -15,6 +15,22 @@
 名称不提供专属地址（表单实时提示，不阻断保存）；纯转发模式与无 model 透传要求全量权限
 （admin TOKEN 或 AllowAll 密钥），受限密钥 403。
 
+### Review 修正（2026-10-26）
+
+1. **鉴权改挂 `AuthDedicated`**（x-api-key 优先、回落 Bearer，与 AuthAnthropic 共用双头
+   解析）：/p 组原先只挂 `authOpenAI`，配 `ANTHROPIC_API_KEY` 的客户端会在专属地址上撞出
+   全局 `/anthropic` 没有的 401。
+2. **`/v1` 前缀剥离只认完整段**：`TrimPrefix(path, "/v1")` 会把 `/v1beta/...` 咬成
+   `beta/...`（非 `/` 开头被路径清洗 400），Gemini 原生路径透传直接失败。改为
+   `CutPrefix` + 段边界判断。
+3. **客户端 Content-Type 原样透传**：原先硬编码空串被 `Forward` 强改为 application/json，
+   multipart 上传（audio 转写等宣传过的顺带收益）的 boundary 会丢。纯转发模式本就透传，
+   现两处一致。
+4. **透传日志落库脱离请求 ctx**：客户端断连会取消请求 ctx，`SaveChatLog` 随之失败——
+   恰是 client-cancel、上游断流最需要日志的现场。改为 `context.WithTimeout(Background, 10s)`。
+5. **gzip 排除列表 `"/p"` → `"/p/"`**：排除列表是前缀匹配，裸 `"/p"` 会把 `/providers`
+   等 SPA 路由的压缩一并关掉。
+
 ## 一、背景与结论（证据链）
 
 Codex CLI 现行网络搜索不再走 `/responses` 请求内嵌的托管 `web_search` 工具（那是老通道，
@@ -47,7 +63,7 @@ llmio `/v1/responses` 逐字节透传已支持），而是模型调用 function 
 | 1. 存量路由 | `/v1/*` 及 `/openai` `/anthropic` `/gemini` 各组 | **零改动**；未知路径照旧 404 |
 | 2. 专属 URL | `/p/{provider}/v1/*` | 已知端点=正常均衡（URL 里的 provider **不参与**）；未知路径=**转给 URL 指名的这家** |
 
-**专属 URL（唯一新增面）**：gin 组上正常挂 `authOpenAI` 中间件，组内**单入口**
+**专属 URL（唯一新增面）**：gin 组上正常挂 `authDedicated` 中间件（x-api-key 优先、回落 Bearer），组内**单入口**
 `Any("/*path")` 内部分发（静态路由与通配不能同层共存）。按 URL 中的 provider 名解析
 （查无此 provider → 404），按其 `forward_mode` 分两档：
 
@@ -73,7 +89,7 @@ llmio `/v1/responses` 逐字节透传已支持），而是模型调用 function 
 3. **路径清洗**：转发前拒绝 `..`、控制字符、空路径；拼接只接受相对路径，杜绝 path
    traversal / 代理到任意 URL。
 4. **头清洗**：剥离客户端 `Authorization` 与 hop-by-hop 头后再注入上游鉴权。
-5. 流式响应边拷边 flush；gzip 排除列表追加 `/p`。
+5. 流式响应边拷边 flush；gzip 排除列表追加 `/p/`（带斜杠，避免前缀误伤 `/providers` 等 SPA 路由）。
 
 **顺带收益——embeddings 等标准端点**：`/v1/embeddings`、`/v1/images/generations`、
 `/v1/audio/...`、rerank 等全是"POST + body.model"形状，专属 URL 自动覆盖（混合模式下命中
@@ -102,7 +118,7 @@ Wave 2（收口，串行）：`gofmt -l .` 无输出 → `go vet ./...` exit 0 �
 // main.go:121-128 /v1 及各协议组——全部不动，不注册任何 NoRoute 透传
 
 // main.go:73 gzip 排除列表——/p 前缀需追加（"/openai","/anthropic","/gemini","/v1" 现有）
-router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1", "/p"})))
+router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1", "/p/"})))
 
 // 已知端点分发=直调现有 handler（handler.ChatCompletionsHandler 等就是 chatHandler(c,...)，
 // 换个组挂载不改变其行为）；model 改写查绑定：model_providers 里 (model, provider) → provider_model
@@ -110,7 +126,7 @@ router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/
 // providers/openai_res.go:21 改写套路照抄；:45 GetClient(30*time.Second, o.Proxy) 代理体系直接复用
 body, err := sjson.SetBytes(rawBody, "model", model)
 
-// middleware.AuthOpenAI——专属 URL 组正常挂中间件，无手动鉴权路径
+// middleware.AuthDedicated——专属 URL 组正常挂中间件（x-api-key 优先、回落 Bearer），无手动鉴权路径
 ```
 
 ## 五、验证
@@ -125,11 +141,16 @@ body, err := sjson.SetBytes(rawBody, "model", model)
      `POST /p/{name}/v1/../api/metrics/stats` → 400（路径清洗）；
    - 纯转发：`POST /p/{name}/v1/chat/completions`（原生模型名）→ 直转不改写；配 proxy 的
      provider 出站走代理；任意方法放行；
-   - 安全断言：`POST /v1/alpha/search` → **404 照旧**；无 TOKEN 访问 `/p/*` → 401。
+   - 安全断言：`POST /v1/alpha/search` → **404 照旧**；无 TOKEN 访问 `/p/*` → 401；
+     受限密钥（x-api-key 或 Bearer）请求未授权模型 / 无 model 透传 / 纯转发 → 403。
 3. Codex 手册级验证：`~/.codex/config.toml` 配
    `base_url = "http://<llmio>/p/<provider>/v1"`、`wire_api = "responses"`、
    `env_key = "LLMIO_TOKEN"`、`supports_standalone_web_search = true`，会话内触发 web 搜索，
    观察 `alpha/search` 命中日志且始终落同一 provider。
+4. Anthropic 原生客户端手册级验证：Claude Code 配
+   `ANTHROPIC_BASE_URL=http://<llmio>/p/<provider>`、`ANTHROPIC_API_KEY=<llmio-key>`
+   （走 x-api-key 头，与 `ANTHROPIC_AUTH_TOKEN` 的 Bearer 等价），正常对话后确认日志落库；
+   换受限密钥请求未授权模型应 403。
 
 ## 六、待拍板
 

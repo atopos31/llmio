@@ -21,8 +21,9 @@ import (
  * 提供商专属地址 /p/{name}/*path 端到端行为。
  *
  * 钉住四类契约：
- *  1. 鉴权：路由组挂着 authOpenAI，无凭据 401；受限密钥对无法定位模型的
- *     透传/纯转发请求 403（专属地址不允许成为绕过模型权限的后门）。
+ *  1. 鉴权：路由组挂着 authDedicated（x-api-key 优先、回落 Bearer），无凭据 401；
+ *     受限密钥对无法定位模型的透传/纯转发请求，以及已知端点上未授权的模型，一律 403
+ *     （专属地址不允许成为绕过模型权限的后门）。
  *  2. 兼容：全局 /v1 的未知路径照旧 404（不引入全局透传），而专属地址的
  *     已知端点走与 /v1 相同的 handler（行为一致，不钉死提供商）。
  *  3. 透传：未知路径固定转给 URL 指名的提供商，绑定命中时改写模型名，
@@ -32,11 +33,12 @@ import (
 
 // dedicatedUpstream 记录假上游收到的请求与 body，供断言。
 type dedicatedUpstream struct {
-	mu     sync.Mutex
-	path   string
-	auth   string
-	accept string
-	body   string
+	mu          sync.Mutex
+	path        string
+	auth        string
+	accept      string
+	contentType string
+	body        string
 }
 
 func (u *dedicatedUpstream) handler(t *testing.T) http.HandlerFunc {
@@ -51,6 +53,7 @@ func (u *dedicatedUpstream) handler(t *testing.T) http.HandlerFunc {
 		u.path = r.URL.Path
 		u.auth = r.Header.Get("Authorization")
 		u.accept = r.Header.Get("Accept")
+		u.contentType = r.Header.Get("Content-Type")
 		u.body = body
 		u.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
@@ -63,6 +66,12 @@ func (u *dedicatedUpstream) snapshot() (path, auth, accept, body string) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	return u.path, u.auth, u.accept, u.body
+}
+
+func (u *dedicatedUpstream) sentContentType() string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.contentType
 }
 
 type dedicatedFixture struct {
@@ -146,9 +155,10 @@ func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 	return &dedicatedFixture{router: router, upstream: upstream}
 }
 
-// testAuth 直接复用 middleware.AuthOpenAI：真实实现保证测试与线上一致。
+// testAuth 直接复用 middleware.AuthDedicated：真实实现保证测试与线上一致
+// （/p 组线上挂的就是它，x-api-key 优先、回落 Bearer）。
 func testAuth(adminToken string) gin.HandlerFunc {
-	return middleware.AuthOpenAI(adminToken)
+	return middleware.AuthDedicated(adminToken)
 }
 
 // disabledAuth 模拟"未携带凭据"的 401 拦截。
@@ -248,6 +258,80 @@ func TestDedicatedRoutePassthroughKeepsUnboundModel(t *testing.T) {
 	}
 }
 
+// /v1beta/... 这类版本变体路径必须整段保留：/v1 前缀剥离只认完整段（后随段边界），
+// 不能把 /v1beta 咬成 beta/...——否则 Gemini 原生客户端在混合模式下直接 400。
+func TestDedicatedRoutePassthroughKeepsV1BetaPath(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	w := doDedicated(t, f, http.MethodPost,
+		"/p/alpha-name/v1beta/models/gemini-2.5-pro:generateContent", "Bearer sk-admin",
+		`{"contents":[]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	path, _, _, _ := f.upstream.snapshot()
+	if path != "/v1beta/models/gemini-2.5-pro:generateContent" {
+		t.Errorf("上游 path = %q, want /v1beta/models/gemini-2.5-pro:generateContent", path)
+	}
+}
+
+// 客户端 Content-Type 原样透传：multipart（audio 转写等）的 boundary 丢了上游就无法解析，
+// 不能被强改为 application/json。
+func TestDedicatedRoutePassthroughPreservesContentType(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	req := httptest.NewRequest(http.MethodPost, "/p/alpha-name/v1/audio/transcriptions",
+		strings.NewReader("--boundary\r\nbody"))
+	req.Header.Set("Authorization", "Bearer sk-admin")
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
+	w := httptest.NewRecorder()
+	f.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if ct := f.upstream.sentContentType(); ct != "multipart/form-data; boundary=boundary" {
+		t.Errorf("上游 Content-Type = %q, want multipart 原样", ct)
+	}
+}
+
+// 专属地址与全局 /anthropic 同一套双头鉴权：Anthropic 原生客户端（x-api-key）
+// 不得在 /p 上撞 401。受限密钥带 model 的透传按模型级权限放行。
+func TestDedicatedRouteXAPIKeyPassthrough(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	key := models.AuthKey{Name: "limited", Key: "sk-limited", Status: new(true), AllowAll: new(false), Models: []string{"latest"}}
+	if err := models.DB.Create(&key).Error; err != nil {
+		t.Fatalf("create auth key: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/p/alpha-name/v1/alpha/search",
+		strings.NewReader(`{"model":"latest"}`))
+	req.Header.Set("x-api-key", "sk-limited")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	f.router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("x-api-key 受限密钥带 model 透传应 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// 已知端点同样放 x-api-key：/p/{name}/v1/messages 进入 chat 流水线（空 model 报错）而非 401。
+func TestDedicatedRouteXAPIKeyKnownEndpoint(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	req := httptest.NewRequest(http.MethodPost, "/p/alpha-name/v1/messages", strings.NewReader(`{}`))
+	req.Header.Set("x-api-key", "sk-admin")
+	w := httptest.NewRecorder()
+	f.router.ServeHTTP(w, req)
+	if w.Code == http.StatusUnauthorized {
+		t.Fatalf("x-api-key 不应在专属地址上 401")
+	}
+	if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "model") {
+		t.Fatalf("应进入 chat 流水线（空 model 报错 500）: %d %s", w.Code, w.Body.String())
+	}
+}
+
 // 受限密钥对可定位模型的透传走模型级权限：拥有该模型则放行。
 func TestDedicatedRoutePassthroughModelPermission(t *testing.T) {
 	f := setupDedicatedRoute(t, "sk-admin")
@@ -265,6 +349,51 @@ func TestDedicatedRoutePassthroughModelPermission(t *testing.T) {
 	_, _, _, body := f.upstream.snapshot()
 	if !strings.Contains(body, `"model":"latest-direct"`) {
 		t.Errorf("绑定模型应改写, got %q", body)
+	}
+}
+
+// 已知端点的模型级权限同样生效：受限密钥（x-api-key）请求未授权的模型 → 403。
+// 专属地址不允许成为绕过模型权限的后门——Anthropic 形态的已知端点也不例外。
+func TestDedicatedRouteXAPIKeyKnownEndpointForbidden(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	key := models.AuthKey{Name: "limited", Key: "sk-limited", Status: new(true), AllowAll: new(false), Models: []string{"other-model"}}
+	if err := models.DB.Create(&key).Error; err != nil {
+		t.Fatalf("create auth key: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/p/alpha-name/v1/messages",
+		strings.NewReader(`{"model":"latest","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("x-api-key", "sk-limited")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	f.router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("受限密钥请求未授权模型应 403, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "latest") {
+		t.Errorf("错误信息应指明被拒的模型: %s", w.Body.String())
+	}
+}
+
+// 纯转发模式对受限密钥一律 403（无模型语义，无法按模型鉴权），与凭据头形态无关。
+// 用 x-api-key 一并覆盖 AuthDedicated → forwardAll 的链路。
+func TestDedicatedRouteForwardModeForbiddenForLimitedKey(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	key := models.AuthKey{Name: "limited", Key: "sk-limited", Status: new(true), AllowAll: new(false), Models: []string{"latest"}}
+	if err := models.DB.Create(&key).Error; err != nil {
+		t.Fatalf("create auth key: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/p/beta-name/v1/chat/completions",
+		strings.NewReader(`{"model":"native-model","messages":[]}`))
+	req.Header.Set("x-api-key", "sk-limited")
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	f.router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("受限密钥纯转发应 403, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

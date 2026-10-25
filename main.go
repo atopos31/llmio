@@ -69,8 +69,9 @@ func main() {
 	service.StartLogReclaimScheduler(context.Background())
 
 	router := gin.Default()
-	// gzip压缩
-	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1", "/p"})))
+	// gzip压缩。"/p/" 必须带尾斜杠：排除列表是前缀匹配，裸 "/p" 会把 /providers
+	// 等 SPA 路由的压缩也一并关掉。
+	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/openai", "/anthropic", "/gemini", "/v1", "/p/"})))
 	// 跨域
 	router.Use(middleware.Cors())
 	// webui
@@ -81,6 +82,7 @@ func main() {
 	authOpenAI := middleware.AuthOpenAI(token)
 	authAnthropic := middleware.AuthAnthropic(token)
 	authGemini := middleware.AuthGemini(token)
+	authDedicated := middleware.AuthDedicated(token)
 
 	// openai
 	openai := router.Group("/openai")
@@ -119,7 +121,8 @@ func main() {
 
 	// 提供商专属地址 /p/{name}/*：已知端点与全局 /v1 同语义（正常负载均衡），
 	// 未知路径透传给 URL 指名的提供商；ForwardMode 下全量直转。见 handler/provider_route.go。
-	p := router.Group("/p", authOpenAI)
+	// 鉴权用双头解析：同一个 base_url 上 Anthropic 形态客户端发的是 x-api-key。
+	p := router.Group("/p", authDedicated)
 	{
 		p.Any("/:name/*path", handler.ProviderDedicatedRoute)
 	}

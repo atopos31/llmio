@@ -15,6 +15,7 @@ import {
   errorBarWidth,
   errorViewMode,
   fromLocalInput,
+  groupByProvider,
   groupByRequestName,
   isMissingModelMetric,
   keyFilterOptions,
@@ -593,37 +594,68 @@ describe("联合维度的行按请求名归组", () => {
 
   it("把同一请求名的各家提供商收进一组，并给出组名", () => {
     const groups = groupByRequestName([joint("a", "x", 3), joint("a", "y", 2), joint("b", "x", 1)])
-    expect(groups.map((g) => g.requestName)).toEqual(["a", "b"])
+    expect(groups.map((g) => g.header)).toEqual(["a", "b"])
     expect(groups[0].rows.map((r) => r.provider)).toEqual(["x", "y"])
   })
 
   it("组的先后按各行合计现算，不跟着输入顺序走", () => {
     // b 单独一行就比 a 的任意一行大，但 a 有两行、合计更大——按分量比会排错
     const groups = groupByRequestName([joint("b", "x", 4), joint("a", "x", 3), joint("a", "y", 3)])
-    expect(groups.map((g) => g.requestName)).toEqual(["a", "b"])
+    expect(groups.map((g) => g.header)).toEqual(["a", "b"])
   })
 
   it("合计相同时按请求名的码点定序，不随输入顺序跳", () => {
     const input = [joint("b", "x", 1), joint("a", "x", 1)]
-    expect(groupByRequestName(input).map((g) => g.requestName)).toEqual(["a", "b"])
-    expect(groupByRequestName([...input].reverse()).map((g) => g.requestName)).toEqual(["a", "b"])
+    expect(groupByRequestName(input).map((g) => g.header)).toEqual(["a", "b"])
+    expect(groupByRequestName([...input].reverse()).map((g) => g.header)).toEqual(["a", "b"])
   })
 
   it("请求名自己带分隔符时不会被拆开", () => {
     // 行名是拼出来的，靠拆字符串认请求名必然在这里翻车：
     // 「a · b」这个名字按分隔符拆会得到两个请求名，实际是同一个
     const groups = groupByRequestName([joint("a · b", "x", 2), joint("a", "b · x", 1)])
-    expect(groups.map((g) => g.requestName)).toEqual(["a · b", "a"])
+    expect(groups.map((g) => g.header)).toEqual(["a · b", "a"])
     expect(groups[0].rows).toHaveLength(1)
   })
 
   it("分量字段缺失时回落到行名——老接口没有 model 字段也还能摆出来", () => {
     const groups = groupByRequestName([group({ name: "m · p" }), group({ name: "m · q" })])
     expect(groups).toHaveLength(2)
-    expect(groups.map((g) => g.requestName)).toEqual(["m · p", "m · q"])
+    expect(groups.map((g) => g.header)).toEqual(["m · p", "m · q"])
   })
 
   it("空输入给空数组", () => {
     expect(groupByRequestName([])).toEqual([])
+  })
+})
+
+describe("providerModel 维按提供商归组", () => {
+  /** 一行「上游模型 · 提供商」。providerModel 维的行名拼接与分量字段同款。 */
+  function jointProvider(model: string, provider: string, total: number): GroupStat {
+    return group({ name: `${model} · ${provider}`, model, provider, total })
+  }
+
+  it("组头是提供商、行是各个上游模型——与「A × B」的既有读法一致", () => {
+    const groups = groupByProvider([
+      jointProvider("m1", "prov-a", 3),
+      jointProvider("m2", "prov-a", 2),
+      jointProvider("m1", "prov-b", 1),
+    ])
+    expect(groups.map((g) => g.header)).toEqual(["prov-a", "prov-b"])
+    expect(groups[0].rows.map((r) => r.model)).toEqual(["m1", "m2"])
+  })
+
+  it("组的先后按各行合计现算，与 groupByRequestName 同一规则", () => {
+    const groups = groupByProvider([
+      jointProvider("m1", "prov-b", 5),
+      jointProvider("m1", "prov-a", 3),
+      jointProvider("m2", "prov-a", 3),
+    ])
+    expect(groups.map((g) => g.header)).toEqual(["prov-a", "prov-b"])
+  })
+
+  it("分量字段缺失时回落到行名", () => {
+    const groups = groupByProvider([group({ name: "m · p" })])
+    expect(groups.map((g) => g.header)).toEqual(["m · p"])
   })
 })

@@ -531,8 +531,8 @@ describe("分析页 · 在同一请求名的各家提供商之间比", () => {
   })
 })
 
-describe("分析页 · 供应商×模型联合用量", () => {
-  /** 一行「上游模型 · 供应商」。byProviderModel 的第一分量是实发的模型 id。 */
+describe("分析页 · 提供商×模型联合用量", () => {
+  /** 一行「上游模型 · 提供商」。分量字段按内容装：model=上游模型，provider=提供商。 */
   function pm(model: string, provider: string, over: Partial<GroupStat> = {}): GroupStat {
     return group(`${model} · ${provider}`, { model, provider, ...over })
   }
@@ -542,13 +542,12 @@ describe("分析页 · 供应商×模型联合用量", () => {
     renderPage()
     await screen.findByText("请求趋势")
     await user.click(screen.getByRole("radio", { name: "模型性能" }))
-    await user.click(screen.getByRole("radio", { name: "供应商 × 模型" }))
+    await user.click(screen.getByRole("radio", { name: "提供商 × 模型" }))
     return user
   }
 
-  it("同一上游模型的各家供应商挨在一起，模型名升成组头", async () => {
-    // gpt-4o 经由两家供应商、claude-sonnet 只有一家：
-    // 备用关联接管时流量落在哪家，就靠这个视角现形
+  it("同一提供商的各个上游模型挨在一起，提供商名升成组头", async () => {
+    // prov-a 跑两个模型、prov-b 只跑一个：「A × B」的 A 当组头、B 当行
     mocked.getStats.mockResolvedValue(
       fixture({
         byProviderModel: [
@@ -561,25 +560,25 @@ describe("分析页 · 供应商×模型联合用量", () => {
     await openProviderModel()
 
     const rows = bodyRows()
-    // 组头 + gpt-4o 的两行 + 组头 + claude-sonnet 的一行
+    // 组头 prov-a + 它的两个模型 + 组头 prov-b + 它的一个模型
     expect(rows).toHaveLength(5)
-    expect(rows[0]).toContain("gpt-4o")
-    expect(rows[1]).toContain("prov-a")
-    expect(rows[2]).toContain("prov-b")
-    expect(rows[3]).toContain("claude-sonnet")
-    expect(rows[4]).toContain("prov-a")
-    expect(screen.getByRole("rowheader", { name: "gpt-4o" })).toBeInTheDocument()
+    expect(rows[0]).toContain("prov-a")
+    expect(rows[1]).toContain("gpt-4o")
+    expect(rows[2]).toContain("claude-sonnet")
+    expect(rows[3]).toContain("prov-b")
+    expect(rows[4]).toContain("gpt-4o")
+    expect(screen.getByRole("rowheader", { name: "prov-a" })).toBeInTheDocument()
   })
 
-  it("组头是上游模型而不是请求名，提供商维度平铺不受影响", async () => {
+  it("首列表头是模型（行那一侧），提供商维度平铺不受影响", async () => {
     mocked.getStats.mockResolvedValue(
       fixture({ byProviderModel: [pm("m1", "prov-a", { total: 3 })] })
     )
     const user = await openProviderModel()
 
-    // 行首列表头仍是提供商（联合维度里第一分量升去了组头）
-    expect(screen.getByRole("columnheader", { name: "提供商" })).toBeInTheDocument()
-    expect(screen.getByRole("rowheader", { name: "m1" })).toBeInTheDocument()
+    // 组头升去了分组行，首列装的是模型名
+    expect(screen.getByRole("columnheader", { name: "模型" })).toBeInTheDocument()
+    expect(screen.getByRole("rowheader", { name: "prov-a" })).toBeInTheDocument()
 
     // 切回提供商边际维度：仍是平铺行，没有组头
     await user.click(screen.getByRole("radio", { name: "提供商" }))

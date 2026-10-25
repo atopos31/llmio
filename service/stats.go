@@ -385,11 +385,11 @@ type TrendPoint struct {
 // GroupStat 是单个分组的统计。
 type GroupStat struct {
 	Name string `json:"name"`
-	// Model / Provider 只在联合维度填写：行名是「第一分量 · 第二分量」，
-	// 但展示要按第一分量把各行归成一组，光有一行拼好的标签拆不回来
-	// （第一分量里完全可能自己就带分隔符）。其余维度留空。
-	// 两处使用：byModelProvider 的第一分量是请求名；byProviderModel 的
-	// 第一分量是上游模型名。
+	// Model / Provider 只在联合维度填写，**按内容命名**：Provider 一律装
+	// 提供商名；Model 装模型一侧——byModelProvider 里是请求名（历史契约），
+	// byProviderModel 里是上游模型名。其余维度留空。
+	// 行名是两个分量的拼接，但展示归组不能拿拼好的标签拆（分量名里完全
+	// 可能自己就带分隔符），归组方向由前端按维度决定。
 	Model           string  `json:"model,omitempty"`
 	Provider        string  `json:"provider,omitempty"`
 	Total           int64   `json:"total"`
@@ -479,10 +479,10 @@ type StatsResult struct {
 	// 几家提供商时，谁快谁慢只在联合分布里看得见，而"只按请求名对比"会把
 	// 它们混成一行。
 	ByModelProvider []GroupStat `json:"byModelProvider"`
-	// ByProviderModel 是上游模型×实际供应商的联合分布。
+	// ByProviderModel 是提供商×上游模型的联合分布（JSON 字段名沿用契约）。
 	//
-	// 回答的是"哪家供应商的哪个上游模型实际吃掉了 token"：byModel 把供应商
-	// 抹平（同名上游模型可能来自多家），byProvider 把模型抹平（一家供应商
+	// 回答的是"哪家提供商的哪个上游模型实际吃掉了 token"：byModel 把提供商
+	// 抹平（同名上游模型可能来自多家），byProvider 把模型抹平（一家提供商
 	// 通常挂好几个模型），两个边际都读不出这个视角。备用关联接管时，流量
 	// 落在哪家也在这里现形。
 	ByProviderModel []GroupStat `json:"byProviderModel"`
@@ -662,9 +662,11 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 		// 谁快谁慢"的比较拆成若干小行；按请求名分则每组回答的正是这个问题。
 		// 上游模型名在单模型维度（byModel）里看，并可下钻到日志。
 		//
-		// 另一路联合维度是**上游模型 × 提供商**（byProviderModel）：前两路
-		// 都回答不了"哪家供应商的哪个上游模型在吃 token"——byModel 把供应商
+		// 另一路联合维度是**提供商 × 上游模型**（byProviderModel）：前两路
+		// 都回答不了"哪家提供商的哪个上游模型在吃 token"——byModel 把提供商
 		// 抹平，byProvider 把模型抹平。两路联合各自归组，互不合并。
+		// 分量字段按 addJoint 的实参就位：Model 装上游模型名、Provider 装
+		// 提供商名，展示侧按提供商归组由前端决定。
 		models.add(l.ProviderModel, l)
 		providers.add(l.ProviderName, l)
 		modelProviders.addJoint(l.Name, l.ProviderName, l)

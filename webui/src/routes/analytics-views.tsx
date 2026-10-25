@@ -33,6 +33,7 @@ import {
   logDetailPath,
   logPath,
   groupByRequestName,
+  groupByProvider,
   MODEL_DIMENSIONS,
   MODEL_SORT_KEYS,
   modelDimensionGroups,
@@ -641,22 +642,30 @@ export function ModelsView({
 
   const rows = sortModelGroups(groups, sort)
   // 联合维度按**未排序**的原数组归组：组内次序由渲染时那次 sortModelGroups
-  // 负责（见下），组间次序由 groupByRequestName 按各行合计现算。若改成先排序
+  // 负责（见下），组间次序由归组函数按各行合计现算。若改成先排序
   // 再归组，组内次序会被"归组时顺带带进来"，下面那行排序就成了永远等效的
   // 多余动作——一处真排序比两处互相掩盖的排序可信。
   //
-  // 两个联合维度共用同一套归组：modelProvider 的组头是请求名，
-  // providerModel 的组头是上游模型名——都是「第一分量 · 提供商」的第一分量。
-  const joint = groupByRequestName(groups)
-  // 首列的表头跟着维度走：除了"模型"这一维，这一列装的都是提供商
-  // （联合维度里第一分量已经升到分组行上去了）
-  const nameColumn = dimension === "model" ? t("models.columns.name") : t("models.columns.provider")
+  // 两个联合维度的组头不是同一种东西（A × B 里 A 当组头、B 当行，与
+  // 「请求名 × 提供商」的既有读法一致）：modelProvider 按请求名归组、
+  // 行是各家提供商；providerModel 按提供商归组、行是各个上游模型。
+  const joint = dimension === "providerModel" ? groupByProvider(groups) : groupByRequestName(groups)
+  // 首列的表头跟着维度走：装的是**行**那一侧的名字——modelProvider 的行是
+  // 提供商，providerModel 的行是上游模型（组头那侧已经升到分组行上去了）
+  const nameColumn =
+    dimension === "provider" || dimension === "modelProvider"
+      ? t("models.columns.provider")
+      : t("models.columns.name")
 
-  /** 一行读数。首列的文字由调用方给：联合维度里它是提供商名，其余是分组名。 */
-  const row = (g: GroupStat, label: string) => (
+  /**
+   * 一行读数。首列的文字由调用方给：联合维度里它是行那一侧的名字。
+   * `sub` 标记联合维度的成员行：比组头缩进两个汉字宽，层级一眼可读——
+   * 组头与成员行都是同一列的文字，不缩进的话谁属于谁只能靠背景色猜。
+   */
+  const row = (g: GroupStat, label: string, sub = false) => (
     <TableRow key={g.name}>
       <TableCell className="max-w-[220px]">
-        <span className="block truncate" title={label}>
+        <span className={`block truncate${sub ? " pl-8" : ""}`} title={label}>
           {label}
         </span>
       </TableCell>
@@ -701,31 +710,37 @@ export function ModelsView({
           </TableHeader>
           <TableBody>
             {/*
-              联合维度按第一分量分组渲染：组头一行放请求名（或上游模型名），
-              底下是它各家的读数。平铺也能看，但同属一组的行会被别的组隔开
+              联合维度按组头归组渲染：组头一行放请求名（或提供商名），
+              底下是它的各行读数。平铺也能看，但同属一组的行会被别的组隔开
               ——要"对比"就得先把它们挪到一起。
 
               组头用 th + scope="rowgroup" 而不是普通单元格加粗：读屏时
-              每一行的提供商名才会被读成"属于某个组"，否则那一列只剩
-              孤零零的提供商名，读不出它在跟谁比。
+              底下每一行才会被读成"属于某个组"，否则那一列只剩
+              孤零零的行名，读不出它在跟谁比。
             */}
             {dimension === "model" || dimension === "provider" ? (
               rows.map((g) => row(g, g.name))
             ) : (
               joint.map((grp) => (
-                <Fragment key={grp.requestName}>
+                <Fragment key={grp.header}>
                   <TableRow className="bg-muted/50 hover:bg-muted/50">
                     <TableHead
                       scope="rowgroup"
                       colSpan={MODEL_SORT_KEYS.length + 1}
                       className="max-w-[220px] font-medium"
                     >
-                      <span className="block truncate" title={grp.requestName}>
-                        {grp.requestName}
+                      <span className="block truncate" title={grp.header}>
+                        {grp.header}
                       </span>
                     </TableHead>
                   </TableRow>
-                  {sortModelGroups(grp.rows, sort).map((g) => row(g, g.provider ?? g.name))}
+                  {sortModelGroups(grp.rows, sort).map((g) =>
+                    row(
+                      g,
+                      dimension === "providerModel" ? (g.model ?? g.name) : (g.provider ?? g.name),
+                      true
+                    )
+                  )}
                 </Fragment>
               ))
             )}

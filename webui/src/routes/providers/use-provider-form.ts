@@ -20,7 +20,8 @@ export const providerFormSchema = z.object({
   console: z.string().optional(),
   proxy: z.string().optional(),
   error_matcher: z.string().optional(),
-  forward_mode: z.boolean(),
+  // 三态：null 关闭转发 / false 混合 / true 纯转发，只作用于专属地址的未知路径
+  forward_mode: z.boolean().nullable(),
 });
 
 export type ProviderFormValues = z.infer<typeof providerFormSchema>;
@@ -32,7 +33,7 @@ const defaultFormValues: ProviderFormValues = {
   console: "",
   proxy: "",
   error_matcher: "",
-  forward_mode: false,
+  forward_mode: null,
 };
 
 type UseProviderFormParams = {
@@ -131,7 +132,7 @@ export const useProviderForm = ({
       console: provider.Console || "",
       proxy: provider.Proxy || "",
       error_matcher: provider.ErrorMatcher || "",
-      forward_mode: provider.ForwardMode ?? false,
+      forward_mode: provider.ForwardMode ?? null,
     });
     setOpen(true);
   };
@@ -153,7 +154,7 @@ export const useProviderForm = ({
       console: "",
       proxy: "",
       error_matcher: "",
-      forward_mode: false,
+      forward_mode: null,
     });
     setOpen(true);
   };

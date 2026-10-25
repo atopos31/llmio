@@ -25,12 +25,14 @@ import (
 // name 即提供商名称，必须通过 isSafeProviderSegment 校验（URL 安全字符）；
 // 不含 URL 安全字符的名称（空格、中文等）不提供专属地址。
 //
-// 两种模式（providers.ForwardMode）：
-//   - 混合（默认）：已知端点（/v1/chat/completions 等）直调现有 handler，
+// 未知路径的三种处置（models.Provider.ForwardMode）——三种都只作用于专属地址，
+// 全局 /v1 的未知路径永远 404，不透传：
+//   - 关闭（nil，默认）：未知路径 404，专属地址上仅已知端点可用；
+//   - 混合（false）：已知端点（/v1/chat/completions 等）直调现有 handler，
 //     行为与全局 /v1 完全一致——全池负载均衡、可容错，URL 指名的提供商不参与
 //     路由；其余未知路径透传给 URL 指名的提供商。
-//   - 纯转发：所有路径与方法无条件直转给该提供商，不改写模型名，客户端直接
-//     使用上游原生模型名。
+//   - 纯转发（true）：所有路径与方法无条件直转给该提供商，不改写模型名，客户端
+//     直接使用上游原生模型名。
 //
 // 权限控制：已知端点沿用 chatHandler 内的模型级校验；未知路径带 model 的同样
 // 按 model 校验；无法定位模型的请求（无 model 或纯转发模式）要求全量权限
@@ -53,7 +55,7 @@ func ProviderDedicatedRoute(c *gin.Context) {
 
 	path := c.Param("path")
 
-	if provider.ForwardMode {
+	if provider.ForwardMode != nil && *provider.ForwardMode {
 		forwardAll(c, provider, path)
 		return
 	}
@@ -70,6 +72,11 @@ func ProviderDedicatedRoute(c *gin.Context) {
 	case "/v1/models":
 		OpenAIModelsHandler(c)
 	default:
+		// ForwardMode == nil：转发关闭，未知路径与全局 /v1 同语义 404。
+		if provider.ForwardMode == nil {
+			common.ErrorWithHttpStatus(c, http.StatusNotFound, http.StatusNotFound, "Not found")
+			return
+		}
 		passthroughUnknown(c, provider, path)
 	}
 }

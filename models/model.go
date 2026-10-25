@@ -16,10 +16,15 @@ type Provider struct {
 	Console      string // 控制台地址
 	Proxy        string // HTTP 代理地址
 	ErrorMatcher string // 响应体错误识别规则，多行或分号分隔 sample
-	// ForwardMode 纯转发模式：专属地址 /p/{name}/* 上的所有请求（含已知端点）
-	// 无条件直转给该提供商，不改写模型名，客户端直接使用上游原生模型名。
-	// 默认 false（混合模式：已知端点走正常负载均衡，未知路径才透传给该提供商）。
-	ForwardMode bool `gorm:"default:false"`
+	// ForwardMode 专属地址 /p/{name} 的未知路径转发开关，三态指针（同 PreferDirect
+	// 的惯例，nil 表达"没开"这个独立状态，bool 只有两个槽位装不下三档）：
+	//   - nil：关闭转发——未知路径返回 404，专属地址上仅已知端点可用；
+	//   - false：混合模式——已知端点走正常负载均衡，未知路径透传给该提供商；
+	//   - true：纯转发——所有请求（含已知端点）无条件直转，不改写模型名。
+	// 三种状态都只作用于专属地址，全局 /v1 的未知路径永远 404。
+	// 刻意不带 default 标签：带 default 时 GORM 会把零值（nil）从 INSERT 里剔掉、
+	// 落成列默认值，"关闭"就永远写不进去了。
+	ForwardMode *bool
 }
 
 type AnthropicConfig struct {

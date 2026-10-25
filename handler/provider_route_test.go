@@ -79,8 +79,9 @@ type dedicatedFixture struct {
 	upstream *dedicatedUpstream
 }
 
-// setupDedicatedRoute 搭建包含专属地址路由的 gin 引擎、数据库（两家提供商：
-// alpha-name 可绑定、beta-name 纯转发），以及指向 alpha-name 的假上游。
+// setupDedicatedRoute 搭建包含专属地址路由的 gin 引擎、数据库（三家提供商：
+// alpha-name 混合可绑定、beta-name 纯转发、gamma-name 关闭转发），
+// 以及指向它们的假上游。
 func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 	t.Helper()
 
@@ -99,23 +100,34 @@ func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 		t.Fatalf("migrate test db: %v", err)
 	}
 
+	// 三家覆盖 ForwardMode 三态：alpha 混合（false）、beta 纯转发（true）、
+	// gamma 关闭（nil）。混合模式的透传行为全部钉在 alpha 上。
 	alpha := models.Provider{
-		Name:   "alpha-name",
-		Type:   "openai",
-		Config: `{"base_url":"` + server.URL + `","api_key":"sk-upstream"}`,
+		Name:        "alpha-name",
+		Type:        "openai",
+		Config:      `{"base_url":"` + server.URL + `","api_key":"sk-upstream"}`,
+		ForwardMode: new(false),
 	}
 	beta := models.Provider{
 		Name:        "beta-name",
 		Type:        "openai",
 		Config:      `{"base_url":"` + server.URL + `","api_key":"sk-upstream"}`,
-		ForwardMode: true,
+		ForwardMode: new(true),
 	}
-	// 逐个直接 Create：循环变量副本会让 GORM 把自增 ID 写进副本而非 alpha/beta
+	gamma := models.Provider{
+		Name:   "gamma-name",
+		Type:   "openai",
+		Config: `{"base_url":"` + server.URL + `","api_key":"sk-upstream"}`,
+	}
+	// 逐个直接 Create：循环变量副本会让 GORM 把自增 ID 写进副本而非 alpha/beta/gamma
 	if err := db.Create(&alpha).Error; err != nil {
 		t.Fatalf("create provider alpha: %v", err)
 	}
 	if err := db.Create(&beta).Error; err != nil {
 		t.Fatalf("create provider beta: %v", err)
+	}
+	if err := db.Create(&gamma).Error; err != nil {
+		t.Fatalf("create provider gamma: %v", err)
 	}
 
 	chatModel := models.Model{Name: "latest"}
@@ -465,6 +477,36 @@ func TestDedicatedRouteForwardMode(t *testing.T) {
 	w = doDedicated(t, f, http.MethodGet, "/p/beta-name/v1/files", "Bearer sk-admin", "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("纯转发 GET 应 200, got %d", w.Code)
+	}
+}
+
+// 转发关闭（ForwardMode nil）：未知路径 404，上游不得收到任何请求。
+// 这是"关闭"档位的核心契约——专属地址退化为只有已知端点的普通入口。
+func TestDedicatedRouteForwardDisabledUnknownPath404(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	w := doDedicated(t, f, http.MethodPost, "/p/gamma-name/v1/alpha/search", "Bearer sk-admin", `{}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("关闭转发的未知路径应 404, got %d: %s", w.Code, w.Body.String())
+	}
+	if path, _, _, _ := f.upstream.snapshot(); path != "" {
+		t.Errorf("关闭转发不得触碰上游, 上游收到 %q", path)
+	}
+}
+
+// 转发关闭只挡未知路径：已知端点照常进入 chat 流水线（空 model 报错而非 404/透传）。
+func TestDedicatedRouteForwardDisabledKnownEndpointStaysAvailable(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	w := doDedicated(t, f, http.MethodPost, "/p/gamma-name/v1/messages", "Bearer sk-admin", `{}`)
+	if w.Code == http.StatusNotFound {
+		t.Fatalf("关闭转发不应影响已知端点: %d %s", w.Code, w.Body.String())
+	}
+	if w.Code == http.StatusOK {
+		t.Fatalf("已知端点应进入 chat 流水线（空 model 报错），不应透传成功: %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "model") {
+		t.Errorf("错误信息应指向 model 校验: %s", w.Body.String())
 	}
 }
 

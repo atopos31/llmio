@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { UseFormReturn } from "react-hook-form";
+import { CircleHelp } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +15,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Form,
   FormControl,
   FormField,
@@ -26,6 +32,29 @@ import type { Provider, ProviderTemplate } from "@/lib/api";
 import type { ConfigFieldMap } from "./provider-form-utils";
 import { dedicatedBaseUrl, isSafeProviderName } from "./provider-form-utils";
 import type { ProviderFormValues } from "./use-provider-form";
+
+/**
+ * 标签旁的「？」悬浮提示：长文案收进 tooltip，不堆在表单里。
+ * label 同时充当图标的 aria-label（读屏与无焦点悬停兜底）。
+ */
+function HelpHint({ label, text }: { label: string; text: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          className="inline-flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          <CircleHelp className="size-3.5" aria-hidden="true" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs leading-relaxed">
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 type ProviderFormDialogProps = {
   open: boolean;
@@ -72,13 +101,13 @@ export function ProviderFormDialog({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('form.name_label')}</FormLabel>
+                  <div className="flex items-center gap-1.5">
+                    <FormLabel>{t('form.name_label')}</FormLabel>
+                    <HelpHint label={t('form.name_label')} text={t('form.name_hint')} />
+                  </div>
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
-                  <p className="text-xs text-muted-foreground">
-                    {t('form.name_hint')}
-                  </p>
                   {nameValue && (
                     nameSafe ? (
                       <p className="text-xs font-mono break-all rounded bg-muted px-2 py-1">
@@ -230,7 +259,10 @@ export function ProviderFormDialog({
               name="error_matcher"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('form.error_matcher_label')}</FormLabel>
+                  <div className="flex items-center gap-1.5">
+                    <FormLabel>{t('form.error_matcher_label')}</FormLabel>
+                    <HelpHint label={t('form.error_matcher_label')} text={t('form.error_matcher_hint')} />
+                  </div>
                   <FormControl>
                     <Textarea
                       {...field}
@@ -238,9 +270,6 @@ export function ProviderFormDialog({
                       className="resize-y min-h-[88px]"
                     />
                   </FormControl>
-                  <p className="text-xs text-muted-foreground">
-                    {t('form.error_matcher_hint')}
-                  </p>
                   <FormMessage />
                 </FormItem>
               )}
@@ -265,9 +294,16 @@ export function ProviderFormDialog({
               name="forward_mode"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('form.forward_mode_label')}</FormLabel>
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="flex items-center gap-1.5">
+                    <FormLabel>{t('form.forward_mode_label')}</FormLabel>
+                    <HelpHint
+                      label={t('form.forward_mode_label')}
+                      text={t('form.forward_mode_label_tooltip')}
+                    />
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-3">
                     {([
+                      { value: null, title: t('form.forward_mode_off_title'), desc: t('form.forward_mode_off_desc') },
                       { value: false, title: t('form.forward_mode_mixed_title'), desc: t('form.forward_mode_mixed_desc') },
                       { value: true, title: t('form.forward_mode_pure_title'), desc: t('form.forward_mode_pure_desc') },
                     ]).map((option) => {
@@ -275,24 +311,19 @@ export function ProviderFormDialog({
                       return (
                         <label
                           key={String(option.value)}
-                          className={`flex cursor-pointer flex-col gap-1 rounded-md border px-3 py-2 text-sm ${selected
+                          className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${selected
                             ? "border-primary bg-primary/10"
                             : "border-border"
                             }`}
                           onClick={() => field.onChange(option.value)}
                         >
-                          <span className="flex items-center gap-2 font-medium">
-                            <Checkbox checked={selected} aria-hidden="true" tabIndex={-1} className="pointer-events-none" />
-                            {option.title}
-                          </span>
-                          <span className="text-xs text-muted-foreground">{option.desc}</span>
+                          <Checkbox checked={selected} aria-hidden="true" tabIndex={-1} className="pointer-events-none" />
+                          <span className="select-none font-medium">{option.title}</span>
+                          <HelpHint label={option.title} text={option.desc} />
                         </label>
                       );
                     })}
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {t('form.forward_mode_hint')}
-                  </p>
                   <FormMessage />
                 </FormItem>
               )}

@@ -19,8 +19,8 @@ export interface Provider {
   Console: string;
   Proxy: string;
   ErrorMatcher: string;
-  // 纯转发模式：专属地址上所有请求无条件直转，不改写模型名
-  ForwardMode: boolean;
+  // 专属地址未知路径转发，三态：null 关闭 / false 混合 / true 纯转发（仅作用于专属地址）
+  ForwardMode: boolean | null;
 }
 
 export interface Model {
@@ -152,7 +152,7 @@ export async function createProvider(provider: {
   console: string;
   proxy: string;
   error_matcher: string;
-  forward_mode: boolean;
+  forward_mode: boolean | null;
 }): Promise<Provider> {
   return apiRequest<Provider>('/providers', {
     method: 'POST',
@@ -167,7 +167,7 @@ export async function updateProvider(id: number, provider: {
   console?: string;
   proxy?: string;
   error_matcher?: string;
-  forward_mode?: boolean;
+  forward_mode?: boolean | null;
 }): Promise<Provider> {
   return apiRequest<Provider>(`/providers/${id}`, {
     method: 'PUT',

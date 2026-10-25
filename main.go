@@ -119,8 +119,9 @@ func main() {
 		}
 	}
 
-	// 提供商专属地址 /p/{name}/*：已知端点与全局 /v1 同语义（正常负载均衡），
-	// 未知路径透传给 URL 指名的提供商；ForwardMode 下全量直转。见 handler/provider_route.go。
+	// 提供商专属地址 /p/{name}/*：已知端点与全局 /v1 同语义（正常负载均衡）；
+	// 未知路径按提供商的 ForwardMode 处置——关闭 404 / 混合透传 / 纯转发直转。
+	// 见 handler/provider_route.go。
 	// 鉴权用双头解析：同一个 base_url 上 Anthropic 形态客户端发的是 x-api-key。
 	p := router.Group("/p", authDedicated)
 	{

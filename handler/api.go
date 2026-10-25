@@ -26,7 +26,9 @@ type ProviderRequest struct {
 	Console      string `json:"console"`
 	Proxy        string `json:"proxy"`
 	ErrorMatcher string `json:"error_matcher"`
-	ForwardMode  bool   `json:"forward_mode"`
+	// ForwardMode 三态，只作用于专属地址 /p/{name} 的未知路径转发：
+	// nil 关闭 / false 混合 / true 纯转发，见 models.Provider。
+	ForwardMode *bool `json:"forward_mode"`
 }
 
 // ModelRequest represents the request body for creating/updating a model

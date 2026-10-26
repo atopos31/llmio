@@ -1062,3 +1062,21 @@ describe("关联表单 · 自动填写换目标", () => {
     expect(视觉(dialog)).not.toBeChecked()
   })
 })
+
+describe("关联表单 · 备用关联", () => {
+  it("新建关联默认不是备用", async () => {
+    const { dialog } = await openAssociationDialog("gpt-4o")
+
+    expect(within(dialog).getByRole("checkbox", { name: "备用关联" })).not.toBeChecked()
+  })
+
+  it("编辑备用关联时开关回填为开", async () => {
+    mocked.getModelProviders.mockResolvedValue([
+      association({ ProviderModel: "gpt-4o", Backup: true }),
+    ])
+
+    const { dialog } = await openAssociationDialog("gpt-4o")
+
+    expect(within(dialog).getByRole("checkbox", { name: "备用关联" })).toBeChecked()
+  })
+})

@@ -54,18 +54,21 @@ type ModelWithProvider struct {
 	ModelID          uint
 	ProviderModel    string
 	ProviderID       uint
-	ToolCall         *bool             // 能否接受带有工具调用的请求
-	StructuredOutput *bool             // 能否接受带有结构化输出的请求
-	Image            *bool             // 能否接受带有图片的请求(视觉)
-	WithHeader       *bool             // 是否透传header
-	Status           *bool             // 是否启用
-	CustomerHeaders  map[string]string `gorm:"serializer:json"` // 自定义headers
-	ExtraBody        map[string]any    `gorm:"serializer:json"` // 额外请求体参数
-	Weight           int
-	InputPrice       *float64
-	CacheReadPrice   *float64
-	OutputPrice      *float64
-	Currency         string
+	ToolCall         *bool // 能否接受带有工具调用的请求
+	StructuredOutput *bool // 能否接受带有结构化输出的请求
+	Image            *bool // 能否接受带有图片的请求(视觉)
+	WithHeader       *bool // 是否透传header
+	Status           *bool // 是否启用
+	// Backup 是否为备用关联：不参与日常轮询，仅当主关联在本请求内全部不可用后接管。
+	// nil（迁移上来的老行）按 false 处理，见 models/init.go 的回填。
+	Backup          *bool
+	CustomerHeaders map[string]string `gorm:"serializer:json"` // 自定义headers
+	ExtraBody       map[string]any    `gorm:"serializer:json"` // 额外请求体参数
+	Weight          int
+	InputPrice      *float64
+	CacheReadPrice  *float64
+	OutputPrice     *float64
+	Currency        string
 	// Peak 这一条关联的峰谷计费条款，nil 表示没配（按基础价计费）。
 	//
 	// 与三档单价同处一行是刻意的：乘数就是乘在它们上面的，
@@ -108,6 +111,9 @@ type ChatLog struct {
 	AuthKeyID   uint   `gorm:"index;index:idx_chat_logs_key_created,priority:1"` // 使用的AuthKey ID
 	SessionID   string `gorm:"index"`                                            // 请求体中的session_id
 	ChatIO      bool   // 是否开启IO记录
+	// Backup 本次响应由备用关联提供：主关联在本请求内全部失败出局后降级接管。
+	// 非指针 bool 是后加列，AutoMigrate 不给存量行填默认值，NULL 由 init.go 回填 false。
+	Backup bool
 
 	Error          string        // if status is error, this field will be set
 	Retry          int           // 重试次数

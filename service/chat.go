@@ -127,20 +127,36 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 	go RecordRetryLog(context.Background(), retryLog)
 
-	// 选择负载均衡策略
-	var balancer balancers.Balancer
-	switch providersWithMeta.Strategy {
-	case consts.BalancerLottery:
-		balancer = balancers.NewLottery(providersWithMeta.WeightItems)
-	case consts.BalancerRotor:
-		balancer = balancers.NewRotor(providersWithMeta.WeightItems)
-	default:
-		balancer = balancers.NewLottery(providersWithMeta.WeightItems)
+	// 主池与备用池各自独立构建：备用关联不参与日常轮询，
+	// 只有主池在本请求内被清空（所有主关联都失败出局）后才会接管，且只降不升。
+	newBalancer := func(items map[uint]int) balancers.Balancer {
+		var b balancers.Balancer
+		switch providersWithMeta.Strategy {
+		case consts.BalancerRotor:
+			b = balancers.NewRotor(items)
+		default:
+			b = balancers.NewLottery(items)
+		}
+		// 是否开启熔断
+		if providersWithMeta.Breaker {
+			b = balancers.BalancerWrapperBreaker(b)
+		}
+		return b
 	}
 
-	// 是否开启熔断
-	if providersWithMeta.Breaker {
-		balancer = balancers.BalancerWrapperBreaker(balancer)
+	// balancer 在本请求内可变：主池耗尽后指向备用池
+	balancer := newBalancer(providersWithMeta.WeightItems)
+	backupBalancer := newBalancer(providersWithMeta.BackupWeightItems)
+	hasBackup := len(providersWithMeta.BackupWeightItems) > 0
+	usingBackup := false
+
+	// 降级状态提示：终态错误与候选池中途清空都要带上它，
+	// 便于区分「主关联本身就不够用」和「连备用也挂了」
+	backupHint := func() string {
+		if usingBackup {
+			return " (backup providers exhausted)"
+		}
+		return ""
 	}
 
 	// 设置请求超时
@@ -172,14 +188,26 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	for retry := range providersWithMeta.MaxRetry {
 		select {
 		case <-ctx.Done():
-			return nil, nil, ctx.Err()
+			// 走到这里说明请求 context 已经取消：客户端断开，或中间代理掐了连接。
+			// 裸的 ctx.Err() 只有一句 "context canceled"，打上阶段再往上抛。
+			return nil, nil, MarkStage(StageUpstreamRequest, ctx, ctx.Err())
 		case <-timer.C:
 			return nil, nil, errors.New("retry time out")
 		default:
+			// 主池已无可用候选（所有主关联在本请求内都失败出局）→ 降级到备用池。
+			// 429 只降权不移出，仍留在主池里继续消耗重试轮次，因此不算「不可用」。
+			// 降级只降不升：备用接管后即使主池重新有货也不回退（本请求内主池只会越来越空）。
+			if hasBackup && !usingBackup && balancer.Empty() {
+				balancer = backupBalancer
+				usingBackup = true
+				slog.Warn("all primary providers exhausted, falling back to backup providers",
+					"model", before.Model, "retry", retry, "traceID", traceID)
+			}
+
 			// 加权负载均衡
 			id, err := balancer.Pop()
 			if err != nil {
-				msg := fmt.Sprintf("balancer pop err: %v, traceID: %s%s", err, traceID, lastErrorSuffix(lastErr))
+				msg := fmt.Sprintf("balancer pop err: %v, traceID: %s%s", err, traceID, lastErrorSuffix(lastErr)+backupHint())
 				if _, lerr := saveFailedLog(ctx, style, before, msg); lerr != nil {
 					slog.Error("save failed log error", "error", lerr)
 				}
@@ -230,6 +258,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				TraceID:        traceID,
 				ProviderModel:  modelWithProvider.ProviderModel,
 				ProviderName:   provider.Name,
+				Backup:         usingBackup,
 				Status:         consts.StatusRunning,
 				Style:          style,
 				UpstreamStyle:  provider.Type,
@@ -311,7 +340,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				// 自愈的多发也受总超时约束：timer 是全请求预算
 				select {
 				case <-ctx.Done():
-					return nil, nil, ctx.Err()
+					return nil, nil, MarkStage(StageUpstreamRequest, ctx, ctx.Err())
 				case <-timer.C:
 					return nil, nil, errors.New("retry time out")
 				default:
@@ -329,7 +358,10 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 
 				res, err = client.Do(req)
 				if err != nil {
-					fail(err)
+					// client.Do 失败常常是裸的 "context canceled"：客户端一断开，绑定在
+					// 请求 ctx 上的上游调用会被一并取消。打上阶段与归因后再落库，
+					// 否则日志里只剩下六个字母，看不出是客户端跑了还是上游没连上。
+					fail(MarkStage(StageUpstreamRequest, ctx, err))
 					// 请求失败 移除待选
 					balancer.Delete(id)
 					nextProvider = true
@@ -435,7 +467,7 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 		}
 	}
 
-	return nil, nil, fmt.Errorf("All retry failed, trace ID: %s%s", traceID, lastErrorSuffix(lastErr))
+	return nil, nil, fmt.Errorf("All retry failed, trace ID: %s%s", traceID, lastErrorSuffix(lastErr)+backupHint())
 }
 
 // lastErrorSuffix 把最后一次失败的原因拼进收尾错误。截断 500 字符，与
@@ -506,9 +538,14 @@ func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, pr
 
 	log, output, err := processer(ctx, reader, before.Stream, reqStart)
 	if err != nil {
+		// 这里的 err 多半已经被上层（handler 的 io.Copy）打过阶段标记，
+		// MarkStage 幂等会原样放行；只有 processer 自己新产生的错误
+		// （如上游 SSE 里的 error 字段）才会在这里被补上阶段前缀。
+		// 本 goroutine 拿的是 Background ctx，补不出客户端归因，所以前缀
+		// 必须由 handler 在转发失败时打好。
 		if uerr := updateChatLog(ctx, logId, models.ChatLog{
 			Status: consts.StatusError,
-			Error:  err.Error(),
+			Error:  MarkStage(StageResponseStream, ctx, err).Error(),
 		}); uerr != nil {
 			slog.Error("record log error", "error", uerr)
 		}
@@ -525,7 +562,9 @@ func RecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, pr
 		// 兜底只试一次——前面已经撞满三次 busy_timeout，再久只会拖住这个 goroutine。
 		fallback := models.ChatLog{
 			Status: consts.StatusError,
-			Error:  "记录日志失败：请求已完成，但状态写入数据库时撞锁（" + err.Error() + "）",
+			// 落库失败也是一类失败，标上阶段让日志页能和上游/流错误分开。
+			Error: MarkStage(StageLogPersist, ctx,
+				fmt.Errorf("记录日志失败：请求已完成，但状态写入数据库时撞锁（%s）", err.Error())).Error(),
 		}
 		if uerr := updateChatLogN(ctx, logId, fallback, 1); uerr != nil {
 			slog.Error("record log error（日志仍停在 running，等重启收尾）", "log_id", logId, "error", uerr)
@@ -641,11 +680,33 @@ func BuildHeaders(source http.Header, withHeader bool, customHeaders map[string]
 type ProvidersWithMeta struct {
 	ModelWithProviderMap map[uint]models.ModelWithProvider
 	WeightItems          map[uint]int
-	ProviderMap          map[uint]models.Provider
-	MaxRetry             int
-	TimeOut              int
-	Strategy             string
-	Breaker              bool
+	// BackupWeightItems 是备用关联的独立权重池：不参与日常轮询，
+	// 仅当主池（WeightItems）在本请求内被清空后接管。可为空。
+	BackupWeightItems map[uint]int
+	ProviderMap       map[uint]models.Provider
+	MaxRetry          int
+	TimeOut           int
+	Strategy          string
+	Breaker           bool
+}
+
+// splitWeightItems 把过滤后的关联按主/备用拆成两个独立权重池。
+// 备用关联不参与日常轮询，只有主池在本请求内被清空后才会被启用；
+// 未命中 providerMap 的关联（供应商协议与入站格式不匹配）两池都不进。
+func splitWeightItems(modelWithProviders []models.ModelWithProvider, providerMap map[uint]models.Provider) (map[uint]int, map[uint]int) {
+	weightItems := make(map[uint]int)
+	backupWeightItems := make(map[uint]int)
+	for _, mp := range modelWithProviders {
+		if _, ok := providerMap[mp.ProviderID]; !ok {
+			continue
+		}
+		if lo.FromPtrOr(mp.Backup, false) {
+			backupWeightItems[mp.ID] = mp.Weight
+			continue
+		}
+		weightItems[mp.ID] = mp.Weight
+	}
+	return weightItems, backupWeightItems
 }
 
 func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Before) (*ProvidersWithMeta, error) {
@@ -704,17 +765,12 @@ func ProvidersWithMetaBymodelsName(ctx context.Context, style string, before Bef
 
 	providerMap := lo.KeyBy(providers, func(p models.Provider) uint { return p.ID })
 
-	weightItems := make(map[uint]int)
-	for _, mp := range modelWithProviders {
-		if _, ok := providerMap[mp.ProviderID]; !ok {
-			continue
-		}
-		weightItems[mp.ID] = mp.Weight
-	}
+	weightItems, backupWeightItems := splitWeightItems(modelWithProviders, providerMap)
 
 	return &ProvidersWithMeta{
 		ModelWithProviderMap: modelWithProviderMap,
 		WeightItems:          weightItems,
+		BackupWeightItems:    backupWeightItems,
 		ProviderMap:          providerMap,
 		MaxRetry:             model.MaxRetry,
 		TimeOut:              model.TimeOut,

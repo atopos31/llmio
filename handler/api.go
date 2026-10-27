@@ -936,19 +936,47 @@ func GetChatIO(c *gin.Context) {
 		style = chatLog.Style
 	}
 
+	// 必须显式转成文本：Input 是 []byte 的具名类型，直接塞进 gin.H 会被
+	// encoding/json 当成二进制编成 base64。到这里 input 已经由 AfterFind 还原成
+	// 原始请求体字节，但字节本身不保证是 UTF-8（客户端可能用 GBK 发送），
+	// 所以统一走 decodeBodyText 兜底解码，并把用到的解释告诉前端。
+	inputText, inputEncoding := decodeBodyText(chatIO.Input)
+	outputText, outputEncoding := decodeBodyText([]byte(chatIO.OfString))
+	// 保持原有的 null 语义：没有分段响应就返回 nil 而不是空数组。
+	var outputArray []string
+	var arrayEncoding string
+	if len(chatIO.OfStringArray) > 0 {
+		outputArray = make([]string, 0, len(chatIO.OfStringArray))
+		for i, item := range chatIO.OfStringArray {
+			text, encoding := decodeBodyText([]byte(item))
+			outputArray = append(outputArray, text)
+			switch {
+			case i == 0:
+				arrayEncoding = encoding
+			case arrayEncoding != encoding:
+				arrayEncoding = encodingMixed
+			}
+		}
+	}
+	// 单段响应与分段响应互斥，谁有内容就报谁的编码。
+	if chatIO.OfString == "" && len(chatIO.OfStringArray) > 0 {
+		outputEncoding = arrayEncoding
+	}
+
 	common.Success(c, gin.H{
 		"ID":        chatIO.ID,
 		"CreatedAt": chatIO.CreatedAt,
 		"UpdatedAt": chatIO.UpdatedAt,
 		"DeletedAt": chatIO.DeletedAt,
 		"LogId":     chatIO.LogId,
-		// 必须显式转成 string：Input 是 []byte 的具名类型，直接塞进 gin.H 会被
-		// encoding/json 当成二进制编成 base64，前端收到的就是一串乱码。
-		// 到这里为止 input 已经由 AfterFind 还原成原始请求体了。
-		"Input":         string(chatIO.Input),
-		"OfString":      chatIO.OfString,
-		"OfStringArray": chatIO.OfStringArray,
-		"Style":         style,
+		"Input":     inputText,
+		// InputEncoding/OutputEncoding 说明这段文本是怎么解释出来的：
+		// utf-8 原样、gb18030 已解码、binary 非法字节被替换。前端据此打标注。
+		"InputEncoding":  inputEncoding,
+		"OfString":       outputText,
+		"OfStringArray":  outputArray,
+		"OutputEncoding": outputEncoding,
+		"Style":          style,
 	})
 }
 

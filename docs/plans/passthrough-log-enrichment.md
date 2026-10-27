@@ -106,6 +106,25 @@ usage 解析按 `provider.Type` 分派（`parseForwardUsage`）：
   表示未改写（none 或 known 未命中）。
 - IO 写入失败只记录错误日志，不回滚已完成的转发（ChatIO 标志可能为 true 但无 IO 行）。
 
+## 七、IO 展示的编码兜底（GB18030）
+
+请求体是按**字节**原样落库的（input 列），客户端用什么编码发来，库里就是什么编码。中文
+Windows 上的客户端常按 GBK/GB18030 发送，这些字节不是合法 UTF-8——encoding/json 序列化时
+会把每个非法字节替换成 U+FFFD，于是日志详情页看到的是 `���ã�����` 这种不可逆的乱码。
+库里的字节没坏（逐字节往返实测相同），坏的是**展示**这一层。
+
+因此 `GET /api/logs/:id/io` 在读路径上兜底（handler/body_text.go）：
+
+- `utf8.Valid` 通过 → 原样返回，InputEncoding = utf-8；
+- 否则按 GB18030 解码，解出来不含替换符/控制字符 → 采用，InputEncoding = gb18030；
+- 都不成立（图片等二进制）→ 非法字节替换成 U+FFFD，InputEncoding = binary。
+
+响应侧同样返回 OutputEncoding。边界要说清楚：of_string 是 string 列，GBK 字节能原样保留、
+可以解码；of_string_array 是 \[\]string 经 json.Marshal 存列，非法 UTF-8 字节在**写入时**
+就已经被替换成 U+FFFD，读路径无法恢复（实际流量里上游响应基本都是 UTF-8，影响很小）。
+
+写入路径与存储格式都不动：不重写历史行，也不需要迁移。
+
 ## 文件清单
 
 ```

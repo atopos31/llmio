@@ -21,7 +21,7 @@ import { isObj, str, toChunk } from "./util";
  * 判断（choices / content 数组 / candidates），再按请求体形状退而求其次，
  * 都判不出来才真的按原始文本处理。判错一整个面板都会变成不可读。
  */
-export function detectProtocol(body: Record<string, unknown>): Protocol {
+export function sniffProtocol(body: Record<string, unknown>): Protocol | null {
   if (Array.isArray(body.choices)) return "openai";
   if (Array.isArray(body.output)) return "openai-res";
   if (Array.isArray(body.candidates)) return "gemini";
@@ -33,7 +33,13 @@ export function detectProtocol(body: Record<string, unknown>): Protocol {
   if (Array.isArray(body.messages)) return "anthropic";
   if (Array.isArray(body.input) || body.instructions !== undefined) return "openai-res";
   if (Array.isArray(body.contents) || body.systemInstruction !== undefined) return "gemini";
-  return "openai";
+  // 一条特征都认不出来：这不是聊天协议（典型是透传的 embeddings / rerank /
+  // 图片接口）。调用方要靠这个 null 决定"按通用 JSON 展示"。
+  return null;
+}
+
+export function detectProtocol(body: Record<string, unknown>): Protocol {
+  return sniffProtocol(body) ?? "openai";
 }
 
 function isKnown(style: unknown): style is Protocol {
@@ -110,20 +116,10 @@ export function parseResponse(io: ChatInput, style: Protocol | null | undefined)
       ? [io.OfString!]
       : [];
 
-  let protocol: Protocol;
-  if (isKnown(style)) {
-    protocol = style;
-  } else {
-    // Style 缺失时按响应体形状嗅探协议，避免整个面板都变成不可读。
-    protocol = "openai";
-    for (const raw of rawChunks) {
-      const parsed = toChunk(raw);
-      if (isObj(parsed)) {
-        protocol = detectProtocol(parsed);
-        break;
-      }
-    }
-  }
+  // Style 缺失时按响应体形状嗅探协议；一条都认不出来说明不是聊天协议，
+  // 这里仍回落到 openai 保持既有解析行为（页面另用 sniffResponseProtocol
+  // 判断是否整体改成"通用 JSON"展示）。
+  const protocol: Protocol = sniffResponseProtocol(io, style) ?? "openai";
 
   const result: ParsedResponse = {
     protocol,
@@ -183,4 +179,29 @@ export function parseResponse(io: ChatInput, style: Protocol | null | undefined)
   attachToolResultNames([{ parts: toolResults }]);
   result.toolResults = toolResults;
   return result;
+}
+
+/**
+ * 这份 IO 是不是"能认出来的聊天协议"。
+ *
+ * Style 已知协议时直接返回它；Style 缺失或未知时逐条响应片段嗅探，一条认出来
+ * 就算认识。返回 null 表示不是聊天协议——页面据此把请求与响应整体按通用 JSON
+ * 展示，而不是硬套一套解析不出来的聊天面板。
+ */
+export function sniffResponseProtocol(io: ChatInput, style: Protocol | null | undefined): Protocol | null {
+  if (isKnown(style)) return style;
+  const chunks: string[] =
+    Array.isArray(io.OfStringArray) && io.OfStringArray.length > 0
+      ? io.OfStringArray.filter((c): c is string => typeof c === "string" && c.length > 0)
+      : typeof io.OfString === "string" && io.OfString.length > 0
+        ? [io.OfString]
+        : [];
+  for (const raw of chunks) {
+    const parsed = toChunk(raw);
+    if (isObj(parsed)) {
+      const sniffed = sniffProtocol(parsed);
+      if (sniffed) return sniffed;
+    }
+  }
+  return null;
 }

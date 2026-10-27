@@ -81,6 +81,7 @@ export const LOG_COLUMNS: readonly LogColumn[] = [
   // ── 候选列（已入库、默认隐藏）──
   { id: "trace_id", labelKey: "table.trace_id", cellClass: "max-w-[120px] truncate font-mono text-xs", value: (l) => l.TraceID || "-" },
   { id: "session_id", labelKey: "table.session_id", cellClass: "max-w-[120px] truncate font-mono text-xs", value: (l) => l.SessionID || "-" },
+  { id: "request_path", labelKey: "table.request_path", cellClass: "max-w-[220px] truncate font-mono text-xs", value: (l) => l.request_path || "-" },
   { id: "tps", labelKey: "table.tps", cellClass: "reading text-xs", value: (l) => formatTps(l.Tps) },
   { id: "cost", labelKey: "table.cost", cellClass: "reading text-xs", value: (l) => formatCost(computeCost(l), l.currency) },
   { id: "retry", labelKey: "table.retry", cellClass: "reading text-xs", value: (l) => (l.Retry > 0 ? String(l.Retry) : "-") },

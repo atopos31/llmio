@@ -109,7 +109,12 @@ export function LogDetailSheet({
 function DetailBody({ log }: { log: ChatLog }) {
   const { t } = useTranslation(["logs", "common"])
   const navigate = useNavigate()
-  const cached = log.prompt_tokens_details?.cached_tokens ?? 0
+  // 透传非聊天接口时后端解析不出 usage，四个 token 字段会留在 0；详情里把
+  // 这种"没识别到"显示成 -，否则 0 会被误读成"这次请求真的没消耗 token"。
+  const cached = log.prompt_tokens_details?.cached_tokens
+  const cachedTokens = cached ?? 0
+  const hasUsage =
+    (log.prompt_tokens ?? 0) > 0 || (log.completion_tokens ?? 0) > 0 || (log.total_tokens ?? 0) > 0
   const hasPricing = (log.input_price ?? 0) > 0 || (log.output_price ?? 0) > 0
   const bridged = isBridged(log)
   const bridgeCodes = (log.bridge_notes ?? "")
@@ -117,8 +122,8 @@ function DetailBody({ log }: { log: ChatLog }) {
     .map((code) => code.trim())
     .filter(Boolean)
   const totalCost =
-    (Math.max(0, (log.prompt_tokens ?? 0) - cached) / 1e6) * (log.input_price ?? 0) +
-    (cached / 1e6) * (log.cache_read_price ?? 0) +
+    (Math.max(0, (log.prompt_tokens ?? 0) - cachedTokens) / 1e6) * (log.input_price ?? 0) +
+    (cachedTokens / 1e6) * (log.cache_read_price ?? 0) +
     ((log.completion_tokens ?? 0) / 1e6) * (log.output_price ?? 0)
 
   return (
@@ -150,6 +155,7 @@ function DetailBody({ log }: { log: ChatLog }) {
           )}
           <DetailField label={t("logs:detail.size")} value={log.Size ? formatBytes(log.Size) : "-"} />
           <DetailField label={t("logs:detail.remote_ip")} value={log.RemoteIP || "-"} mono />
+          <DetailField label={t("logs:detail.request_path")} value={log.request_path || "-"} mono />
           <DetailField
             label={t("logs:detail.io_log")}
             value={log.ChatIO ? t("logs:detail.io_yes") : t("logs:detail.io_no")}
@@ -204,10 +210,13 @@ function DetailBody({ log }: { log: ChatLog }) {
 
       <Section title={t("logs:detail.token_usage")}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <DetailField label={t("logs:detail.input")} value={formatNumber(log.prompt_tokens)} />
-          <DetailField label={t("logs:detail.cached")} value={formatNumber(cached)} />
-          <DetailField label={t("logs:detail.output")} value={formatNumber(log.completion_tokens)} />
-          <DetailField label={t("logs:detail.total")} value={formatNumber(log.total_tokens)} />
+          <DetailField label={t("logs:detail.input")} value={hasUsage ? formatNumber(log.prompt_tokens ?? 0) : "-"} />
+          <DetailField
+            label={t("logs:detail.cached")}
+            value={hasUsage && cached !== undefined ? formatNumber(cached) : "-"}
+          />
+          <DetailField label={t("logs:detail.output")} value={hasUsage ? formatNumber(log.completion_tokens ?? 0) : "-"} />
+          <DetailField label={t("logs:detail.total")} value={hasUsage ? formatNumber(log.total_tokens ?? 0) : "-"} />
         </div>
       </Section>
 
@@ -216,12 +225,12 @@ function DetailBody({ log }: { log: ChatLog }) {
           <DetailField
             label={t("logs:detail.billing_input")}
             value={
-              hasPricing ? formatCost((Math.max(0, (log.prompt_tokens ?? 0) - cached) / 1e6) * (log.input_price ?? 0), log.currency) : "-"
+              hasPricing ? formatCost((Math.max(0, (log.prompt_tokens ?? 0) - cachedTokens) / 1e6) * (log.input_price ?? 0), log.currency) : "-"
             }
           />
           <DetailField
             label={t("logs:detail.billing_cache")}
-            value={hasPricing ? formatCost((cached / 1e6) * (log.cache_read_price ?? 0), log.currency) : "-"}
+            value={hasPricing ? formatCost((cachedTokens / 1e6) * (log.cache_read_price ?? 0), log.currency) : "-"}
           />
           <DetailField
             label={t("logs:detail.billing_output")}

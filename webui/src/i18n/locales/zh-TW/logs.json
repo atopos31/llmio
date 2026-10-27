@@ -67,6 +67,7 @@
     "user_agent": "User-Agent",
     "upstream_style": "上游協定",
     "bridge_notes": "橋接說明",
+    "request_path": "請求路徑",
     "columns": "欄位",
     "reset_columns": "恢復預設"
   },
@@ -94,6 +95,7 @@
     "type": "類型",
     "size": "回應大小",
     "remote_ip": "遠端 IP",
+    "request_path": "請求路徑",
     "io_log": "記錄 IO",
     "retry": "重試次數",
     "user_agent": "使用者代理",
@@ -201,7 +203,9 @@
     "invalid_log_id": "無效的日誌 ID",
     "fetch_failed": "取得會話日誌失敗",
     "io_not_found": "未找到會話記錄，IO 記錄可能未啟用。",
-    "empty": "(空)"
+    "empty": "(空)",
+    "generic_json": "通用 JSON",
+    "generic_hint": "這裡沒有嗅探出聊天協定，以下直接以原始 JSON 顯示，方便核對任意介面的請求與回應。"
   },
   "compare": {
     "select_all": "全選本頁可比較項",

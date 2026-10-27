@@ -759,6 +759,9 @@ export interface ChatLog {
   Name: string;
   TraceID: string;
   SessionID?: string;
+  // request_path 是这次请求的方法与路径（如 "POST /p/gw/v1/embeddings"）。
+  // 只有专属地址（/p/{slug}）的透传会写入，已知端点看 Style/Name 即可；不含 query。
+  request_path?: string;
   ProviderModel: string;
   ProviderName: string;
   Status: string;

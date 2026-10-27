@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import Loading from "@/components/loading";
 import { getChatIO, type ChatIO } from "@/lib/api";
-import { parseRequest, parseResponse } from "@/lib/chat-io/parse";
+import { parseRequest, parseResponse, sniffResponseProtocol } from "@/lib/chat-io/parse";
 import type { ContentPart, Message, ParsedRequest, ParsedResponse, Protocol, ToolCall, ToolDeclaration } from "@/lib/chat-io/types";
 import { KNOWN_PROTOCOLS } from "@/lib/chat-io/types";
 import { parseArgs } from "@/lib/chat-io/util";
@@ -469,6 +469,42 @@ function UsageTable({ usage }: { usage: unknown }) {
   );
 }
 
+// ── Generic JSON Section ──
+
+/** 优先用单段响应；流式响应是片段数组，整体序列化后交给 RawJsonPanel 美化。 */
+function rawResponseText(ofString?: string | null, ofStringArray?: string[] | null): string {
+  if (ofString) return ofString;
+  if (ofStringArray && ofStringArray.length > 0) return JSON.stringify(ofStringArray, null, 2);
+  return "";
+}
+
+/**
+ * 嗅探不出聊天协议时（典型是透传 embeddings / rerank / 图片等接口）的区块：
+ * 不套聊天面板，直接展示原始 JSON，并且默认就是展开的——这类请求本来就没有
+ * 消息、文本可言，再让用户先看一个"(空)"再去点"查看原始 JSON"只是添堵。
+ */
+function GenericJsonSection({ title, hint, raw }: { title: string; hint: string; raw: string }) {
+  const { t } = useTranslation("logs");
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <div className="flex items-center gap-2">
+          <CardTitle className="text-base">{title}</CardTitle>
+          <Badge variant="secondary" className="text-xs">{t("chat_io.generic_json")}</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <p className="text-xs text-muted-foreground">{hint}</p>
+        {raw ? (
+          <RawJsonPanel raw={raw} />
+        ) : (
+          <p className="text-sm text-muted-foreground">{t("chat_io.empty")}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Input Section ──
 
 function InputSection({ chatIO, style }: { chatIO: ChatIO; style: Protocol | undefined }) {
@@ -570,11 +606,10 @@ function OutputSection({ chatIO, style }: { chatIO: ChatIO; style: Protocol | un
     return parseResponse({ OfString: chatIO.OfString, OfStringArray: chatIO.OfStringArray, Style: style }, style);
   }, [chatIO.OfString, chatIO.OfStringArray, style]);
 
-  const rawOutput = useMemo(() => {
-    if (chatIO.OfString) return chatIO.OfString;
-    if (chatIO.OfStringArray && chatIO.OfStringArray.length > 0) return JSON.stringify(chatIO.OfStringArray, null, 2);
-    return "";
-  }, [chatIO.OfString, chatIO.OfStringArray]);
+  const rawOutput = useMemo(
+    () => rawResponseText(chatIO.OfString, chatIO.OfStringArray),
+    [chatIO.OfString, chatIO.OfStringArray],
+  );
 
   const rawToggle = useRawJsonToggle(rawOutput);
 
@@ -697,6 +732,8 @@ export default function LogChatPage() {
   const [loading, setLoading] = useState(true);
   const [loadErrorMessage, setLoadErrorMessage] = useState<string | null>(null);
   const style = protocolOf(chatIO?.Style);
+  // Style 不是四种聊天协议、响应体又一条特征都嗅不出来：整页按通用 JSON 展示。
+  const generic = chatIO !== null && !style && sniffResponseProtocol(chatIO, style) === null;
 
   useEffect(() => {
     if (!logId) {
@@ -773,8 +810,25 @@ export default function LogChatPage() {
 
       {!loadErrorMessage && chatIO && (
         <div className="space-y-6">
-          <InputSection chatIO={chatIO} style={style} />
-          <OutputSection chatIO={chatIO} style={style} />
+          {generic ? (
+            <>
+              <GenericJsonSection
+                title={t("chat_io.request_input")}
+                hint={t("chat_io.generic_hint")}
+                raw={chatIO.Input ?? ""}
+              />
+              <GenericJsonSection
+                title={t("chat_io.response_output")}
+                hint={t("chat_io.generic_hint")}
+                raw={rawResponseText(chatIO.OfString, chatIO.OfStringArray)}
+              />
+            </>
+          ) : (
+            <>
+              <InputSection chatIO={chatIO} style={style} />
+              <OutputSection chatIO={chatIO} style={style} />
+            </>
+          )}
         </div>
       )}
     </div>

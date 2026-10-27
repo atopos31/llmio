@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import Loading from "@/components/loading";
 import { getChatIO, type ChatIO } from "@/lib/api";
-import { parseRequest, parseResponse, sniffResponseProtocol } from "@/lib/chat-io/parse";
+import { parseRequest, parseResponse, sniffProtocol, sniffResponseProtocol } from "@/lib/chat-io/parse";
 import type { ContentPart, Message, ParsedRequest, ParsedResponse, Protocol, ToolCall, ToolDeclaration } from "@/lib/chat-io/types";
 import { KNOWN_PROTOCOLS } from "@/lib/chat-io/types";
 import { parseArgs } from "@/lib/chat-io/util";
@@ -23,6 +23,22 @@ function protocolOf(style: unknown): Protocol | undefined {
   return typeof style === "string" && (KNOWN_PROTOCOLS as readonly string[]).includes(style)
     ? (style as Protocol)
     : undefined;
+}
+
+/**
+ * 响应嗅探失败时的兜底：请求体本身能认出聊天协议，就仍按聊天面板渲染。
+ * 典型场景是透传接口（图片/音频/SSE 转储），响应没有可识别的 JSON 形状，
+ * 但请求明明是 chat/completions —— 整页退化成两段原始 JSON 反而更难读。
+ */
+function inputLooksLikeChat(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  try {
+    const body: unknown = JSON.parse(raw);
+    if (typeof body !== "object" || body === null || Array.isArray(body)) return false;
+    return sniffProtocol(body as Record<string, unknown>) !== null;
+  } catch {
+    return false;
+  }
 }
 
 function truncate(s: string, max: number): string {
@@ -733,7 +749,18 @@ export default function LogChatPage() {
   const [loadErrorMessage, setLoadErrorMessage] = useState<string | null>(null);
   const style = protocolOf(chatIO?.Style);
   // Style 不是四种聊天协议、响应体又一条特征都嗅不出来：整页按通用 JSON 展示。
-  const generic = chatIO !== null && !style && sniffResponseProtocol(chatIO, style) === null;
+  // 之前这两项判定与 rawResponseText 都在渲染期直接算，整份 IO 每渲染一次就被
+  // 重新解析一遍（输入框/主题/父级任何一次重渲染都算）；结果只随 chatIO 变化，
+  // 因此收进 useMemo。
+  const generic = useMemo(() => {
+    if (chatIO === null || style) return false;
+    if (sniffResponseProtocol(chatIO, style) !== null) return false;
+    return !inputLooksLikeChat(chatIO.Input);
+  }, [chatIO, style]);
+  const rawOutput = useMemo(
+    () => (chatIO ? rawResponseText(chatIO.OfString, chatIO.OfStringArray) : ""),
+    [chatIO],
+  );
 
   useEffect(() => {
     if (!logId) {
@@ -761,7 +788,9 @@ export default function LogChatPage() {
       } catch (fetchError) {
         let message = t("chat_io.fetch_failed");
         if (fetchError instanceof Error) {
-          if (fetchError.message.includes("chat io not found")) {
+          // 后端返回的是 "ChatIO not found"，大小写敏感比较会把"没找到"
+          // 误报成通用加载失败，用户看不到真正的 404 语义。
+          if (fetchError.message.toLowerCase().includes("chat io not found")) {
             message = t("chat_io.io_not_found");
           } else {
             message = fetchError.message;
@@ -820,7 +849,7 @@ export default function LogChatPage() {
               <GenericJsonSection
                 title={t("chat_io.response_output")}
                 hint={t("chat_io.generic_hint")}
-                raw={rawResponseText(chatIO.OfString, chatIO.OfStringArray)}
+                raw={rawOutput}
               />
             </>
           ) : (

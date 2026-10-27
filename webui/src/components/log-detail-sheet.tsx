@@ -115,7 +115,9 @@ function DetailBody({ log }: { log: ChatLog }) {
   const cachedTokens = cached ?? 0
   const hasUsage =
     (log.prompt_tokens ?? 0) > 0 || (log.completion_tokens ?? 0) > 0 || (log.total_tokens ?? 0) > 0
-  const hasPricing = (log.input_price ?? 0) > 0 || (log.output_price ?? 0) > 0
+  // 计费区与 token 区同一口径：没识别到 usage 时价格也算不出来（0.00 会被误读
+  // 成"确实免费"），两边一起显示 -。
+  const hasPricing = hasUsage && ((log.input_price ?? 0) > 0 || (log.output_price ?? 0) > 0)
   const bridged = isBridged(log)
   const bridgeCodes = (log.bridge_notes ?? "")
     .split(",")
@@ -155,7 +157,9 @@ function DetailBody({ log }: { log: ChatLog }) {
           )}
           <DetailField label={t("logs:detail.size")} value={log.Size ? formatBytes(log.Size) : "-"} />
           <DetailField label={t("logs:detail.remote_ip")} value={log.RemoteIP || "-"} mono />
-          <DetailField label={t("logs:detail.request_path")} value={log.request_path || "-"} mono />
+          {log.request_path ? (
+            <DetailField label={t("logs:detail.request_path")} value={log.request_path} mono />
+          ) : null}
           <DetailField
             label={t("logs:detail.io_log")}
             value={log.ChatIO ? t("logs:detail.io_yes") : t("logs:detail.io_no")}

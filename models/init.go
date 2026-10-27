@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/atopos31/llmio/common"
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/pkg/sqlitex"
 	"github.com/glebarez/sqlite"
@@ -109,12 +110,66 @@ func Init(ctx context.Context, path string) {
 	if _, err := gorm.G[ModelWithProvider](DB).Where("currency = '' OR currency IS NULL").Update(ctx, "currency", "CNY"); err != nil {
 		panic(err)
 	}
+	if err := backfillForwardSettings(ctx); err != nil {
+		panic(err)
+	}
 
 	// `DB_VACUUM` 的启动期 VACUUM **搬去 service.PrepareStorage 了**（main 里、
 	// 监听端口之前调用）。搬家的理由是它原先 `panic(err)`，而且连磁盘够不够都
 	// 没看过：VACUUM 要一份和库等大的副本，在 7 GiB 的库上磁盘不够就是启动失败。
 	// 现在它与 auto_vacuum 转换合并成一次动作、动手前预检、失败只跳过。
 	// 顺带解掉一个分层问题：`diskFree` 在 service 包里，models 不能反向依赖它。
+}
+
+// backfillForwardSettings 为升级上来的库补齐转发设置：
+//
+//  1. forward_slug：旧版本用提供商名称当专属地址（/p/{name}），名称合法的行按 id
+//     升序回填同名 slug，已发布出去的地址继续可用；名称含空格/中文等不安全字符、
+//     或与已有 slug 重名的行保持 NULL（需到转发专页手动设置）。幂等，可重复执行。
+//  2. forward_rewrite：旧行为是"纯转发不改写、混合/关闭仅改写已绑定模型"，分别
+//     落成 none 与 known；已有非空值的行不覆盖。
+func backfillForwardSettings(ctx context.Context) error {
+	taken := make(map[string]struct{})
+	existing, err := gorm.G[Provider](DB).Where("forward_slug IS NOT NULL").Find(ctx)
+	if err != nil {
+		return err
+	}
+	for _, provider := range existing {
+		if provider.ForwardSlug != nil {
+			taken[*provider.ForwardSlug] = struct{}{}
+		}
+	}
+
+	pending, err := gorm.G[Provider](DB).Where("forward_slug IS NULL").Order("id ASC").Find(ctx)
+	if err != nil {
+		return err
+	}
+	for _, provider := range pending {
+		if !common.IsSafeForwardSlug(provider.Name) {
+			continue
+		}
+		if _, ok := taken[provider.Name]; ok {
+			// 同名 slug 已被别的行占用，这条保持 NULL，交给转发专页人工处理。
+			continue
+		}
+		if _, err := gorm.G[Provider](DB).Where("id = ?", provider.ID).
+			Update(ctx, "forward_slug", provider.Name); err != nil {
+			return err
+		}
+		taken[provider.Name] = struct{}{}
+	}
+
+	if _, err := gorm.G[Provider](DB).
+		Where("forward_mode = ? AND (forward_rewrite IS NULL OR forward_rewrite = '')", true).
+		Update(ctx, "forward_rewrite", consts.ForwardRewriteNone); err != nil {
+		return err
+	}
+	if _, err := gorm.G[Provider](DB).
+		Where("(forward_mode IS NULL OR forward_mode = ?) AND (forward_rewrite IS NULL OR forward_rewrite = '')", false).
+		Update(ctx, "forward_rewrite", consts.ForwardRewriteKnown); err != nil {
+		return err
+	}
+	return nil
 }
 
 func ensureModelDisplayOrder(ctx context.Context) error {

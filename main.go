@@ -119,13 +119,14 @@ func main() {
 		}
 	}
 
-	// 提供商专属地址 /p/{name}/*：已知端点与全局 /v1 同语义（正常负载均衡）；
+	// 提供商专属地址 /p/{slug}/*：slug 是 Provider.ForwardSlug（与名称解耦，
+	// 改名不影响地址）；已知端点与全局 /v1 同语义（正常负载均衡）；
 	// 未知路径按提供商的 ForwardMode 处置——关闭 404 / 混合透传 / 纯转发直转。
 	// 见 handler/provider_route.go。
 	// 鉴权用双头解析：同一个 base_url 上 Anthropic 形态客户端发的是 x-api-key。
 	p := router.Group("/p", authDedicated)
 	{
-		p.Any("/:name/*path", handler.ProviderDedicatedRoute)
+		p.Any("/:slug/*path", handler.ProviderDedicatedRoute)
 	}
 
 	// 兼容性保留
@@ -150,6 +151,8 @@ func main() {
 		api.GET("/providers/models/:id", handler.GetProviderModels)
 		api.POST("/providers", handler.CreateProvider)
 		api.PUT("/providers/:id", handler.UpdateProvider)
+		// 转发透传设置：地址标识/模式/改写策略的唯一写入口（见 handler/provider_forward.go）
+		api.PUT("/providers/:id/forward", handler.UpdateProviderForward)
 		api.DELETE("/providers/:id", handler.DeleteProvider)
 
 		// Model management

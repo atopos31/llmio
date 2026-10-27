@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/middleware"
@@ -41,6 +42,13 @@ type dedicatedUpstream struct {
 	accept      string
 	contentType string
 	body        string
+	// resp* 是给个别用例定制的响应；留空表示默认的 {"output":"ok"} JSON。
+	respBody        string
+	respContentType string
+	respStatus      int
+	// respDelay 让假上游延迟响应，给「首字节耗时」断言一个不依赖机器时钟
+	// 精度的确定时长（Windows 上 time.Since 的粒度可能粗到毫秒级）。
+	respDelay time.Duration
 }
 
 func (u *dedicatedUpstream) handler(t *testing.T) http.HandlerFunc {
@@ -57,10 +65,30 @@ func (u *dedicatedUpstream) handler(t *testing.T) http.HandlerFunc {
 		u.accept = r.Header.Get("Accept")
 		u.contentType = r.Header.Get("Content-Type")
 		u.body = body
+		respBody := u.respBody
+		respContentType := u.respContentType
+		respStatus := u.respStatus
+		respDelay := u.respDelay
 		u.mu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"output":"ok"}`))
+
+		if respDelay > 0 {
+			time.Sleep(respDelay)
+		}
+
+		// 默认响应用于绝大多数用例；日志增强的用例用 setResponse 定制成带 usage
+		// 的 JSON 或 SSE 流。
+		if respBody == "" {
+			respBody = `{"output":"ok"}`
+		}
+		if respContentType == "" {
+			respContentType = "application/json"
+		}
+		if respStatus == 0 {
+			respStatus = http.StatusOK
+		}
+		w.Header().Set("Content-Type", respContentType)
+		w.WriteHeader(respStatus)
+		_, _ = w.Write([]byte(respBody))
 	}
 }
 
@@ -74,6 +102,22 @@ func (u *dedicatedUpstream) sentContentType() string {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	return u.contentType
+}
+
+// setResponse 定制假上游的响应（body 为空则回到默认 JSON），供日志/用量用例使用。
+func (u *dedicatedUpstream) setResponse(body, contentType string, status int) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.respBody = body
+	u.respContentType = contentType
+	u.respStatus = status
+}
+
+// setResponseDelay 让假上游延迟响应，用来稳定测量首字节耗时。
+func (u *dedicatedUpstream) setResponseDelay(delay time.Duration) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.respDelay = delay
 }
 
 type dedicatedFixture struct {
@@ -98,37 +142,46 @@ func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 	if err != nil {
 		t.Fatalf("open test db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Provider{}, &models.Model{}, &models.ModelWithProvider{}, &models.ChatLog{}, &models.AuthKey{}); err != nil {
+	if err := db.AutoMigrate(&models.Provider{}, &models.Model{}, &models.ModelWithProvider{}, &models.ChatLog{}, &models.ChatIO{}, &models.AuthKey{}); err != nil {
 		t.Fatalf("migrate test db: %v", err)
 	}
 
 	// 三家覆盖 ForwardMode 三态：alpha 混合（false）、beta 纯转发（true）、
 	// gamma 关闭（nil）。混合模式的透传行为全部钉在 alpha 上；delta 只用于复刻
 	// base_url 自带版本段的生产形态。
+	// slug 与名称解耦：这里仍取同名，保持既有用例的 URL 不变；改写策略留空
+	// （等价 known），个别用例在 provider 上就地覆盖。
 	alpha := models.Provider{
-		Name:        "alpha-name",
-		Type:        "openai",
-		Config:      `{"base_url":"` + server.URL + `","api_key":"sk-upstream"}`,
-		ForwardMode: new(false),
+		Name:           "alpha-name",
+		Type:           "openai",
+		Config:         `{"base_url":"` + server.URL + `","api_key":"sk-upstream"}`,
+		ForwardMode:    new(false),
+		ForwardSlug:    new("alpha-name"),
+		ForwardRewrite: consts.ForwardRewriteKnown,
 	}
 	beta := models.Provider{
-		Name:        "beta-name",
-		Type:        "openai",
-		Config:      `{"base_url":"` + server.URL + `","api_key":"sk-upstream"}`,
-		ForwardMode: new(true),
+		Name:           "beta-name",
+		Type:           "openai",
+		Config:         `{"base_url":"` + server.URL + `","api_key":"sk-upstream"}`,
+		ForwardMode:    new(true),
+		ForwardSlug:    new("beta-name"),
+		ForwardRewrite: consts.ForwardRewriteNone,
 	}
 	gamma := models.Provider{
-		Name:   "gamma-name",
-		Type:   "openai",
-		Config: `{"base_url":"` + server.URL + `","api_key":"sk-upstream"}`,
+		Name:        "gamma-name",
+		Type:        "openai",
+		Config:      `{"base_url":"` + server.URL + `","api_key":"sk-upstream"}`,
+		ForwardSlug: new("gamma-name"),
 	}
 	// delta 复刻生产形态：base_url 按模板惯例自带版本段（.../v1），客户端仍用
 	// UI 给出的 /p/{name}/v1 —— 纯转发必须剥掉重复的 /v1，不能拼出 /v1/v1/...。
 	delta := models.Provider{
-		Name:        "delta-name",
-		Type:        "openai",
-		Config:      `{"base_url":"` + server.URL + `/v1","api_key":"sk-upstream"}`,
-		ForwardMode: new(true),
+		Name:           "delta-name",
+		Type:           "openai",
+		Config:         `{"base_url":"` + server.URL + `/v1","api_key":"sk-upstream"}`,
+		ForwardMode:    new(true),
+		ForwardSlug:    new("delta-name"),
+		ForwardRewrite: consts.ForwardRewriteNone,
 	}
 	// 逐个直接 Create：循环变量副本会让 GORM 把自增 ID 写进副本而非 alpha/beta/gamma
 	if err := db.Create(&alpha).Error; err != nil {
@@ -175,7 +228,7 @@ func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 	}
 	p := router.Group("/p", authMiddleware)
 	{
-		p.Any("/:name/*path", ProviderDedicatedRoute)
+		p.Any("/:slug/*path", ProviderDedicatedRoute)
 	}
 
 	return &dedicatedFixture{router: router, upstream: upstream}
@@ -203,6 +256,8 @@ func doDedicated(t *testing.T, f *dedicatedFixture, method, target, auth, body s
 		reader = strings.NewReader(body)
 	}
 	req := httptest.NewRequest(method, target, reader)
+	// 固定 UA，日志增强的用例要断言它原样落到 ChatLog。
+	req.Header.Set("User-Agent", "llmio-test/1.0")
 	if auth != "" {
 		req.Header.Set("Authorization", auth)
 	}
@@ -636,5 +691,404 @@ func TestDedicatedRoutePassthroughLog(t *testing.T) {
 	}
 	if log.PromptTokens != 0 || log.CompletionTokens != 0 {
 		t.Errorf("透传无 token 用量, got %+v", log.Usage)
+	}
+}
+
+// patchProvider 就地覆盖提供商的转发列，模拟转发专页保存后的库内状态。
+func patchProvider(t *testing.T, name string, values map[string]any) {
+	t.Helper()
+	result := models.DB.Model(&models.Provider{}).Where("name = ?", name).Updates(values)
+	if result.Error != nil {
+		t.Fatalf("patch provider %s: %v", name, result.Error)
+	}
+	if result.RowsAffected == 0 {
+		t.Fatalf("patch provider %s: no row affected", name)
+	}
+}
+
+// createLimitedKey 创建一个只允许 latest 的受限密钥，返回其明文。
+func createLimitedKey(t *testing.T) string {
+	t.Helper()
+	key := models.AuthKey{Name: "limited", Key: "sk-limited", Status: new(true), AllowAll: new(false), Models: []string{"latest"}}
+	if err := models.DB.Create(&key).Error; err != nil {
+		t.Fatalf("create auth key: %v", err)
+	}
+	return key.Key
+}
+
+// 纯转发 + known 改写：直转所有路径，但认识且已绑定的模型名仍改写为上游名。
+// 改写策略与转发模式正交，这是本次解耦的核心契约。
+func TestDedicatedRoutePureModeRewritesKnownModel(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	patchProvider(t, "alpha-name", map[string]any{
+		"forward_mode":    true,
+		"forward_rewrite": consts.ForwardRewriteKnown,
+	})
+
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/chat/completions", "Bearer sk-admin",
+		`{"model":"latest","messages":[]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("纯转发应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	path, _, _, body := f.upstream.snapshot()
+	if path != "/chat/completions" {
+		t.Errorf("上游 path = %q, want /chat/completions", path)
+	}
+	if !strings.Contains(body, `"model":"latest-direct"`) {
+		t.Errorf("known 策略应把绑定模型改写为 latest-direct, got %q", body)
+	}
+}
+
+// 纯转发 + all 改写：无条件改写为固定目标模型，路径不变。
+func TestDedicatedRoutePureModeFullRewrite(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	patchProvider(t, "alpha-name", map[string]any{
+		"forward_mode":         true,
+		"forward_rewrite":      consts.ForwardRewriteAll,
+		"forward_target_model": "fixed-upstream",
+	})
+
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/chat/completions", "Bearer sk-admin",
+		`{"model":"latest","messages":[]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("纯转发应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	_, _, _, body := f.upstream.snapshot()
+	if !strings.Contains(body, `"model":"fixed-upstream"`) {
+		t.Errorf("all 策略应改写为固定目标, got %q", body)
+	}
+}
+
+// all 改写同时覆盖 Gemini 风格路径里的模型名（/models/{id}:action）。
+func TestDedicatedRouteFullRewriteRewritesGeminiPath(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	patchProvider(t, "alpha-name", map[string]any{
+		"forward_mode":         true,
+		"forward_rewrite":      consts.ForwardRewriteAll,
+		"forward_target_model": "gemini-fixed",
+	})
+
+	w := doDedicated(t, f, http.MethodPost,
+		"/p/alpha-name/v1beta/models/gemini-2.5-pro:generateContent", "Bearer sk-admin",
+		`{"contents":[]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	path, _, _, _ := f.upstream.snapshot()
+	if path != "/v1beta/models/gemini-fixed:generateContent" {
+		t.Errorf("上游 path = %q, want /v1beta/models/gemini-fixed:generateContent", path)
+	}
+}
+
+// 混合模式下 all 改写同样生效：未知路径透传前把 body 里的 model 换成固定目标。
+func TestDedicatedRouteMixedModeFullRewrite(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	patchProvider(t, "alpha-name", map[string]any{
+		"forward_rewrite":      consts.ForwardRewriteAll,
+		"forward_target_model": "mixed-fixed",
+	})
+
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/search", "Bearer sk-admin",
+		`{"model":"latest","commands":{}}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	path, _, _, body := f.upstream.snapshot()
+	if path != "/alpha/search" {
+		t.Errorf("上游 path = %q, want /alpha/search", path)
+	}
+	if !strings.Contains(body, `"model":"mixed-fixed"`) {
+		t.Errorf("all 策略应改写为固定目标, got %q", body)
+	}
+}
+
+// all 改写绕过客户端模型名鉴权，因此受限密钥即使带 model 也必须 403。
+func TestDedicatedRouteFullRewriteForbiddenForLimitedKey(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	limited := createLimitedKey(t)
+	patchProvider(t, "alpha-name", map[string]any{
+		"forward_rewrite":      consts.ForwardRewriteAll,
+		"forward_target_model": "mixed-fixed",
+	})
+
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/search", "Bearer "+limited,
+		`{"model":"latest"}`)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("受限密钥 all 改写应 403, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "forward rewrite requires a token with full model permission") {
+		t.Errorf("错误信息应指向全量权限, got %s", w.Body.String())
+	}
+}
+
+// all 策略缺目标模型是配置缺失：500，且不触碰上游。
+func TestDedicatedRouteFullRewriteWithoutTarget(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	patchProvider(t, "alpha-name", map[string]any{
+		"forward_rewrite":      consts.ForwardRewriteAll,
+		"forward_target_model": "",
+	})
+
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/search", "Bearer sk-admin",
+		`{"model":"latest"}`)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("缺目标模型应 500, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "forward target model is not configured") {
+		t.Errorf("错误信息应指向缺目标模型, got %s", w.Body.String())
+	}
+	if path, _, _, _ := f.upstream.snapshot(); path != "" {
+		t.Errorf("配置缺失不得触碰上游, 上游收到 %q", path)
+	}
+}
+
+// 没有 slug 的提供商在专属地址上不可达（404），即使名称仍存在。
+func TestDedicatedRouteWithoutSlugNotFound(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	patchProvider(t, "gamma-name", map[string]any{"forward_slug": nil})
+
+	w := doDedicated(t, f, http.MethodPost, "/p/gamma-name/v1/chat/completions", "Bearer sk-admin",
+		`{"model":"latest","messages":[]}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("无 slug 应 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// slug 与名称解耦：改名后旧地址（slug）继续可用，新名称不再等于地址。
+func TestDedicatedRouteSlugIndependentOfName(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	patchProvider(t, "alpha-name", map[string]any{"name": "alpha-renamed"})
+
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/search", "Bearer sk-admin",
+		`{"model":"latest"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("改名后旧 slug 应仍可用, got %d: %s", w.Code, w.Body.String())
+	}
+
+	w = doDedicated(t, f, http.MethodPost, "/p/alpha-renamed/v1/alpha/search", "Bearer sk-admin",
+		`{"model":"latest"}`)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("新名称不是 slug, 应 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// 目标模型名带路径分隔符时只改 body，不动 URL 路径（避免把上游路径改写坏）。
+func TestDedicatedRouteFullRewriteKeepsPathForUnsafeTarget(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	patchProvider(t, "alpha-name", map[string]any{
+		"forward_mode":         true,
+		"forward_rewrite":      consts.ForwardRewriteAll,
+		"forward_target_model": "org/gemini-fixed",
+	})
+
+	w := doDedicated(t, f, http.MethodPost,
+		"/p/alpha-name/v1beta/models/gemini-2.5-pro:generateContent", "Bearer sk-admin",
+		`{"contents":[]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	path, _, _, _ := f.upstream.snapshot()
+	if path != "/v1beta/models/gemini-2.5-pro:generateContent" {
+		t.Errorf("不安全目标不应改写路径, got %q", path)
+	}
+}
+
+// singleChatLog 取出唯一一条日志；相关用例都只发一个请求。
+func singleChatLog(t *testing.T) models.ChatLog {
+	t.Helper()
+	logs, err := gorm.G[models.ChatLog](models.DB).Find(t.Context())
+	if err != nil || len(logs) != 1 {
+		t.Fatalf("应落一条日志, got %d, err=%v", len(logs), err)
+	}
+	return logs[0]
+}
+
+// singleChatIO 取出唯一一条 IO 行。
+func singleChatIO(t *testing.T) models.ChatIO {
+	t.Helper()
+	records, err := gorm.G[models.ChatIO](models.DB).Find(t.Context())
+	if err != nil || len(records) != 1 {
+		t.Fatalf("应落一条 ChatIO, got %d, err=%v", len(records), err)
+	}
+	return records[0]
+}
+
+// countChatIO 数 IO 行，用来断言「不该记录」的情况。
+func countChatIO(t *testing.T) int {
+	t.Helper()
+	records, err := gorm.G[models.ChatIO](models.DB).Find(t.Context())
+	if err != nil {
+		t.Fatalf("查 ChatIO 失败: %v", err)
+	}
+	return len(records)
+}
+
+// 透传日志从「只有元数据」升级成可追溯的请求记录：trace、UA、IP、请求路径、
+// 首字节耗时、IO 行都要有；管理 TOKEN 默认记录 IO。
+func TestDedicatedRouteForwardLogsRequestAndResponseIO(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	// 假上游延迟 100ms：首字节耗时/代理耗时必须稳定为正，不受时钟精度影响。
+	f.upstream.setResponseDelay(100 * time.Millisecond)
+
+	requestBody := `{"model":"latest","commands":{}}`
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/search", "Bearer sk-admin", requestBody)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	log := singleChatLog(t)
+	if log.TraceID == "" {
+		t.Error("TraceID 不应为空")
+	}
+	if log.UserAgent != "llmio-test/1.0" {
+		t.Errorf("UserAgent = %q, want llmio-test/1.0", log.UserAgent)
+	}
+	if log.RemoteIP == "" {
+		t.Error("RemoteIP 不应为空")
+	}
+	if log.RequestPath != "POST /p/alpha-name/v1/alpha/search" {
+		t.Errorf("RequestPath = %q, want POST /p/alpha-name/v1/alpha/search", log.RequestPath)
+	}
+	if !log.ChatIO {
+		t.Error("管理 TOKEN 默认记录 IO，ChatIO 应为 true")
+	}
+	if log.Size == 0 || log.ProxyTime <= 0 {
+		t.Errorf("大小/耗时应记录, size=%d proxy=%v", log.Size, log.ProxyTime)
+	}
+	if log.FirstChunkTime <= 0 || log.ChunkTime < 0 {
+		t.Errorf("首字节耗时应记录, first=%v chunk=%v", log.FirstChunkTime, log.ChunkTime)
+	}
+
+	io := singleChatIO(t)
+	if io.LogId != log.ID {
+		t.Errorf("ChatIO.LogId = %d, want %d", io.LogId, log.ID)
+	}
+	if string(io.Input) != requestBody {
+		t.Errorf("ChatIO.Input = %q, want 原样请求体", string(io.Input))
+	}
+	if io.OfString != `{"output":"ok"}` || len(io.OfStringArray) != 0 {
+		t.Errorf("ChatIO 输出应原样 JSON, got %q / %v", io.OfString, io.OfStringArray)
+	}
+}
+
+// 非流式响应里的 usage 解析进 ChatLog，并算出 TPS。
+func TestDedicatedRouteForwardLogsUsageAndTps(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	response := `{"output":"ok","usage":{"prompt_tokens":12,"completion_tokens":34,"total_tokens":46,"prompt_tokens_details":{"cached_tokens":5}}}`
+	f.upstream.setResponse(response, "application/json", http.StatusOK)
+
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/search", "Bearer sk-admin", `{"model":"latest"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	log := singleChatLog(t)
+	if log.PromptTokens != 12 || log.CompletionTokens != 34 || log.TotalTokens != 46 {
+		t.Errorf("usage = %d/%d/%d, want 12/34/46", log.PromptTokens, log.CompletionTokens, log.TotalTokens)
+	}
+	if log.PromptTokensDetails.CachedTokens != 5 {
+		t.Errorf("cached tokens = %d, want 5", log.PromptTokensDetails.CachedTokens)
+	}
+	if log.Tps <= 0 {
+		t.Errorf("TPS 应大于 0, got %v", log.Tps)
+	}
+}
+
+// SSE 透传：输出拆成事件数组（剥掉 data: 前缀与 [DONE]），usage 取最后一条。
+func TestDedicatedRouteForwardLogsStreamingIO(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	stream := "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n" +
+		"data: {\"choices\":[{\"delta\":{\"content\":\"b\"}}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n" +
+		"data: [DONE]\n\n"
+	f.upstream.setResponse(stream, "text/event-stream", http.StatusOK)
+
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/stream", "Bearer sk-admin", `{"model":"latest"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	log := singleChatLog(t)
+	if log.PromptTokens != 3 || log.CompletionTokens != 2 || log.TotalTokens != 5 {
+		t.Errorf("SSE usage = %d/%d/%d, want 3/2/5", log.PromptTokens, log.CompletionTokens, log.TotalTokens)
+	}
+
+	io := singleChatIO(t)
+	if len(io.OfStringArray) != 2 {
+		t.Fatalf("SSE 输出应为 2 个事件（[DONE] 跳过）, got %d: %v", len(io.OfStringArray), io.OfStringArray)
+	}
+	if !strings.Contains(io.OfStringArray[1], "\"usage\"") {
+		t.Errorf("最后一个事件应含 usage, got %q", io.OfStringArray[1])
+	}
+	if io.OfString != "" {
+		t.Errorf("SSE 不应同时写 OfString, got %q", io.OfString)
+	}
+}
+
+// 受限密钥没开 ioLog：不记录请求/响应体，也不产生 ChatIO 行，只留元数据。
+func TestDedicatedRouteForwardLogsSkippedForPlainKey(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	limited := createLimitedKey(t)
+
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/search", "Bearer "+limited, `{"model":"latest"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	log := singleChatLog(t)
+	if log.AuthKeyID == 0 {
+		t.Error("受限密钥的日志应带 AuthKeyID")
+	}
+	if log.ChatIO {
+		t.Error("密钥未开 ioLog，ChatIO 应为 false")
+	}
+	if n := countChatIO(t); n != 0 {
+		t.Fatalf("不应落 ChatIO, got %d", n)
+	}
+}
+
+// 密钥开了 ioLog：记录 IO，且日志归属该密钥。
+func TestDedicatedRouteForwardLogsIOForIOLogKey(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	key := models.AuthKey{Name: "io", Key: "sk-io", Status: new(true), AllowAll: new(true), IOLog: new(true)}
+	if err := models.DB.Create(&key).Error; err != nil {
+		t.Fatalf("创建密钥失败: %v", err)
+	}
+
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/search", "Bearer sk-io", `{"model":"latest"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	log := singleChatLog(t)
+	if log.AuthKeyID != key.ID {
+		t.Errorf("AuthKeyID = %d, want %d", log.AuthKeyID, key.ID)
+	}
+	if !log.ChatIO {
+		t.Error("密钥开了 ioLog，ChatIO 应为 true")
+	}
+	io := singleChatIO(t)
+	if io.LogId != log.ID {
+		t.Errorf("ChatIO.LogId = %d, want %d", io.LogId, log.ID)
+	}
+}
+
+// 纯转发的日志同样带请求路径；纯转发不改写，模型名就是请求体里的值。
+func TestDedicatedRouteForwardAllLogsRequestPath(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	w := doDedicated(t, f, http.MethodPost, "/p/beta-name/v1/embeddings", "Bearer sk-admin", `{"model":"text-embedding-3-small","input":"x"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	log := singleChatLog(t)
+	if log.RequestPath != "POST /p/beta-name/v1/embeddings" {
+		t.Errorf("RequestPath = %q, want POST /p/beta-name/v1/embeddings", log.RequestPath)
+	}
+	if log.Name != "text-embedding-3-small" || log.ProviderModel != "text-embedding-3-small" {
+		t.Errorf("模型名 = %q/%q, want 均为 text-embedding-3-small", log.Name, log.ProviderModel)
+	}
+	if !log.ChatIO {
+		t.Error("管理 TOKEN 默认记录 IO")
 	}
 }

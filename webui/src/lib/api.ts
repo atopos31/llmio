@@ -24,7 +24,7 @@ export interface Provider {
   // 专属地址标识：与名称解耦，null 表示未设置专属地址
   ForwardSlug: string | null;
   // 模型改写策略：none 原样 / known 仅改写已绑定模型 / all 固定改写为 ForwardTargetModel
-  ForwardRewrite: string;
+  ForwardRewrite: ForwardRewriteSetting;
   // all 策略的固定改写目标（上游模型名），其余策略为空串
   ForwardTargetModel: string;
 }

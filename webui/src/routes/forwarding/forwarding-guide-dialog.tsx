@@ -43,11 +43,14 @@ export function ForwardingGuideDialog({
             </p>
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full text-left text-xs">
+                <caption className="border-b bg-muted/30 px-3 py-2 text-left text-xs font-medium">
+                  {t("guide.address_table_caption")}
+                </caption>
                 <thead className="bg-muted/50 text-muted-foreground">
                   <tr>
-                    <th className="px-3 py-2 font-medium">{t("guide.address_protocol")}</th>
-                    <th className="px-3 py-2 font-medium">{t("guide.address_base")}</th>
-                    <th className="px-3 py-2 font-medium">{t("guide.address_client_path")}</th>
+                    <th scope="col" className="px-3 py-2 font-medium">{t("guide.address_protocol")}</th>
+                    <th scope="col" className="px-3 py-2 font-medium">{t("guide.address_base")}</th>
+                    <th scope="col" className="px-3 py-2 font-medium">{t("guide.address_client_path")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">

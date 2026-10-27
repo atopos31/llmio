@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { TFunction } from "i18next"
 import { Link } from "react-router-dom"
@@ -23,6 +23,7 @@ import { ForwardingGuideDialog } from "@/routes/forwarding/forwarding-guide-dial
 import { ForwardingSettingsDialog } from "@/routes/forwarding/forwarding-settings-dialog"
 import {
   forwardBaseUrl,
+  forwardOffKnownUrls,
   forwardProviderMode,
   forwardProviderRewrite,
 } from "@/routes/forwarding/forwarding-utils"
@@ -79,17 +80,30 @@ export default function ForwardingPage() {
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null)
   // 首次进入自动弹说明；已读标记在 localStorage，关闭弹窗时才写入
   const [guideOpen, setGuideOpen] = useState(() => !hasSeenForwardingGuide())
+  // 递增序号：只有最后一次发出的取数结果能落到 state。保存后静默刷新与用户
+  // 连续点重试都可能在旧响应回来之前发出新请求，不设防会让旧列表覆盖新列表。
+  const requestSeq = useRef(0)
+  // 用 ref 读当前列表长度，避免把它写进 useCallback 依赖导致每次列表变化都重建
+  // 取数函数、进而触发 useEffect 再取一次。
+  const providersRef = useRef<Provider[]>([])
 
-  const fetchProviders = useCallback(async () => {
+  const fetchProviders = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    const seq = ++requestSeq.current
+    // 首屏为空时才出骨架屏；保存后的刷新（silent）与重试都保留已有列表，
+    // 否则整张表会被骨架替换，滚动位置与焦点一起丢失。
+    if (!silent && providersRef.current.length === 0) setLoading(true)
     try {
-      setLoading(true)
+      const list = await getProviders()
+      if (seq !== requestSeq.current) return
+      providersRef.current = list
+      setProviders(list)
       setLoadError(null)
-      setProviders(await getProviders())
     } catch (err) {
+      if (seq !== requestSeq.current) return
       console.error(err)
       setLoadError(err instanceof Error ? err.message : String(err))
     } finally {
-      setLoading(false)
+      if (seq === requestSeq.current) setLoading(false)
     }
   }, [])
 
@@ -107,7 +121,11 @@ export default function ForwardingPage() {
     if (!url) return
     try {
       await copyToClipboard(url)
-      toast.success(t("address_copied", { url }))
+      // 关闭模式下这个地址只有 5 条已知端点可用，复制成功时顺带提醒一句，
+      // 免得客户端拿去请求 Gemini 原生路径才发现 404。
+      const hint =
+        forwardProviderMode(provider) === "off" ? { description: t("off_notice.copy_hint") } : undefined
+      toast.success(t("address_copied", { url }), hint)
     } catch {
       toast.error(t("copy_failed"))
     }
@@ -130,6 +148,29 @@ export default function ForwardingPage() {
         <span className="min-w-0 whitespace-normal break-all" title={url}>{url}</span>
         <Copy className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
       </button>
+    )
+  }
+
+  /**
+   * 关闭模式警示：把"这个地址只认 5 条已知端点"写在地址旁边，并列出完整
+   * URL。折叠成 details 是为了不把表格撑高，展开后能直接照抄。
+   */
+  const offNotice = (provider: Provider) => {
+    if (forwardProviderMode(provider) !== "off") return null
+    const urls = forwardOffKnownUrls(window.location.origin, provider.ForwardSlug ?? "")
+    if (urls.length === 0) return null
+    return (
+      <details className="mt-1 text-[11px]">
+        <summary className="cursor-pointer font-medium text-muted-foreground select-none">
+          {t("off_notice.summary")}
+        </summary>
+        <p className="mt-1 text-muted-foreground">{t("off_notice.hint")}</p>
+        <ul className="mt-1 space-y-0.5 font-mono break-all text-muted-foreground">
+          {urls.map((url) => (
+            <li key={url}>{url}</li>
+          ))}
+        </ul>
+      </details>
     )
   }
 
@@ -219,7 +260,10 @@ export default function ForwardingPage() {
                           <div className="font-medium">{provider.Name}</div>
                           <div className="text-[11px] text-muted-foreground">{provider.Type || t("unknown_type")}</div>
                         </TableCell>
-                        <TableCell>{addressButton(provider)}</TableCell>
+                        <TableCell>
+                          {addressButton(provider)}
+                          {offNotice(provider)}
+                        </TableCell>
                         <TableCell>{modeBadge(provider)}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{rewriteLabel(provider, t)}</TableCell>
                         <TableCell className="text-right">
@@ -243,7 +287,10 @@ export default function ForwardingPage() {
                       </div>
                       {settingsButton(provider, true)}
                     </div>
-                    <div className="min-w-0">{addressButton(provider)}</div>
+                    <div className="min-w-0">
+                      {addressButton(provider)}
+                      {offNotice(provider)}
+                    </div>
                     <div className="flex flex-wrap items-center gap-2 text-xs">
                       {modeBadge(provider)}
                       <span className="text-muted-foreground">{rewriteLabel(provider, t)}</span>
@@ -263,7 +310,7 @@ export default function ForwardingPage() {
         onOpenChange={(open) => {
           if (!open) setEditingProvider(null)
         }}
-        onSaved={() => void fetchProviders()}
+        onSaved={() => void fetchProviders({ silent: true })}
       />
     </div>
   )

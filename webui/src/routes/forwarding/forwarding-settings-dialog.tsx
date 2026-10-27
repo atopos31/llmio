@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
   updateProviderForward,
   type ForwardModeSetting,
@@ -22,6 +23,7 @@ import {
 import { cn } from "@/lib/utils"
 import {
   forwardBaseUrl,
+  forwardOffKnownUrls,
   forwardProtocol,
   forwardProviderMode,
   forwardProviderRewrite,
@@ -84,6 +86,8 @@ export function ForwardingSettingsDialog({
   const { t } = useTranslation("forwarding")
   const slugId = useId()
   const targetId = useId()
+  const modeLabelId = useId()
+  const rewriteLabelId = useId()
 
   const [slug, setSlug] = useState("")
   const [mode, setMode] = useState<ForwardModeSetting>("off")
@@ -170,7 +174,12 @@ export function ForwardingSettingsDialog({
               <Input
                 id={slugId}
                 value={slug}
-                onChange={(event) => setSlug(event.target.value)}
+                onChange={(event) => {
+                  setSlug(event.target.value)
+                  // 一改输入就把上一次的校验提示撤掉：否则用户已经改对了，
+                  // 红字还挂在下面，看起来像这条错误仍然成立。
+                  if (error) setError(null)
+                }}
                 placeholder={t("settings.slug_placeholder")}
                 spellCheck={false}
                 autoComplete="off"
@@ -197,56 +206,92 @@ export function ForwardingSettingsDialog({
               {t(PROTOCOL_HINT_KEY[forwardProtocol(provider?.Type ?? "")])}
             </p>
             <p className="text-muted-foreground">{t("settings.address_preview_hint")}</p>
+            {mode === "off" && previewUrl ? (
+              <div className="mt-2 space-y-1 rounded border border-status-warning-ink/40 bg-status-warning-ink/5 p-2">
+                <p className="font-medium text-status-warning-ink">{t("off_notice.title")}</p>
+                <ul className="space-y-0.5 break-all font-mono text-muted-foreground">
+                  {forwardOffKnownUrls(window.location.origin, trimmedSlug).map((url) => (
+                    <li key={url}>{url}</li>
+                  ))}
+                </ul>
+                <p className="text-muted-foreground">{t("off_notice.hint")}</p>
+              </div>
+            ) : null}
           </div>
 
           <div className="space-y-2">
-            <p className="text-sm font-medium">{t("settings.mode_label")}</p>
+            <p id={modeLabelId} className="text-sm font-medium">
+              {t("settings.mode_label")}
+            </p>
             <p className="text-xs text-muted-foreground">{t("settings.mode_hint")}</p>
-            <div role="radiogroup" aria-label={t("settings.mode_label")} className="grid gap-2 sm:grid-cols-3">
-              {MODE_ORDER.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  role="radio"
-                  aria-checked={mode === item}
-                  onClick={() => setMode(item)}
-                  className={cn(
-                    "flex flex-col gap-1 rounded-md border p-3 text-left transition-colors",
-                    mode === item
-                      ? "border-primary bg-primary/5"
-                      : "hover:bg-muted",
-                  )}
-                >
-                  <span className="text-sm font-medium">{t(MODE_TITLE_KEY[item])}</span>
-                  <span className="text-xs text-muted-foreground">{t(MODE_DESC_KEY[item])}</span>
-                </button>
-              ))}
-            </div>
+            {/* 用 Radix RadioGroup 而不是自绘按钮：方向键、roving tabIndex 与
+                focus-visible 都由组件保证，卡片外观由 Label 承担。组标题用
+                aria-labelledby 指过去，不再抄一份同名 aria-label。 */}
+            <RadioGroup
+              aria-labelledby={modeLabelId}
+              value={mode}
+              onValueChange={(value) => {
+                setMode(value as ForwardModeSetting)
+                if (error) setError(null)
+              }}
+              className="grid gap-2 sm:grid-cols-3"
+            >
+              {MODE_ORDER.map((item) => {
+                const itemId = `${modeLabelId}-${item}`
+                return (
+                  <Label
+                    key={item}
+                    htmlFor={itemId}
+                    className={cn(
+                      "flex cursor-pointer flex-col items-stretch gap-1 rounded-md border p-3 font-normal transition-colors",
+                      mode === item ? "border-primary bg-primary/5" : "hover:bg-muted",
+                    )}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <RadioGroupItem id={itemId} value={item} />
+                      <span className="text-sm font-medium">{t(MODE_TITLE_KEY[item])}</span>
+                    </span>
+                    <span className="text-xs text-muted-foreground">{t(MODE_DESC_KEY[item])}</span>
+                  </Label>
+                )
+              })}
+            </RadioGroup>
           </div>
 
           <div className="space-y-2">
-            <p className="text-sm font-medium">{t("settings.rewrite_label")}</p>
+            <p id={rewriteLabelId} className="text-sm font-medium">
+              {t("settings.rewrite_label")}
+            </p>
             <p className="text-xs text-muted-foreground">{t("settings.rewrite_hint")}</p>
-            <div role="radiogroup" aria-label={t("settings.rewrite_label")} className="grid gap-2 sm:grid-cols-3">
-              {REWRITE_ORDER.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  role="radio"
-                  aria-checked={rewrite === item}
-                  onClick={() => setRewrite(item)}
-                  className={cn(
-                    "flex flex-col gap-1 rounded-md border p-3 text-left transition-colors",
-                    rewrite === item
-                      ? "border-primary bg-primary/5"
-                      : "hover:bg-muted",
-                  )}
-                >
-                  <span className="text-sm font-medium">{t(REWRITE_TITLE_KEY[item])}</span>
-                  <span className="text-xs text-muted-foreground">{t(REWRITE_DESC_KEY[item])}</span>
-                </button>
-              ))}
-            </div>
+            <RadioGroup
+              aria-labelledby={rewriteLabelId}
+              value={rewrite}
+              onValueChange={(value) => {
+                setRewrite(value as ForwardRewriteSetting)
+                if (error) setError(null)
+              }}
+              className="grid gap-2 sm:grid-cols-3"
+            >
+              {REWRITE_ORDER.map((item) => {
+                const itemId = `${rewriteLabelId}-${item}`
+                return (
+                  <Label
+                    key={item}
+                    htmlFor={itemId}
+                    className={cn(
+                      "flex cursor-pointer flex-col items-stretch gap-1 rounded-md border p-3 font-normal transition-colors",
+                      rewrite === item ? "border-primary bg-primary/5" : "hover:bg-muted",
+                    )}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <RadioGroupItem id={itemId} value={item} />
+                      <span className="text-sm font-medium">{t(REWRITE_TITLE_KEY[item])}</span>
+                    </span>
+                    <span className="text-xs text-muted-foreground">{t(REWRITE_DESC_KEY[item])}</span>
+                  </Label>
+                )
+              })}
+            </RadioGroup>
           </div>
 
           {rewrite === "all" ? (
@@ -257,7 +302,10 @@ export function ForwardingSettingsDialog({
               <Input
                 id={targetId}
                 value={targetModel}
-                onChange={(event) => setTargetModel(event.target.value)}
+                onChange={(event) => {
+                  setTargetModel(event.target.value)
+                  if (error) setError(null)
+                }}
                 placeholder={t("settings.target_placeholder")}
                 spellCheck={false}
                 autoComplete="off"

@@ -68,6 +68,12 @@ export default defineConfig({
         // "24:00 算不算合法""start==end 怎么算""重叠报不报错""乘数空的该发什么"，
         // 判错了页面照常渲染，改的是每一笔请求的价格。
         "src/lib/peak.ts",
+        // 转发专页的纯逻辑：地址按协议拼接（Anthropic 不带 /v1、Gemini 带 /v1beta）、
+        // 关闭模式下那 5 条可用端点、slug 规则、后端三态到弹窗三态的映射，以及
+        // "首次引导已读"的 localStorage 往返。判错时页面照常渲染，只是给出的地址
+        // 粘进客户端必然 404，属于典型的"错得看不出来"。
+        "src/routes/forwarding/forwarding-utils.ts",
+        "src/routes/forwarding/guide-storage.ts",
         "src/utils/**/*.ts",
         "src/hooks/**/*.ts",
         "src/stores/**/*.ts",

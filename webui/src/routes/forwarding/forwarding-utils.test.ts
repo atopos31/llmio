@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  FORWARD_OFF_KNOWN_PATHS,
   forwardBaseUrl,
+  forwardOffKnownUrls,
   forwardProtocol,
   forwardProviderMode,
   forwardProviderRewrite,
@@ -76,6 +78,29 @@ describe("isValidForwardSlug", () => {
     // 首字符限制同时挡掉了 "." 与 ".." 这类会被当成相对路径的段
     expect(isValidForwardSlug(".")).toBe(false)
     expect(isValidForwardSlug("..")).toBe(false)
+  })
+})
+
+describe("forwardOffKnownUrls", () => {
+  it("没有地址标识时返回空数组，绝不拼出 /p//v1 这种假地址", () => {
+    expect(forwardOffKnownUrls("https://llm.example.com", "")).toEqual([])
+  })
+
+  it("列出的正是关闭模式下仍被接管的 5 条已知端点", () => {
+    expect(FORWARD_OFF_KNOWN_PATHS).toHaveLength(5)
+    expect(forwardOffKnownUrls("https://llm.example.com", "gw")).toEqual([
+      "https://llm.example.com/p/gw/v1/chat/completions",
+      "https://llm.example.com/p/gw/v1/responses",
+      "https://llm.example.com/p/gw/v1/messages",
+      "https://llm.example.com/p/gw/v1/messages/count_tokens",
+      "https://llm.example.com/p/gw/v1/models",
+    ])
+  })
+
+  it("同样去掉 origin 末尾的斜杠", () => {
+    expect(forwardOffKnownUrls("https://llm.example.com//", "gw")[0]).toBe(
+      "https://llm.example.com/p/gw/v1/chat/completions",
+    )
   })
 })
 

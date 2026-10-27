@@ -33,9 +33,11 @@ export function forwardProviderMode(provider: Pick<Provider, "ForwardMode">): Fo
  * 后端 ForwardRewrite → 设置弹窗三态。
  *
  * 空串表示升级前的旧行：那时的语义是"认识且绑定过才改写"，等价于 known，
- * 因此这里把空串与未知值都归一成 known，而不是当成 none。
+ * 因此这里把空串与未知值都归一成 known，而不是当成 none。接收 string 而不是
+ * api.ts 的三态 union，是因为这里是"读后端原始字段"的边界：旧库里真有空串，
+ * 用 union 只会逼调用方写 as。
  */
-export function forwardProviderRewrite(provider: Pick<Provider, "ForwardRewrite">): ForwardRewriteSetting {
+export function forwardProviderRewrite(provider: { ForwardRewrite: string }): ForwardRewriteSetting {
   if (provider.ForwardRewrite === "none" || provider.ForwardRewrite === "all") {
     return provider.ForwardRewrite
   }
@@ -45,6 +47,30 @@ export function forwardProviderRewrite(provider: Pick<Provider, "ForwardRewrite"
 /** 与服务端 common.IsSafeForwardSlug 同一规则：1-64 位，首字符字母/数字，其余字母数字与 - _ .。 */
 export function isValidForwardSlug(slug: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(slug)
+}
+
+/**
+ * 转发关闭（mode=off）时，专属地址上只有这几条已知端点会被接管，其余路径
+ * 一律 404（见 handler/provider_route.go 的 switch）。界面上必须把它们明写
+ * 出来：用户最容易默认"地址能用"，然后拿 Gemini 原生路径或 /v1/embeddings
+ * 去试，得到的 404 看起来像配错了地址。
+ */
+export const FORWARD_OFF_KNOWN_PATHS = [
+  "/v1/chat/completions",
+  "/v1/responses",
+  "/v1/messages",
+  "/v1/messages/count_tokens",
+  "/v1/models",
+] as const
+
+/**
+ * 关闭转发模式下确实可用的完整地址（协议无关：已知端点都挂在 /v1 下，
+ * 与提供商类型拼出的 base_url 后缀无关）。没有地址标识时返回空数组。
+ */
+export function forwardOffKnownUrls(origin: string, slug: string): string[] {
+  if (!slug) return []
+  const root = `${origin.replace(/\/+$/, "")}/p/${slug}`
+  return FORWARD_OFF_KNOWN_PATHS.map((path) => `${root}${path}`)
 }
 
 /** 由站点 origin、提供商类型与地址标识拼出专属地址（即客户端要填的 base_url）。 */

@@ -141,7 +141,10 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	}
 
 	if _, err := io.Copy(writer, tee); err != nil {
-		pw.CloseWithError(err)
+		// 转发给客户端失败（多半是客户端/中间代理断开）。这里离请求 ctx 最近，
+		// 由它负责打上阶段与「客户端断开」归因——错误经管道传给 RecordLog 落库，
+		// 那边拿到的已是 Background ctx，补不出归因。
+		pw.CloseWithError(service.MarkStage(service.StageResponseStream, c.Request.Context(), err))
 		slog.Error("io copy", "err:", err)
 		return
 	}

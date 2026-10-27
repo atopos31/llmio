@@ -69,7 +69,8 @@
     "bridge_notes": "橋接說明",
     "request_path": "請求路徑",
     "columns": "欄位",
-    "reset_columns": "恢復預設"
+    "reset_columns": "恢復預設",
+    "role": "角色"
   },
   "mobile": {
     "tokens": "Tokens",
@@ -216,5 +217,9 @@
     "clear": "清除選擇",
     "open": "對比"
   },
-  "retry": "重試"
+  "retry": "重試",
+  "role": {
+    "primary": "主關聯",
+    "backup": "備用關聯"
+  }
 }

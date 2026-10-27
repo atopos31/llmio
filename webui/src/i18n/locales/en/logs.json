@@ -69,7 +69,8 @@
     "bridge_notes": "Bridge Notes",
     "request_path": "Request Path",
     "columns": "Columns",
-    "reset_columns": "Reset to defaults"
+    "reset_columns": "Reset to defaults",
+    "role": "Role"
   },
   "mobile": {
     "tokens": "Tokens",
@@ -216,5 +217,9 @@
     "clear": "Clear selection",
     "open": "Compare"
   },
-  "retry": "Retry"
+  "retry": "Retry",
+  "role": {
+    "primary": "Primary",
+    "backup": "Backup"
+  }
 }

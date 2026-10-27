@@ -620,6 +620,13 @@ export default function LogsPage() {
                           </TableCell>
                         )
                       }
+                      if (col.kind === "role") {
+                        return (
+                          <TableCell key={col.id} className={cn(col.cellClass)}>
+                            {t(log.Backup ? "role.backup" : "role.primary")}
+                          </TableCell>
+                        )
+                      }
                       return (
                         <TableCell key={col.id} className={cn(col.cellClass)} title={titleAttr}>
                           {value}

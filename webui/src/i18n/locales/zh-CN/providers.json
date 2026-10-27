@@ -48,7 +48,8 @@
     "error_matcher_hint": "命中任意 sample 即视为错误，用于 200 但 body 返回错误的渠道。",
     "console_label": "控制台地址",
     "console_placeholder": "https://example.com/console",
-    "name_hint": "名称只用于识别提供商；专属地址在「转发透传」页单独设置，改名不影响专属地址。"
+    "name_hint": "名称只用于识别提供商；专属地址在「转发透传」页单独设置，改名不影响专属地址。",
+    "help_hint": "查看{{label}}说明"
   },
   "models_dialog": {
     "title": "{{name}} 模型列表",

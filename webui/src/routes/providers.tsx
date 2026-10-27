@@ -267,7 +267,7 @@ export default function ProvidersPage() {
                               title={provider.Console}
                               variant="ghost"
                               size="icon"
-                              onClick={() => window.open(provider.Console, '_blank')}
+                              onClick={() => window.open(provider.Console, '_blank', 'noopener,noreferrer')}
                             >
                               <ExternalLink className="size-4" />
                             </Button>
@@ -324,7 +324,7 @@ export default function ProvidersPage() {
                             variant="ghost"
                             size="icon"
                             className="h-5 w-5"
-                            onClick={() => window.open(provider.Console, '_blank')}
+                            onClick={() => window.open(provider.Console, '_blank', 'noopener,noreferrer')}
                           >
                             <ExternalLink className="size-3.5" />
                           </Button>

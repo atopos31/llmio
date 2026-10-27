@@ -34,15 +34,18 @@ import type { ProviderFormValues } from "./use-provider-form";
 
 /**
  * 标签旁的「？」悬浮提示：长文案收进 tooltip，不堆在表单里。
- * label 同时充当图标的 aria-label（读屏与无焦点悬停兜底）。
+ * aria-label 必须与旁边 FormLabel 的文本不同，否则读屏里两个可聚焦元素同名
+ * （"名称" 按钮 / "名称" 输入框），听不出这个按钮是干什么的，因此统一读成
+ * "查看{label}说明"。
  */
 function HelpHint({ label, text }: { label: string; text: string }) {
+  const { t } = useTranslation("providers");
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           type="button"
-          aria-label={label}
+          aria-label={t('form.help_hint', { label })}
           className="inline-flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
         >
           <CircleHelp className="size-3.5" aria-hidden="true" />

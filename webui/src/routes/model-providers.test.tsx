@@ -120,6 +120,9 @@ function provider(over: Partial<Provider> = {}): Provider {
     Proxy: "",
     ErrorMatcher: "",
     ForwardMode: false,
+    ForwardSlug: null,
+    ForwardRewrite: "known",
+    ForwardTargetModel: "",
     ...over,
   }
 }

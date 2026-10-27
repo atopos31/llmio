@@ -23,10 +23,7 @@
     "type": "類型",
     "config": "設定",
     "console": "控制台",
-    "actions": "操作",
-    "dedicated_url": "專屬地址",
-    "dedicated_url_copy": "點擊複製專屬 API 地址",
-    "forward_mode_badge": "純轉發"
+    "actions": "操作"
   },
   "delete_dialog": {
     "title": "確定要刪除這個供應商嗎？",
@@ -51,16 +48,7 @@
     "error_matcher_hint": "命中任意 sample 即視為錯誤，用於 200 但 body 回傳錯誤的渠道。",
     "console_label": "控制台地址",
     "console_placeholder": "https://example.com/console",
-    "name_hint": "名稱僅支援字母、數字以及 - _ .，且須以字母或數字開頭，長度不超過 64 個字元。該名稱同時用作專屬地址 /p/{name} 的路徑標識。",
-    "name_unsafe": "目前名稱包含不支援的字元，無法產生專屬地址；儲存後仍可用於模型綁定，但不會出現在專屬地址中。",
-    "forward_mode_label": "專屬地址轉發",
-    "forward_mode_label_tooltip": "轉發只發生在專屬地址 /p/{name}/* 上，一般 /v1 地址不受影響，未知路徑在一般地址上始終回傳 404。混合與純轉發均需透過存取金鑰鑑別；純轉發不區分模型，僅允許具備全部模型權限的金鑰存取。",
-    "forward_mode_off_title": "關閉（預設）",
-    "forward_mode_off_desc": "不轉發未知路徑：專屬地址上僅已知介面可用（與一般 /v1 一致），其餘路徑回傳 404。",
-    "forward_mode_mixed_title": "混合模式",
-    "forward_mode_mixed_desc": "僅對專屬地址生效：已知介面（對話、補全等）照常在全部提供商之間負載平衡；其餘未知路徑原樣轉發至本提供商，並自動改寫為繫結的模型名稱。",
-    "forward_mode_pure_title": "純轉發模式",
-    "forward_mode_pure_desc": "僅對專屬地址生效：所有請求（含已知介面）無條件轉發至本提供商，不進行任何改寫；用戶端需直接使用該提供商的原生模型名稱。"
+    "name_hint": "名稱僅用於識別供應商；專屬地址在「轉發透傳」頁單獨設定，改名不影響專屬地址。"
   },
   "models_dialog": {
     "title": "{{name}} 模型列表",
@@ -75,7 +63,6 @@
     "delete_failed": "刪除供應商失敗: {{message}}",
     "copy_model": "已複製模型名稱: {{name}}",
     "copy_failed": "複製失敗",
-    "fetch_model_failed": "取得供應商模型失敗: {{message}}",
-    "copy_dedicated_url": "已複製專屬地址: /p/{{name}}/v1"
+    "fetch_model_failed": "取得供應商模型失敗: {{message}}"
   }
 }

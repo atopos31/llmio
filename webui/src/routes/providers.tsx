@@ -34,9 +34,7 @@ import {
 import type { Provider, ProviderTemplate, ProviderModel } from "@/lib/api";
 import { copyToClipboard } from "@/lib/utils";
 import { toast } from "sonner";
-import { ExternalLink, Pencil, Trash2, Boxes, Copy } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { dedicatedBaseUrl, isSafeProviderName } from "@/routes/providers/provider-form-utils";
+import { ExternalLink, Pencil, Trash2, Boxes } from "lucide-react";
 import { ProviderFormDialog } from "@/routes/providers/provider-form-dialog";
 import { ProviderModelsDialog } from "@/routes/providers/provider-models-dialog";
 import { useProviderForm } from "@/routes/providers/use-provider-form";
@@ -144,15 +142,6 @@ export default function ProvidersPage() {
     await fetchProviderModels(providerId);
   };
 
-  const copyDedicatedUrl = async (name: string) => {
-    try {
-      await copyToClipboard(dedicatedBaseUrl(name));
-      toast.success(t('toast.copy_dedicated_url', { name }));
-    } catch {
-      toast.error(t('toast.copy_failed'));
-    }
-  };
-
   const copyModelName = async (modelName: string) => {
     try {
       await copyToClipboard(modelName);
@@ -252,14 +241,13 @@ export default function ProvidersPage() {
             <div className="h-full flex flex-col">
             <div className="hidden sm:block flex-1 overflow-y-auto">
               <div className="w-full">
-                <Table className="min-w-[1200px]">
+                <Table className="min-w-[1000px]">
                   <TableHeader className="z-10 sticky top-0 bg-secondary/80 text-secondary-foreground">
                     <TableRow>
                       <TableHead>{t('table.id')}</TableHead>
                       <TableHead>{t('table.name')}</TableHead>
                       <TableHead>{t('table.type')}</TableHead>
                       <TableHead>{t('table.config')}</TableHead>
-                      <TableHead>{t('table.dedicated_url')}</TableHead>
                       <TableHead>{t('table.console')}</TableHead>
                       <TableHead>{t('table.actions')}</TableHead>
                     </TableRow>
@@ -272,26 +260,6 @@ export default function ProvidersPage() {
                         <TableCell className="text-sm">{provider.Type}</TableCell>
                         <TableCell className="text-xs text-muted-foreground font-mono">
                           {getConfigBaseUrl(provider.Config)}
-                        </TableCell>
-                        <TableCell>
-                          {isSafeProviderName(provider.Name) ? (
-                            <button
-                              type="button"
-                              title={t('table.dedicated_url_copy')}
-                              onClick={() => void copyDedicatedUrl(provider.Name)}
-                              className="inline-flex max-w-[220px] items-center gap-1 rounded border border-border px-2 py-1 font-mono text-xs hover:bg-muted"
-                            >
-                              <span className="truncate">/p/{provider.Name}/v1</span>
-                              <Copy className="size-3 shrink-0" />
-                            </button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                          {provider.ForwardMode && (
-                            <Badge variant="secondary" className="ml-1 align-middle text-[10px]">
-                              {t('table.forward_mode_badge')}
-                            </Badge>
-                          )}
                         </TableCell>
                         <TableCell>
                           {provider.Console ? (

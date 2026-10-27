@@ -20,7 +20,7 @@ import (
 /**
  * 提供商专属地址 /p/{name}/*path 端到端行为。
  *
- * 钉住四类契约：
+ * 钉住五类契约：
  *  1. 鉴权：路由组挂着 authDedicated（x-api-key 优先、回落 Bearer），无凭据 401；
  *     受限密钥对无法定位模型的透传/纯转发请求，以及已知端点上未授权的模型，一律 403
  *     （专属地址不允许成为绕过模型权限的后门）。
@@ -29,6 +29,8 @@ import (
  *  3. 透传：未知路径固定转给 URL 指名的提供商，绑定命中时改写模型名，
  *     未绑定原样；模型名不安全（路径穿越、控制字符）一律拒绝。
  *  4. 记账：透传请求落一条 Style=passthrough 的日志，token 为空。
+ *  5. 归一化：转发路径剥掉与上游 base_url 版本段重复的开头 /v1（混合透传与纯转发
+ *     同一套规则），/v1beta/... 整段保留。
  */
 
 // dedicatedUpstream 记录假上游收到的请求与 body，供断言。
@@ -79,9 +81,9 @@ type dedicatedFixture struct {
 	upstream *dedicatedUpstream
 }
 
-// setupDedicatedRoute 搭建包含专属地址路由的 gin 引擎、数据库（三家提供商：
-// alpha-name 混合可绑定、beta-name 纯转发、gamma-name 关闭转发），
-// 以及指向它们的假上游。
+// setupDedicatedRoute 搭建包含专属地址路由的 gin 引擎、数据库（四家提供商：
+// alpha-name 混合可绑定、beta-name 纯转发、gamma-name 关闭转发、delta-name 纯转发
+// 且 base_url 自带版本段），以及指向它们的假上游。
 func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 	t.Helper()
 
@@ -101,7 +103,8 @@ func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 	}
 
 	// 三家覆盖 ForwardMode 三态：alpha 混合（false）、beta 纯转发（true）、
-	// gamma 关闭（nil）。混合模式的透传行为全部钉在 alpha 上。
+	// gamma 关闭（nil）。混合模式的透传行为全部钉在 alpha 上；delta 只用于复刻
+	// base_url 自带版本段的生产形态。
 	alpha := models.Provider{
 		Name:        "alpha-name",
 		Type:        "openai",
@@ -119,6 +122,14 @@ func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 		Type:   "openai",
 		Config: `{"base_url":"` + server.URL + `","api_key":"sk-upstream"}`,
 	}
+	// delta 复刻生产形态：base_url 按模板惯例自带版本段（.../v1），客户端仍用
+	// UI 给出的 /p/{name}/v1 —— 纯转发必须剥掉重复的 /v1，不能拼出 /v1/v1/...。
+	delta := models.Provider{
+		Name:        "delta-name",
+		Type:        "openai",
+		Config:      `{"base_url":"` + server.URL + `/v1","api_key":"sk-upstream"}`,
+		ForwardMode: new(true),
+	}
 	// 逐个直接 Create：循环变量副本会让 GORM 把自增 ID 写进副本而非 alpha/beta/gamma
 	if err := db.Create(&alpha).Error; err != nil {
 		t.Fatalf("create provider alpha: %v", err)
@@ -128,6 +139,9 @@ func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 	}
 	if err := db.Create(&gamma).Error; err != nil {
 		t.Fatalf("create provider gamma: %v", err)
+	}
+	if err := db.Create(&delta).Error; err != nil {
+		t.Fatalf("create provider delta: %v", err)
 	}
 
 	chatModel := models.Model{Name: "latest"}
@@ -463,8 +477,10 @@ func TestDedicatedRouteForwardMode(t *testing.T) {
 		t.Fatalf("纯转发应 200, got %d: %s", w.Code, w.Body.String())
 	}
 	path, auth, _, body := f.upstream.snapshot()
-	if path != "/v1/chat/completions" {
-		t.Errorf("上游 path = %q, want /v1/chat/completions", path)
+	// 客户端写的是 /p/beta-name/v1/chat/completions：剥掉与上游 base_url 版本段
+	// 重复的 /v1 后，上游应收到 /chat/completions（beta 的 base_url 无版本段）。
+	if path != "/chat/completions" {
+		t.Errorf("上游 path = %q, want /chat/completions", path)
 	}
 	if !strings.Contains(body, `"model":"native-model"`) {
 		t.Errorf("纯转发不改写 model, got %q", body)
@@ -477,6 +493,29 @@ func TestDedicatedRouteForwardMode(t *testing.T) {
 	w = doDedicated(t, f, http.MethodGet, "/p/beta-name/v1/files", "Bearer sk-admin", "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("纯转发 GET 应 200, got %d", w.Code)
+	}
+}
+
+// 生产形态回归：上游 base_url 自带版本段（.../v1）、客户端用 UI 给出的专属地址
+// /p/{name}/v1 —— 纯转发必须剥掉与 base_url 重复的 /v1，否则上游收到 /v1/v1/... 直接 404。
+func TestDedicatedRouteForwardModeStripsClientVersionSegment(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	w := doDedicated(t, f, http.MethodPost, "/p/delta-name/v1/chat/completions", "Bearer sk-admin",
+		`{"model":"native-model","messages":[]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("纯转发应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if path, _, _, _ := f.upstream.snapshot(); path != "/v1/chat/completions" {
+		t.Errorf("上游 path = %q, want /v1/chat/completions（只应有一级 /v1）", path)
+	}
+
+	w = doDedicated(t, f, http.MethodGet, "/p/delta-name/v1/models", "Bearer sk-admin", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET 纯转发应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if path, _, _, _ := f.upstream.snapshot(); path != "/v1/models" {
+		t.Errorf("上游 path = %q, want /v1/models", path)
 	}
 }
 

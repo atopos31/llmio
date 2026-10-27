@@ -239,3 +239,28 @@ func TestForwardPassesQueryAndBody(t *testing.T) {
 func replaceBaseURL(config, base string) string {
 	return strings.Replace(config, "PLACEHOLDER", base, 1)
 }
+
+// 转发路径归一化：客户端把版本段写在路径里（/p/{name}/v1），而上游 base_url 自带
+// 版本段（模板里是 .../v1），拼接前必须剥掉开头一级 /v1，否则上游收到 /v1/v1/...
+func TestNormalizeForwardPath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"剥掉开头一级 /v1", "/v1/chat/completions", "/chat/completions"},
+		{"只剥一级", "/v1/v1/models", "/v1/models"},
+		{"只访问 /v1 本身回落根", "/v1", "/"},
+		{"只认完整段，/v1beta 原样", "/v1beta/models/gemini-2.5-pro:generateContent", "/v1beta/models/gemini-2.5-pro:generateContent"},
+		{"没有版本段原样", "/chat/completions", "/chat/completions"},
+		{"根路径原样", "/", "/"},
+		{"空路径原样", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := NormalizeForwardPath(tt.path); got != tt.want {
+				t.Errorf("NormalizeForwardPath(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
+	}
+}

@@ -110,3 +110,22 @@ func SanitizeForwardPath(path string) (string, error) {
 	}
 	return path, nil
 }
+
+// NormalizeForwardPath 把客户端在专属地址上写的路径归一化成上游 base_url 的相对路径。
+//
+// llmio 各类型的 base_url 模板都自带版本段（openai / openai-res / anthropic 是 .../v1，
+// gemini 是 .../v1beta），BuildReq 只在其后拼 /chat/completions、/messages、
+// /models/{model}:generateContent；而专属地址的客户端把版本段写在路径里（OpenAI 客户端
+// base_url 约定为 /p/{name}/v1），原样拼接会得到 /v1/v1/...。所以转发前剥掉开头一级 /v1。
+// 只认完整段：/v1beta/... 这类版本变体原样保留，不会被咬成 beta/...。
+// 剥完为空（客户端只访问了 /p/{name}/v1 本身）时回落 "/"，转发到 base_url 根。
+func NormalizeForwardPath(path string) string {
+	rest, ok := strings.CutPrefix(path, "/v1")
+	if !ok || (rest != "" && rest[0] != '/') {
+		return path
+	}
+	if rest == "" {
+		return "/"
+	}
+	return rest
+}

@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/atopos31/llmio/common"
@@ -31,8 +30,8 @@ import (
 //   - 混合（false）：已知端点（/v1/chat/completions 等）直调现有 handler，
 //     行为与全局 /v1 完全一致——全池负载均衡、可容错，URL 指名的提供商不参与
 //     路由；其余未知路径透传给 URL 指名的提供商。
-//   - 纯转发（true）：所有路径与方法无条件直转给该提供商，不改写模型名，客户端
-//     直接使用上游原生模型名。
+//   - 纯转发（true）：所有路径与方法直转给该提供商，不改写模型名，客户端直接使用
+//     上游原生模型名；转发路径仍按 base_url 惯例归一化（见 providers.NormalizeForwardPath）。
 //
 // 权限控制：已知端点沿用 chatHandler 内的模型级校验；未知路径带 model 的同样
 // 按 model 校验；无法定位模型的请求（无 model 或纯转发模式）要求全量权限
@@ -83,10 +82,9 @@ func ProviderDedicatedRoute(c *gin.Context) {
 
 // passthroughUnknown 混合模式下的未知路径：透传给 URL 指名的提供商。
 //
-// 客户端约定的 base_url 是 /p/{name}/v1（与已知端点对齐），而提供商配置的
-// base_url 按惯例自带版本段（如 https://api.example.com/v1），因此转发前剥掉
-// 客户端写法里的 /v1 前缀，避免拼出 /v1/v1/...。只剥到段边界：/v1beta/... 这类
-// 版本变体不能被咬成 beta/...（否则 Gemini 原生路径透传直接 400）。其余前缀原样拼接。
+// 转发路径经 providers.NormalizeForwardPath 归一化：提供商配置的 base_url 自带
+// 版本段（模板里是 .../v1），客户端写法是 /p/{name}/v1/...，剥掉开头一级 /v1 才不会
+// 拼出 /v1/v1/...；只认完整段，/v1beta/... 原样保留。其余前缀原样拼接。
 // 客户端 Content-Type 原样透传：multipart 上传（audio 转写等）的 boundary 不能丢。
 func passthroughUnknown(c *gin.Context, provider models.Provider, path string) {
 	switch c.Request.Method {
@@ -139,11 +137,8 @@ func passthroughUnknown(c *gin.Context, provider models.Provider, path string) {
 		common.InternalServerError(c, "invalid provider config: "+err.Error())
 		return
 	}
-	// 只剥到段边界，规则见函数注释。
-	forwardPath := path
-	if rest, ok := strings.CutPrefix(path, "/v1"); ok && (rest == "" || rest[0] == '/') {
-		forwardPath = rest
-	}
+	// 剥掉与上游 base_url 版本段重复的 /v1，规则见 providers.NormalizeForwardPath。
+	forwardPath := providers.NormalizeForwardPath(path)
 	if _, err := providers.SanitizeForwardPath(forwardPath); err != nil {
 		common.ErrorWithHttpStatus(c, http.StatusBadRequest, http.StatusBadRequest, err.Error())
 		return
@@ -176,7 +171,9 @@ func passthroughUnknown(c *gin.Context, provider models.Provider, path string) {
 	savePassthroughLog(log)
 }
 
-// forwardAll 纯转发模式：所有路径与方法无条件直转，不做任何改写。
+// forwardAll 纯转发模式：所有路径与方法直转给该提供商，不改写模型名。
+// 路径仍按 base_url 惯例归一化（providers.NormalizeForwardPath）：客户端 base_url
+// 同样是专属地址 /p/{name}/v1，不剥掉开头一级 /v1 就会拼出 /v1/v1/...。
 func forwardAll(c *gin.Context, provider models.Provider, path string) {
 	// 无模型语义，无法按模型鉴权，因此要求全量权限。
 	if !allowAllModels(c.Request.Context()) {
@@ -197,13 +194,14 @@ func forwardAll(c *gin.Context, provider models.Provider, path string) {
 		common.InternalServerError(c, "invalid provider config: "+err.Error())
 		return
 	}
-	if _, err := providers.SanitizeForwardPath(path); err != nil {
+	forwardPath := providers.NormalizeForwardPath(path)
+	if _, err := providers.SanitizeForwardPath(forwardPath); err != nil {
 		common.ErrorWithHttpStatus(c, http.StatusBadRequest, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	start := time.Now()
-	res, err := providers.Forward(c.Request.Context(), target, c.Request.Method, path,
+	res, err := providers.Forward(c.Request.Context(), target, c.Request.Method, forwardPath,
 		c.Request.URL.Query(), c.GetHeader("Accept"), c.GetHeader("Content-Type"), body)
 	log := newPassthroughLog(c.Request.Context(), provider, "", "", start)
 	if err != nil {

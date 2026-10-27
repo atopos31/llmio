@@ -4,6 +4,7 @@
     "analytics": "分析",
     "quickstart": "快速開發",
     "providers": "供應商管理",
+    "forwarding": "轉發透傳",
     "models": "模型管理",
     "logs": "請求日誌",
     "auth_keys": "金鑰管理",

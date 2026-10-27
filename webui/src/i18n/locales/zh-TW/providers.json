@@ -47,7 +47,9 @@
     "error_matcher_placeholder": "範例（每行或分號分隔）:\n\"status\":\"439\"\n\"status\":\"500\"\nAPI Token has expired",
     "error_matcher_hint": "命中任意 sample 即視為錯誤，用於 200 但 body 回傳錯誤的渠道。",
     "console_label": "控制台地址",
-    "console_placeholder": "https://example.com/console"
+    "console_placeholder": "https://example.com/console",
+    "name_hint": "名稱僅用於識別供應商；專屬地址在「轉發透傳」頁單獨設定，改名不影響專屬地址。",
+    "help_hint": "查看{{label}}說明"
   },
   "models_dialog": {
     "title": "{{name}} 模型列表",

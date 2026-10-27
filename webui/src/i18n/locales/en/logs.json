@@ -67,6 +67,7 @@
     "user_agent": "User Agent",
     "upstream_style": "Upstream Protocol",
     "bridge_notes": "Bridge Notes",
+    "request_path": "Request Path",
     "columns": "Columns",
     "reset_columns": "Reset to defaults",
     "role": "Role"
@@ -95,6 +96,7 @@
     "type": "Type",
     "size": "Response Size",
     "remote_ip": "Remote IP",
+    "request_path": "Request Path",
     "io_log": "IO Log",
     "retry": "Retries",
     "user_agent": "User Agent",
@@ -202,7 +204,9 @@
     "invalid_log_id": "Invalid log ID",
     "fetch_failed": "Failed to fetch session log",
     "io_not_found": "No session record found. IO logging may not be enabled.",
-    "empty": "(empty)"
+    "empty": "(empty)",
+    "generic_json": "Generic JSON",
+    "generic_hint": "No chat protocol was detected here, so the raw JSON is shown directly."
   },
   "compare": {
     "select_all": "Select all comparable rows on this page",

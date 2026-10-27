@@ -83,6 +83,41 @@ func createChatIO(ctx context.Context, logId uint, raw []byte) error {
 	return lastErr
 }
 
+// SaveChatIO 一次性写入透传请求的请求体与响应体（透传路由用）。
+//
+// 与聊天路径的 createChatIO + updateChatIOOutput 是同一组语义：撞锁时从第二次起
+// 退回明文（SkipCompress），因为压缩是优化、观测记录该活下来。差别只在一次插入
+// 写完两半——透传的响应体已经在内存里抓好了，没有"先输入、后补输出"的时序需要。
+func SaveChatIO(ctx context.Context, logId uint, raw []byte, output *models.OutputUnion) error {
+	if logId == 0 {
+		return nil
+	}
+	var lastErr error
+	for attempt := 0; attempt < ioCreateAttempts; attempt++ {
+		if attempt > 0 {
+			sleepBackoff(ctx, attempt)
+		}
+		rec := &models.ChatIO{
+			Input:        models.BodyBytes(raw),
+			LogId:        logId,
+			SkipCompress: attempt > 0,
+		}
+		if output != nil {
+			rec.OutputUnion = *output
+		}
+		err := gorm.G[models.ChatIO](models.DB).Create(ctx, rec)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !IsBusyErr(err) {
+			return err
+		}
+		slog.Warn("passthrough io 撞锁，退回明文重试", "attempt", attempt+1, "error", err)
+	}
+	return lastErr
+}
+
 // writeFailedIO 在 ioLog 开关打开时把请求体写进 chat_ios.input（不写响应）。
 // IO 记录是观测性功能，写入失败仅记日志，不传播为请求失败。
 func writeFailedIO(ctx context.Context, logId uint, raw []byte, ioLog bool) {

@@ -19,6 +19,27 @@ export interface Provider {
   Console: string;
   Proxy: string;
   ErrorMatcher: string;
+  // 专属地址未知路径转发，三态：null 关闭 / false 混合 / true 纯转发（仅作用于专属地址）
+  ForwardMode: boolean | null;
+  // 专属地址标识：与名称解耦，null 表示未设置专属地址
+  ForwardSlug: string | null;
+  // 模型改写策略：none 原样 / known 仅改写已绑定模型 / all 固定改写为 ForwardTargetModel
+  ForwardRewrite: ForwardRewriteSetting;
+  // all 策略的固定改写目标（上游模型名），其余策略为空串
+  ForwardTargetModel: string;
+}
+
+/** 转发模式：off 关闭 / mixed 混合 / pure 纯转发 */
+export type ForwardModeSetting = "off" | "mixed" | "pure";
+
+/** 模型改写策略：none 不改写 / known 仅改写认识的模型 / all 完全改写为固定目标 */
+export type ForwardRewriteSetting = "none" | "known" | "all";
+
+export interface ProviderForwardSettings {
+  slug: string;
+  mode: ForwardModeSetting;
+  rewrite: ForwardRewriteSetting;
+  target_model: string;
 }
 
 export interface Model {
@@ -171,6 +192,20 @@ export async function updateProvider(id: number, provider: {
   return apiRequest<Provider>(`/providers/${id}`, {
     method: 'PUT',
     body: JSON.stringify(provider),
+  });
+}
+
+/**
+ * 保存转发透传设置（地址标识、模式、改写策略）。
+ * 与提供商 CRUD 解耦：改名称/配置不会覆盖这些列，必须走本端点。
+ */
+export async function updateProviderForward(
+  id: number,
+  settings: ProviderForwardSettings
+): Promise<Provider> {
+  return apiRequest<Provider>(`/providers/${id}/forward`, {
+    method: 'PUT',
+    body: JSON.stringify(settings),
   });
 }
 
@@ -731,6 +766,9 @@ export interface ChatLog {
   Name: string;
   TraceID: string;
   SessionID?: string;
+  // request_path 是这次请求的方法与路径（如 "POST /p/gw/v1/embeddings"）。
+  // 只有专属地址（/p/{slug}）的透传会写入，已知端点看 Style/Name 即可；不含 query。
+  request_path?: string;
   ProviderModel: string;
   ProviderName: string;
   Status: string;

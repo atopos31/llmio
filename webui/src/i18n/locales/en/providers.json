@@ -47,7 +47,9 @@
     "error_matcher_placeholder": "Example (one per line or semicolon-separated):\n\"status\":\"439\"\n\"status\":\"500\"\nAPI Token has expired",
     "error_matcher_hint": "Any matched sample is treated as an error. Useful for channels that return errors with HTTP 200.",
     "console_label": "Console URL",
-    "console_placeholder": "https://example.com/console"
+    "console_placeholder": "https://example.com/console",
+    "name_hint": "The name is only used to identify the provider; the dedicated URL is configured separately on the Forwarding page, so renaming does not change it.",
+    "help_hint": "View {{label}} help"
   },
   "models_dialog": {
     "title": "{{name}} Model List",

@@ -56,9 +56,15 @@ func KeyUpdate(keyID uint, usedAt time.Time) {
 func backgroundFlush() {
 	for range time.Tick(10 * time.Second) {
 		ctx := context.Background()
+		// 测试或启动早期 models.DB 可能尚未就绪；gorm 在 nil 接收者上会 panic，
+		// 不能只依赖 Update 返回 error。
+		db := models.DB
+		if db == nil {
+			continue
+		}
 		mu.Lock()
 		for keyID, item := range updateCounts {
-			if err := models.DB.Model(&models.AuthKey{}).WithContext(ctx).Where("id = ?", keyID).Updates(map[string]any{
+			if err := db.Model(&models.AuthKey{}).WithContext(ctx).Where("id = ?", keyID).Updates(map[string]any{
 				"usage_count":  gorm.Expr(fmt.Sprintf("usage_count + %d", item.Count)),
 				"last_used_at": item.UsedAt,
 			}).Error; err != nil {

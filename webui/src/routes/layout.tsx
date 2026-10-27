@@ -14,6 +14,7 @@ import {
   FaHome,
   FaRocket,
   FaCloud,
+  FaExchangeAlt,
   FaRobot,
   FaChartBar,
   FaFileAlt,
@@ -53,6 +54,7 @@ type NavLabelKey =
   | "nav.auth_keys"
   | "nav.config"
   | "nav.quickstart"
+  | "nav.forwarding"
 
 type NavGroupLabelKey = "nav.group_observe" | "nav.group_config"
 
@@ -116,6 +118,8 @@ const NAV_GROUPS: { labelKey: NavGroupLabelKey; items: NavItem[] }[] = [
     labelKey: "nav.group_config",
     items: [
       { to: "/providers", labelKey: "nav.providers", icon: <FaCloud /> },
+      // 转发透传紧跟提供商：地址与模式是"某个提供商怎么被访问"，先选提供商再调入口。
+      { to: "/forwarding", labelKey: "nav.forwarding", icon: <FaExchangeAlt /> },
       { to: "/models", labelKey: "nav.models", icon: <FaRobot /> },
       { to: "/auth-keys", labelKey: "nav.auth_keys", icon: <FaKey /> },
       { to: "/config", labelKey: "nav.config", icon: <FaCog /> },

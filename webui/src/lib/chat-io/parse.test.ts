@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { fixtures } from "./fixtures"
-import { detectProtocol, parseRequest, parseResponse } from "./parse"
+import { detectProtocol, parseRequest, parseResponse, sniffProtocol, sniffResponseProtocol } from "./parse"
 import type { Protocol } from "./types"
 
 describe("detectProtocol", () => {
@@ -229,5 +229,48 @@ describe("parseResponse", () => {
     expect(res.text).toBe("好的")
     expect(res.chunks).toHaveLength(2)
     expect(res.malformed).toBe(0)
+  })
+})
+
+describe("sniffProtocol", () => {
+  it("认出四种聊天协议", () => {
+    expect(sniffProtocol({ choices: [] })).toBe("openai")
+    expect(sniffProtocol({ output: [] })).toBe("openai-res")
+    expect(sniffProtocol({ candidates: [] })).toBe("gemini")
+    expect(sniffProtocol({ content: [] })).toBe("anthropic")
+    expect(sniffProtocol({ model: "m", messages: [] })).toBe("openai")
+    expect(sniffProtocol({ system: "s" })).toBe("anthropic")
+    expect(sniffProtocol({ input: [] })).toBe("openai-res")
+    expect(sniffProtocol({ contents: [] })).toBe("gemini")
+  })
+
+  it("一条特征都没有时返回 null（非聊天协议）", () => {
+    expect(sniffProtocol({})).toBeNull()
+    expect(sniffProtocol({ output: "ok-from-mock", usage: { prompt_tokens: 1 } })).toBeNull()
+    expect(sniffProtocol({ data: [{ embedding: [0.1, 0.2] }] })).toBeNull()
+    // OpenAI 与 Anthropic 的区分特征都不完整时，messages 兜底成 anthropic。
+    expect(sniffProtocol({ messages: [] })).toBe("anthropic")
+  })
+})
+
+describe("sniffResponseProtocol", () => {
+  it("Style 已知协议时直接采信，不再看响应体", () => {
+    expect(sniffResponseProtocol({ OfString: JSON.stringify({ data: [] }) }, "anthropic")).toBe("anthropic")
+  })
+
+  it("Style 未知时按响应体嗅探，认不出来返回 null", () => {
+    expect(sniffResponseProtocol({ OfString: JSON.stringify({ choices: [] }) }, "passthrough" as unknown as Protocol)).toBe("openai")
+    expect(sniffResponseProtocol({ OfString: JSON.stringify({ output: "ok-from-mock" }) }, "passthrough" as unknown as Protocol)).toBeNull()
+    expect(sniffResponseProtocol({}, undefined)).toBeNull()
+  })
+
+  it("流式响应里有一条认出来就算认识", () => {
+    const io = { OfStringArray: ['{"output":"he"}', '{"choices":[{"delta":{"content":"llo"}}]}'] }
+    expect(sniffResponseProtocol(io, "passthrough" as unknown as Protocol)).toBe("openai")
+  })
+
+  it("响应体不是 JSON 时不强行认协议", () => {
+    expect(sniffResponseProtocol({ OfString: "这不是 JSON" }, undefined)).toBeNull()
+    expect(sniffResponseProtocol({ OfString: "[1,2]" }, null)).toBeNull()
   })
 })

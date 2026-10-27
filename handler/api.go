@@ -26,6 +26,8 @@ type ProviderRequest struct {
 	Console      string `json:"console"`
 	Proxy        string `json:"proxy"`
 	ErrorMatcher string `json:"error_matcher"`
+	// 转发透传设置（地址标识、模式、改写策略）不在这里：它们与提供商 CRUD 解耦，
+	// 由 PUT /api/providers/:id/forward 单独维护，见 handler/provider_forward.go。
 }
 
 // ModelRequest represents the request body for creating/updating a model
@@ -160,6 +162,10 @@ func CreateProvider(c *gin.Context) {
 		Console:      req.Console,
 		Proxy:        req.Proxy,
 		ErrorMatcher: req.ErrorMatcher,
+		// 默认：名称是 URL 安全字符且未被占用时，直接用名称作专属地址标识；
+		// 改写策略取 known（与升级前的行为一致）。之后只能由转发设置端点修改。
+		ForwardSlug:    defaultForwardSlug(c.Request.Context(), req.Name),
+		ForwardRewrite: consts.ForwardRewriteDefault,
 	}
 
 	if err := gorm.G[models.Provider](models.DB).Create(c.Request.Context(), &provider); err != nil {
@@ -205,7 +211,13 @@ func UpdateProvider(c *gin.Context) {
 		ErrorMatcher: req.ErrorMatcher,
 	}
 
-	if _, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {
+	// 显式列出列名：struct Updates 会跳过零值字段，导致 false/空串无法写回
+	// （清不掉 proxy 这类全量更新语义缺陷）。
+	// 刻意不含 forward_* 列：转发设置由 PUT /providers/:id/forward 单独维护，
+	// 改名称/配置不能把用户配好的地址与模式清空。
+	if _, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).
+		Select("name", "type", "config", "console", "proxy", "error_matcher").
+		Updates(c.Request.Context(), updates); err != nil {
 		common.InternalServerError(c, "Failed to update provider: "+err.Error())
 		return
 	}

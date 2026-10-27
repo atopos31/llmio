@@ -290,6 +290,16 @@ describe("column value functions", () => {
     expect(col.value!(makeLog({ SessionID: "" }))).toBe("-")
   })
 
+  it("request_path 列空时给短横线", () => {
+    const col = LOG_COLUMNS.find((c) => c.id === "request_path")!
+    expect(col.value!(makeLog())).toBe("-")
+  })
+
+  it("request_path 列有值时原样展示方法加路径", () => {
+    const col = LOG_COLUMNS.find((c) => c.id === "request_path")!
+    expect(col.value!(makeLog({ request_path: "POST /p/gw/v1/embeddings" }))).toBe("POST /p/gw/v1/embeddings")
+  })
+
   it("retry 列零时给短横线", () => {
     const col = LOG_COLUMNS.find((c) => c.id === "retry")!
     expect(col.value!(makeLog({ Retry: 0 }))).toBe("-")

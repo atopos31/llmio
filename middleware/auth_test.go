@@ -518,6 +518,55 @@ func TestAuthAnthropic_HeaderForms(t *testing.T) {
 	}
 }
 
+// ── /p 专属地址：Gemini 客户端只发 x-goog-api-key ────────────────────────────
+
+// 专属地址的携带方式矩阵：x-api-key → x-goog-api-key → Authorization: Bearer
+// 依次回落，前一个存在时以它为准（混着给错 key 不能被后面的正确通道救回来）。
+func TestAuthDedicated_HeaderForms(t *testing.T) {
+	const admin = "admin-token"
+	cases := []struct {
+		name    string
+		headers map[string]string
+		wantOK  bool
+	}{
+		{"x-api-key 单独给（既有行为）", map[string]string{"x-api-key": admin}, true},
+		{"x-goog-api-key 单独给（Gemini 客户端）", map[string]string{"x-goog-api-key": admin}, true},
+		{"Authorization: Bearer 单独给", map[string]string{"Authorization": "Bearer " + admin}, true},
+		{"三个都给且一致", map[string]string{"x-api-key": admin, "x-goog-api-key": admin, "Authorization": "Bearer " + admin}, true},
+		{"x-api-key 错、x-goog 对：以 x-api-key 为准，不放行", map[string]string{"x-api-key": "wrong", "x-goog-api-key": admin}, false},
+		{"x-goog 错、Bearer 对：以 x-goog 为准，不放行", map[string]string{"x-goog-api-key": "wrong", "Authorization": "Bearer " + admin}, false},
+		{"非 Bearer 方案不认", map[string]string{"Authorization": "Basic " + admin}, false},
+		{"三个都没给", nil, false},
+	}
+
+	gin.SetMode(gin.TestMode)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, cleanup := setupTestDB(t)
+			defer cleanup()
+
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			req := httptest.NewRequest("POST", "/p/alpha-name/v1/chat/completions", nil)
+			for k, v := range tc.headers {
+				req.Header.Set(k, v)
+			}
+			c.Request = req
+
+			AuthDedicated(admin)(c)
+
+			if got := !c.IsAborted(); got != tc.wantOK {
+				t.Fatalf("放行=%v，期望 %v（响应：%s）", got, tc.wantOK, rec.Body.String())
+			}
+			if tc.wantOK {
+				if v := c.Request.Context().Value(consts.ContextKeyAllowAllModel); v != true {
+					t.Fatalf("用 admin token 时应当拿到 AllowAllModel=true，实际 %v", v)
+				}
+			}
+		})
+	}
+}
+
 // 走一遍签发出来的 AuthKey（sk-llmio-…）经 Bearer 进来的完整路径：
 // 既要放行，也要把密钥 id 与 IO 开关写进 context——只断言"没被拒"会漏掉后半段。
 func TestAuthAnthropic_BearerAuthKey(t *testing.T) {

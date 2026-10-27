@@ -10,6 +10,7 @@ const Home = lazy(() => import('./routes/home'));
 const AnalyticsPage = lazy(() => import('./routes/analytics'));
 const Quickstart = lazy(() => import('./routes/quickstart'));
 const ProvidersPage = lazy(() => import('./routes/providers'));
+const ForwardingPage = lazy(() => import('./routes/forwarding'));
 const ModelProvidersPage = lazy(() => import('./routes/model-providers'));
 const LogsPage = lazy(() => import('./routes/logs'));
 const LogChatPage = lazy(() => import('./routes/log-chat'));
@@ -46,6 +47,7 @@ function App() {
               <Route path="analytics" element={<AnalyticsPage />} />
               <Route path="quickstart" element={<Quickstart />} />
               <Route path="providers" element={<ProvidersPage />} />
+              <Route path="forwarding" element={<ForwardingPage />} />
               <Route path="models" element={<ModelProvidersPage />} />
               <Route path="model-providers" element={<ModelProvidersPage />} />
               <Route path="logs" element={<LogsPage />} />

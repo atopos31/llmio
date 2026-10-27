@@ -16,6 +16,25 @@ type Provider struct {
 	Console      string // 控制台地址
 	Proxy        string // HTTP 代理地址
 	ErrorMatcher string // 响应体错误识别规则，多行或分号分隔 sample
+	// ForwardMode 专属地址的未知路径转发开关，三态指针（同 PreferDirect
+	// 的惯例，nil 表达"没开"这个独立状态，bool 只有两个槽位装不下三档）：
+	//   - nil：关闭转发——未知路径返回 404，专属地址上仅已知端点可用；
+	//   - false：混合模式——已知端点走正常负载均衡，未知路径透传给该提供商；
+	//   - true：纯转发——所有请求（含已知端点）无条件直转。
+	// 三种状态都只作用于专属地址，全局 /v1 的未知路径永远 404。
+	// 模型名是否改写由 ForwardRewrite 决定（与模式正交，纯转发同样可改写）。
+	// 刻意不带 default 标签：带 default 时 GORM 会把零值（nil）从 INSERT 里剔掉、
+	// 落成列默认值，"关闭"就永远写不进去了。
+	ForwardMode *bool
+	// ForwardSlug 专属地址的路径标识（/p/{slug}/...），与 Name 解耦：改名不影响已发布
+	// 的地址。NULL 表示没有专属地址；唯一索引允许多行 NULL。只能由转发设置端点写。
+	ForwardSlug *string `gorm:"uniqueIndex"`
+	// ForwardRewrite 转发请求的模型名改写策略：none 原样 / known 仅改写该提供商下
+	// 已绑定且启用的模型 / all 固定改写为 ForwardTargetModel。空串按 known 处理
+	// （升级前没有这列，空串意为"保留旧行为"）。
+	ForwardRewrite string
+	// ForwardTargetModel all 策略的固定改写目标（上游模型名），其他策略下为空。
+	ForwardTargetModel string
 }
 
 type AnthropicConfig struct {
@@ -101,6 +120,11 @@ type ChatLog struct {
 	RemoteIP    string // 访问ip
 	AuthKeyID   uint   `gorm:"index;index:idx_chat_logs_key_created,priority:1"` // 使用的AuthKey ID
 	SessionID   string `gorm:"index"`                                            // 请求体中的session_id
+	// RequestPath 客户端请求的方法与路径（如 "POST /p/gw/v1/embeddings"），不含查询串
+	// （密钥可能藏在 query 里，日志不该把它抄一遍）。只有专属地址的透传会写入：
+	// 已知端点看 Name/Style 就知道打到了哪里，未知路径必须靠这一列才知道客户端
+	// 请求的是哪个上游接口。
+	RequestPath string `json:"request_path,omitempty"`
 	ChatIO      bool   // 是否开启IO记录
 	// Backup 本次响应由备用关联提供：主关联在本请求内全部失败出局后降级接管。
 	// 非指针 bool 是后加列，AutoMigrate 不给存量行填默认值，NULL 由 init.go 回填 false。

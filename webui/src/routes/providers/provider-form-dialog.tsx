@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import type { UseFormReturn } from "react-hook-form";
+import { CircleHelp } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +15,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Form,
   FormControl,
   FormField,
@@ -25,6 +31,32 @@ import { Label } from "@/components/ui/label";
 import type { Provider, ProviderTemplate } from "@/lib/api";
 import type { ConfigFieldMap } from "./provider-form-utils";
 import type { ProviderFormValues } from "./use-provider-form";
+
+/**
+ * 标签旁的「？」悬浮提示：长文案收进 tooltip，不堆在表单里。
+ * aria-label 必须与旁边 FormLabel 的文本不同，否则读屏里两个可聚焦元素同名
+ * （"名称" 按钮 / "名称" 输入框），听不出这个按钮是干什么的，因此统一读成
+ * "查看{label}说明"。
+ */
+function HelpHint({ label, text }: { label: string; text: string }) {
+  const { t } = useTranslation("providers");
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={t('form.help_hint', { label })}
+          className="inline-flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+        >
+          <CircleHelp className="size-3.5" aria-hidden="true" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs leading-relaxed">
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
 type ProviderFormDialogProps = {
   open: boolean;
@@ -69,7 +101,10 @@ export function ProviderFormDialog({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('form.name_label')}</FormLabel>
+                  <div className="flex items-center gap-1.5">
+                    <FormLabel>{t('form.name_label')}</FormLabel>
+                    <HelpHint label={t('form.name_label')} text={t('form.name_hint')} />
+                  </div>
                   <FormControl>
                     <Input {...field} />
                   </FormControl>
@@ -213,7 +248,10 @@ export function ProviderFormDialog({
               name="error_matcher"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('form.error_matcher_label')}</FormLabel>
+                  <div className="flex items-center gap-1.5">
+                    <FormLabel>{t('form.error_matcher_label')}</FormLabel>
+                    <HelpHint label={t('form.error_matcher_label')} text={t('form.error_matcher_hint')} />
+                  </div>
                   <FormControl>
                     <Textarea
                       {...field}
@@ -221,9 +259,6 @@ export function ProviderFormDialog({
                       className="resize-y min-h-[88px]"
                     />
                   </FormControl>
-                  <p className="text-xs text-muted-foreground">
-                    {t('form.error_matcher_hint')}
-                  </p>
                   <FormMessage />
                 </FormItem>
               )}

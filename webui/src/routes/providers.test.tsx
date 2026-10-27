@@ -47,6 +47,10 @@ function provider(over: Partial<Provider> = {}): Provider {
     Console: "https://console.example.com",
     Proxy: "",
     ErrorMatcher: "",
+    ForwardMode: false,
+    ForwardSlug: null,
+    ForwardRewrite: "known",
+    ForwardTargetModel: "",
     ...over,
   }
 }
@@ -148,6 +152,11 @@ describe("供应商页 · 有数据", () => {
     expect(within(list).getByText("openai")).toBeInTheDocument()
     // 口径说明不是装饰：条数就是"看全了没有"的依据
     expect(screen.getByText("共 1 个")).toBeInTheDocument()
+    // 专属地址列与纯转发徽章已迁到转发透传页：这一页的表格只剩 6 列，
+    // 也不该再用这两处文案引诱人在提供商页配置转发
+    expect(within(list).getAllByRole("columnheader")).toHaveLength(6)
+    expect(within(list).queryByText("专属地址")).not.toBeInTheDocument()
+    expect(within(list).queryByText("纯转发")).not.toBeInTheDocument()
   })
 
   it("名称筛选有防抖：连打三个字符只按最终值取一次", async () => {

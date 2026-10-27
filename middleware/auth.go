@@ -86,13 +86,26 @@ func AuthAnthropic(adminToken string) gin.HandlerFunc {
 	return authXAPIKeyOrBearer(adminToken)
 }
 
-// 用于提供商专属地址 /p/{name}（见 handler/provider_route.go）。
+// 用于提供商专属地址 /p/{slug}（见 handler/provider_route.go）。
 //
-// 同一个 base_url 上既有 OpenAI 形态（Bearer）也有 Anthropic 形态（x-api-key）
-// 的端点，双头解析与 AuthAnthropic 共用。不能只收 Bearer：配 ANTHROPIC_API_KEY
-// 的 Claude Code 客户端会在专属地址上撞出全局 /anthropic 没有的 401。
+// 专属地址同时承载三种协议的客户端，三种凭据头都要收：
+//   - x-api-key：Anthropic 原生（Claude Code 的 ANTHROPIC_API_KEY）；
+//   - x-goog-api-key：Gemini 原生（官方 SDK/CLI 的默认形态）；
+//   - Authorization: Bearer：OpenAI 原生，以及 Claude Code 的 ANTHROPIC_AUTH_TOKEN。
+//
+// 优先级写死为 x-api-key → x-goog-api-key → Bearer：否则"哪个头生效"会随客户端
+// 实现细节漂移，而 401 现场看不出是哪一半出的问题。
 func AuthDedicated(adminToken string) gin.HandlerFunc {
-	return authXAPIKeyOrBearer(adminToken)
+	return func(c *gin.Context) {
+		authKey := c.GetHeader("x-api-key")
+		if authKey == "" {
+			authKey = c.GetHeader("x-goog-api-key")
+		}
+		if authKey == "" {
+			authKey = bearerKey(c.GetHeader("Authorization"))
+		}
+		checkAuthKey(c, authKey, adminToken)
+	}
 }
 
 // 用于Gemini原生接口鉴权

@@ -132,7 +132,10 @@ func UpdateProviderForward(c *gin.Context) {
 		"forward_target_model": target,
 	})
 	if result.Error != nil {
-		if strings.Contains(result.Error.Error(), "UNIQUE constraint failed") {
+		// 预检查已经挡掉绝大多数冲突，这里是并发下的兜底。不同 SQLite 驱动/版本
+		// 会给出 "UNIQUE constraint failed: ..." 或 "unique constraint failed"，
+		// 大小写无关匹配，别让大小写差异把唯一冲突变成 500。
+		if strings.Contains(strings.ToLower(result.Error.Error()), "unique constraint") {
 			common.BadRequest(c, "forward slug already in use")
 			return
 		}

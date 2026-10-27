@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -30,6 +31,11 @@ import (
 // 排查用的，不该把库撑大，超出部分截断（前缀通常已足够看清请求与响应形态）。
 const maxForwardIOBytes = 1 << 20
 
+// maxForwardBodyBytes 透传请求体的硬上限（64 MiB）。io.ReadAll 会把整个 body 读进
+// 内存，没有上限时一个客户端就能把进程内存打满；这是请求体本身的限制，与上面
+// ChatIO 记录时的截断无关（即使不记 IO 也要限）。
+const maxForwardBodyBytes = 64 << 20
+
 // 提供商专属地址：/p/{slug}/*path。
 //
 // slug 是 models.Provider.ForwardSlug，与提供商名称解耦：改名不影响已发布的地址，
@@ -42,7 +48,7 @@ const maxForwardIOBytes = 1 << 20
 //     行为与全局 /v1 完全一致——全池负载均衡、可容错，URL 指名的提供商不参与
 //     路由；其余未知路径透传给 URL 指名的提供商。
 //   - 纯转发（true）：所有路径与方法直转给该提供商，客户端直接使用上游原生模型名；
-//     转发路径仍按 base_url 惯例归一化（见 providers.NormalizeForwardPath）。
+//     转发路径按 base_url 末尾的版本段归一化（见 providers.NormalizeForwardPath）。
 //
 // 模型改写策略（models.Provider.ForwardRewrite，混合未知路径与纯转发共用）：
 //   - none：原样转发；
@@ -55,6 +61,10 @@ const maxForwardIOBytes = 1 << 20
 // 成为绕过模型权限的后门。all 改写会绕过"客户端模型名"这一鉴权维度，因此
 // 无论是否带 model 都要求全量权限。
 func ProviderDedicatedRoute(c *gin.Context) {
+	// 请求体上限先包上：混合模式的透传与纯转发都会 io.ReadAll 整个 body，
+	// 已知端点交给 chat 管线读时同样受这个上限保护。超限由读取方翻成 413。
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxForwardBodyBytes)
+
 	slug := c.Param("slug")
 	if !isSafeProviderSegment(slug) {
 		// 专属地址是客户端直连的 API 面，必须返回真实 HTTP 状态码
@@ -65,7 +75,13 @@ func ProviderDedicatedRoute(c *gin.Context) {
 
 	provider, err := gorm.G[models.Provider](models.DB).Where("forward_slug = ?", slug).First(c.Request.Context())
 	if err != nil {
-		common.ErrorWithHttpStatus(c, http.StatusNotFound, http.StatusNotFound, "Provider not found")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			common.ErrorWithHttpStatus(c, http.StatusNotFound, http.StatusNotFound, "Provider not found")
+			return
+		}
+		// 数据库故障不能伪装成 404：客户端会以为地址配错了，实际是服务端问题。
+		slog.Error("query provider by forward slug", "slug", slug, "err", err)
+		common.ErrorWithHttpStatus(c, http.StatusInternalServerError, http.StatusInternalServerError, "Database error")
 		return
 	}
 
@@ -100,8 +116,9 @@ func ProviderDedicatedRoute(c *gin.Context) {
 // passthroughUnknown 混合模式下的未知路径：透传给 URL 指名的提供商。
 //
 // 转发路径经 providers.NormalizeForwardPath 归一化：提供商配置的 base_url 自带
-// 版本段（模板里是 .../v1），客户端写法是 /p/{slug}/v1/...，剥掉开头一级 /v1 才不会
-// 拼出 /v1/v1/...；只认完整段，/v1beta/... 原样保留。其余前缀原样拼接。
+// 版本段（模板里是 .../v1，Gemini 是 .../v1beta），客户端写法是 /p/{slug}/v1/... 或
+// /p/{slug}/v1beta/...，剥掉与 base_url 相同的那一级版本段才不会拼出
+// /v1/v1/...、/v1beta/v1beta/...；只认完整段，不匹配时回落到剥 /v1。其余前缀原样拼接。
 // 客户端 Content-Type 原样透传：multipart 上传（audio 转写等）的 boundary 不能丢。
 func passthroughUnknown(c *gin.Context, provider models.Provider, path string) {
 	switch c.Request.Method {
@@ -112,12 +129,10 @@ func passthroughUnknown(c *gin.Context, provider models.Provider, path string) {
 		return
 	}
 
-	body, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		common.InternalServerError(c, err.Error())
+	body, ok := readForwardBody(c)
+	if !ok {
 		return
 	}
-	c.Request.Body.Close()
 
 	ctx := c.Request.Context()
 	model := gjson.GetBytes(body, "model").String()
@@ -146,8 +161,9 @@ func passthroughUnknown(c *gin.Context, provider models.Provider, path string) {
 }
 
 // forwardAll 纯转发模式：所有路径与方法直转给该提供商。
-// 路径仍按 base_url 惯例归一化（providers.NormalizeForwardPath）：客户端 base_url
-// 同样是专属地址 /p/{slug}/v1，不剥掉开头一级 /v1 就会拼出 /v1/v1/...。
+// 路径仍按 base_url 版本段归一化（providers.NormalizeForwardPath）：客户端 base_url
+// 同样是专属地址 /p/{slug}/v1（Gemini 是 /p/{slug}/v1beta），不剥掉重复的版本段
+// 就会拼出 /v1/v1/...、/v1beta/v1beta/...。
 func forwardAll(c *gin.Context, provider models.Provider, path string) {
 	ctx := c.Request.Context()
 	// 无模型语义，无法按模型鉴权，因此要求全量权限。
@@ -157,12 +173,10 @@ func forwardAll(c *gin.Context, provider models.Provider, path string) {
 		return
 	}
 
-	body, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		common.InternalServerError(c, err.Error())
+	body, ok := readForwardBody(c)
+	if !ok {
 		return
 	}
-	c.Request.Body.Close()
 
 	model := gjson.GetBytes(body, "model").String()
 	ioBody := append([]byte(nil), body...)
@@ -188,8 +202,9 @@ func forwardUpstream(c *gin.Context, provider models.Provider, model, upstreamMo
 		common.InternalServerError(c, "invalid provider config: "+err.Error())
 		return
 	}
-	// 剥掉与上游 base_url 版本段重复的 /v1，规则见 providers.NormalizeForwardPath。
-	forwardPath = providers.NormalizeForwardPath(forwardPath)
+	// 剥掉与上游 base_url 版本段重复的那一级（/v1 或 /v1beta），
+	// 规则见 providers.NormalizeForwardPath。
+	forwardPath = providers.NormalizeForwardPath(forwardPath, target.BaseURL)
 	if _, err := providers.SanitizeForwardPath(forwardPath); err != nil {
 		common.ErrorWithHttpStatus(c, http.StatusBadRequest, http.StatusBadRequest, err.Error())
 		return
@@ -201,13 +216,17 @@ func forwardUpstream(c *gin.Context, provider models.Provider, model, upstreamMo
 	ioLog := shouldRecordForwardIO(ctx) && len(ioBody) <= maxForwardIOBytes
 
 	start := time.Now()
+	// c.Request.Header 原样交给 Forward：默认全转发、按黑名单剥离凭据与逐跳头，
+	// 客户端 Content-Type / Accept / anthropic-beta / x-* 都因此能到上游。
 	res, err := providers.Forward(ctx, target, c.Request.Method, forwardPath,
-		c.Request.URL.Query(), c.GetHeader("Accept"), c.GetHeader("Content-Type"), body)
+		c.Request.URL.Query(), c.Request.Header, body)
 	log := newPassthroughLog(c, provider, model, upstreamModel, ioLog, start)
 	if err != nil {
 		savePassthroughLog(log.WithError(err))
+		// 细节只进日志：net/http 的错误串里带着上游主机名与网络拓扑
+		// （DNS 失败时尤其明显），不该回给客户端。
 		common.ErrorWithHttpStatus(c, http.StatusBadGateway, http.StatusBadGateway,
-			"upstream request failed: "+err.Error())
+			"upstream request failed")
 		return
 	}
 	defer res.Body.Close()
@@ -243,6 +262,24 @@ func forwardUpstream(c *gin.Context, provider models.Provider, model, upstreamMo
 	if ioLog {
 		savePassthroughIO(logID, ioBody, forwardOutputUnion(res.Header.Get("Content-Type"), relay.Captured))
 	}
+}
+
+// readForwardBody 读完整个请求体，并把超过 maxForwardBodyBytes 的情况翻成 413。
+// 返回 false 时响应已写好，调用方直接 return。
+func readForwardBody(c *gin.Context) ([]byte, bool) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			common.ErrorWithHttpStatus(c, http.StatusRequestEntityTooLarge, http.StatusRequestEntityTooLarge,
+				"request body too large")
+			return nil, false
+		}
+		common.InternalServerError(c, err.Error())
+		return nil, false
+	}
+	c.Request.Body.Close()
+	return body, true
 }
 
 // forwardRewritePolicy 归一化改写策略：空串（升级前的老行）按 known 处理。
@@ -408,13 +445,24 @@ func (rc *responseCapture) Write(p []byte) (int, error) {
 // Content-Length（流式拷贝由 net/http 自行分帧），逐块 Flush 保证 SSE 实时性。
 // captureLimit > 0 时顺手抓取响应体的前 captureLimit 字节，供透传日志的 IO 记录。
 func relayForwardResponse(c *gin.Context, res *http.Response, start time.Time, captureLimit int) forwardRelay {
+	// Connection 头点名的头也是逐跳语义（RFC 7230 §6.1），请求与响应两侧同规则。
+	connectionNamed := providers.ConnectionNamedHeaders(res.Header)
 	for key, values := range res.Header {
 		if isHopByHopHeader(key) || key == "Content-Length" {
+			continue
+		}
+		if _, drop := connectionNamed[http.CanonicalHeaderKey(key)]; drop {
 			continue
 		}
 		for _, value := range values {
 			c.Writer.Header().Add(key, value)
 		}
+	}
+	// SSE 必须关掉反向代理的响应缓冲，否则事件会被攒着批量下发，流式体验直接没了
+	// （与 handler/chat.go 的 writeHeader 同一口径）。
+	if isSSEContentType(res.Header.Get("Content-Type")) {
+		c.Header("X-Accel-Buffering", "no")
+		c.Header("Cache-Control", "no-cache")
 	}
 	c.Writer.WriteHeader(res.StatusCode)
 
@@ -441,6 +489,11 @@ func isHopByHopHeader(key string) bool {
 // newPassthroughLog 组一条透传日志。与聊天日志的差别是：没有协议处理、没有
 // 重试链，但 TraceID / UA / IP / 请求路径这些排查字段必须与聊天日志一致——
 // 客户端拿 trace 反馈问题时，日志页得能按同一个 trace 找到它。
+//
+// 计价：透传行不写价格快照（InputPrice / CacheReadPrice / OutputPrice 留零）。
+// 透传不知道上游协议的真实计价口径，也没有绑定到具体模型；计价只发生在已知端点
+// 走内部负载均衡管线时——chat 路径按 ModelWithProvider 的三档单价快照写入。
+// 因此 service.Cost 对透传行算得 0 是预期结果，不是漏记。
 func newPassthroughLog(c *gin.Context, provider models.Provider, model, upstreamModel string, ioLog bool, start time.Time) models.ChatLog {
 	authKeyID, _ := c.Request.Context().Value(consts.ContextKeyAuthKeyID).(uint)
 	// 生成失败只影响可读性，trace 置空即可；日志本身仍然要落。
@@ -507,9 +560,6 @@ func savePassthroughIO(logID uint, body []byte, output *models.OutputUnion) {
 	}
 }
 
-// savePassthroughLog 落库。用脱离请求生命周期的 ctx：客户端断连（流式里很常见）
-// 会取消请求 ctx，而断连现场恰是 client-cancel、上游断流这些最需要日志的时候，
-// 不能跟着请求一起丢。authKeyID 等取值已在 newPassthroughLog 里从请求 ctx 完成后才到这里。
 // forwardResponseUsage 从上游响应里抽取 token 用量。透传接口不知道响应属于哪种
 // 协议，只能按 provider.Type（客户端请求的上游协议）解析；响应是 SSE 时逐条
 // data 负载合并——OpenAI 在最后一条 chunk 给 usage，Anthropic 的输入在
@@ -569,6 +619,14 @@ func parseForwardUsage(providerType string, payload []byte) (models.Usage, bool)
 	switch providerType {
 	case consts.StyleAnthropic:
 		usage := gjson.GetBytes(payload, "usage")
+		// message_start 事件把用量嵌在 message.usage 里（顶层只有 type/message），
+		// 输入 token 只出现在这一条；顶层 usage 缺失或全零时回落到内层，否则
+		// 流式请求的 prompt_tokens 会一直是 0。
+		if anthropicUsageEmpty(usage) {
+			if nested := gjson.GetBytes(payload, "message.usage"); nested.Exists() {
+				usage = nested
+			}
+		}
 		if !usage.Exists() {
 			return models.Usage{}, false
 		}
@@ -619,6 +677,16 @@ func parseForwardUsage(providerType string, payload []byte) (models.Usage, bool)
 	default:
 		return parseOpenAIUsage(payload)
 	}
+}
+
+// anthropicUsageEmpty 判断一条 Anthropic 响应的 usage 是否没有可用数据。
+// 不存在与"存在但四项全零"同样处理：有的网关会先发一个空 usage 占位。
+func anthropicUsageEmpty(usage gjson.Result) bool {
+	return !usage.Exists() ||
+		(usage.Get("input_tokens").Int() == 0 &&
+			usage.Get("output_tokens").Int() == 0 &&
+			usage.Get("cache_creation_input_tokens").Int() == 0 &&
+			usage.Get("cache_read_input_tokens").Int() == 0)
 }
 
 // parseOpenAIUsage 解析 OpenAI Chat Completions 形态的 usage（字段与 models.Usage 一致）。

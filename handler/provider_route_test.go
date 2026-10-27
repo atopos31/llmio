@@ -30,8 +30,8 @@ import (
  *  3. 透传：未知路径固定转给 URL 指名的提供商，绑定命中时改写模型名，
  *     未绑定原样；模型名不安全（路径穿越、控制字符）一律拒绝。
  *  4. 记账：透传请求落一条 Style=passthrough 的日志，token 为空。
- *  5. 归一化：转发路径剥掉与上游 base_url 版本段重复的开头 /v1（混合透传与纯转发
- *     同一套规则），/v1beta/... 整段保留。
+ *  5. 归一化：转发路径剥掉与上游 base_url 版本段重复的那一级（/v1 或 /v1beta，
+ *     混合透传与纯转发同一套规则）；base_url 没有版本段时仍按 /v1 剥离。
  */
 
 // dedicatedUpstream 记录假上游收到的请求与 body，供断言。
@@ -42,6 +42,8 @@ type dedicatedUpstream struct {
 	accept      string
 	contentType string
 	body        string
+	rawQuery    string
+	headers     http.Header
 	// resp* 是给个别用例定制的响应；留空表示默认的 {"output":"ok"} JSON。
 	respBody        string
 	respContentType string
@@ -65,6 +67,8 @@ func (u *dedicatedUpstream) handler(t *testing.T) http.HandlerFunc {
 		u.accept = r.Header.Get("Accept")
 		u.contentType = r.Header.Get("Content-Type")
 		u.body = body
+		u.rawQuery = r.URL.RawQuery
+		u.headers = r.Header.Clone()
 		respBody := u.respBody
 		respContentType := u.respContentType
 		respStatus := u.respStatus
@@ -104,6 +108,20 @@ func (u *dedicatedUpstream) sentContentType() string {
 	return u.contentType
 }
 
+// sentHeader 取假上游收到的某个请求头，转发策略用例用它断言头有没有串味。
+func (u *dedicatedUpstream) sentHeader(key string) string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.headers.Get(key)
+}
+
+// sentRawQuery 取假上游收到的原始 query，用于断言凭据参数被剥离。
+func (u *dedicatedUpstream) sentRawQuery() string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.rawQuery
+}
+
 // setResponse 定制假上游的响应（body 为空则回到默认 JSON），供日志/用量用例使用。
 func (u *dedicatedUpstream) setResponse(body, contentType string, status int) {
 	u.mu.Lock()
@@ -121,8 +139,9 @@ func (u *dedicatedUpstream) setResponseDelay(delay time.Duration) {
 }
 
 type dedicatedFixture struct {
-	router   *gin.Engine
-	upstream *dedicatedUpstream
+	router    *gin.Engine
+	upstream  *dedicatedUpstream
+	serverURL string
 }
 
 // setupDedicatedRoute 搭建包含专属地址路由的 gin 引擎、数据库（四家提供商：
@@ -231,7 +250,7 @@ func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 		p.Any("/:slug/*path", ProviderDedicatedRoute)
 	}
 
-	return &dedicatedFixture{router: router, upstream: upstream}
+	return &dedicatedFixture{router: router, upstream: upstream, serverURL: server.URL}
 }
 
 // testAuth 直接复用 middleware.AuthDedicated：真实实现保证测试与线上一致
@@ -976,6 +995,10 @@ func TestDedicatedRouteForwardLogsUsageAndTps(t *testing.T) {
 	f := setupDedicatedRoute(t, "sk-admin")
 	response := `{"output":"ok","usage":{"prompt_tokens":12,"completion_tokens":34,"total_tokens":46,"prompt_tokens_details":{"cached_tokens":5}}}`
 	f.upstream.setResponse(response, "application/json", http.StatusOK)
+	// Windows 上 time.Since 可能量出 0（量级小于时钟粒度），而 TPS 只在
+	// ProxyTime > 0 时计算，会让这个断言随机为 0。给上游 2ms 延迟，让被测时长
+	// 远大于粒度，同时不改变断言意图。
+	f.upstream.setResponseDelay(2 * time.Millisecond)
 
 	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/search", "Bearer sk-admin", `{"model":"latest"}`)
 	if w.Code != http.StatusOK {
@@ -1005,6 +1028,13 @@ func TestDedicatedRouteForwardLogsStreamingIO(t *testing.T) {
 	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/stream", "Bearer sk-admin", `{"model":"latest"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	// SSE 必须显式关掉中间层的缓冲/缓存，否则 nginx 之类的反代会攒满整条流才吐。
+	if got := w.Header().Get("X-Accel-Buffering"); got != "no" {
+		t.Errorf("SSE 应带 X-Accel-Buffering: no, got %q", got)
+	}
+	if got := w.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("SSE 应带 Cache-Control: no-cache, got %q", got)
 	}
 
 	log := singleChatLog(t)
@@ -1090,5 +1120,168 @@ func TestDedicatedRouteForwardAllLogsRequestPath(t *testing.T) {
 	}
 	if !log.ChatIO {
 		t.Error("管理 TOKEN 默认记录 IO")
+	}
+}
+
+// 回归 B1：Gemini 的 base_url 自带 /v1beta，客户端路径也按 UI 写 /v1beta，不能拼成
+// /v1beta/v1beta/...。用假上游做端到端断言，而不只是单测归一化函数。
+func TestDedicatedRouteGeminiVersionSegmentNotDoubled(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	patchProvider(t, "alpha-name", map[string]any{
+		"type":   "gemini",
+		"config": `{"base_url":"` + f.serverURL + `/v1beta","api_key":"sk-gemini"}`,
+	})
+
+	w := doDedicated(t, f, http.MethodPost,
+		"/p/alpha-name/v1beta/models/gemini-2.5-pro:generateContent", "Bearer sk-admin",
+		`{"contents":[{"parts":[{"text":"hi"}]}]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	path, _, _, _ := f.upstream.snapshot()
+	if path != "/v1beta/models/gemini-2.5-pro:generateContent" {
+		t.Fatalf("上游 path = %q, want /v1beta/models/gemini-2.5-pro:generateContent（不能出现 /v1beta/v1beta）", path)
+	}
+	if got := f.upstream.sentHeader("X-Goog-Api-Key"); got != "sk-gemini" {
+		t.Errorf("gemini 鉴权头应使用提供商自己的 key, got %q", got)
+	}
+}
+
+// 回归：Anthropic 流式的 usage 分散在 message_start（输入，且嵌在 message 下）与
+// message_delta（输出，顶层）两个事件里；只认顶层 usage 会让 prompt 一直是 0。
+func TestDedicatedRouteAnthropicStreamUsageFromMessageStart(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	patchProvider(t, "alpha-name", map[string]any{"type": "anthropic"})
+	stream := "event: message_start\n" +
+		`data: {"type":"message_start","message":{"usage":{"input_tokens":25,"cache_read_input_tokens":0}}}` + "\n\n" +
+		"event: message_delta\n" +
+		`data: {"type":"message_delta","usage":{"output_tokens":15}}` + "\n\n" +
+		"event: message_stop\n" +
+		`data: {"type":"message_stop"}` + "\n\n"
+	f.upstream.setResponse(stream, "text/event-stream", http.StatusOK)
+
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/stream", "Bearer sk-admin",
+		`{"model":"latest","stream":true}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	log := singleChatLog(t)
+	if log.PromptTokens != 25 {
+		t.Errorf("prompt_tokens = %d, want 25（来自 message_start.message.usage）", log.PromptTokens)
+	}
+	if log.CompletionTokens != 15 {
+		t.Errorf("completion_tokens = %d, want 15（来自 message_delta.usage）", log.CompletionTokens)
+	}
+	if log.TotalTokens != 40 {
+		t.Errorf("total_tokens = %d, want 40", log.TotalTokens)
+	}
+}
+
+// 头转发：上游特性头（anthropic-beta、x-*）必须能到上游；客户端凭据头不能串味，
+// 提供商的鉴权头由 setAuthHeaders 覆盖。
+func TestDedicatedRouteForwardsClientHeaders(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	// 用 Authorization 完成 /p 鉴权，同时带上游特性头。
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/search", "Bearer sk-admin", `{"model":"latest"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if got := f.upstream.sentHeader("Anthropic-Beta"); got != "" {
+		t.Errorf("未发送的 anthropic-beta 不应凭空出现, got %q", got)
+	}
+
+	// 显式设置头再打一次（doDedicated 只支持固定头，这里自己构造请求）。
+	req := httptest.NewRequest(http.MethodPost, "/p/alpha-name/v1/alpha/search", strings.NewReader(`{"model":"latest"}`))
+	req.Header.Set("Authorization", "Bearer sk-admin")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Anthropic-Beta", "feature-2025-01-01")
+	req.Header.Set("X-Custom-Trace", "trace-123")
+	req.Header.Set("Cookie", "session=client")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if got := f.upstream.sentHeader("Anthropic-Beta"); got != "feature-2025-01-01" {
+		t.Errorf("anthropic-beta 应透传到上游, got %q", got)
+	}
+	if got := f.upstream.sentHeader("X-Custom-Trace"); got != "trace-123" {
+		t.Errorf("自定义 x-* 头应透传到上游, got %q", got)
+	}
+	if got := f.upstream.sentHeader("Cookie"); got != "" {
+		t.Errorf("客户端 Cookie 不得透传到上游, got %q", got)
+	}
+	if _, auth, _, _ := f.upstream.snapshot(); auth != "Bearer sk-upstream" {
+		t.Errorf("上游 Authorization 应是提供商自己的 key, got %q", auth)
+	}
+
+	// x-api-key 本身也能鉴权 /p（Gemini 风格客户端）；它优先于 Authorization，所以上面
+	// 那个请求不能同时带客户端 x-api-key（会被当成鉴权凭据而 401）。这里单独验证：
+	// 用 sk-admin 通过 x-api-key 鉴权时，客户端 key 同样不会出现在上游请求里。
+	req2 := httptest.NewRequest(http.MethodPost, "/p/alpha-name/v1/alpha/search", strings.NewReader(`{"model":"latest"}`))
+	req2.Header.Set("x-api-key", "sk-admin")
+	req2.Header.Set("Content-Type", "application/json")
+	rec2 := httptest.NewRecorder()
+	f.router.ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("x-api-key 鉴权应 200, got %d: %s", rec2.Code, rec2.Body.String())
+	}
+	if got := f.upstream.sentHeader("X-Api-Key"); got == "sk-admin" {
+		t.Errorf("客户端 x-api-key（admin）不得透传到上游, got %q", got)
+	}
+}
+
+// query 里的凭据参数转发前必须删掉，但 Gemini 的 alt=sse 这类协议参数要保留。
+func TestDedicatedRouteStripsCredentialQuery(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	w := doDedicated(t, f, http.MethodPost,
+		"/p/alpha-name/v1/alpha/search?key=leak&alt=sse", "Bearer sk-admin", `{"model":"latest"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if got := f.upstream.sentRawQuery(); got != "alt=sse" {
+		t.Errorf("上游 query = %q, want 仅 alt=sse（key 凭据必须剥掉）", got)
+	}
+}
+
+// 请求体超过 64 MiB 上限时直接 413，不读取整段、也不触碰上游。
+func TestDedicatedRouteBodyTooLarge(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	big := strings.Repeat("a", maxForwardBodyBytes+1)
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/search", "Bearer sk-admin", big)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("超限请求应 413, got %d: %s", w.Code, w.Body.String())
+	}
+	if path, _, _, _ := f.upstream.snapshot(); path != "" {
+		t.Errorf("超限请求不得触碰上游, 上游收到 %q", path)
+	}
+}
+
+// 上游传输错误的细节只进日志，响应给客户端通用文案（不回显内部地址）。
+func TestDedicatedRouteUpstreamErrorHidesDetails(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	// 127.0.0.1:1 基本不可能有服务监听，连接会立刻被拒。
+	patchProvider(t, "alpha-name", map[string]any{
+		"config": `{"base_url":"http://127.0.0.1:1","api_key":"sk-upstream"}`,
+	})
+
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/alpha/search", "Bearer sk-admin", `{"model":"latest"}`)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("上游连接失败应 502, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "upstream request failed") {
+		t.Errorf("应返回通用文案, got %s", body)
+	}
+	for _, leak := range []string{"127.0.0.1", "dial", "connection refused", "connectex"} {
+		if strings.Contains(body, leak) {
+			t.Errorf("响应不得回显上游传输错误细节 %q, got %s", leak, body)
+		}
 	}
 }

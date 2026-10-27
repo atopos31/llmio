@@ -9,7 +9,8 @@
 1. `common.NotFound/BadRequest` 是管理接口的"HTTP 200 + body code"约定；专属地址是
    客户端直连的 API 面，改用 `ErrorWithHttpStatus` 返回真实 404/400/403/405。
 2. 混合模式透传前剥掉客户端写法里的 `/v1` 前缀（客户端 base_url 约定为 `/p/{name}/v1`，
-   而提供商 base_url 惯例自带版本段，不剥会拼出 `/v1/v1/...`）。
+   而提供商 base_url 惯例自带版本段，不剥会拼出 `/v1/v1/...`）。2026-10-27 起改为按
+   base_url 的版本段归一化（`/v1`、`/v1beta` 等），见下节。
 
 实施新增的硬性规则：专属地址名称标识仅允许字母/数字开头 + `-_.`（≤64 字符），不满足的
 名称不提供专属地址（表单实时提示，不阻断保存）；纯转发模式与无 model 透传要求全量权限
@@ -47,6 +48,38 @@
    首字节耗时、`request_path`、TraceID/UA/IP，详见
    [passthrough-log-enrichment.md](./passthrough-log-enrichment.md)。
 
+### Review 修正（2026-10-27）
+
+1. **Gemini 版本段不再翻倍**：`NormalizeForwardPath(path, baseURL)` 先取 base_url 末尾的
+   版本段（`^v[0-9]+([a-z]+[0-9]*)?$`，如 `v1`/`v1beta`/`v2`），路径以同一段开头就剥掉
+   这一级；base_url 没有版本段时保留既有 `/v1` 剥离。修复前 Gemini（base_url 自带
+   `/v1beta`）会收到 `/v1beta/v1beta/models/...`。
+2. **头转发改为"默认全转发 + 黑名单剥离"**：只剥客户端 `Authorization`、`x-api-key`、
+   `x-goog-api-key`、Cookie、`Host`/`Content-Length` 及 hop-by-hop 头（含 `Connection`
+   点名的头，RFC 7230 §6.1，请求/响应两侧同规则），随后由提供商鉴权头覆盖；`anthropic-beta`
+   与自定义 `x-*` 等上游特性头得以透传，`Content-Encoding` 保留（gzip body 原样转发）。
+   `Accept-Encoding` 不透传，交给 `http.Transport` 协商并透明解压，否则 usage 抽取与 IO
+   文本记录会被压缩体破坏。
+3. **转发前剥离 query 凭据**：删除 `key`、`api_key`、`apikey`、`access_token`、`token`、
+   `authorization`（大小写不敏感），其余原样（Gemini `?alt=sse` 等协议参数保留）。
+4. **请求体上限 64 MiB**：入口用 `http.MaxBytesReader` 包住 body，超限返回 413
+   `request body too large`，不读取整段也不触碰上游。
+5. **出站超时**：`GetClient` 传入 `60s` 的 `ResponseHeaderTimeout`（只限响应头，不设整体
+   `Timeout`，避免切断长流）。
+6. **拒绝跨主机重定向**：共享 client 克隆后设置 `CheckRedirect`，目标 host 与首个请求不同
+   即报错（`x-api-key`/`x-goog-api-key` 不会像 Bearer 那样被自动剥掉，跟随会把上游凭据
+   交给别的主机）；同 host 重定向照常跟随。
+7. **Anthropic 流式输入用量**：顶层 `usage` 缺失或全零时回落 `message.usage`
+   （`message_start` 形状），与 `message_delta` 的 `output_tokens` 合并取 max。
+8. **SSE 反缓冲头**：上游 `Content-Type` 含 `text/event-stream` 时补
+   `X-Accel-Buffering: no` 与 `Cache-Control: no-cache`。
+9. **/p 鉴权接受 `x-goog-api-key`**：`AuthDedicated` 依次取 x-api-key → x-goog-api-key →
+   `Authorization: Bearer`（Gemini 原生客户端只发前者）。
+10. **错误面收敛**：DB 查询非"记录不存在"错误返回 500（不再一律 404）；上游传输错误对
+    客户端只回通用 `upstream request failed`，细节只进日志。
+11. **透传日志不做计价**：透传行不写价格快照，计价只发生在已知端点走内部管线时，
+    `Cost()` 对透传行为 0 是预期行为。
+
 ## 一、背景与结论（证据链）
 
 Codex CLI 现行网络搜索不再走 `/responses` 请求内嵌的托管 `web_search` 工具（那是老通道，
@@ -79,7 +112,7 @@ llmio `/v1/responses` 逐字节透传已支持），而是模型调用 function 
 | 1. 存量路由 | `/v1/*` 及 `/openai` `/anthropic` `/gemini` 各组 | **零改动**；未知路径照旧 404 |
 | 2. 专属 URL | `/p/{slug}/*` | 已知端点=正常均衡（URL 里的 slug **不参与**）；未知路径=**转给 URL 指名的这家** |
 
-**专属 URL（唯一新增面）**：gin 组上正常挂 `authDedicated` 中间件（x-api-key 优先、回落 Bearer），组内**单入口**
+**专属 URL（唯一新增面）**：gin 组上正常挂 `authDedicated` 中间件（x-api-key → x-goog-api-key → Bearer 依次回落），组内**单入口**
 `Any("/*path")` 内部分发（静态路由与通配不能同层共存）。按 URL 中的 provider 名解析
 （查无此 provider → 404），按其 `forward_mode` 分两档：
 
@@ -104,7 +137,10 @@ llmio `/v1/responses` 逐字节透传已支持），而是模型调用 function 
    转发目标由 URL 显式指名，不存在推断环节，也就不存在推断错。
 3. **路径清洗**：转发前拒绝 `..`、控制字符、空路径；拼接只接受相对路径，杜绝 path
    traversal / 代理到任意 URL。
-4. **头清洗**：剥离客户端 `Authorization` 与 hop-by-hop 头后再注入上游鉴权。
+4. **头清洗**：默认全量转发客户端请求头，只剥离客户端凭据头（`Authorization`、
+   `x-api-key`、`x-goog-api-key`、Cookie 等）与 hop-by-hop 头（含 `Connection` 点名的头，
+   RFC 7230 §6.1），再注入提供商鉴权；`Content-Encoding` 保留、`Accept-Encoding` 不透传。
+   转发前同时剥离 query 里的凭据参数（`key`/`api_key`/`token` 等），其余 query 原样。
 5. 流式响应边拷边 flush；gzip 排除列表追加 `/p/`（带斜杠，避免前缀误伤 `/providers` 等 SPA 路由）。
 
 **顺带收益——embeddings 等标准端点**：`/v1/embeddings`、`/v1/images/generations`、
@@ -118,14 +154,15 @@ false 混合 / true 纯转发）、`forward_slug`（*string，专属地址标识
 目标模型）。`passthrough_prefixes` 永久删除——provider 选择由 URL 完成，声明机制没有存在必要。
 
 **已知限制**：Gemini 型 provider 的模型名在 URL 路径里，只有 `all` 策略会改写（target 含
-`/`、`:`、空白时只改 body）；混合模式未知路径方法白名单仍仅 GET/POST（DELETE/PUT 需要时再开）；
-IO 请求/响应体各上限 1 MiB，`request_path` 不含 query。
+`/`、`:`、空白时只改 body）；版本段归一化只剥 base_url 末尾的版本段，base_url 路径里更深
+的版本段不处理；混合模式未知路径方法白名单仍仅 GET/POST（DELETE/PUT 需要时再开）；
+转发请求体上限 64 MiB（超限 413），IO 请求/响应体各上限 1 MiB，`request_path` 不含 query。
 
 ## 三、工作拆解（第一期，写范围互斥）
 
 | 卡 | 写范围 | 内容 | 验收信号 |
 |---|---|---|---|
-| T1 通用转发核心 | `providers/` 新文件 | `Forward(ctx, provider, method, path, query, header, body)`：按 type 套鉴权头、复用 GetClient(provider.proxy)、流式回传、可选 model 改写；**内置路径清洗与头清洗** | 单测：三种 type 鉴权头正确；`..`/控制字符路径被拒；客户端 Authorization 被剥离；body 原样；model 命中该 provider 绑定改写/未绑定不改；proxy 传给 GetClient |
+| T1 通用转发核心 | `providers/forward.go` | `Forward(ctx, target, method, path, query url.Values, header http.Header, body []byte)`：按 type 套鉴权头、复用 GetClient(target.proxy, 60s ResponseHeaderTimeout)、流式回传、可选 model 改写；**内置路径清洗、版本段归一化、头清洗（默认全转发+黑名单）、query 凭据剥离、跨主机重定向拒绝** | 单测：三种 type 鉴权头正确；`..`/控制字符路径被拒；`/v1beta` 不翻倍；客户端 Authorization/x-api-key 被剥离而 anthropic-beta/x-* 透传；query 凭据被剥离、`alt=sse` 保留；body 原样；model 命中该 provider 绑定改写/未绑定不改；proxy 传给 GetClient |
 | T2 专属 URL 组 | `main.go`、`handler/provider_route.go`、providers 实体/handler | `/p/:name/v1` 组（authOpenAI）单入口分发：provider 按名解析（404 兜底）；混合模式（已知端点直调现有 handler；未知路径方法白名单 + T1 转给这家 + 绑定改写）；纯转发全量直转；`forward_mode` 管理接口读写 | 已知端点与 `/v1` 同语义（全池均衡可容错，**不落向 URL 指名家**）；`alpha/search` 固定转给指名家且 model 命中绑定改写；查无 provider → 404 |
 | T3 专项回归 | 同目录 `_test.go` | 表驱动：无 TOKEN 401；`/v1/alpha/search` **依旧 404（安全回归断言）**；路径清洗；`DELETE` 未知路径 405；embeddings 冒烟；纯转发任意方法直转不改写 | `go test ./...` 全绿 |
 
@@ -146,7 +183,7 @@ router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/
 // providers/openai_res.go:21 改写套路照抄；:45 GetClient(30*time.Second, o.Proxy) 代理体系直接复用
 body, err := sjson.SetBytes(rawBody, "model", model)
 
-// middleware.AuthDedicated——专属 URL 组正常挂中间件（x-api-key 优先、回落 Bearer），无手动鉴权路径
+// middleware.AuthDedicated——专属 URL 组正常挂中间件（x-api-key → x-goog-api-key → Bearer 依次回落），无手动鉴权路径
 ```
 
 ## 五、验证

@@ -60,6 +60,105 @@ describe("日志会话页 · 通用 JSON", () => {
     expect(screen.queryByText("消息")).not.toBeInTheDocument()
   })
 
+  it("gb18030 一侧挂「GB18030 已解码」徽章与说明，另一侧 utf-8 不受影响", async () => {
+    mocked.getChatIO.mockResolvedValue(
+      io({
+        Style: "passthrough",
+        Input: '{"input":"中文请求"}',
+        InputEncoding: "gb18030",
+        OfString: '{"embedding":[0.1,0.2]}',
+        OutputEncoding: "utf-8",
+      }),
+    )
+
+    renderPage()
+
+    expect(await screen.findByText("GB18030 已解码")).toBeInTheDocument()
+    // 说明行讲清"原文不可读、已解码"
+    expect(screen.getByText(/已按 GB18030 解码/)).toBeInTheDocument()
+    // 只有请求侧挂编码徽章：响应侧是 utf-8，不该跟着出现
+    expect(screen.getAllByText("GB18030 已解码")).toHaveLength(1)
+    expect(screen.queryByText("非 UTF-8")).not.toBeInTheDocument()
+    expect(screen.queryByText(/非法字节已替换/)).not.toBeInTheDocument()
+  })
+
+  it("binary 一侧挂「非 UTF-8」徽章并说明非法字节已被替换", async () => {
+    mocked.getChatIO.mockResolvedValue(
+      io({
+        Style: "passthrough",
+        Input: '{"input":"\uFFFD\uFFFD"}',
+        InputEncoding: "binary",
+        OfString: '{"embedding":[0.1,0.2]}',
+        OutputEncoding: "binary",
+      }),
+    )
+
+    renderPage()
+
+    // 两侧都判为 binary → 两个徽章、两段说明
+    expect(await screen.findAllByText("非 UTF-8")).toHaveLength(2)
+    expect(screen.getAllByText(/非法字节已替换/)).toHaveLength(2)
+    expect(screen.queryByText("GB18030 已解码")).not.toBeInTheDocument()
+  })
+
+  it("请求 JSON 与响应 SSE 各自标注格式，互不影响", async () => {
+    mocked.getChatIO.mockResolvedValue(
+      io({
+        Style: "passthrough",
+        Input: '{"input":"hello embed"}',
+        OfString: 'data: {"output":"ok"}\n\ndata: [DONE]',
+      }),
+    )
+
+    renderPage()
+
+    // 等两块都渲染出来，再断言格式徽章各一个
+    expect(await screen.findAllByText("通用 JSON")).toHaveLength(2)
+    expect(screen.getAllByText("JSON")).toHaveLength(1)
+    expect(screen.getAllByText("SSE")).toHaveLength(1)
+    expect(screen.queryByText("纯文本")).not.toBeInTheDocument()
+  })
+
+  it("Encoding 字段缺失时不挂任何编码徽章，也不加说明", async () => {
+    mocked.getChatIO.mockResolvedValue(
+      io({ Style: "passthrough", Input: '{"input":"hello embed"}', OfString: '{"embedding":[0.1,0.2]}' }),
+    )
+
+    renderPage()
+
+    expect(await screen.findAllByText("通用 JSON")).toHaveLength(2)
+    expect(screen.queryByText("GB18030 已解码")).not.toBeInTheDocument()
+    expect(screen.queryByText("非 UTF-8")).not.toBeInTheDocument()
+    expect(screen.queryByText(/已按 GB18030 解码/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/非法字节已替换/)).not.toBeInTheDocument()
+  })
+
+  it("两侧都没有 body 时格式标「空」而不是纯文本", async () => {
+    mocked.getChatIO.mockResolvedValue(io({ Style: "passthrough", Input: "", OfString: null }))
+
+    renderPage()
+
+    expect(await screen.findAllByText("空")).toHaveLength(2)
+    expect(screen.getAllByText("(空)")).toHaveLength(2)
+    expect(screen.queryByText("纯文本")).not.toBeInTheDocument()
+  })
+
+  it("流式响应标出「流式 · N 个片段」，避免把片段数组当成普通 JSON 响应体", async () => {
+    mocked.getChatIO.mockResolvedValue(
+      io({
+        Style: "passthrough",
+        Input: '{"input":"hello embed"}',
+        OfStringArray: ['{"embedding":[0.1]}', '{"embedding":[0.2]}'],
+      }),
+    )
+
+    renderPage()
+
+    expect(await screen.findByText("流式 · 2 个片段")).toBeInTheDocument()
+    // 单段响应的用例不挂这个徽章：只在真是 SSE 分片时出现
+    expect(screen.getAllByText(/流式 ·/)).toHaveLength(1)
+  })
+
   it("响应嗅探不出协议、但请求体是聊天请求时，仍按聊天面板渲染", async () => {
     mocked.getChatIO.mockResolvedValue(
       io({

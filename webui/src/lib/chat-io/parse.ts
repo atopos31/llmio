@@ -205,3 +205,33 @@ export function sniffResponseProtocol(io: ChatInput, style: Protocol | null | un
   }
   return null;
 }
+
+/** 原始文本的呈现形态，决定"通用 JSON"视图上该挂哪个格式标注。 */
+export type RawFormat = "json" | "sse" | "text" | "empty";
+
+/** SSE 事件的起始字段行：data / event / id / retry（后跟冒号）。 */
+const SSE_FIELD_LINE = /^(?:data|event|id|retry):/;
+
+/**
+ * 嗅探一段原始文本的形态。
+ *
+ * 通用 JSON 视图里请求与响应各自独立判定：一次调用里请求是 JSON、响应是
+ * SSE 转储（或反过来）都很常见，共用一个判断会把其中一侧标错。判定顺序是
+ * 先空、再 JSON、最后才认 SSE 行——SSE 转储里常有单行 `data: {...}`，而合法
+ * JSON 里也可能出现 "data" 键，先 JSON.parse 才不会把整包 JSON 误标成 SSE。
+ */
+export function sniffRawFormat(raw: string | null | undefined): RawFormat {
+  if (typeof raw !== "string") return "empty";
+  const text = raw.trim();
+  if (text.length === 0) return "empty";
+  try {
+    JSON.parse(text);
+    return "json";
+  } catch {
+    // 不是合法 JSON：继续看是不是 SSE 事件流，否则按纯文本。
+  }
+  for (const line of text.split(/\r?\n/)) {
+    if (SSE_FIELD_LINE.test(line.trim())) return "sse";
+  }
+  return "text";
+}

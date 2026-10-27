@@ -814,8 +814,16 @@ export interface ChatIO {
   DeletedAt?: unknown;
   LogId: number;
   Input: string;
+  /**
+   * 请求体原始字节的编码判定，取值 "utf-8" | "gb18030" | "binary" | "mixed"，
+   * 空串表示该侧没有 body。判为非 UTF-8 时后端已经解码过，`Input` 拿到的
+   * 就是可显示的文本——前端只负责按这个字段加标注，不再自己解码。
+   */
+  InputEncoding?: string;
   OfString?: string | null;
   OfStringArray?: string[] | null;
+  /** 响应体原始字节的编码判定，取值同 `InputEncoding`。 */
+  OutputEncoding?: string;
   Style?: string;
 }
 

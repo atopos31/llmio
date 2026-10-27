@@ -206,7 +206,15 @@
     "io_not_found": "No session record found. IO logging may not be enabled.",
     "empty": "(empty)",
     "generic_json": "Generic JSON",
-    "generic_hint": "No chat protocol was detected here, so the raw JSON is shown directly."
+    "generic_hint": "No chat protocol was detected here, so the raw JSON is shown directly.",
+    "format_json": "JSON",
+    "format_sse": "SSE",
+    "format_text": "Plain text",
+    "format_empty": "Empty",
+    "encoding_gb18030": "GB18030 decoded",
+    "encoding_binary": "Non-UTF-8",
+    "encoding_hint_gb18030": "The stored bytes were not valid UTF-8, so this body was decoded as GB18030 — the text below is readable.",
+    "encoding_hint_binary": "The stored bytes could not be decoded; invalid bytes were replaced with U+FFFD, so the text below may still be unreadable."
   },
   "compare": {
     "select_all": "Select all comparable rows on this page",

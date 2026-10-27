@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import Loading from "@/components/loading";
 import { getChatIO, type ChatIO } from "@/lib/api";
-import { parseRequest, parseResponse, sniffProtocol, sniffResponseProtocol } from "@/lib/chat-io/parse";
+import { parseRequest, parseResponse, sniffProtocol, sniffRawFormat, sniffResponseProtocol, type RawFormat } from "@/lib/chat-io/parse";
 import type { ContentPart, Message, ParsedRequest, ParsedResponse, Protocol, ToolCall, ToolDeclaration } from "@/lib/chat-io/types";
 import { KNOWN_PROTOCOLS } from "@/lib/chat-io/types";
 import { parseArgs } from "@/lib/chat-io/util";
@@ -494,27 +494,88 @@ function rawResponseText(ofString?: string | null, ofStringArray?: string[] | nu
   return "";
 }
 
+interface GenericJsonSectionProps {
+  title: string;
+  hint: string;
+  raw: string;
+  /** 该侧原文的形态，由调用方各自嗅探——请求与响应互不影响。 */
+  format: RawFormat;
+  /** 该侧原始字节的编码判定（InputEncoding / OutputEncoding）。 */
+  encoding?: string;
+  /**
+   * 响应是 SSE 分片时传片段数。分片在库里的形状是 []string，展示时被整体
+   * 序列化成 JSON 数组，光看格式徽章会以为是一份普通 JSON 响应体；这个徽章
+   * 把"这是流式抓下来的 N 段原始事件"讲明白。
+   */
+  streamingChunks?: number;
+}
+
 /**
  * 嗅探不出聊天协议时（典型是透传 embeddings / rerank / 图片等接口）的区块：
  * 不套聊天面板，直接展示原始 JSON，并且默认就是展开的——这类请求本来就没有
  * 消息、文本可言，再让用户先看一个"(空)"再去点"查看原始 JSON"只是添堵。
+ *
+ * 编码标注只对两种情况出声：gb18030（后端已解码，文本可读）与 binary（解不
+ * 出来，非法字节已替换）。utf-8、空串和字段缺失都是常态，不挂徽章也不解释，
+ * 否则每块都多一行噪音。
  */
-function GenericJsonSection({ title, hint, raw }: { title: string; hint: string; raw: string }) {
+function GenericJsonSection({ title, hint, raw, format, encoding, streamingChunks }: GenericJsonSectionProps) {
   const { t } = useTranslation("logs");
+  const formatLabel: Record<RawFormat, string> = {
+    json: t("chat_io.format_json"),
+    sse: t("chat_io.format_sse"),
+    text: t("chat_io.format_text"),
+    empty: t("chat_io.format_empty"),
+  };
+  const encodingBadge =
+    encoding === "gb18030"
+      ? t("chat_io.encoding_gb18030")
+      : encoding === "binary"
+        ? t("chat_io.encoding_binary")
+        : null;
+  const encodingHint =
+    encoding === "gb18030"
+      ? t("chat_io.encoding_hint_gb18030")
+      : encoding === "binary"
+        ? t("chat_io.encoding_hint_binary")
+        : null;
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <CardTitle className="text-base">{title}</CardTitle>
           <Badge variant="secondary" className="text-xs">{t("chat_io.generic_json")}</Badge>
+          <Badge variant="outline" className="text-xs">{formatLabel[format]}</Badge>
+          {(streamingChunks ?? 0) > 0 && (
+            <Badge variant="secondary" className="text-xs">
+              {t("chat_io.streaming")} · {t("chat_io.chunks_count", { count: streamingChunks })}
+            </Badge>
+          )}
+          {encodingBadge && (
+            <Badge variant={encoding === "binary" ? "destructive" : "secondary"} className="text-xs">
+              {encodingBadge}
+            </Badge>
+          )}
         </div>
       </CardHeader>
       <CardContent className="space-y-2">
         <p className="text-xs text-muted-foreground">{hint}</p>
-        {raw ? (
-          <RawJsonPanel raw={raw} />
-        ) : (
+        {encodingHint && (
+          <p
+            className={cn(
+              "text-xs rounded-md border px-2 py-1.5",
+              encoding === "binary"
+                ? "text-destructive bg-destructive/10 border-destructive/30"
+                : "text-muted-foreground bg-muted/40 border-border"
+            )}
+          >
+            {encodingHint}
+          </p>
+        )}
+        {format === "empty" ? (
           <p className="text-sm text-muted-foreground">{t("chat_io.empty")}</p>
+        ) : (
+          <RawJsonPanel raw={raw} />
         )}
       </CardContent>
     </Card>
@@ -761,6 +822,11 @@ export default function LogChatPage() {
     () => (chatIO ? rawResponseText(chatIO.OfString, chatIO.OfStringArray) : ""),
     [chatIO],
   );
+  // 请求与响应各判各的格式：一次调用里两边形态经常不同（请求 JSON、响应 SSE
+  // 转储），合并判断必然标错一侧。与 rawOutput 同理收进 useMemo——sniffRawFormat
+  // 要对整段文本做 JSON.parse，不该每次重渲染都跑一遍。
+  const inputFormat = useMemo(() => sniffRawFormat(chatIO?.Input), [chatIO]);
+  const outputFormat = useMemo(() => sniffRawFormat(rawOutput), [rawOutput]);
 
   useEffect(() => {
     if (!logId) {
@@ -845,11 +911,16 @@ export default function LogChatPage() {
                 title={t("chat_io.request_input")}
                 hint={t("chat_io.generic_hint")}
                 raw={chatIO.Input ?? ""}
+                format={inputFormat}
+                encoding={chatIO.InputEncoding}
               />
               <GenericJsonSection
                 title={t("chat_io.response_output")}
                 hint={t("chat_io.generic_hint")}
                 raw={rawOutput}
+                format={outputFormat}
+                encoding={chatIO.OutputEncoding}
+                streamingChunks={chatIO.OfStringArray?.length ?? 0}
               />
             </>
           ) : (

@@ -206,7 +206,15 @@
     "io_not_found": "未找到会话记录，IO 记录可能未启用。",
     "empty": "(空)",
     "generic_json": "通用 JSON",
-    "generic_hint": "这里没嗅探出聊天协议，下面直接按原始 JSON 展示，方便核对任意接口的请求与响应。"
+    "generic_hint": "这里没嗅探出聊天协议，下面直接按原始 JSON 展示，方便核对任意接口的请求与响应。",
+    "format_json": "JSON",
+    "format_sse": "SSE",
+    "format_text": "纯文本",
+    "format_empty": "空",
+    "encoding_gb18030": "GB18030 已解码",
+    "encoding_binary": "非 UTF-8",
+    "encoding_hint_gb18030": "原始字节不是合法的 UTF-8，已按 GB18030 解码，下面的文本可以正常阅读。",
+    "encoding_hint_binary": "原始字节无法解码，非法字节已替换为 U+FFFD，下面的文本可能仍然不可读。"
   },
   "compare": {
     "select_all": "全选本页可比较项",

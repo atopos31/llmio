@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { fixtures } from "./fixtures"
-import { detectProtocol, parseRequest, parseResponse, sniffProtocol, sniffResponseProtocol } from "./parse"
+import { detectProtocol, parseRequest, parseResponse, sniffProtocol, sniffRawFormat, sniffResponseProtocol, type RawFormat } from "./parse"
 import type { Protocol } from "./types"
 
 describe("detectProtocol", () => {
@@ -272,5 +272,37 @@ describe("sniffResponseProtocol", () => {
   it("响应体不是 JSON 时不强行认协议", () => {
     expect(sniffResponseProtocol({ OfString: "这不是 JSON" }, undefined)).toBeNull()
     expect(sniffResponseProtocol({ OfString: "[1,2]" }, null)).toBeNull()
+  })
+})
+
+describe("sniffRawFormat", () => {
+  const cases: Array<[string | null | undefined, RawFormat]> = [
+    // 空：null / undefined / 纯空白都算"没有 body"，不按纯文本标
+    [null, "empty"],
+    [undefined, "empty"],
+    ["", "empty"],
+    ["   \n\t ", "empty"],
+    // JSON：解析成功即 JSON，哪怕是标量或数组
+    ['{"output":"ok"}', "json"],
+    ["[1,2,3]", "json"],
+    ["[]", "json"],
+    ["123", "json"],
+    ['  {"a":1}  ', "json"],
+    // SSE：非 JSON、且存在以 data:/event:/id:/retry: 开头的行
+    ['data: {"choices":[]}\n\ndata: [DONE]', "sse"],
+    ["event: ping\nid: 42\nretry: 300", "sse"],
+    ["data:[DONE]", "sse"],
+    // 其余按纯文本
+    ["这是一段纯文本，不是 JSON", "text"],
+    ['{"broken": ', "text"],
+    ["PNG binary dump\uFFFD", "text"],
+  ]
+
+  it.each(cases)("sniffRawFormat(%j) → %s", (raw, expected) => {
+    expect(sniffRawFormat(raw)).toBe(expected)
+  })
+
+  it("JSON 优先于 SSE：合法 JSON 里的 data 键不会被误标成 SSE", () => {
+    expect(sniffRawFormat('{"data":[{"id":1}],"event":"x"}')).toBe("json")
   })
 })

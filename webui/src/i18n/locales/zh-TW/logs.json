@@ -206,7 +206,15 @@
     "io_not_found": "未找到會話記錄，IO 記錄可能未啟用。",
     "empty": "(空)",
     "generic_json": "通用 JSON",
-    "generic_hint": "這裡沒有嗅探出聊天協定，以下直接以原始 JSON 顯示，方便核對任意介面的請求與回應。"
+    "generic_hint": "這裡沒有嗅探出聊天協定，以下直接以原始 JSON 顯示，方便核對任意介面的請求與回應。",
+    "format_json": "JSON",
+    "format_sse": "SSE",
+    "format_text": "純文字",
+    "format_empty": "空",
+    "encoding_gb18030": "GB18030 已解碼",
+    "encoding_binary": "非 UTF-8",
+    "encoding_hint_gb18030": "原始位元組不是合法的 UTF-8，已依 GB18030 解碼，以下的文字可以正常閱讀。",
+    "encoding_hint_binary": "原始位元組無法解碼，非法位元組已替換為 U+FFFD，以下的文字可能仍然無法閱讀。"
   },
   "compare": {
     "select_all": "全選本頁可比較項",

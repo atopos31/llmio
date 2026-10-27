@@ -17,6 +17,7 @@ import zhCNCompare from './locales/zh-CN/compare.json';
 import zhCNQuota from './locales/zh-CN/quota.json';
 import zhCNAnalytics from './locales/zh-CN/analytics.json';
 import zhCNPeak from './locales/zh-CN/peak.json';
+import zhCNForwarding from './locales/zh-CN/forwarding.json';
 
 // zh-TW
 import zhTWCommon from './locales/zh-TW/common.json';
@@ -33,6 +34,7 @@ import zhTWCompare from './locales/zh-TW/compare.json';
 import zhTWQuota from './locales/zh-TW/quota.json';
 import zhTWAnalytics from './locales/zh-TW/analytics.json';
 import zhTWPeak from './locales/zh-TW/peak.json';
+import zhTWForwarding from './locales/zh-TW/forwarding.json';
 
 // en
 import enCommon from './locales/en/common.json';
@@ -49,6 +51,7 @@ import enCompare from './locales/en/compare.json';
 import enQuota from './locales/en/quota.json';
 import enAnalytics from './locales/en/analytics.json';
 import enPeak from './locales/en/peak.json';
+import enForwarding from './locales/en/forwarding.json';
 
 export const SUPPORTED_LANGUAGES = [
   { code: 'zh-CN', label: '简体中文' },
@@ -78,6 +81,7 @@ void i18n
         quota: zhCNQuota,
         analytics: zhCNAnalytics,
         peak: zhCNPeak,
+        forwarding: zhCNForwarding,
       },
       'zh-TW': {
         common: zhTWCommon,
@@ -94,6 +98,7 @@ void i18n
         quota: zhTWQuota,
         analytics: zhTWAnalytics,
         peak: zhTWPeak,
+        forwarding: zhTWForwarding,
       },
       'en-US': {
         common: enCommon,
@@ -110,11 +115,12 @@ void i18n
         quota: enQuota,
         analytics: enAnalytics,
         peak: enPeak,
+        forwarding: enForwarding,
       },
     },
     fallbackLng: 'zh-CN',
     defaultNS: 'common',
-    ns: ['common', 'layout', 'home', 'quickstart', 'login', 'providers', 'models', 'logs', 'auth-keys', 'config', 'compare', 'quota', 'analytics', 'peak'],
+    ns: ['common', 'layout', 'home', 'quickstart', 'login', 'providers', 'models', 'logs', 'auth-keys', 'config', 'compare', 'quota', 'analytics', 'peak', 'forwarding'],
     detection: {
       order: ['localStorage', 'navigator'],
       lookupLocalStorage: 'llmio-language',
@@ -148,6 +154,7 @@ declare module 'i18next' {
       quota: typeof zhCNQuota;
       analytics: typeof zhCNAnalytics;
       peak: typeof zhCNPeak;
+      forwarding: typeof zhCNForwarding;
     };
   }
 }

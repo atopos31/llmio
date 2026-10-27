@@ -4,6 +4,7 @@
     "analytics": "Analytics",
     "quickstart": "Developer Quickstart",
     "providers": "Providers",
+    "forwarding": "Forwarding",
     "models": "Models",
     "logs": "Request Logs",
     "auth_keys": "API Keys",

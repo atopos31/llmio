@@ -1,6 +1,6 @@
 # 提供商专属 URL 透传（Codex 独立搜索路由）
 
-- 日期: 2026-10 · 分支: `feat/provider-dedicated-route`（基线 master bfb507d）· 状态: **已实施（v6 设计）**
+- 日期: 2026-10 · 分支: `feat/provider-dedicated-route`（基线 master bfb507d）· 状态: **已实施（v6 设计；2026-10 v7 转发透传专页修正见下）**
 
 ## 实施记录（2026-10-25）
 
@@ -30,6 +30,22 @@
    恰是 client-cancel、上游断流最需要日志的现场。改为 `context.WithTimeout(Background, 10s)`。
 5. **gzip 排除列表 `"/p"` → `"/p/"`**：排除列表是前缀匹配，裸 `"/p"` 会把 `/providers`
    等 SPA 路由的压缩一并关掉。
+
+### v7 修正（2026-10，转发透传专页）
+
+1. **地址标识与名称解耦**：`/p/{provider}/v1/*` 改为 `/p/{slug}/*`，`providers.forward_slug`
+   独立存储（uniqueIndex）；改名不再丢地址，历史安全名自动回填。
+2. **设置与提供商 CRUD 解耦**：转发设置（slug / 模式 / 改写策略 / 目标模型）只走
+   `PUT /api/providers/:id/forward`；通用 `PUT /api/providers/:id` 不再读写任何转发列
+   （原先通用更新用全量 `Select` 写回，会在改名称/配置时清空 `forward_mode`）。
+3. **地址按协议生成**：`/p/{slug}/v1`（OpenAI 系）、`/p/{slug}`（Anthropic，SDK 自拼
+   `/v1/messages`）、`/p/{slug}/v1beta`（Gemini）。前端不再固定拼 `/v1`。
+4. **模型改写三态**：`none`（原样）/ `known`（绑定命中才改写，旧混合模式行为）/ `all`
+   （固定改写为 `ForwardTargetModel`，并改写 Gemini 路径里的模型名）；纯转发模式同样按
+   策略改写。`all` 与纯转发都要求全量权限。
+5. **日志增强**：透传/纯转发现在记录请求体（改写前）、响应体前缀（SSE 拆事件）、usage、
+   首字节耗时、`request_path`、TraceID/UA/IP，详见
+   [passthrough-log-enrichment.md](./passthrough-log-enrichment.md)。
 
 ## 一、背景与结论（证据链）
 
@@ -61,7 +77,7 @@ llmio `/v1/responses` 逐字节透传已支持），而是模型调用 function 
 | 层 | 路径 | 行为 |
 |---|---|---|
 | 1. 存量路由 | `/v1/*` 及 `/openai` `/anthropic` `/gemini` 各组 | **零改动**；未知路径照旧 404 |
-| 2. 专属 URL | `/p/{provider}/v1/*` | 已知端点=正常均衡（URL 里的 provider **不参与**）；未知路径=**转给 URL 指名的这家** |
+| 2. 专属 URL | `/p/{slug}/*` | 已知端点=正常均衡（URL 里的 slug **不参与**）；未知路径=**转给 URL 指名的这家** |
 
 **专属 URL（唯一新增面）**：gin 组上正常挂 `authDedicated` 中间件（x-api-key 优先、回落 Bearer），组内**单入口**
 `Any("/*path")` 内部分发（静态路由与通配不能同层共存）。按 URL 中的 provider 名解析
@@ -93,13 +109,17 @@ llmio `/v1/responses` 逐字节透传已支持），而是模型调用 function 
 
 **顺带收益——embeddings 等标准端点**：`/v1/embeddings`、`/v1/images/generations`、
 `/v1/audio/...`、rerank 等全是"POST + body.model"形状，专属 URL 自动覆盖（混合模式下命中
-绑定还改写模型名）。响应 usage 第一期不解析进 token 统计，要计量再升级为已知端点。
+绑定还改写模型名）。响应 usage 现已解析（含流式事件合并）并写入日志，见
+[passthrough-log-enrichment.md](./passthrough-log-enrichment.md)。
 
-**字段**：`providers` 表仅加 `forward_mode`（bool，默认 false）。`passthrough_prefixes`
-永久删除——provider 选择由 URL 完成，声明机制没有存在必要。
+**字段**：`providers` 表在 v7 有四个转发列——`forward_mode`（*bool 三态：NULL 关闭 /
+false 混合 / true 纯转发）、`forward_slug`（*string，专属地址标识，uniqueIndex）、
+`forward_rewrite`（none/known/all，空串按 known）、`forward_target_model`（all 的固定
+目标模型）。`passthrough_prefixes` 永久删除——provider 选择由 URL 完成，声明机制没有存在必要。
 
-**已知限制（第一期接受）**：Gemini 型 provider 的模型名在 URL 路径里，不做改写（纯转发模式
-原样转发已可用）；混合模式未知路径方法白名单仅 GET/POST（DELETE/PUT 需要时再开）。
+**已知限制**：Gemini 型 provider 的模型名在 URL 路径里，只有 `all` 策略会改写（target 含
+`/`、`:`、空白时只改 body）；混合模式未知路径方法白名单仍仅 GET/POST（DELETE/PUT 需要时再开）；
+IO 请求/响应体各上限 1 MiB，`request_path` 不含 query。
 
 ## 三、工作拆解（第一期，写范围互斥）
 
@@ -152,10 +172,13 @@ body, err := sjson.SetBytes(rawBody, "model", model)
    （走 x-api-key 头，与 `ANTHROPIC_AUTH_TOKEN` 的 Bearer 等价），正常对话后确认日志落库；
    换受限密钥请求未授权模型应 403。
 
-## 六、待拍板
+## 六、已定案（v7）
 
-- URL 标识用 provider `name` 还是 `id`：建议 `name`（可读），注明改名会使客户端配置失效。
-- 纯转发模式要不要"绑定命中仍改写 model"：建议**不改写**（纯透明、零绑定依赖）；要改写用
-  混合模式。
-- 极简日志形态：复用 ChatLog 加一种 Style（如 `passthrough`），还是独立轻量表——建议前者，
-  统计页天然可见，token 列留空。
+- **URL 标识**：用独立 `forward_slug`（不随名称变化），`/p/{slug}/...`；名称与地址解耦。
+- **纯转发是否改写 model**：按 `forward_rewrite` 策略选择，默认 `none`（保持旧行为）；
+  需要改写就设 `known`（命中该 provider 的绑定）或 `all`（固定目标模型）。
+- **日志形态**：复用 ChatLog（`Style = passthrough`）并增强内容（IO / usage / 首字节 /
+  请求路径），不建独立轻量表；统计页天然可见。
+
+以上均已在 [forwarding-page.md](./forwarding-page.md) 与
+[passthrough-log-enrichment.md](./passthrough-log-enrichment.md) 落档。

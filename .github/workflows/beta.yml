@@ -1,13 +1,15 @@
 name: beta image
 
-# Beta 镜像渠道：手动触发，构建并推送到本仓库（fork）自己的 Docker Hub 命名空间。
-# 与 cicd.yml 互不干扰——正式版本仍走 tag 触发的 semver + latest；本工作流
-# 只服务 beta 渠道，不写任何版本 tag，也不触碰上游 atopos31 的任何资源。
+# Beta 镜像渠道：push 到 beta 分支或手动触发时构建，推送到本仓库（fork）自己的 Docker Hub
+# 命名空间，然后把 Sealos 上的 statefulset/llmio 指向这次构建的固定 tag。
+# 与 cicd.yml 互不干扰——正式版本仍走 tag 触发的 semver + latest；本工作流只服务 beta
+# 渠道，不写任何版本 tag，也不触碰上游 atopos31 的任何资源。
 #
 # 每次触发推送两个 tag：
 #   - 可移动的渠道 tag（默认 beta，可在 inputs 里改）
 #   - 固定的可回溯 tag beta-<UTC日期>-<短sha>（同时作为镜像内的版本号，
 #     /api/version 可查到容器跑的是哪次构建）
+# 部署只认固定的可回溯 tag：上线了哪次构建一目了然，回滚就是 kubectl rollout undo。
 
 on:
   workflow_dispatch:
@@ -16,16 +18,32 @@ on:
         description: '渠道 tag（固定 tag beta-<日期>-<sha> 总是同步推送）'
         required: false
         default: 'beta'
+  push:
+    branches: [beta]
+    # 纯文档提交不必重新出镜像、更不必动线上
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
 
 permissions:
   contents: read
 
+# 串行执行：两条流水线同时 rollout 同一个 StatefulSet 只会互相打断
+concurrency:
+  group: beta-image
+  cancel-in-progress: false
+
 env:
   IMAGE_NAME: ${{ github.repository }}
+  # 部署目标（Sealos 上的 llmio 工作负载；容器名见 deploy 步骤里的说明）
+  DEPLOY_NAMESPACE: ns-7qijmoae
+  DEPLOY_WORKLOAD: statefulset/llmio
 
 jobs:
   build-push-beta:
     runs-on: ubuntu-latest
+    outputs:
+      pinned: ${{ steps.stamp.outputs.pinned }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,9 +71,31 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            docker.io/${{ env.IMAGE_NAME }}:${{ inputs.tag }}
+            docker.io/${{ env.IMAGE_NAME }}:${{ github.event.inputs.tag || 'beta' }}
             docker.io/${{ env.IMAGE_NAME }}:${{ steps.stamp.outputs.pinned }}
           build-args: |
             VERSION=${{ steps.stamp.outputs.pinned }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy-beta:
+    needs: build-push-beta
+    # 只有 beta 分支的构建上线；从别的分支手动派发只出镜像，不动 Sealos
+    if: github.ref == 'refs/heads/beta'
+    runs-on: ubuntu-latest
+    steps:
+      # 需要仓库 secret KUBE_CONFIG：kubeconfig 的 base64（单行）
+      # 目标工作负载只有一个容器，set image 的 <容器名>= 按实际值写；改成别的名字只动这一处
+      - name: Set image to this build
+        uses: actions-hub/kubectl@master
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        with:
+          args: -n ${{ env.DEPLOY_NAMESPACE }} set image ${{ env.DEPLOY_WORKLOAD }} llmio=docker.io/${{ env.IMAGE_NAME }}:${{ needs.build-push-beta.outputs.pinned }}
+
+      - name: Wait for rollout
+        uses: actions-hub/kubectl@master
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        with:
+          args: -n ${{ env.DEPLOY_NAMESPACE }} rollout status ${{ env.DEPLOY_WORKLOAD }} --timeout=300s

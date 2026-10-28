@@ -32,6 +32,7 @@ import {
 import { toast } from "sonner"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { getVersion, checkLatestRelease, type GitHubRelease } from "@/lib/api"
+import { isReleaseVersion } from "@/lib/release-version"
 import { cn } from "@/lib/utils"
 import {
   Dialog,
@@ -204,7 +205,10 @@ export default function Layout() {
 
     const checkForUpdates = async () => {
       try {
-        if (version === "dev") return
+        // 只有正式发布构建才谈"有没有新版本"。beta 镜像注入的版本号是
+        // beta-20261027-f4a96c6，永远不等于 GitHub 的发布标签 v0.10.1，
+        // 比下去只会一直提示一个比当前还旧的"新版本"，所以直接不检查。
+        if (!isReleaseVersion(version)) return
         const release = await checkLatestRelease("atopos31", "llmio")
         if (!release || release.tag_name === version) return
 

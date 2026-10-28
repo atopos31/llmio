@@ -148,6 +148,9 @@ llmio `/v1/responses` 逐字节透传已支持），而是模型调用 function 
 绑定还改写模型名）。响应 usage 现已解析（含流式事件合并）并写入日志，见
 [passthrough-log-enrichment.md](./passthrough-log-enrichment.md)。
 
+**本地端点**：专属 URL 上由本服务自己处理的端点清单、`GET /v1/models` 的返回形状、以及关闭
+模式下哪些端点会 404，见 [dedicated-address-endpoints.md](./dedicated-address-endpoints.md)。
+
 **字段**：`providers` 表在 v7 有四个转发列——`forward_mode`（*bool 三态：NULL 关闭 /
 false 混合 / true 纯转发）、`forward_slug`（*string，专属地址标识，uniqueIndex）、
 `forward_rewrite`（none/known/all，空串按 known）、`forward_target_model`（all 的固定

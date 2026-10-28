@@ -16,11 +16,24 @@
   "address_copy": "Click to copy the dedicated address",
   "address_copied": "Dedicated address copied: {{url}}",
   "copy_failed": "Copy failed",
-  "off_notice": {
-    "summary": "Forwarding off: only 5 known endpoints work here",
-    "title": "Forwarding off: this address only takes 5 known endpoints",
-    "hint": "Every other path — including Gemini's native /v1beta/models/* and /v1/embeddings — returns 404. Switch the forwarding mode to mixed or pure forwarding to use them.",
-    "copy_hint": "With forwarding off only the 5 known endpoints work; other paths return 404."
+  "endpoint_notice": {
+    "summary": "Endpoints available on this address",
+    "local_title": "Always available here",
+    "forward_title": "Requires forwarding",
+    "off_hint": "Forwarding is off: these endpoints return 404 and the request is never sent.",
+    "forward_hint": "Available when the forwarding mode is mixed or pure; the request goes to this provider.",
+    "copy_hint": "With forwarding off only the local endpoints work here; other paths return 404."
+  },
+  "endpoint_handling": {
+    "pool": "load-balanced across providers",
+    "global": "system-level config",
+    "forward": "needs forwarding on"
+  },
+  "endpoint_note": {
+    "models_anthropic": "Response shape follows the anthropic-version header or the address protocol.",
+    "bridge": "Translated automatically when the client and upstream protocols differ.",
+    "count_tokens": "Estimates tokens with the system-level model capability config.",
+    "gemini_native": "Parsed in native Gemini format and run through the local pipeline."
   },
   "table": {
     "provider": "Provider",
@@ -56,7 +69,7 @@
     "slug_label": "Address slug",
     "slug_placeholder": "e.g. my-gateway",
     "slug_hint": "Letters, digits and - _ . only, starting with a letter or digit, at most 64 characters. It only appears in the dedicated address, so changing it changes the address.",
-    "slug_off_hint": "Turning forwarding off keeps the address: known endpoints still load-balance across all providers, only unknown paths stop being forwarded.",
+    "slug_off_hint": "Turning forwarding off keeps the address: local endpoints still load-balance across all providers, and other paths are no longer forwarded.",
     "slug_change_warning": "The slug changed: the old address stops working on save and every client using it must be updated.",
     "address_preview": "Address preview",
     "address_preview_empty": "Enter a valid slug to see the full address",
@@ -67,7 +80,7 @@
     "mode_label": "Forwarding mode",
     "mode_hint": "Applies to the dedicated address only; unknown paths on the regular /v1 address always return 404.",
     "mode_off_title": "Off (default)",
-    "mode_off_desc": "Only known endpoints work on the dedicated address; everything else returns 404.",
+    "mode_off_desc": "Only local endpoints work on the dedicated address; everything else returns 404.",
     "mode_mixed_title": "Mixed",
     "mode_mixed_desc": "Known endpoints still load-balance across all providers; unknown paths go to this provider.",
     "mode_pure_title": "Pure forwarding",
@@ -94,7 +107,7 @@
   },
   "guide": {
     "title": "How forwarding works",
-    "intro": "In pure forwarding mode, one dedicated address points at a single provider: use that address and the provider's native model names just work. With forwarding off or mixed, known endpoints still load-balance across all providers. Five short sections and you're set.",
+    "intro": "In pure forwarding mode, one dedicated address points at a single provider: use that address and the provider's native model names just work. With forwarding off or mixed, local endpoints still load-balance across all providers and other paths follow the forwarding mode. Every row can expand the full endpoint list. Five short sections and you're set.",
     "address_title": "1. Reading the dedicated address",
     "address_desc": "Address = {{origin}} + /p/ + your slug, and the suffix depends on the protocol. Clients only need the base address:",
     "address_protocol": "Protocol",
@@ -103,7 +116,7 @@
     "address_table_caption": "Address and client path per protocol",
     "address_note": "The current host is {{origin}}. A different domain or reverse-proxy path changes the address, not the slug.",
     "mode_title": "2. Three forwarding modes",
-    "mode_off": "Only known endpoints such as chat/completions work on the dedicated address; anything else returns 404. Useful when you only want address isolation without forwarding unknown endpoints.",
+    "mode_off": "Only local endpoints (chat, messages, model list and so on) work on the dedicated address; anything else returns 404. Useful when you only want address isolation without forwarding other endpoints.",
     "mode_mixed": "Known endpoints still load-balance across all providers; only unknown paths are forwarded to this provider. Useful for experimental endpoints on this provider without disturbing regular chat traffic.",
     "mode_pure": "Every request, including known endpoints like /v1/chat/completions, goes to this provider and skips load balancing. Useful when this system acts as a passthrough proxy for one upstream.",
     "rewrite_title": "3. Three rewriting strategies",

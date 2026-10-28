@@ -132,8 +132,10 @@ api.PUT("/providers/:id/forward", handler.UpdateProviderForward)
 统一生成，页面地址列、复制按钮、设置弹窗预览、引导弹窗地址表全部走它；未知/空类型按
 OpenAI 兼容处理（与服务端转发假设一致）。
 
-注意：`ForwardMode = off` 不等于没有地址——关闭只让未知路径 404，已知端点仍走全池
-负载均衡；只要 slug 存在，页面照样展示地址，模式列单独标注「关闭」。
+注意：`ForwardMode = off` 不等于没有地址，但它也**不转发任何请求**——关闭模式下只有本地
+端点（`/v1/chat/completions`、`/v1/messages`、`/v1beta/models` 等）可用，其余路径一律 404；
+只要 slug 存在，页面照样展示地址，模式列单独标注「关闭」。每个地址上具体有哪些端点、各自
+怎么处理，见 [dedicated-address-endpoints.md](./dedicated-address-endpoints.md)。
 
 ## 五、前端
 

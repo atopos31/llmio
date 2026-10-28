@@ -55,21 +55,30 @@ func GeminiGenerateContentHandler(c *gin.Context) {
 		common.BadRequest(c, "Invalid Gemini model action")
 		return
 	}
-	stream := false
-	switch method {
-	case "generateContent":
-		stream = false
-	case "streamGenerateContent":
-		stream = true
-	default:
+	if !isGeminiChatMethod(method) {
 		common.BadRequest(c, "Unsupported Gemini method: "+method)
 		return
 	}
+
+	serveGeminiModelChat(c, model, method)
+}
+
+// serveGeminiModelChat 把 Gemini 原生对话请求交给 chat 管线。专属地址上由
+// 端点表直接调用，全局 /gemini 路由则由 GeminiGenerateContentHandler 解析完
+// 路径后调用，两条入口共用同一套处理。
+func serveGeminiModelChat(c *gin.Context, model, method string) {
+	stream := method == "streamGenerateContent"
 
 	ctx := context.WithValue(c.Request.Context(), consts.ContextKeyGeminiStream, stream)
 	c.Request = c.Request.WithContext(ctx)
 
 	chatHandler(c, service.NewBeforerGemini(model, stream), service.ProcesserGemini, consts.StyleGemini)
+}
+
+// isGeminiChatMethod 判断动作名是否为 Gemini 的两种对话方法：两种方法都走
+// 多模型流水线；embedContent 等其余方法不是对话，不在这里处理。
+func isGeminiChatMethod(method string) bool {
+	return method == "generateContent" || method == "streamGenerateContent"
 }
 
 func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor service.Processer, style string) {
@@ -131,7 +140,7 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	// 异步处理输出并记录 tokens
 	authKeyIOLog, _ := ctx.Value(consts.ContextKeyAuthKeyIOLog).(bool)
 	slog.Info("start recording log", "logId", logId, "authKeyIOLog", authKeyIOLog)
-	go service.RecordLog(context.Background(), startReq, pr, postProcessor, logId, *before, authKeyIOLog, bridgeNotes)
+	service.StartRecordLog(context.Background(), startReq, pr, postProcessor, logId, *before, authKeyIOLog, bridgeNotes)
 	writeHeader(c, before.Stream, res.Header)
 
 	// 流式响应使用 flushWriter 确保数据实时发送

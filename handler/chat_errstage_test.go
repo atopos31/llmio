@@ -55,6 +55,7 @@ func setupErrstageDB(t *testing.T, baseURL string) {
 	prev := models.DB
 	models.DB = db
 	t.Cleanup(func() {
+		awaitRecordLogs(t)
 		models.DB = prev
 		if sqlDB, err := db.DB(); err == nil {
 			_ = sqlDB.Close()

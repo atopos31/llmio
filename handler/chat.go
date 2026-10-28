@@ -140,7 +140,7 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	// 异步处理输出并记录 tokens
 	authKeyIOLog, _ := ctx.Value(consts.ContextKeyAuthKeyIOLog).(bool)
 	slog.Info("start recording log", "logId", logId, "authKeyIOLog", authKeyIOLog)
-	go service.RecordLog(context.Background(), startReq, pr, postProcessor, logId, *before, authKeyIOLog, bridgeNotes)
+	service.StartRecordLog(context.Background(), startReq, pr, postProcessor, logId, *before, authKeyIOLog, bridgeNotes)
 	writeHeader(c, before.Stream, res.Header)
 
 	// 流式响应使用 flushWriter 确保数据实时发送

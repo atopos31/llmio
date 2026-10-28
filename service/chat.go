@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/atopos31/llmio/balancers"
@@ -544,6 +545,36 @@ func RecordRetryLog(ctx context.Context, retryLog chan retryLogEntry) {
 		}
 		writeFailedIO(ctx, logId, entry.Raw, log.ChatIO)
 	}
+}
+
+// recordLogPending 数着还在跑的后台记录 goroutine。它只服务于测试与关停前的等待：
+// 用例把 models.DB 还原（置空）之后再让 RecordLog 写一次，gorm 会在 nil 连接上
+// 空指针 panic——Linux CI 上 handler 包因此整包变红。生产路径只做加减，不读它。
+var recordLogPending atomic.Int64
+
+// StartRecordLog 起一个后台记录 goroutine，并在它退出前保持待办计数。
+// 计数必须在 go 之前加：等 goroutine 自己加，调用方的 Wait 会漏掉一个还没被
+// 调度起来的 goroutine。
+func StartRecordLog(ctx context.Context, reqStart time.Time, reader io.ReadCloser, processer Processer, logId uint, before Before, ioLog bool, bridgeNotes *BridgeNotes) {
+	recordLogPending.Add(1)
+	go func() {
+		defer recordLogPending.Add(-1)
+		RecordLog(ctx, reqStart, reader, processer, logId, before, ioLog, bridgeNotes)
+	}()
+}
+
+// WaitRecordLog 等到没有在跑的后台记录 goroutine，返回 false 表示等满了 timeout
+// 仍有 goroutine 没退出。只供测试在还原 models.DB、关闭测试库之前调用，以及
+// 关停路径需要「记录写完再退」时使用。
+func WaitRecordLog(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if recordLogPending.Load() == 0 {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return recordLogPending.Load() == 0
 }
 
 // RecordLog 是请求的**记录路径**：落 IO、读响应、把结果写回日志。

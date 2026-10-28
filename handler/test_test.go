@@ -13,6 +13,7 @@ import (
 
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
+	"github.com/atopos31/llmio/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -82,11 +83,23 @@ func setupTestHandlerDB(t *testing.T, providerType, providerConfig, proxy string
 	prev := models.DB
 	models.DB = db
 	t.Cleanup(func() {
+		awaitRecordLogs(t)
 		models.DB = prev
 		if sqlDB, err := db.DB(); err == nil {
 			_ = sqlDB.Close()
 		}
 	})
+}
+
+// awaitRecordLogs 等后台记录 goroutine 全退出再拆库。chatHandler 把 RecordLog
+// 放在后台 goroutine 里，用例拿到响应就返回时它可能还在写日志：此时 t.Cleanup
+// 已经把 models.DB 还原成 nil，gorm 拿着 nil 连接会空指针 panic（Linux CI 实测
+// handler 包整包变红，Windows 上因时序侥幸通过）。等不到只可能是真卡住了。
+func awaitRecordLogs(t *testing.T) {
+	t.Helper()
+	if !service.WaitRecordLog(5 * time.Second) {
+		t.Fatal("后台记录 goroutine 5 秒还没退出——有东西卡住了")
+	}
 }
 
 // testCtx 构造带 id 路径参数的 gin 上下文。

@@ -285,6 +285,7 @@ func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 	prev := models.DB
 	models.DB = db
 	t.Cleanup(func() {
+		awaitRecordLogs(t)
 		models.DB = prev
 		if sqlDB, err := db.DB(); err == nil {
 			_ = sqlDB.Close()

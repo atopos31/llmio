@@ -29,6 +29,12 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # 压缩语料基准（models/compressed_corpus_test.go）默认是"没有语料就跳过"，
+      # 而 models/testdata/cdc_corpus.db 是随包分发的——它不在，只可能是漏提交。
+      # 这里把"必须真的跑"打开，否则漏提交时这三条用例静默 skip、CI 全绿，
+      # 而它们守的正是"改了帧格式/编解码，存量库就读不回来"这一类回归。
+      LLMIO_REQUIRE_CORPUS: "1"
     steps:
       - uses: actions/checkout@v4
 

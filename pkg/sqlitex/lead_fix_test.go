@@ -26,6 +26,14 @@ import (
 
 const verifyBusyMS = 150
 
+// verifyHangBound 是"卡死"的上限，与 busy_timeout 无关。
+//
+// 它的作用只是把"永远挂住"变成一条能读的失败信息，不是用来判定锁有没有放——
+// 那个由语句能否执行成功来判定。给 10 倍 busy_timeout 是留足 CI runner 的
+// 调度与磁盘抖动余量：实测一次抖动可以到 379ms，而真正泄漏事务时这两句会
+// **直接报错**，不会走到这条分支。
+const verifyHangBound = 10 * time.Duration(verifyBusyMS) * time.Millisecond
+
 // ───────────────────────── ① 真驱动：整库不再被锁死 ─────────────────────────
 
 func verifyOpen(t *testing.T, driverName, dsn string, maxOpen int) *sql.DB {
@@ -91,27 +99,40 @@ func TestVerify_GuardedCommitBusyLeavesWholeDBUsable(t *testing.T) {
 	}
 
 	// 关键差异断言：泄漏事务在原生驱动下会把锁升级成 PENDING、连读都挡。
-	// 受保护驱动已经回滚，读必须立刻成功（不等 busy_timeout）。
+	// 受保护驱动已经回滚，读必须成功。
+	//
+	// **判据是"成功/失败"，不是"多快"。** 原先这里拿 wall-clock 跟 busy_timeout
+	// 比大小（"超过 150ms 就说明等过锁"），这个代理指标在 CI runner 上会误报：
+	// 实测红过一次——读只用 512µs（锁确实放了），而随后的写花了 379ms，
+	// 于是一条正确的实现被计时抖动判成了失败。fcntl 的拿锁重试是**每 1ms 一次
+	// 的上界**，不是下界：一次调度延迟、一次磁盘抖动都能让它超过阈值，
+	// 而锁是否释放与这件事无关。
+	//
+	// 真正区分"锁放了"与"没放"的是结果：没放锁时，busy_timeout 到期后这两句话
+	// 会**返回 database is locked**，而不是慢一点成功。所以这里只断言它们成功，
+	// 外加一个宽松的上限（10×busy_timeout）兜住"卡死"这种真正该红的情况。
+	// start 必须在这里重置：上面那个是在 Commit 之前取的，含进了等锁的时间。
+	// 不重置的话，日志会把 COMMIT 的等待算到这条 SELECT 头上。
 	start = time.Now()
 	if err := clean.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil {
 		t.Fatalf("clean pool SELECT after guarded COMMIT failure: %v（原 bug 在这里会报 database is locked）", err)
 	}
-	if took := time.Since(start); took > time.Duration(verifyBusyMS)*time.Millisecond {
-		t.Fatalf("clean SELECT took %s，说明它等过锁（busy_timeout=%dms），连接并未真正回滚", took, verifyBusyMS)
+	if took := time.Since(start); took > verifyHangBound {
+		t.Fatalf("clean SELECT took %s（上限 %s），连接可能卡在锁上", took, verifyHangBound)
 	} else {
-		t.Logf("clean pool SELECT after guarded COMMIT failure: ok in %s (no lock wait)", took)
+		t.Logf("clean pool SELECT after guarded COMMIT failure: ok in %s", took)
 	}
 
-	// 读者回滚之后，写必须立刻恢复。
+	// 读者回滚之后，写必须恢复。同上：判据是这一句能不能成，不是它花了多久。
 	if err := readerTx.Rollback(); err != nil {
 		t.Fatalf("reader.Rollback: %v", err)
 	}
 	start = time.Now()
 	if _, err := clean.Exec("INSERT INTO t(v) VALUES ('from-clean-pool')"); err != nil {
-		t.Fatalf("clean pool INSERT after reader rollback: %v", err)
+		t.Fatalf("clean pool INSERT after reader rollback: %v，写锁没有随 COMMIT 失败一起释放", err)
 	}
-	if took := time.Since(start); took > time.Duration(verifyBusyMS)*time.Millisecond {
-		t.Fatalf("clean INSERT took %s，写锁没有随 COMMIT 失败一起释放", took)
+	if took := time.Since(start); took > verifyHangBound {
+		t.Fatalf("clean INSERT took %s（上限 %s），写锁没有随 COMMIT 失败一起释放", took, verifyHangBound)
 	}
 
 	// 写者池的同一条连接必须能继续开事务并提交（原 bug：cannot start a transaction

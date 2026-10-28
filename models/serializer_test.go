@@ -182,8 +182,14 @@ func TestChatIOCompress_LegacyPlaintextStillReadable(t *testing.T) {
 	}
 }
 
-// chatIOsShape 把 chat_ios 的表结构取成一个可比较的字符串：
-// 建表语句 + 逐列定义 + 索引。任何一处变了都说明 AutoMigrate 动了表。
+// chatIOsShape 把 chat_ios 的**表结构**取成一个可比较的字符串：
+// 建表语句 + 逐列定义 + 既有索引名。任何一处变了都说明 AutoMigrate 改了列、
+// 重建了表，或者动了不该动的索引。
+//
+// 唯一的例外是启动路径**新增**的 idx_chat_ios_log_id：它是原地的一次全表读，
+// 不动表也不动数据，正是 EnsureChatIOLogIDIndex 显式做的事。把它算进来会让
+// "加一条索引"误报成"动了表"。其余索引照常参与比较——误删
+// idx_chat_ios_deleted_at（软删查询的入口）必须让这条用例变红。
 func chatIOsShape(t *testing.T, path string) string {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
@@ -222,12 +228,17 @@ func chatIOsShape(t *testing.T, path string) string {
 	}
 
 	var indexes []string
-	if err := db.Raw(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='chat_ios' ORDER BY name`).
+	if err := db.Raw(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='chat_ios' AND sql IS NOT NULL ORDER BY name`).
 		Scan(&indexes).Error; err != nil {
 		t.Fatalf("读索引失败：%v", err)
 	}
-	b.WriteString("\n")
-	b.WriteString(strings.Join(indexes, ","))
+	for _, name := range indexes {
+		// 只放行启动路径新增的这一条；其余索引仍是形态的一部分。
+		if name == chatIOLogIDIndexName {
+			continue
+		}
+		b.WriteString("\nindex:" + name)
+	}
 	return b.String()
 }
 

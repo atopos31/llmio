@@ -58,6 +58,13 @@ func main() {
 	// 默认两个开关都是关的，所以常态下这一句只是读一次 pragma。
 	service.PrepareStorage(context.Background())
 
+	// 策略类配置的种子：缺行时落默认值。**必须排在三个调度器之前**——
+	// 它们第一次读策略时如果还没有那一行，就要打一条 `record not found`，
+	// 而这三个调度是按周期读的，噪音会一直刷。见 models.EnsureConfigIfMissing。
+	//
+	// 失败只记日志：一个装饰性配置没落库不影响服务，读了照样回默认值。
+	seedPolicyConfigs(context.Background())
+
 	service.StartLogCleanupScheduler(context.Background())
 	// 历史行的形态迁移。默认策略 Enabled=false，所以它平时只是每 30 秒
 	// 空看一眼（水位≈maxID 时那两条查询扫到 0 行就返回）。
@@ -234,6 +241,34 @@ func main() {
 	}
 
 	router.Run(":" + listenerPort())
+}
+
+// seedPolicyConfigs 把几个策略类配置的默认值落成库里的显式行。
+//
+// 它们共同的毛病是同一个：读侧对缺行有正确的回退（回默认值继续服务），
+// 但 GORM 默认 logger 会把 `record not found` 当**错误**打出来
+// （IgnoreRecordNotFoundError=false），而这几条读是按周期或按请求重复的，
+// 于是日志里长期刷同一条「record not found」+ 一行慢 SQL 提示。
+//
+// 落一行默认值之后，同一句话变成正常命中，噪音没有出处了。这不是把错误
+// 藏起来：真正读不到**表**、读不通库的错误照样从 getter 里返回并被打出来。
+//
+// 只种策略（policy），不种状态（state）：状态是运行时产物，缺行本身
+// 就是"从没跑过"这个事实，伪造一条"发生过"的记录是错的。
+func seedPolicyConfigs(ctx context.Context) {
+	for _, seed := range []struct {
+		name string
+		fn   func(context.Context) error
+	}{
+		{"log_compress_policy", service.EnsureLogCompressPolicyConfig},
+		{"log_reclaim_policy", service.EnsureLogReclaimPolicyConfig},
+		{"self_heal_policy", service.EnsureSelfHealPolicyConfig},
+	} {
+		if err := seed.fn(ctx); err != nil {
+			slog.Error("策略配置种子写失败（读侧会回默认值，服务不受影响）",
+				"key", seed.name, "error", err)
+		}
+	}
 }
 
 //go:embed webui/dist

@@ -42,6 +42,10 @@ jobs:
       # 构建并推送最终镜像
       - name: Build and push final image
         uses: docker/build-push-action@v6
+        env:
+          # buildx 在默认 auto 模式下读取该变量（util/progress/printer.go）。
+          # plain 会把每一层的执行与耗时逐行展开，便于定位慢步骤
+          BUILDKIT_PROGRESS: plain
         with:
           context: .
           platforms: linux/amd64,linux/arm64

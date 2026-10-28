@@ -36,7 +36,7 @@ concurrency:
 env:
   IMAGE_NAME: ${{ github.repository }}
   # 部署目标（Sealos 上的 llmio 工作负载；容器名见 deploy 步骤里的说明）
-  DEPLOY_NAMESPACE: ns-7qijmoae
+  DEPLOY_NAMESPACE: ns-k9ij5x1d
   DEPLOY_WORKLOAD: statefulset/llmio
 
 jobs:

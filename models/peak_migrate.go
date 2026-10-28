@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -103,4 +104,38 @@ func SaveConfigValue(ctx context.Context, key, value string) error {
 	default:
 		return err
 	}
+}
+
+// EnsureConfigIfMissing 在 key 缺行时把 value 序列化后写进去，已存在就**什么都不做**。
+//
+// 它与 SaveConfigValue 的差别只在"已存在"那一支：那个是覆盖写，这个是补缺。
+// 种子必须用这个——用户把某个开关打开之后重启服务，覆盖写会把它改回默认值。
+//
+// 为什么要落默认行而不是靠读侧回默认：读侧的回退是正确的**行为**，但调度器
+// 会按周期重复读这些策略（压缩 30 秒、回收 1 小时），而 self_heal 的读在
+// **每个聊天请求**的转发循环里。落一行之后同一句话变成一次命中。
+//
+// **副作用要记住：默认值从这一刻起被固化了。** 以后再改代码里的
+// DefaultLogCompressPolicy 等默认值，对已经有这一行的存量安装不再生效
+// （用户读的是库里的值）。这是"策略一旦落库就是用户的事实"的必然结果，
+// 不是疏漏；真要调整存量安装，得走显式的迁移。
+//
+// 写入是一条 `INSERT ... WHERE NOT EXISTS`，不是 Count + Create：后者在
+// 两个实例同时启动时都能看到 0 行，各插一行，而 Config.Key 上没有唯一约束
+// 能拦。单条语句在 SQLite 的写锁内完成判定与插入。
+//
+// 失败即返回错误，由调用方决定是 panic 还是记日志——启动期的种子策略
+// 与运行期的配置不该共用同一个错误口径。
+func EnsureConfigIfMissing(ctx context.Context, key string, value any) error {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	return DB.WithContext(ctx).Exec(
+		"INSERT INTO configs (`key`, `value`, `created_at`, `updated_at`) "+
+			"SELECT ?, ?, ?, ? WHERE NOT EXISTS ("+
+			"SELECT 1 FROM configs WHERE `key` = ? AND `deleted_at` IS NULL)",
+		key, string(raw), now, now, key,
+	).Error
 }

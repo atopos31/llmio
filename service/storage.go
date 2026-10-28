@@ -1008,6 +1008,14 @@ func GetLogReclaimPolicy(ctx context.Context) (*models.LogReclaimPolicy, error) 
 	return policy, nil
 }
 
+// EnsureLogReclaimPolicyConfig 在缺行时落一行默认策略。可重复调用。
+//
+// 回收调度器按 CheckIntervalSec（默认 1 小时）读一次策略，缺行时每次读都会
+// 在日志里留下一条 `record not found`。落一行默认值之后那句话变成一次命中。
+func EnsureLogReclaimPolicyConfig(ctx context.Context) error {
+	return models.EnsureConfigIfMissing(ctx, models.KeyLogReclaimPolicy, DefaultLogReclaimPolicy())
+}
+
 // clampLogReclaimPolicy 把越界的参数拉回合法区间。
 //
 // 门槛下界是 0（"不管多小都收"是个合法选择，只是默认不这么给）；上界 1 TiB 只是

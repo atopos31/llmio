@@ -3,15 +3,18 @@ package models
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/pkg/sqlitex"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 var DB *gorm.DB
@@ -31,7 +34,7 @@ func Init(ctx context.Context, path string) {
 	db, err := gorm.Open(sqlite.Dialector{
 		DriverName: sqlitex.DriverName,
 		DSN:        sqliteDSN(path),
-	})
+	}, &gorm.Config{Logger: newGormLogger()})
 	if err != nil {
 		panic(err)
 	}
@@ -117,12 +120,58 @@ func Init(ctx context.Context, path string) {
 	if _, err := gorm.G[ModelWithProvider](DB).Where("currency = '' OR currency IS NULL").Update(ctx, "currency", "CNY"); err != nil {
 		panic(err)
 	}
-
 	// `DB_VACUUM` 的启动期 VACUUM **搬去 service.PrepareStorage 了**（main 里、
 	// 监听端口之前调用）。搬家的理由是它原先 `panic(err)`，而且连磁盘够不够都
 	// 没看过：VACUUM 要一份和库等大的副本，在 7 GiB 的库上磁盘不够就是启动失败。
 	// 现在它与 auto_vacuum 转换合并成一次动作、动手前预检、失败只跳过。
 	// 顺带解掉一个分层问题：`diskFree` 在 service 包里，models 不能反向依赖它。
+}
+
+// newGormLogger 构造 SQL 日志。它与 gorm 默认值只差两处，但两处都是必要的：
+//
+//  1. **IgnoreRecordNotFoundError=true。** 默认是 false，于是每一次"按主键/唯一键
+//     查一行、没查着"都会打一条 record not found + 慢 SQL 提示。而本仓有多处
+//     **把缺行当成正常态**的读：策略配置缺行回默认值、按名字查模型未命中就走
+//     回退、按 log_id 查 IO 但这条日志本来就没开 io_log。它们不是错误，
+//     也没有调用方会把它们当错误处理，只是日志噪音——每分钟一到两条，
+//     长期盖住真正要看的东西。
+//
+//     注意这只影响**日志**：错误照样原样返回给调用方，`errors.Is(err,
+//     gorm.ErrRecordNotFound)` 的分支行为一个字节都没变。真正该看的是
+//     "表不存在/库读不通"这类，它们不是 ErrRecordNotFound，照常打印。
+//
+//  2. **输出走 slog，不走 stdlib log。** 默认 logger 直接写 os.Stdout 并自带
+//     时间戳，而本仓其余日志全是 slog（main.go、service 各包）。两套日志各打
+//     一份格式，时间戳也对不齐。接进 slog 之后级别、时间戳、输出目标都统一。
+//
+// SlowThreshold 保持 gorm 默认的 200ms：慢 SQL 是**真的**要看见的东西，
+// 它正是这次 chat_ios 那条 5895ms UPDATE 的发现路径，不该被一起关掉。
+func newGormLogger() logger.Interface {
+	return newGormLoggerWith(slogWriter{})
+}
+
+// newGormLoggerWith 与 newGormLogger 是**同一份配置**，只是输出目的地可换。
+//
+// 这样测试就能断言"这份配置自己的行为"，而不是在测试里再抄一份
+// logger.Config——抄一份的话，改 newGormLogger 不会让任何用例变红。
+func newGormLoggerWith(out logger.Writer) logger.Interface {
+	return logger.New(out, logger.Config{
+		SlowThreshold:             200 * time.Millisecond,
+		LogLevel:                  logger.Warn,
+		IgnoreRecordNotFoundError: true,
+		Colorful:                  false,
+	})
+}
+
+// slogWriter 把 gorm logger 的每一行接到 slog.Warn。
+//
+// gorm 的日志行自带级别语义（它已经在 Trace 里按 Error/Warn/Info 分好了），
+// 但 writer 接口只拿到字符串，分不出来。统一走 Warn 是刻意的：这个 logger
+// 的 LogLevel 已经是 Warn，能到这里的只有"需要看一眼"的行。
+type slogWriter struct{}
+
+func (slogWriter) Printf(format string, args ...any) {
+	slog.Warn(strings.TrimRight(fmt.Sprintf(format, args...), "\n"))
 }
 
 func ensureModelDisplayOrder(ctx context.Context) error {

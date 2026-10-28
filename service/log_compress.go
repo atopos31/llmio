@@ -155,6 +155,25 @@ func SaveLogCompressPolicy(ctx context.Context, policy *models.LogCompressPolicy
 	return models.SaveConfigValue(ctx, models.KeyLogCompressPolicy, string(raw))
 }
 
+// EnsureLogCompressPolicyConfig 在缺行时落一行默认策略。可重复调用。
+//
+// 为什么需要这一步：`Enabled=false` 的策略**不需要落一行**也能正常工作——
+// GetLogCompressPolicy 读到 not found 就回默认值。但那条路径上 GORM 会打一条
+// `record not found`，而调度器每 30 秒读一次，于是日志里每分钟两条噪音，
+// 且每一条前面还跟着一行慢 SQL 提示。**把默认值变成库里的显式事实，
+// 噪音就没有出处了。**这与 ensureModelAutofillPolicyConfig 落默认行是同一个理由。
+//
+// **只种策略，不种状态**：状态是运行时产物，`Status: idle` 的含义是
+// "这一轮没在跑"，而 `KeyLogCompressState` 缺行的含义是"从来没跑过"——
+// 两者在界面上要区分（后者不显示进度条），伪造一条"发生过"的记录是错的。
+// 因此 getCompressState 的 not found 分支保持原样，它的噪音只在那一次
+// 真的没跑过时出现一次（此后每跑一轮就会写入状态行）。
+//
+// 不覆盖已存在的行：用户把 `Enabled` 打开之后重启，不该被改回 false。
+func EnsureLogCompressPolicyConfig(ctx context.Context) error {
+	return models.EnsureConfigIfMissing(ctx, models.KeyLogCompressPolicy, DefaultLogCompressPolicy())
+}
+
 // ── 状态 ──────────────────────────────────────────────────────────────────
 
 // compressMode 把迁移与回滚的差异收敛成三个方法。

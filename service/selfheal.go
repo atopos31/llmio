@@ -159,6 +159,15 @@ func GetSelfHealPolicy(ctx context.Context) *models.SelfHealPolicy {
 	return policy
 }
 
+// EnsureSelfHealPolicyConfig 在缺行时落一行默认策略。可重复调用。
+//
+// 这条比另外几个策略更要紧：GetSelfHealPolicy 跑在**每个聊天请求**的转发
+// 循环里（service/chat.go 的内层自愈），缺行时每次请求都会打一条
+// `record not found`。把它落成库里的显式行，噪音按请求数刷的问题才会消失。
+func EnsureSelfHealPolicyConfig(ctx context.Context) error {
+	return models.EnsureConfigIfMissing(ctx, models.KeySelfHealPolicy, DefaultSelfHealPolicy())
+}
+
 // toolContentArrayPattern 识别"上游不收 tool 消息的块数组 content"这类 400。
 // 它是**类型错**，按 §3.4 不进通用删参（正确动作不是删参数而是压形状），
 // 单独一条协议感知的降级规则处理。

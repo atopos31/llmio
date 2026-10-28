@@ -21,9 +21,9 @@ import {
   type Provider,
 } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { ForwardEndpointList } from "./forwarding-endpoint-list"
 import {
   forwardBaseUrl,
-  forwardOffKnownUrls,
   forwardProtocol,
   forwardProviderMode,
   forwardProviderRewrite,
@@ -206,16 +206,14 @@ export function ForwardingSettingsDialog({
               {t(PROTOCOL_HINT_KEY[forwardProtocol(provider?.Type ?? "")])}
             </p>
             <p className="text-muted-foreground">{t("settings.address_preview_hint")}</p>
-            {mode === "off" && previewUrl ? (
-              <div className="mt-2 space-y-1 rounded border border-status-warning-ink/40 bg-status-warning-ink/5 p-2">
-                <p className="font-medium text-status-warning-ink">{t("off_notice.title")}</p>
-                <ul className="space-y-0.5 break-all font-mono text-muted-foreground">
-                  {forwardOffKnownUrls(window.location.origin, trimmedSlug).map((url) => (
-                    <li key={url}>{url}</li>
-                  ))}
-                </ul>
-                <p className="text-muted-foreground">{t("off_notice.hint")}</p>
-              </div>
+            {previewUrl ? (
+              <ForwardEndpointList
+                origin={window.location.origin}
+                slug={trimmedSlug}
+                type={provider?.Type ?? ""}
+                mode={mode}
+                className="mt-2"
+              />
             ) : null}
           </div>
 

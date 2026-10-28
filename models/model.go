@@ -18,9 +18,10 @@ type Provider struct {
 	ErrorMatcher string // 响应体错误识别规则，多行或分号分隔 sample
 	// ForwardMode 专属地址的未知路径转发开关，三态指针（同 PreferDirect
 	// 的惯例，nil 表达"没开"这个独立状态，bool 只有两个槽位装不下三档）：
-	//   - nil：关闭转发——未知路径返回 404，专属地址上仅已知端点可用；
-	//   - false：混合模式——已知端点走正常负载均衡，未知路径透传给该提供商；
-	//   - true：纯转发——所有请求（含已知端点）无条件直转。
+	//   - nil：关闭——只服务本地端点（对话、计数、模型列表等，见
+	//     handler.ProviderDedicatedRoute），其余路径一律 404，不转发任何请求；
+	//   - false：混合——本地端点照常走负载均衡，其余路径透传给该提供商；
+	//   - true：纯转发——所有请求（含本地端点）无条件直转。
 	// 三种状态都只作用于专属地址，全局 /v1 的未知路径永远 404。
 	// 模型名是否改写由 ForwardRewrite 决定（与模式正交，纯转发同样可改写）。
 	// 刻意不带 default 标签：带 default 时 GORM 会把零值（nil）从 INSERT 里剔掉、

@@ -21,9 +21,9 @@ import { getProviders, type ForwardModeSetting, type Provider } from "@/lib/api"
 import { copyToClipboard } from "@/lib/utils"
 import { ForwardingGuideDialog } from "@/routes/forwarding/forwarding-guide-dialog"
 import { ForwardingSettingsDialog } from "@/routes/forwarding/forwarding-settings-dialog"
+import { ForwardEndpointList } from "@/routes/forwarding/forwarding-endpoint-list"
 import {
   forwardBaseUrl,
-  forwardOffKnownUrls,
   forwardProviderMode,
   forwardProviderRewrite,
 } from "@/routes/forwarding/forwarding-utils"
@@ -121,10 +121,10 @@ export default function ForwardingPage() {
     if (!url) return
     try {
       await copyToClipboard(url)
-      // 关闭模式下这个地址只有 5 条已知端点可用，复制成功时顺带提醒一句，
-      // 免得客户端拿去请求 Gemini 原生路径才发现 404。
+      // 关闭模式下这个地址转发不出任何请求，复制成功时顺带提醒一句，
+      // 免得客户端拿去请求 /v1/embeddings 这类端点才发现 404。
       const hint =
-        forwardProviderMode(provider) === "off" ? { description: t("off_notice.copy_hint") } : undefined
+        forwardProviderMode(provider) === "off" ? { description: t("endpoint_notice.copy_hint") } : undefined
       toast.success(t("address_copied", { url }), hint)
     } catch {
       toast.error(t("copy_failed"))
@@ -152,24 +152,24 @@ export default function ForwardingPage() {
   }
 
   /**
-   * 关闭模式警示：把"这个地址只认 5 条已知端点"写在地址旁边，并列出完整
-   * URL。折叠成 details 是为了不把表格撑高，展开后能直接照抄。
+   * 端点清单：每个有标识的地址都能展开看"这个地址现在能用哪些端点"。折叠成
+   * details 是为了不把表格撑高，展开后能直接照抄。三种模式都显示——关闭模式下
+   * 用户更需要知道哪些端点要先切模式。
    */
-  const offNotice = (provider: Provider) => {
-    if (forwardProviderMode(provider) !== "off") return null
-    const urls = forwardOffKnownUrls(window.location.origin, provider.ForwardSlug ?? "")
-    if (urls.length === 0) return null
+  const endpointDetails = (provider: Provider) => {
+    if (!provider.ForwardSlug) return null
     return (
       <details className="mt-1 text-[11px]">
         <summary className="cursor-pointer font-medium text-muted-foreground select-none">
-          {t("off_notice.summary")}
+          {t("endpoint_notice.summary")}
         </summary>
-        <p className="mt-1 text-muted-foreground">{t("off_notice.hint")}</p>
-        <ul className="mt-1 space-y-0.5 font-mono break-all text-muted-foreground">
-          {urls.map((url) => (
-            <li key={url}>{url}</li>
-          ))}
-        </ul>
+        <ForwardEndpointList
+          origin={window.location.origin}
+          slug={provider.ForwardSlug}
+          type={provider.Type}
+          mode={forwardProviderMode(provider)}
+          className="mt-1"
+        />
       </details>
     )
   }
@@ -262,7 +262,7 @@ export default function ForwardingPage() {
                         </TableCell>
                         <TableCell>
                           {addressButton(provider)}
-                          {offNotice(provider)}
+                          {endpointDetails(provider)}
                         </TableCell>
                         <TableCell>{modeBadge(provider)}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{rewriteLabel(provider, t)}</TableCell>
@@ -289,7 +289,7 @@ export default function ForwardingPage() {
                     </div>
                     <div className="min-w-0">
                       {addressButton(provider)}
-                      {offNotice(provider)}
+                      {endpointDetails(provider)}
                     </div>
                     <div className="flex flex-wrap items-center gap-2 text-xs">
                       {modeBadge(provider)}

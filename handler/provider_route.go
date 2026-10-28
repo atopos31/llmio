@@ -41,21 +41,29 @@ const maxForwardBodyBytes = 64 << 20
 // slug 是 models.Provider.ForwardSlug，与提供商名称解耦：改名不影响已发布的地址，
 // 必须通过 common.IsSafeForwardSlug 校验；没有配置 slug 的提供商不提供专属地址。
 //
-// 未知路径的三种处置（models.Provider.ForwardMode）——三种都只作用于专属地址，
-// 全局 /v1 的未知路径永远 404，不透传：
-//   - 关闭（nil，默认）：未知路径 404，专属地址上仅已知端点可用；
-//   - 混合（false）：已知端点（/v1/chat/completions 等）直调现有 handler，
-//     行为与全局 /v1 完全一致——全池负载均衡、可容错，URL 指名的提供商不参与
-//     路由；其余未知路径透传给 URL 指名的提供商。
-//   - 纯转发（true）：所有路径与方法直转给该提供商，客户端直接使用上游原生模型名；
-//     转发路径按 base_url 末尾的版本段归一化（见 providers.NormalizeForwardPath）。
+// 专属地址上的路径分两类，按分类而不是按模式处理（models.Provider.ForwardMode
+// 决定第二类怎么处置；三种模式都只作用于专属地址，全局 /v1 的未知路径永远 404，
+// 不透传）：
+//
+//  1. 本地端点——协议已标准化、由 llmio 自己实现，两种模式都服务：
+//     任意地址：POST /v1/chat/completions、/v1/responses、/v1/messages、
+//     /v1/messages/count_tokens，GET /v1/models（形状按协议，见 serveModels）；
+//     Gemini 地址另有 GET /v1beta/models 与
+//     POST /v1beta/models/{model}:generateContent、:streamGenerateContent。
+//     全部走全池负载均衡，URL 指名的提供商不参与路由。
+//  2. 其余路径——本地没有实现的接口：
+//     关闭（nil，默认）：一律 404，不转发任何请求；
+//     混合（false）：GET/POST 透传给 URL 指名的提供商；
+//     纯转发（true）：所有路径与方法无条件直转给该提供商（本地端点也不例外），
+//     客户端直接使用上游原生模型名；转发路径按 base_url 末尾的版本段归一化
+//     （见 providers.NormalizeForwardPath）。
 //
 // 模型改写策略（models.Provider.ForwardRewrite，混合未知路径与纯转发共用）：
 //   - none：原样转发；
 //   - known：该模型在本提供商有启用中的绑定时，改写为绑定上的上游模型名；
 //   - all：无条件改写为 ForwardTargetModel（Gemini 风格路径 /models/{id} 一并改写）。
 //
-// 权限控制：已知端点沿用 chatHandler 内的模型级校验；未知路径带 model 的同样
+// 权限控制：本地端点沿用 chatHandler 内的模型级校验；其余路径带 model 的同样
 // 按 model 校验；无法定位模型的请求（无 model 或纯转发模式）要求全量权限
 // （管理 TOKEN 或 AllowAll 的访问密钥），受限密钥一律 403——专属地址不允许
 // 成为绕过模型权限的后门。all 改写会绕过"客户端模型名"这一鉴权维度，因此
@@ -92,6 +100,42 @@ func ProviderDedicatedRoute(c *gin.Context) {
 		return
 	}
 
+	// 本地端点：协议标准由 llmio 自己实现，两种模式都服务（不看 ForwardMode）。
+	if serveLocalEndpoint(c, provider, path) {
+		return
+	}
+
+	// 其余路径：关闭（nil）与全局 /v1 同语义 404；混合透传给指名的提供商。
+	if provider.ForwardMode == nil {
+		common.ErrorWithHttpStatus(c, http.StatusNotFound, http.StatusNotFound, "Not found")
+		return
+	}
+	passthroughUnknown(c, provider, path)
+}
+
+// addressProtocol 返回专属地址实际承载的协议。它由提供商类型决定，与前端
+// 转发设置里的 forwardProtocol 同一套规则（webui/src/routes/forwarding/
+// forwarding-utils.ts）：Anthropic 类型是 Anthropic 协议，Gemini 类型是 Gemini
+// 协议，其余（OpenAI 兼容、openai-res、类型为空的老数据）都按 OpenAI 兼容处理。
+func addressProtocol(providerType string) string {
+	switch providerType {
+	case consts.StyleAnthropic:
+		return consts.StyleAnthropic
+	case consts.StyleGemini:
+		return consts.StyleGemini
+	default:
+		return consts.StyleOpenAI
+	}
+}
+
+// serveLocalEndpoint 处理本地端点：协议已标准化的对话、计数、模型列表，以及
+// Gemini 地址上的原生模型接口。返回 true 表示已处理（成功或已写出错误），
+// 调用方不再往下走；false 表示这个路径不属于本地端点，按"其余路径"处理。
+//
+// 为什么对话端点不看地址协议：这三个端点的请求体自带协议特征，前端也是按
+// 客户端当前协议给地址的，把 Anthropic 形状的 /v1/messages 发到 OpenAI 型地址
+// 一样该按 Anthropic 处理——与全局 /v1 下三个兼容别名并存是同一套逻辑。
+func serveLocalEndpoint(c *gin.Context, provider models.Provider, path string) bool {
 	switch path {
 	case "/v1/chat/completions":
 		ChatCompletionsHandler(c)
@@ -102,15 +146,55 @@ func ProviderDedicatedRoute(c *gin.Context) {
 	case "/v1/messages/count_tokens":
 		CountTokens(c)
 	case "/v1/models":
-		OpenAIModelsHandler(c)
+		serveModels(c, provider)
 	default:
-		// ForwardMode == nil：转发关闭，未知路径与全局 /v1 同语义 404。
-		if provider.ForwardMode == nil {
-			common.ErrorWithHttpStatus(c, http.StatusNotFound, http.StatusNotFound, "Not found")
-			return
+		// Gemini 原生接口只属于 Gemini 地址：其他地址上的同名路径没有原生语义，
+		// 继续按"其余路径"处理（混合模式透传），保持原有行为。
+		if addressProtocol(provider.Type) != consts.StyleGemini {
+			return false
 		}
-		passthroughUnknown(c, provider, path)
+		if path == "/v1beta/models" {
+			GeminiModelsHandler(c)
+			return true
+		}
+		model, method, ok := geminiModelActionPath(path)
+		if !ok || !isGeminiChatMethod(method) {
+			// 路径不成立（没有冒号、模型为空、带冒号的奇怪动作）或不是对话方法
+			// （:embedContent 等）：本地只服务两种对话方法，其余交给"其余路径"，
+			// 该 404 还是该透传由模式决定。
+			return false
+		}
+		serveGeminiModelChat(c, model, method)
 	}
+	return true
+}
+
+// geminiModelActionPath 从 Gemini 原生对话路径取模型名与动作名。
+// 只认 /v1beta/models/{model}:{action}；模型名里不含排行榜斜杠以外的分隔符，
+// 动作名再含冒号（客户端拼错）时整段算动作名，最终由 isGeminiChatMethod 判否。
+func geminiModelActionPath(path string) (string, string, bool) {
+	rest, ok := strings.CutPrefix(path, "/v1beta/models/")
+	if !ok {
+		return "", "", false
+	}
+	model, method, ok := strings.Cut(rest, ":")
+	if !ok || model == "" || method == "" {
+		return "", "", false
+	}
+	return model, method, true
+}
+
+// serveModels 处理 GET /v1/models。两个协议共用这一个路径，返回形状按请求判断：
+// 带 anthropic-version 头的客户端明确说自己在说 Anthropic 协议，给 Anthropic
+// 形状；没有这个头的按地址协议（Anthropic 型地址给 Anthropic 形状，其余给
+// OpenAI 形状）。按请求而不是按全局配置判断，是因为同一个地址可能先后被两种
+// 客户端使用。
+func serveModels(c *gin.Context, provider models.Provider) {
+	if c.GetHeader("anthropic-version") != "" || addressProtocol(provider.Type) == consts.StyleAnthropic {
+		AnthropicModelsHandler(c)
+		return
+	}
+	OpenAIModelsHandler(c)
 }
 
 // passthroughUnknown 混合模式下的未知路径：透传给 URL 指名的提供商。

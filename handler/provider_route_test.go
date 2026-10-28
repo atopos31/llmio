@@ -144,9 +144,10 @@ type dedicatedFixture struct {
 	serverURL string
 }
 
-// setupDedicatedRoute 搭建包含专属地址路由的 gin 引擎、数据库（四家提供商：
-// alpha-name 混合可绑定、beta-name 纯转发、gamma-name 关闭转发、delta-name 纯转发
-// 且 base_url 自带版本段），以及指向它们的假上游。
+// setupDedicatedRoute 搭建包含专属地址路由的 gin 引擎、数据库（alpha-name 混合
+// 可绑定、beta-name 纯转发、gamma-name 关闭、delta-name 纯转发且 base_url 自带
+// 版本段、epsilon-name Gemini 地址且关闭、eta-name Gemini 地址且混合），以及
+// 指向它们的假上游。
 func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 	t.Helper()
 
@@ -202,6 +203,24 @@ func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 		ForwardSlug:    new("delta-name"),
 		ForwardRewrite: consts.ForwardRewriteNone,
 	}
+	// epsilon / eta 是 Gemini 地址：地址协议由类型决定，与转发模式无关。
+	// epsilon 关闭（nil）——Gemini 原生端点照样是本地端点；eta 混合（false）——
+	// 原生对话同样走本地流水线，不再透传给上游。
+	epsilon := models.Provider{
+		Name:           "epsilon-name",
+		Type:           "gemini",
+		Config:         `{"base_url":"` + server.URL + `/v1beta","api_key":"sk-gemini"}`,
+		ForwardSlug:    new("epsilon-name"),
+		ForwardRewrite: consts.ForwardRewriteNone,
+	}
+	eta := models.Provider{
+		Name:           "eta-name",
+		Type:           "gemini",
+		Config:         `{"base_url":"` + server.URL + `/v1beta","api_key":"sk-gemini"}`,
+		ForwardMode:    new(false),
+		ForwardSlug:    new("eta-name"),
+		ForwardRewrite: consts.ForwardRewriteNone,
+	}
 	// 逐个直接 Create：循环变量副本会让 GORM 把自增 ID 写进副本而非 alpha/beta/gamma
 	if err := db.Create(&alpha).Error; err != nil {
 		t.Fatalf("create provider alpha: %v", err)
@@ -214,6 +233,12 @@ func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 	}
 	if err := db.Create(&delta).Error; err != nil {
 		t.Fatalf("create provider delta: %v", err)
+	}
+	if err := db.Create(&epsilon).Error; err != nil {
+		t.Fatalf("create provider epsilon: %v", err)
+	}
+	if err := db.Create(&eta).Error; err != nil {
+		t.Fatalf("create provider eta: %v", err)
 	}
 
 	chatModel := models.Model{Name: "latest"}
@@ -229,6 +254,32 @@ func setupDedicatedRoute(t *testing.T, authHeader string) *dedicatedFixture {
 	}
 	if err := db.Create(&assoc).Error; err != nil {
 		t.Fatalf("create association: %v", err)
+	}
+	// Gemini 原生模型各绑一家：池里只有一个候选，断言能确定落到哪家。
+	for _, bound := range []struct {
+		modelName     string
+		providerID    uint
+		providerModel string
+	}{
+		{"gemini-native", epsilon.ID, "gemini-native-direct"},
+		{"gemini-mixed", eta.ID, "gemini-mixed-direct"},
+	} {
+		// 走本地流水线需要非零重试次数与超时：MaxRetry=0 时 chat 循环一轮都不跑。
+		m := models.Model{Name: bound.modelName, MaxRetry: 3, TimeOut: 10}
+		if err := db.Create(&m).Error; err != nil {
+			t.Fatalf("create gemini model %s: %v", bound.modelName, err)
+		}
+		gemAssoc := models.ModelWithProvider{
+			ModelID:       m.ID,
+			ProviderID:    bound.providerID,
+			ProviderModel: bound.providerModel,
+			Status:        new(true),
+			// 权重大于 0 才会进加权轮询：0 权重等于这家不参与。
+			Weight: 1,
+		}
+		if err := db.Create(&gemAssoc).Error; err != nil {
+			t.Fatalf("create gemini association %s: %v", bound.modelName, err)
+		}
 	}
 
 	prev := models.DB
@@ -1125,6 +1176,8 @@ func TestDedicatedRouteForwardAllLogsRequestPath(t *testing.T) {
 
 // 回归 B1：Gemini 的 base_url 自带 /v1beta，客户端路径也按 UI 写 /v1beta，不能拼成
 // /v1beta/v1beta/...。用假上游做端到端断言，而不只是单测归一化函数。
+// 这里用非对话方法 :embedContent——本地端点只实现两种对话方法，其余动作在混合
+// 模式下仍走透传（对话方法的本地化见 TestDedicatedRouteGeminiNativeChat*）。
 func TestDedicatedRouteGeminiVersionSegmentNotDoubled(t *testing.T) {
 	f := setupDedicatedRoute(t, "sk-admin")
 	patchProvider(t, "alpha-name", map[string]any{
@@ -1133,15 +1186,15 @@ func TestDedicatedRouteGeminiVersionSegmentNotDoubled(t *testing.T) {
 	})
 
 	w := doDedicated(t, f, http.MethodPost,
-		"/p/alpha-name/v1beta/models/gemini-2.5-pro:generateContent", "Bearer sk-admin",
+		"/p/alpha-name/v1beta/models/gemini-2.5-pro:embedContent", "Bearer sk-admin",
 		`{"contents":[{"parts":[{"text":"hi"}]}]}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
 	}
 
 	path, _, _, _ := f.upstream.snapshot()
-	if path != "/v1beta/models/gemini-2.5-pro:generateContent" {
-		t.Fatalf("上游 path = %q, want /v1beta/models/gemini-2.5-pro:generateContent（不能出现 /v1beta/v1beta）", path)
+	if path != "/v1beta/models/gemini-2.5-pro:embedContent" {
+		t.Fatalf("上游 path = %q, want /v1beta/models/gemini-2.5-pro:embedContent（不能出现 /v1beta/v1beta）", path)
 	}
 	if got := f.upstream.sentHeader("X-Goog-Api-Key"); got != "sk-gemini" {
 		t.Errorf("gemini 鉴权头应使用提供商自己的 key, got %q", got)
@@ -1283,5 +1336,186 @@ func TestDedicatedRouteUpstreamErrorHidesDetails(t *testing.T) {
 		if strings.Contains(body, leak) {
 			t.Errorf("响应不得回显上游传输错误细节 %q, got %s", leak, body)
 		}
+	}
+}
+
+// Gemini 地址（关闭模式）上，GET /v1beta/models 是本地端点：返回本服务登记过的
+// Gemini 模型，不触碰上游。这是本次改动最直接的行为变化——它以前在关闭模式下 404。
+func TestDedicatedRouteGeminiNativeModelsList(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	w := doDedicated(t, f, http.MethodGet, "/p/epsilon-name/v1beta/models", "Bearer sk-admin", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("Gemini 地址的模型列表应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "models/gemini-native") {
+		t.Errorf("应列出本服务的 Gemini 模型, got %s", w.Body.String())
+	}
+	if path, _, _, _ := f.upstream.snapshot(); path != "" {
+		t.Errorf("本地端点不得触碰上游, 上游收到 %q", path)
+	}
+}
+
+// Gemini 原生对话在关闭模式下也走本地流水线（全池负载均衡）：上游收到的是绑定
+// 关系上的上游模型名，日志的 Style 是 gemini 而不是 passthrough。
+func TestDedicatedRouteGeminiNativeChatGoesLocalPipeline(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	w := doDedicated(t, f, http.MethodPost,
+		"/p/epsilon-name/v1beta/models/gemini-native:generateContent", "Bearer sk-admin",
+		`{"contents":[{"parts":[{"text":"hi"}]}]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	path, _, _, _ := f.upstream.snapshot()
+	if path != "/v1beta/models/gemini-native-direct:generateContent" {
+		t.Fatalf("上游 path = %q, want /v1beta/models/gemini-native-direct:generateContent（本地流水线按绑定换名）", path)
+	}
+	log := singleChatLog(t)
+	if log.Style != consts.StyleGemini {
+		t.Errorf("Style = %q, want gemini", log.Style)
+	}
+	if log.ProviderName != "epsilon-name" {
+		t.Errorf("ProviderName = %q, want epsilon-name", log.ProviderName)
+	}
+}
+
+// :streamGenerateContent 同样走本地流水线，并由 Gemini 适配器补上 ?alt=sse。
+func TestDedicatedRouteGeminiNativeStreamGoesLocalPipeline(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	f.upstream.setResponse("event: message\n\n", "text/event-stream", http.StatusOK)
+
+	w := doDedicated(t, f, http.MethodPost,
+		"/p/epsilon-name/v1beta/models/gemini-native:streamGenerateContent?alt=sse", "Bearer sk-admin",
+		`{"contents":[{"parts":[{"text":"hi"}]}]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	path, _, _, _ := f.upstream.snapshot()
+	if path != "/v1beta/models/gemini-native-direct:streamGenerateContent" {
+		t.Fatalf("上游 path = %q, want /v1beta/models/gemini-native-direct:streamGenerateContent", path)
+	}
+	if got := f.upstream.sentRawQuery(); got != "alt=sse" {
+		t.Errorf("上游 query = %q, want alt=sse", got)
+	}
+	if log := singleChatLog(t); log.Style != consts.StyleGemini {
+		t.Errorf("Style = %q, want gemini", log.Style)
+	}
+}
+
+// 混合模式的 Gemini 地址：原生对话端点同样走本地流水线，不再透传给上游。
+func TestDedicatedRouteMixedModeGeminiNativeGoesLocal(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	w := doDedicated(t, f, http.MethodPost,
+		"/p/eta-name/v1beta/models/gemini-mixed:generateContent", "Bearer sk-admin",
+		`{"contents":[{"parts":[{"text":"hi"}]}]}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	path, _, _, _ := f.upstream.snapshot()
+	if path != "/v1beta/models/gemini-mixed-direct:generateContent" {
+		t.Fatalf("上游 path = %q, want /v1beta/models/gemini-mixed-direct:generateContent", path)
+	}
+	log := singleChatLog(t)
+	if log.Style != consts.StyleGemini {
+		t.Errorf("Style = %q, want gemini（混合模式的原生对话应走本地流水线）", log.Style)
+	}
+	if log.ProviderName != "eta-name" {
+		t.Errorf("ProviderName = %q, want eta-name", log.ProviderName)
+	}
+}
+
+// 关闭模式只服务本地端点：其余路径一律 404，且不得触碰上游。三条分别是
+// OpenAI 型地址的 embedding、非 Gemini 地址上的原生路径、Gemini 地址上的
+// 非对话方法（:embedContent 没有本地实现）。
+func TestDedicatedRouteOffModeKeepsNonLocalEndpoints404(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	targets := []string{
+		"/p/gamma-name/v1/embeddings",
+		"/p/gamma-name/v1beta/models/x:generateContent",
+		"/p/epsilon-name/v1beta/models/gemini-native:embedContent",
+	}
+	for _, target := range targets {
+		w := doDedicated(t, f, http.MethodPost, target, "Bearer sk-admin", `{"model":"latest","input":"x"}`)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("%s 关闭模式应 404, got %d: %s", target, w.Code, w.Body.String())
+		}
+	}
+	if path, _, _, _ := f.upstream.snapshot(); path != "" {
+		t.Errorf("关闭模式不得触碰上游, 上游收到 %q", path)
+	}
+}
+
+// 混合模式下 embedding 属于"其余路径"，照旧透传给指名的提供商，路径经版本段
+// 归一化后上游收到 /embeddings（alpha 的 base_url 没有版本段）。
+func TestDedicatedRouteMixedModeForwardsEmbeddings(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+	// 关掉模型名改写，断言透传的就是客户端原文；改写本身是别的用例的契约。
+	patchProvider(t, "alpha-name", map[string]any{"forward_rewrite": consts.ForwardRewriteNone})
+	body := `{"model":"latest","input":"hello"}`
+
+	w := doDedicated(t, f, http.MethodPost, "/p/alpha-name/v1/embeddings", "Bearer sk-admin", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("混合模式 embedding 应透传成功, got %d: %s", w.Code, w.Body.String())
+	}
+	path, _, _, sent := f.upstream.snapshot()
+	if path != "/embeddings" {
+		t.Errorf("上游 path = %q, want /embeddings", path)
+	}
+	if sent != body {
+		t.Errorf("透传应保留原始请求体, got %q", sent)
+	}
+}
+
+// GET /v1/models 的返回形状按请求里的协议判断：anthropic-version 头优先，
+// 没有头时按地址协议——Anthropic 型地址给 Anthropic 形状，其余给 OpenAI 形状。
+func TestDedicatedRouteModelsShapeFollowsProtocol(t *testing.T) {
+	f := setupDedicatedRoute(t, "sk-admin")
+
+	// OpenAI 型地址 + 无协议头 → OpenAI 形状
+	w := doDedicated(t, f, http.MethodGet, "/p/alpha-name/v1/models", "Bearer sk-admin", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"owned_by":"llmio"`) {
+		t.Errorf("OpenAI 形状应带 owned_by, got %s", w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "has_more") {
+		t.Errorf("OpenAI 形状不应带 has_more, got %s", w.Body.String())
+	}
+
+	// 同一个 OpenAI 型地址 + anthropic-version 头 → Anthropic 形状
+	req := httptest.NewRequest(http.MethodGet, "/p/alpha-name/v1/models", nil)
+	req.Header.Set("User-Agent", "llmio-test/1.0")
+	req.Header.Set("Authorization", "Bearer sk-admin")
+	req.Header.Set("anthropic-version", "2023-06-01")
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"has_more":false`) {
+		t.Errorf("带 anthropic-version 头应返回 Anthropic 形状, got %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "owned_by") {
+		t.Errorf("Anthropic 形状不应带 owned_by, got %s", rec.Body.String())
+	}
+
+	// Anthropic 型地址 + 无协议头 → 也按地址协议给 Anthropic 形状，且模型名对得上
+	patchProvider(t, "alpha-name", map[string]any{"type": "anthropic"})
+	w = doDedicated(t, f, http.MethodGet, "/p/alpha-name/v1/models", "Bearer sk-admin", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("应 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"has_more":false`) {
+		t.Errorf("Anthropic 型地址应返回 Anthropic 形状, got %s", w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"id":"latest"`) {
+		t.Errorf("应列出该 Anthropic 地址可服务的模型, got %s", w.Body.String())
 	}
 }

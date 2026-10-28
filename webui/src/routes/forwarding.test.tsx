@@ -118,14 +118,33 @@ async function openSettings(user: ReturnType<typeof userEvent.setup>, providerNa
   return screen.findByRole("dialog")
 }
 
-/** 5 条已知端点在关闭模式下的完整地址 */
-const OFF_URLS = [
+/** /v1 下的本地端点：任何协议的地址都接管，关闭模式下也照常可用 */
+const V1_LOCAL_PATHS = [
   "/v1/chat/completions",
   "/v1/responses",
   "/v1/messages",
   "/v1/messages/count_tokens",
   "/v1/models",
 ]
+
+/** 只有 Gemini 型地址才有的本地端点（关闭模式下同样可用） */
+const GEMINI_LOCAL_PATHS = [
+  "/v1beta/models",
+  "/v1beta/models/{model}:generateContent",
+  "/v1beta/models/{model}:streamGenerateContent",
+]
+
+/** OpenAI 型地址上必须开启转发才能用的端点 */
+const OPENAI_FORWARD_PATHS = [
+  "/v1/embeddings",
+  "/v1/completions",
+  "/v1/moderations",
+  "/v1/rerank",
+  "/v1/images/generations",
+  "/v1/audio/transcriptions",
+]
+
+const OFF_404_HINT = "当前为关闭模式：这些端点会返回 404，请求不会发出。"
 
 const clipboardWrite = vi.fn<(text: string) => Promise<void>>(() => Promise.resolve())
 
@@ -229,7 +248,7 @@ describe("转发透传页 · 有数据", () => {
     expect(within(tableEl).queryByText(/\/p\/null/)).not.toBeInTheDocument()
   })
 
-  it("关闭模式的地址旁列出仅有的 5 条已知端点，开启转发的不带警示", async () => {
+  it("地址旁展开该协议可用的端点清单，关闭模式点明哪些会 404", async () => {
     mocked.getProviders.mockResolvedValue([openaiProvider, geminiProvider])
 
     renderPage()
@@ -238,18 +257,28 @@ describe("转发透传页 · 有数据", () => {
     const offRow = within(tableEl).getByText("prov-openai").closest("tr")
     expect(offRow).not.toBeNull()
     const offRowEl = offRow as HTMLElement
-    expect(within(offRowEl).getByText("转发关闭：此地址仅 5 条已知端点可用")).toBeInTheDocument()
-    expect(within(offRowEl).getAllByRole("listitem")).toHaveLength(5)
-    for (const path of OFF_URLS) {
+
+    expect(within(offRowEl).getByText("此地址可用的端点")).toBeInTheDocument()
+    // 本地端点与"需开启转发"的端点都要列出来：只说能用的那部分，
+    // 用户照样会拿 /v1/embeddings 去试并收到看起来像配置错误的 404。
+    for (const path of [...V1_LOCAL_PATHS, ...OPENAI_FORWARD_PATHS]) {
       expect(within(offRowEl).getByText(origin() + "/p/gw-a" + path)).toBeInTheDocument()
     }
+    expect(within(offRowEl).getAllByRole("listitem")).toHaveLength(
+      V1_LOCAL_PATHS.length + OPENAI_FORWARD_PATHS.length,
+    )
+    expect(within(offRowEl).getByText(OFF_404_HINT)).toBeInTheDocument()
 
-    // 纯转发没有"只认已知端点"的问题，不该出现这条警示
+    // 纯转发的 Gemini 地址：清单里有它独有的原生端点，且没有关闭模式的 404 提示
     const pureRow = within(tableEl).getByText("prov-gem").closest("tr") as HTMLElement
-    expect(within(pureRow).queryByText("转发关闭：此地址仅 5 条已知端点可用")).not.toBeInTheDocument()
+    const pureRowText = pureRow.textContent ?? ""
+    for (const path of GEMINI_LOCAL_PATHS) {
+      expect(pureRowText).toContain(origin() + "/p/gw-gem" + path)
+    }
+    expect(within(pureRow).queryByText(OFF_404_HINT)).not.toBeInTheDocument()
   })
 
-  it("点地址按钮复制专属地址；关闭模式额外说明只有 5 条端点可用", async () => {
+  it("点地址按钮复制专属地址；关闭模式额外说明其余路径会 404", async () => {
     const user = setupUser()
     mocked.getProviders.mockResolvedValue([openaiProvider, geminiProvider])
 
@@ -260,7 +289,7 @@ describe("转发透传页 · 有数据", () => {
 
     await waitFor(() => expect(clipboardWrite).toHaveBeenCalledWith(origin() + "/p/gw-a/v1"))
     expect(toast.success).toHaveBeenCalledWith("已复制专属地址: " + origin() + "/p/gw-a/v1", {
-      description: "转发关闭时只有 5 条已知端点可用，其余路径会 404。",
+      description: "关闭模式下此地址只有本地端点可用，其余路径会返回 404。",
     })
     expect(toast.error).not.toHaveBeenCalled()
 
@@ -364,20 +393,21 @@ describe("转发透传页 · 设置弹窗", () => {
     expect(within(dialog).getByRole("radio", { name: /关闭（默认）/ })).toBeChecked()
   })
 
-  it("关闭模式下地址预览列出 5 条已知端点，切到混合模式后消失", async () => {
+  it("地址预览下方始终列出端点清单，切换模式只影响 404 提示", async () => {
     const user = setupUser()
     renderPage()
 
     const dialog = await openSettings(user, "prov-openai")
-    expect(within(dialog).getByText("转发关闭：此地址只接管 5 条已知端点")).toBeInTheDocument()
-    expect(within(dialog).getAllByRole("listitem")).toHaveLength(5)
-    for (const path of OFF_URLS) {
+    for (const path of [...V1_LOCAL_PATHS, ...OPENAI_FORWARD_PATHS]) {
       expect(within(dialog).getByText(origin() + "/p/gw-a" + path)).toBeInTheDocument()
     }
+    expect(within(dialog).getByText(OFF_404_HINT)).toBeInTheDocument()
 
     await user.click(within(dialog).getByRole("radio", { name: /混合模式/ }))
-    expect(within(dialog).queryByText("转发关闭：此地址只接管 5 条已知端点")).not.toBeInTheDocument()
-    expect(within(dialog).queryByText(origin() + "/p/gw-a/v1/models")).not.toBeInTheDocument()
+    // 清单不随模式变化——模式决定的是转发，不是"这个地址有哪些端点"
+    expect(within(dialog).queryByText(OFF_404_HINT)).not.toBeInTheDocument()
+    expect(within(dialog).getByText(origin() + "/p/gw-a/v1/models")).toBeInTheDocument()
+    expect(within(dialog).getByText(origin() + "/p/gw-a/v1/embeddings")).toBeInTheDocument()
   })
 
   it("保存失败时弹窗保留、toast 报错、保存按钮复位", async () => {

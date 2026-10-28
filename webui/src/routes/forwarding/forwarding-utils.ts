@@ -49,30 +49,6 @@ export function isValidForwardSlug(slug: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(slug)
 }
 
-/**
- * 转发关闭（mode=off）时，专属地址上只有这几条已知端点会被接管，其余路径
- * 一律 404（见 handler/provider_route.go 的 switch）。界面上必须把它们明写
- * 出来：用户最容易默认"地址能用"，然后拿 Gemini 原生路径或 /v1/embeddings
- * 去试，得到的 404 看起来像配错了地址。
- */
-export const FORWARD_OFF_KNOWN_PATHS = [
-  "/v1/chat/completions",
-  "/v1/responses",
-  "/v1/messages",
-  "/v1/messages/count_tokens",
-  "/v1/models",
-] as const
-
-/**
- * 关闭转发模式下确实可用的完整地址（协议无关：已知端点都挂在 /v1 下，
- * 与提供商类型拼出的 base_url 后缀无关）。没有地址标识时返回空数组。
- */
-export function forwardOffKnownUrls(origin: string, slug: string): string[] {
-  if (!slug) return []
-  const root = `${origin.replace(/\/+$/, "")}/p/${slug}`
-  return FORWARD_OFF_KNOWN_PATHS.map((path) => `${root}${path}`)
-}
-
 /** 由站点 origin、提供商类型与地址标识拼出专属地址（即客户端要填的 base_url）。 */
 export function forwardBaseUrl(origin: string, type: string, slug: string): string {
   const base = origin.replace(/\/+$/, "")

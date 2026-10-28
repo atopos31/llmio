@@ -120,11 +120,101 @@ func Init(ctx context.Context, path string) {
 	if _, err := gorm.G[ModelWithProvider](DB).Where("currency = '' OR currency IS NULL").Update(ctx, "currency", "CNY"); err != nil {
 		panic(err)
 	}
+	// 放在 Init 的最后一步：它要建索引，真机上是一次秒级的全表读。
+	// **失败只记日志**——一条索引没建上只是慢，不该让服务起不来。
+	if err := EnsureChatIOLogIDIndex(ctx); err != nil {
+		slog.Error("chat_ios.log_id 索引没建上（回填响应体将退化为全表扫描）", "error", err)
+	}
+
 	// `DB_VACUUM` 的启动期 VACUUM **搬去 service.PrepareStorage 了**（main 里、
 	// 监听端口之前调用）。搬家的理由是它原先 `panic(err)`，而且连磁盘够不够都
 	// 没看过：VACUUM 要一份和库等大的副本，在 7 GiB 的库上磁盘不够就是启动失败。
 	// 现在它与 auto_vacuum 转换合并成一次动作、动手前预检、失败只跳过。
 	// 顺带解掉一个分层问题：`diskFree` 在 service 包里，models 不能反向依赖它。
+}
+
+// chatIOLogIDIndexName / chatIOLogIDIndexSQL 是 chat_ios.log_id 的索引名与建法。
+//
+// **必须是普通索引，不能是 partial（WHERE deleted_at IS NULL）**：查询条件里
+// 确实带着 `deleted_at IS NULL`，看上去 partial 更省空间，但 log_id 在
+// chat_ios 里是**事实上的唯一键**（一个 log 一行 IO），行数不比表小多少；
+// 而 partial 索引在这份语料上（软删占比极低）省不下什么，却让 `log_id = ?`
+// 失去等值查找的唯一入口。普通索引在 `log_id = ?` 上是 SEARCH，
+// deleted_at 退化为建索引后的行内过滤，代价是常数。
+const (
+	chatIOLogIDIndexName = "idx_chat_ios_log_id"
+	chatIOLogIDIndexSQL  = `CREATE INDEX IF NOT EXISTS idx_chat_ios_log_id ON chat_ios (log_id)`
+)
+
+// EnsureChatIOLogIDIndex 给 chat_ios.log_id 建索引。可重复调用。
+//
+// **为什么它不是一条 `gorm:"index"` 标签。** 先纠正一个容易想当然的点：
+// AutoMigrate 对索引走的是 HasIndex → CreateIndex（gorm v1.30 migrator），
+// 不会触发 SQLite 的"建新表-拷数据-删旧表-改名"——那只发生在列类型 /
+// 可空性 / 主键变化时。所以标签本身并不危险。真正的差别有两条：
+//
+//  1. 标签建索引失败会让 AutoMigrate 返回错误，而 Init 对迁移错误是 panic。
+//     一条索引没建上只该让回填变慢，不该让服务起不来——这里失败只记日志。
+//  2. 标签只能表达"名字存在就跳过"，管不了**同名但定义不同**的存量索引
+//     （例如早先手工建的 partial 索引）：那种索引会被当成"已存在"直接放行，
+//     线上那条 UPDATE 继续全表扫，而且没有任何告警。这里会核对索引列与
+//     partial 标记，不符就删掉重建。
+//
+// 为什么它仍然在启动路径上：这条 UPDATE 跑在**每个开了 io_log 的请求**的
+// 响应回填里（service.chat.updateChatIOOutput）。没有索引时 SQLite 会挑
+// `idx_chat_ios_deleted_at`——而软删极少发生，那个索引命中整张表，
+// 真机单次实测 **0.9 秒**（5895ms 那条 SLOW SQL 就来自这里），
+// 有索引后是同一条语句 0.000 秒。把它留到"以后某次维护"就是让每个请求
+// 继续等 0.9 秒换一次启动期 2.9 秒，这笔账不成立。
+//
+// 建索引期间持写锁。调用点在 Init 里（监听端口之前），此刻没有在途请求——
+// 与 service.PrepareStorage 的 VACUUM 是同一条时序前提。
+func EnsureChatIOLogIDIndex(ctx context.Context) error {
+	ok, err := chatIOLogIDIndexMatches(ctx)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	// 走到这里只有两种情况：索引不存在，或同名但定义不对。后者必须删掉
+	// 重建——`CREATE INDEX IF NOT EXISTS` 遇到同名索引会直接跳过。
+	if err := DB.WithContext(ctx).Exec("DROP INDEX IF EXISTS " + chatIOLogIDIndexName).Error; err != nil {
+		return err
+	}
+	return DB.WithContext(ctx).Exec(chatIOLogIDIndexSQL).Error
+}
+
+// chatIOLogIDIndexMatches 判断既有索引是不是我们想要的那条：
+// 名字对、只索引 log_id 一列、且不是 partial。
+//
+// 只查名字是不够的：同名但列序不同（如 `(deleted_at, log_id)`）或带 WHERE
+// 的索引对 `log_id = ? AND deleted_at IS NULL` 未必可用，而那种库上
+// 查询不会报错、只会静默退化。
+func chatIOLogIDIndexMatches(ctx context.Context) (bool, error) {
+	var indexes []struct {
+		Name    string
+		Partial int
+	}
+	if err := DB.WithContext(ctx).Raw("PRAGMA index_list('chat_ios')").Scan(&indexes).Error; err != nil {
+		return false, err
+	}
+	for _, idx := range indexes {
+		if idx.Name != chatIOLogIDIndexName {
+			continue
+		}
+		if idx.Partial != 0 {
+			return false, nil
+		}
+		var cols []struct {
+			Name string
+		}
+		if err := DB.WithContext(ctx).Raw("PRAGMA index_info('" + chatIOLogIDIndexName + "')").Scan(&cols).Error; err != nil {
+			return false, err
+		}
+		return len(cols) == 1 && cols[0].Name == "log_id", nil
+	}
+	return false, nil
 }
 
 // newGormLogger 构造 SQL 日志。它与 gorm 默认值只差两处，但两处都是必要的：

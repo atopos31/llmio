@@ -59,6 +59,14 @@ const cacheTTL = 60_000
 /** 超过这个秒数才提示"可以先缩小范围"——短请求闪一下提示反而更烦。 */
 const slowHintAfterSec = 10
 
+/**
+ * 进度条 / 已用时间 / 取消这一组"长时加载"信息，延迟这么久才出现。
+ *
+ * 绝大多数取数是几百毫秒就回来的：立刻显示再立刻消失，只会让页面闪一下，
+ * 反而像出了故障。先给 2 秒宽限，真正慢的请求再显示这些。
+ */
+const busyDelayMs = 2000
+
 function isAbortError(err: unknown): boolean {
   return (
     typeof err === "object" && err !== null && (err as { name?: string }).name === "AbortError"
@@ -132,6 +140,12 @@ export default function AnalyticsPage() {
    * 而真正该做的是重新加载。
    */
   const [canceled, setCanceled] = useState(false)
+  /**
+   * 这次取数是否已经慢到值得显示"长时加载"那一组信息（进度条/已用时间/取消）。
+   *
+   * 2 秒内的加载什么都不显示：不闪进度条、也不闪"已用 0 秒"。
+   */
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const hasFilter = activeFilterCount(filter) > 0
@@ -151,6 +165,16 @@ export default function AnalyticsPage() {
       setElapsedSec(Math.floor((Date.now() - t0) / 1000))
     }, 1000)
     return () => window.clearInterval(timer)
+  }, [phase, startedAt])
+
+  // 2 秒宽限：绝大多数取数几百毫秒就回来，那一组信息闪一下只会让人以为出了故障
+  useEffect(() => {
+    if (phase === "idle") {
+      setBusy(false)
+      return
+    }
+    const timer = window.setTimeout(() => setBusy(true), busyDelayMs)
+    return () => window.clearTimeout(timer)
   }, [phase, startedAt])
 
   /**
@@ -374,9 +398,9 @@ export default function AnalyticsPage() {
         loading={loading}
       />
 
-      {/* 刷新时旧数据还在：给一条细进度条 + 已用时间 + 取消，而不是把整页换成骨架。
-          慢库上一次要几十秒，整页空白会让人以为页面坏了 */}
-      {phase === "refreshing" && (
+      {/* 刷新时旧数据还在：慢过 2 秒才给细进度条 + 已用时间 + 取消，而不是把整页换成骨架。
+          快请求什么都不显示，免得闪一下 */}
+      {phase === "refreshing" && busy && (
         <div
           className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
           role="status"
@@ -450,15 +474,18 @@ export default function AnalyticsPage() {
           // 否则加载态与"没有数据"在无障碍树上无法区分
           <div className="space-y-3" role="status" aria-busy="true">
             <span className="sr-only">{t("analytics:loading")}</span>
-            <div className="flex flex-wrap items-center gap-3">
-              <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
-              <span className="text-sm text-muted-foreground">
-                {t("analytics:loading_window", { range: rangeLabel, seconds: elapsedSec })}
-              </span>
-              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={cancel}>
-                {t("analytics:cancel")}
-              </Button>
-            </div>
+            {/* 骨架立刻有（否则页面是空的），但"已用时间 + 取消"要慢过 2 秒才出现 */}
+            {busy && (
+              <div className="flex flex-wrap items-center gap-3">
+                <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+                <span className="text-sm text-muted-foreground">
+                  {t("analytics:loading_window", { range: rangeLabel, seconds: elapsedSec })}
+                </span>
+                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={cancel}>
+                  {t("analytics:cancel")}
+                </Button>
+              </div>
+            )}
             <div className="h-16 animate-pulse rounded-lg bg-muted" />
             <Skeleton className="h-56 w-full" />
           </div>

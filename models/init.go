@@ -125,6 +125,12 @@ func Init(ctx context.Context, path string) {
 	if err := EnsureChatIOLogIDIndex(ctx); err != nil {
 		slog.Error("chat_ios.log_id 索引没建上（回填响应体将退化为全表扫描）", "error", err)
 	}
+	// 与上面相反：这一步是**删**索引。chat_logs.deleted_at 恒为 NULL，那条索引
+	// 让分析页的时间窗查询退化成全表扫（详见 DropChatLogsDeletedAtIndex）。
+	// 同样失败只记日志：摘不掉只是慢，不该让服务起不来。
+	if err := DropChatLogsDeletedAtIndex(ctx); err != nil {
+		slog.Error("chat_logs.deleted_at 索引没摘掉（分析页取数会退化为全表扫描）", "error", err)
+	}
 
 	// `DB_VACUUM` 的启动期 VACUUM **搬去 service.PrepareStorage 了**（main 里、
 	// 监听端口之前调用）。搬家的理由是它原先 `panic(err)`，而且连磁盘够不够都

@@ -381,7 +381,11 @@ func TestInit_UpgradesLegacySchemaInPlace(t *testing.T) {
 	})
 
 	t.Run("上游的索引还在，新增索引也建上了", func(t *testing.T) {
-		// 上游那批单列索引必须留住：升级不是"换成新的"，是"在旧的之上加"
+		// 上游那批单列索引必须留住：升级不是"换成新的"，是"在旧的之上加"。
+		// 唯一的例外是 idx_chat_logs_deleted_at——chat_logs 的删除路径全是 Unscoped
+		// 硬删除，这一列恒为 NULL，那条索引命中整张表却会被查询计划器优先选中
+		// （分析页取数因此从索引范围扫描退化成全表扫），升级时**有意摘掉**，
+		// 见 DropChatLogsDeletedAtIndex。
 		for _, idx := range []string{
 			"idx_chat_logs_name",
 			"idx_chat_logs_status",
@@ -391,11 +395,13 @@ func TestInit_UpgradesLegacySchemaInPlace(t *testing.T) {
 			"idx_chat_logs_user_agent",
 			"idx_chat_logs_session_id",
 			"idx_chat_logs_auth_key_id",
-			"idx_chat_logs_deleted_at",
 		} {
 			if !indexExists(t, DB, idx) {
 				t.Fatalf("升级后上游索引 %s 不见了", idx)
 			}
+		}
+		if indexExists(t, DB, "idx_chat_logs_deleted_at") {
+			t.Fatal("升级后 idx_chat_logs_deleted_at 还在：它会把分析页取数逼成全表扫描")
 		}
 		// 新索引不能只对名字：GORM 会用同一个名字建出**只有前导列**的索引
 		// （丢掉 created_at 的标签就会这样），而那种索引对 `created_at >= ?`

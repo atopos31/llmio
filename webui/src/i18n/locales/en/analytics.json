@@ -1,6 +1,15 @@
 {
   "title": "Analytics",
   "loading": "Loading…",
+  "cancel": "Cancel",
+  "loading_window": "Computing {{range}} · {{seconds}}s elapsed",
+  "refreshing": "Updating · {{seconds}}s elapsed",
+  "slow_hint": "{{range}} takes a while to compute ({{seconds}}s so far). Try the last 24 hours or a narrower range.",
+  "view_last_24h": "View last 24h",
+  "canceled": {
+    "title": "Loading canceled",
+    "hint": "No data was loaded. Reload to try again."
+  },
   "refresh": "Refresh",
   "load_failed": "Failed to load: {{message}}",
   "retry": "Retry",

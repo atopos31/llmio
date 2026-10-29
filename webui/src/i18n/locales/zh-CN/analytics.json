@@ -1,6 +1,15 @@
 {
   "title": "分析",
   "loading": "加载中…",
+  "cancel": "取消",
+  "loading_window": "正在统计{{range}} · 已用 {{seconds}} 秒",
+  "refreshing": "正在更新 · 已用 {{seconds}} 秒",
+  "slow_hint": "{{range}}统计较慢（已用 {{seconds}} 秒）：可以先看近 24 小时，或缩小范围。",
+  "view_last_24h": "先看近 24 小时",
+  "canceled": {
+    "title": "已取消加载",
+    "hint": "数据还没取回来。点下面的按钮重新加载。"
+  },
   "refresh": "刷新",
   "load_failed": "加载失败：{{message}}",
   "retry": "重试",

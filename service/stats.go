@@ -12,6 +12,7 @@ import (
 
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
+	"gorm.io/gorm"
 )
 
 // 本文件是分析聚合引擎。分为三层：
@@ -553,6 +554,24 @@ func Aggregate(logs []models.ChatLog, f StatsFilter) StatsResult {
 // AggregateWithBucket 与 Aggregate 相同，但显式指定分桶宽度，
 // 便于测试与复用（调用方已解析过档位时避免重复解析）。
 func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Duration) StatsResult {
+	i := 0
+	return aggregateWithBucketIter(f, bucket, func() (models.ChatLog, bool) {
+		if i >= len(logs) {
+			return models.ChatLog{}, false
+		}
+		l := logs[i]
+		i++
+		return l, true
+	})
+}
+
+// aggregateWithBucketIter 就是原来那个 AggregateWithBucket，只把"行的来源"从
+// 切片换成了迭代器。
+//
+// 换成迭代器是为了让 30 天窗口不再一次把 9 万行（实测 51.7 MiB）读进内存：
+// 聚合本来就是单次遍历，喂一行算一行即可，常驻堆因此与窗口行数无关。
+// 语义零变化——同一份循环体，同一套口径，切片版只是把迭代器包在了切片上。
+func aggregateWithBucketIter(f StatsFilter, bucket time.Duration, next statsLogIter) StatsResult {
 	res := StatsResult{
 		GeneratedAt:     time.Now().UnixMilli(),
 		BucketMs:        bucket.Milliseconds(),
@@ -595,7 +614,7 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 		leaderRecentErr []LogRow
 	)
 
-	for _, l := range logs {
+	for l, ok := next(); ok; l, ok = next() {
 		if !f.match(l) {
 			continue
 		}
@@ -1103,13 +1122,16 @@ func maxOf(v []float64) float64 {
 // 声明为变量而非常量，以便测试把上限调低来覆盖截断路径。
 var StatsScanLimit = 200_000
 
-// LoadChatLogs 按筛选条件加载日志。这是本文件唯一触碰数据库的函数。
-func LoadChatLogs(ctx context.Context, f StatsFilter) ([]models.ChatLog, bool, error) {
-	var (
-		logs      []models.ChatLog
-		truncated bool
-	)
-	q := models.DB.WithContext(ctx).Model(&models.ChatLog{})
+// statsLogsQuery 是分析取数的查询构造，抽出来只为让回归测试能拿到**同一条**
+// 语句去跑 EXPLAIN QUERY PLAN。
+//
+// 值得那样测一次：这条语句的形状一旦被改坏（比如 chat_logs.deleted_at 上又多出
+// 一条索引把计划器引向全表扫），线上 1.34 GB 的库上就是 2 秒的读事务——回滚
+// 日志模式下读挡写，写请求排满 busy_timeout 后成片报 SQLITE_BUSY，积压的请求
+// 再把容器顶到 OOM。代价与"改坏一行 SQL"完全不成比例，见
+// models.DropChatLogsDeletedAtIndex 的注释。
+func statsLogsQuery(tx *gorm.DB, f StatsFilter) *gorm.DB {
+	q := tx.Model(&models.ChatLog{})
 
 	if !f.From.IsZero() {
 		q = q.Where("created_at >= ?", f.From)
@@ -1141,7 +1163,27 @@ func LoadChatLogs(ctx context.Context, f StatsFilter) ([]models.ChatLog, bool, e
 		q = q.Where(cond.col+" IN ?", cond.vals)
 	}
 
-	if err := q.Order("created_at DESC").Limit(StatsScanLimit + 1).Find(&logs).Error; err != nil {
+	// 倒序取最新的一批：截断发生在**最新**的一端，与 Aggregate 的"命中上限"
+	// 提示一致
+	return q.Order("created_at DESC").Limit(StatsScanLimit + 1)
+}
+
+// LoadChatLogs 按筛选条件把日志读成完整切片（走 GORM 的 Find）。
+//
+// **它不在生产路径上**：ComputeStats 走的是 statsLogStream 的逐行直读，因为把
+// 整批行物化进切片正是 30 天窗口吃满内存的原因（见 statsLogStream）。
+//
+// 保留它的理由有两个，都不是"顺手"：
+//  1. 测试与调用方需要"看得见完整行"的入口；
+//  2. 它是**参照实现**——直读 Scan 的列映射与 NULL 口径由它比对（见
+//     TestComputeStatsMatchesAggregatePath：两条路的结果必须逐字段相同）。
+//     所以这里刻意用回 GORM，而不是复用流式读法。
+func LoadChatLogs(ctx context.Context, f StatsFilter) ([]models.ChatLog, bool, error) {
+	var (
+		logs      []models.ChatLog
+		truncated bool
+	)
+	if err := statsLogsQuery(models.DB.WithContext(ctx), f).Find(&logs).Error; err != nil {
 		return nil, false, err
 	}
 	if len(logs) > StatsScanLimit {
@@ -1151,13 +1193,22 @@ func LoadChatLogs(ctx context.Context, f StatsFilter) ([]models.ChatLog, bool, e
 	return logs, truncated, nil
 }
 
-// ComputeStats 加载并聚合。供 handler 直接调用。
+// ComputeStats 聚合分析数据。供 handler 直接调用。
+//
+// 行是**流式读进来**的：读一行算一行，全程不持有整批。所以内存占用只与
+// 分组数、分位样本和排行榜有关，与窗口里有多少行无关——30 天窗口与 1 小时
+// 窗口的常驻堆是同一个量级。
 func ComputeStats(ctx context.Context, f StatsFilter) (*StatsResult, bool, error) {
-	logs, truncated, err := LoadChatLogs(ctx, f)
+	stream, err := openStatsLogs(ctx, f)
 	if err != nil {
 		return nil, false, err
 	}
-	res := Aggregate(logs, f)
+	bucket, _ := ResolveBucket(f.Granularity, f.To.Sub(f.From))
+	res := aggregateWithBucketIter(f, bucket, stream.next)
+	truncated, err := stream.close()
+	if err != nil {
+		return nil, false, err
+	}
 	res.Truncated = truncated
 	fillTrendWindow(&res, f)
 	resolveKeyGroups(ctx, &res)

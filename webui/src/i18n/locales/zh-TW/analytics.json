@@ -1,6 +1,15 @@
 {
   "title": "分析",
   "loading": "載入中…",
+  "cancel": "取消",
+  "loading_window": "正在統計{{range}} · 已用 {{seconds}} 秒",
+  "refreshing": "正在更新 · 已用 {{seconds}} 秒",
+  "slow_hint": "{{range}}統計較慢（已用 {{seconds}} 秒）：可以先看近 24 小時，或縮小範圍。",
+  "view_last_24h": "先看近 24 小時",
+  "canceled": {
+    "title": "已取消載入",
+    "hint": "資料還沒取回來。點下面的按鈕重新載入。"
+  },
   "refresh": "重新整理",
   "load_failed": "載入失敗：{{message}}",
   "retry": "重試",

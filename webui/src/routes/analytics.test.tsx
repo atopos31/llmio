@@ -586,3 +586,116 @@ describe("分析页 · 提供商×模型联合用量", () => {
     expect(screen.queryByRole("rowheader")).not.toBeInTheDocument()
   })
 })
+
+/**
+ * 取数的生命周期。
+ *
+ * 分析页在慢库上一次要几十秒，所以"哪个结果落到页面上"必须由**最后一次用户
+ * 意图**决定，而不是"最后一个回来的响应"。
+ */
+describe("分析页 · 取数生命周期", () => {
+  it("无关重渲染不会重复取数", async () => {
+    const { rerender } = renderPage()
+    await waitFor(() => expect(mocked.getStats).toHaveBeenCalledTimes(1))
+
+    rerender(
+      <MemoryRouter>
+        <AnalyticsPage />
+      </MemoryRouter>
+    )
+    // 给"依赖身份不稳导致的第二次取数"留出触发窗口
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(mocked.getStats).toHaveBeenCalledTimes(1)
+  })
+
+  it("换范围时取消上一笔，旧响应不会盖掉新结果", async () => {
+    let releaseFirst: (value: StatsResult) => void = () => {}
+    mocked.getStats.mockImplementationOnce(
+      () =>
+        new Promise<StatsResult>((resolve) => {
+          releaseFirst = resolve
+        })
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    await waitFor(() => expect(mocked.getStats).toHaveBeenCalledTimes(1))
+    const firstSignal = mocked.getStats.mock.calls[0][1] as AbortSignal | undefined
+    expect(firstSignal?.aborted).toBe(false)
+
+    await user.click(screen.getByRole("radio", { name: "近 7 天" }))
+    await waitFor(() => expect(mocked.getStats.mock.calls.length).toBeGreaterThan(1))
+
+    // 新的取数一开始，上一笔就被掐掉——旧结果不再有机会覆盖新结果
+    expect(firstSignal?.aborted).toBe(true)
+
+    // 被掐掉的那一笔即便晚到也无效：页面不该因此变成错误态，也不该显示它的数字
+    releaseFirst(fixture({ kpi: { ...fixture().kpi, total: 999 } }))
+    await waitFor(() => expect(screen.queryByText("数据加载失败")).not.toBeInTheDocument())
+    expect(screen.queryByText("999")).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * 取消 ≠ 空。
+ *
+ * 数据没取回来时说"所选范围内没有请求"，会把人引去改时间范围/清筛选——
+ * 而真正该做的是重新加载。这条断言守的就是这个区别。
+ */
+describe("分析页 · 取消取数", () => {
+  it("首屏取消后给出重新加载的出口，而不是宣称没有数据", async () => {
+    mocked.getStats.mockReturnValue(new Promise(() => {}))
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(screen.getByRole("status")).toHaveTextContent("加载中")
+    // "取消"要慢过 2 秒才出现（见 busyDelayMs），这里等它
+    await user.click(await screen.findByRole("button", { name: "取消" }, { timeout: 3000 }))
+
+    expect(await screen.findByText("已取消加载")).toBeInTheDocument()
+    expect(screen.queryByText("所选范围内没有请求")).not.toBeInTheDocument()
+
+    mocked.getStats.mockResolvedValue(fixture())
+    await user.click(screen.getByRole("button", { name: "重试" }))
+    expect(await screen.findByText("请求趋势")).toBeInTheDocument()
+  })
+})
+
+describe("分析页 · 结果缓存", () => {
+  it("切回刚看过的范围时先用缓存出图，不等请求", async () => {
+    const user = userEvent.setup()
+    const withTotal = (n: number) => fixture({ kpi: { ...fixture().kpi, total: n } })
+
+    mocked.getStats.mockResolvedValueOnce(withTotal(111))
+    renderPage()
+    expect(await screen.findByText(/共 111 次/)).toBeInTheDocument()
+
+    mocked.getStats.mockResolvedValueOnce(withTotal(222))
+    await user.click(screen.getByRole("radio", { name: "近 30 天" }))
+    expect(await screen.findByText(/共 222 次/)).toBeInTheDocument()
+
+    // 第三次请求永远不返回：能出 111 就只可能来自缓存
+    mocked.getStats.mockReturnValue(new Promise(() => {}))
+    await user.click(screen.getByRole("radio", { name: "近 24 小时" }))
+    expect(await screen.findByText(/共 111 次/)).toBeInTheDocument()
+  })
+})
+
+/**
+ * 多数取数几百毫秒就回来。立刻显示"长时加载"再立刻收回，只会让页面闪一下、
+ * 看着像出了故障——所以那一组信息（已用时间 / 取消 / 进度条）延迟 2 秒出现。
+ */
+describe("分析页 · 短加载不闪", () => {
+  it("慢过 2 秒才显示已用时间与取消", async () => {
+    mocked.getStats.mockReturnValue(new Promise(() => {}))
+    renderPage()
+
+    // 骨架立刻在（否则页面是空的），但长时加载那组信息还不能出现
+    expect(screen.getByRole("status")).toHaveTextContent("加载中")
+    expect(screen.queryByText(/正在统计/)).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument()
+
+    expect(await screen.findByText(/正在统计/, {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "取消" })).toBeInTheDocument()
+  })
+})

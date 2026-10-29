@@ -60,7 +60,7 @@ curl -H "Authorization: Bearer <TOKEN>" http://localhost:7070/api/version
 正常时返回类似：
 
 ```json
-{"code":200,"message":"success","data":"v0.10.2"}
+{"code":200,"message":"success","data":"v0.10.3"}
 ```
 
 数据保存在当前目录的 `./db`。删除容器不会删除数据；删除这个目录会删除配置和日志。

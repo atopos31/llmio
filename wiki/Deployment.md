@@ -75,8 +75,8 @@ docker run -d \
 从 [Releases](https://github.com/atopos31/llmio/releases) 下载对应平台的压缩包。以 Linux amd64 为例：
 
 ```bash
-wget https://github.com/atopos31/llmio/releases/download/v0.10.2/llmio_0.10.2_linux_amd64.tar.gz
-tar -xzf llmio_0.10.2_linux_amd64.tar.gz
+wget https://github.com/atopos31/llmio/releases/download/v0.10.3/llmio_0.10.3_linux_amd64.tar.gz
+tar -xzf llmio_0.10.3_linux_amd64.tar.gz
 GIN_MODE=release TOKEN=<TOKEN> ./llmio
 ```
 

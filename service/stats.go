@@ -12,6 +12,7 @@ import (
 
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
+	"gorm.io/gorm"
 )
 
 // 本文件是分析聚合引擎。分为三层：
@@ -1103,13 +1104,16 @@ func maxOf(v []float64) float64 {
 // 声明为变量而非常量，以便测试把上限调低来覆盖截断路径。
 var StatsScanLimit = 200_000
 
-// LoadChatLogs 按筛选条件加载日志。这是本文件唯一触碰数据库的函数。
-func LoadChatLogs(ctx context.Context, f StatsFilter) ([]models.ChatLog, bool, error) {
-	var (
-		logs      []models.ChatLog
-		truncated bool
-	)
-	q := models.DB.WithContext(ctx).Model(&models.ChatLog{})
+// statsLogsQuery 是分析取数的查询构造，抽出来只为让回归测试能拿到**同一条**
+// 语句去跑 EXPLAIN QUERY PLAN。
+//
+// 值得那样测一次：这条语句的形状一旦被改坏（比如 chat_logs.deleted_at 上又多出
+// 一条索引把计划器引向全表扫），线上 1.34 GB 的库上就是 2 秒的读事务——回滚
+// 日志模式下读挡写，写请求排满 busy_timeout 后成片报 SQLITE_BUSY，积压的请求
+// 再把容器顶到 OOM。代价与"改坏一行 SQL"完全不成比例，见
+// models.DropChatLogsDeletedAtIndex 的注释。
+func statsLogsQuery(tx *gorm.DB, f StatsFilter) *gorm.DB {
+	q := tx.Model(&models.ChatLog{})
 
 	if !f.From.IsZero() {
 		q = q.Where("created_at >= ?", f.From)
@@ -1141,7 +1145,18 @@ func LoadChatLogs(ctx context.Context, f StatsFilter) ([]models.ChatLog, bool, e
 		q = q.Where(cond.col+" IN ?", cond.vals)
 	}
 
-	if err := q.Order("created_at DESC").Limit(StatsScanLimit + 1).Find(&logs).Error; err != nil {
+	// 倒序取最新的一批：截断发生在**最新**的一端，与 Aggregate 的"命中上限"
+	// 提示一致
+	return q.Order("created_at DESC").Limit(StatsScanLimit + 1)
+}
+
+// LoadChatLogs 按筛选条件加载日志。这是本文件唯一触碰数据库的函数。
+func LoadChatLogs(ctx context.Context, f StatsFilter) ([]models.ChatLog, bool, error) {
+	var (
+		logs      []models.ChatLog
+		truncated bool
+	)
+	if err := statsLogsQuery(models.DB.WithContext(ctx), f).Find(&logs).Error; err != nil {
 		return nil, false, err
 	}
 	if len(logs) > StatsScanLimit {

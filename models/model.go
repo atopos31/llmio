@@ -83,7 +83,12 @@ type ChatLog struct {
 	ID        uint      `gorm:"primarykey"`
 	CreatedAt time.Time `gorm:"index;index:idx_chat_logs_status_created,priority:2;index:idx_chat_logs_key_created,priority:2;index:idx_chat_logs_name_created,priority:2"`
 	UpdatedAt time.Time
-	DeletedAt gorm.DeletedAt `gorm:"index"`
+	// DeletedAt 保留这一列以兼容历史库，但**故意不建索引**：chat_logs 的每一条
+	// 删除路径都是 Unscoped 硬删除（定时清理、按 id 清理），这一列恒为 NULL。
+	// 那条索引命中整张表，却因为"看起来选择性很高"永远排在查询计划器首选，
+	// 把按时间窗取数的那类查询从索引范围扫描逼成全表扫 + 临时 B 树排序。
+	// 存量库上的旧索引由 DropChatLogsDeletedAtIndex 在启动时摘掉。
+	DeletedAt gorm.DeletedAt
 
 	Name          string `gorm:"index;index:idx_chat_logs_name_created,priority:1"`
 	TraceID       string `gorm:"index"`

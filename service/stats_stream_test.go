@@ -81,32 +81,84 @@ func TestComputeStatsMatchesAggregatePath(t *testing.T) {
 		t.Fatal("120 行不该触发截断")
 	}
 
-	logs, loadTruncated, err := LoadChatLogs(context.Background(), f)
+	logs, _, err := LoadChatLogs(context.Background(), f)
 	if err != nil {
 		t.Fatalf("LoadChatLogs: %v", err)
 	}
-	want := Aggregate(logs, f)
-	want.Truncated = loadTruncated
-	fillTrendWindow(&want, f)
-	resolveKeyGroups(context.Background(), &want)
-
-	// GeneratedAt 是墙钟，必然不同
-	got.GeneratedAt = 0
-	want.GeneratedAt = 0
-	gotJSON, err := json.Marshal(got)
-	if err != nil {
-		t.Fatalf("marshal got: %v", err)
-	}
-	wantJSON, err := json.Marshal(&want)
-	if err != nil {
-		t.Fatalf("marshal want: %v", err)
-	}
-	if string(gotJSON) != string(wantJSON) {
-		t.Fatalf("流式聚合与切片聚合结果不一致\n流式: %s\n切片: %s", gotJSON, wantJSON)
-	}
+	assertSameStats(t, f, got, logs)
 
 	// 顺带确认样本量对得上：断言的是"真的读了 120 行"，不是两张空表相等
 	if got.KPI.Total != int64(len(logs)) || got.KPI.Total != 120 {
 		t.Fatalf("KPI.Total = %d，want 120（读到的行数 %d）", got.KPI.Total, len(logs))
 	}
+}
+
+// assertSameStats 把"流式直读 + 聚合"的结果与"GORM 参照路径 + 聚合"逐字段比对。
+//
+// 两条路的差别只在**怎么把行读出来**：直读 Scan 用 COALESCE 兜 NULL、自己解
+// JSON 列，GORM 走它自己的 NULL/类型处理。这个断言就是两者口径的合同。
+func assertSameStats(t *testing.T, f StatsFilter, got *StatsResult, want []models.ChatLog) {
+	t.Helper()
+
+	wantRes := Aggregate(want, f)
+	fillTrendWindow(&wantRes, f)
+	resolveKeyGroups(context.Background(), &wantRes)
+
+	// GeneratedAt 是墙钟，必然不同
+	got.GeneratedAt = 0
+	wantRes.GeneratedAt = 0
+	gotJSON, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal got: %v", err)
+	}
+	wantJSON, err := json.Marshal(&wantRes)
+	if err != nil {
+		t.Fatalf("marshal want: %v", err)
+	}
+	if string(gotJSON) != string(wantJSON) {
+		t.Fatalf("直读与 GORM 参照路径的结果不一致\n直读: %s\nGORM: %s", gotJSON, wantJSON)
+	}
+}
+
+// 老库里的历史行可能是整片 NULL（tps / token / 单价 / 时段都是后加的列）。
+// 直读 Scan 必须与 GORM 一样把它们当零值——否则分析页在老库上直接 500。
+func TestComputeStatsToleratesLegacyNullColumns(t *testing.T) {
+	setupStatsDB(t)
+
+	// 除了必备的几列，其余一律留 NULL，模拟十几代迁移之前写下的行
+	for _, ts := range []string{"2026-09-29 10:00:00", "2026-09-29 10:05:00", "2026-09-29 10:10:00"} {
+		if err := models.DB.Exec(`INSERT INTO chat_logs
+			(created_at, name, provider_name, provider_model, status, user_agent, auth_key_id, retry,
+			 proxy_time, first_chunk_time, tps, prompt_tokens, completion_tokens, total_tokens,
+			 prompt_tokens_details, input_price, output_price, cache_read_price, currency, error)
+			VALUES (?, 'legacy', 'p', 'pm', 'success', NULL, NULL, NULL, NULL, NULL, NULL,
+			        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)`, ts).Error; err != nil {
+			t.Fatalf("seed legacy row: %v", err)
+		}
+	}
+
+	// 再混一条正常的失败行：确认 NULL 与有值的行混在一起也一致
+	if err := models.DB.Exec(`INSERT INTO chat_logs
+		(created_at, name, provider_name, provider_model, status, error, retry)
+		VALUES ('2026-09-29 10:15:00', 'legacy', 'p', 'pm', 'error', 'status: 429, body: rate limited', 2)`).Error; err != nil {
+		t.Fatalf("seed error row: %v", err)
+	}
+
+	f := StatsFilter{From: time.Date(2026, 9, 29, 9, 0, 0, 0, time.UTC), To: time.Date(2026, 9, 29, 11, 0, 0, 0, time.UTC)}
+	got, truncated, err := ComputeStats(context.Background(), f)
+	if err != nil {
+		t.Fatalf("ComputeStats: %v", err)
+	}
+	if truncated {
+		t.Fatal("4 行不该触发截断")
+	}
+	if got.KPI.Total != 4 || got.KPI.Failed != 1 {
+		t.Fatalf("NULL 行没被算进 KPI：%+v", got.KPI)
+	}
+
+	logs, _, err := LoadChatLogs(context.Background(), f)
+	if err != nil {
+		t.Fatalf("LoadChatLogs: %v", err)
+	}
+	assertSameStats(t, f, got, logs)
 }

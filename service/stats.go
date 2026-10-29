@@ -1168,25 +1168,27 @@ func statsLogsQuery(tx *gorm.DB, f StatsFilter) *gorm.DB {
 	return q.Order("created_at DESC").Limit(StatsScanLimit + 1)
 }
 
-// LoadChatLogs 按筛选条件把日志读成切片。
+// LoadChatLogs 按筛选条件把日志读成完整切片（走 GORM 的 Find）。
 //
-// 它现在只是流式读法的一个收集器：**生产路径（ComputeStats）不再走这里**，
-// 因为把整批行物化进切片正是 30 天窗口吃满内存的原因（见 statsLogStream）。
-// 保留它是为了给测试与调用方一个"看得见行"的入口，两边共用同一条 SQL 与
-// 同一个截断判据。
+// **它不在生产路径上**：ComputeStats 走的是 statsLogStream 的逐行直读，因为把
+// 整批行物化进切片正是 30 天窗口吃满内存的原因（见 statsLogStream）。
+//
+// 保留它的理由有两个，都不是"顺手"：
+//  1. 测试与调用方需要"看得见完整行"的入口；
+//  2. 它是**参照实现**——直读 Scan 的列映射与 NULL 口径由它比对（见
+//     TestComputeStatsMatchesAggregatePath：两条路的结果必须逐字段相同）。
+//     所以这里刻意用回 GORM，而不是复用流式读法。
 func LoadChatLogs(ctx context.Context, f StatsFilter) ([]models.ChatLog, bool, error) {
-	stream, err := openStatsLogs(ctx, f)
-	if err != nil {
+	var (
+		logs      []models.ChatLog
+		truncated bool
+	)
+	if err := statsLogsQuery(models.DB.WithContext(ctx), f).Find(&logs).Error; err != nil {
 		return nil, false, err
 	}
-	// 不再按上限预分配：那等于照着上限占内存
-	var logs []models.ChatLog
-	for l, ok := stream.next(); ok; l, ok = stream.next() {
-		logs = append(logs, l)
-	}
-	truncated, err := stream.close()
-	if err != nil {
-		return nil, false, err
+	if len(logs) > StatsScanLimit {
+		truncated = true
+		logs = logs[:StatsScanLimit]
 	}
 	return logs, truncated, nil
 }

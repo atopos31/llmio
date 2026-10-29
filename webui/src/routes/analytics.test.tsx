@@ -586,3 +586,52 @@ describe("分析页 · 提供商×模型联合用量", () => {
     expect(screen.queryByRole("rowheader")).not.toBeInTheDocument()
   })
 })
+
+/**
+ * 取数的生命周期。
+ *
+ * 分析页在慢库上一次要几十秒，所以"哪个结果落到页面上"必须由**最后一次用户
+ * 意图**决定，而不是"最后一个回来的响应"。
+ */
+describe("分析页 · 取数生命周期", () => {
+  it("无关重渲染不会重复取数", async () => {
+    const { rerender } = renderPage()
+    await waitFor(() => expect(mocked.getStats).toHaveBeenCalledTimes(1))
+
+    rerender(
+      <MemoryRouter>
+        <AnalyticsPage />
+      </MemoryRouter>
+    )
+    // 给"依赖身份不稳导致的第二次取数"留出触发窗口
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(mocked.getStats).toHaveBeenCalledTimes(1)
+  })
+
+  it("换范围时取消上一笔，旧响应不会盖掉新结果", async () => {
+    let releaseFirst: (value: StatsResult) => void = () => {}
+    mocked.getStats.mockImplementationOnce(
+      () =>
+        new Promise<StatsResult>((resolve) => {
+          releaseFirst = resolve
+        })
+    )
+    const user = userEvent.setup()
+    renderPage()
+
+    await waitFor(() => expect(mocked.getStats).toHaveBeenCalledTimes(1))
+    const firstSignal = mocked.getStats.mock.calls[0][1] as AbortSignal | undefined
+    expect(firstSignal?.aborted).toBe(false)
+
+    await user.click(screen.getByRole("radio", { name: "近 7 天" }))
+    await waitFor(() => expect(mocked.getStats.mock.calls.length).toBeGreaterThan(1))
+
+    // 新的取数一开始，上一笔就被掐掉——旧结果不再有机会覆盖新结果
+    expect(firstSignal?.aborted).toBe(true)
+
+    // 被掐掉的那一笔即便晚到也无效：页面不该因此变成错误态，也不该显示它的数字
+    releaseFirst(fixture({ kpi: { ...fixture().kpi, total: 999 } }))
+    await waitFor(() => expect(screen.queryByText("数据加载失败")).not.toBeInTheDocument())
+    expect(screen.queryByText("999")).not.toBeInTheDocument()
+  })
+})

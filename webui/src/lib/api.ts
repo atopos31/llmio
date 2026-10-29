@@ -616,13 +616,20 @@ export interface StatsQuery {
   key_id?: string;
 }
 
-export async function getStats(query: StatsQuery = {}): Promise<StatsResult> {
+/**
+ * 分析聚合。
+ *
+ * `signal` 用来取消在途请求：分析页在慢库上一次要几十秒，用户改完筛选后，
+ * 上一笔的结果晚到会把新结果盖掉（数字看起来"闪一下又变回去"）。
+ * 取消是正常流程，调用方不要把 AbortError 当失败展示。
+ */
+export async function getStats(query: StatsQuery = {}, signal?: AbortSignal): Promise<StatsResult> {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query)) {
     if (value !== undefined && value !== null && value !== "") params.append(key, value);
   }
   const qs = params.toString();
-  return apiRequest<StatsResult>(`/metrics/stats${qs ? `?${qs}` : ""}`);
+  return apiRequest<StatsResult>(`/metrics/stats${qs ? `?${qs}` : ""}`, { signal });
 }
 
 export async function getStatsGranularities(): Promise<string[]> {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { AlertTriangle } from "lucide-react"
 import { toast } from "sonner"
@@ -41,6 +41,19 @@ import {
   type StatsResult,
 } from "@/lib/api"
 import { compactNumber, formatCost, formatNumber, formatPercent } from "@/lib/format"
+
+/**
+ * 判断一个错误是不是"请求被主动取消"。
+ *
+ * fetch 被 AbortController 取消时抛的是 `AbortError`。不同运行时给的类型不一样
+ * （浏览器是 DOMException，测试环境里往往只是个带 name 的对象），所以只认 name，
+ * 不认构造器。
+ */
+function isAbortError(err: unknown): boolean {
+  return (
+    typeof err === "object" && err !== null && (err as { name?: string }).name === "AbortError"
+  )
+}
 
 /**
  * 分析页。
@@ -96,6 +109,26 @@ export default function AnalyticsPage() {
   const hasFilter = activeFilterCount(filter) > 0
   const customError = preset === "custom" ? customRangeError(customFrom, customTo) : null
 
+  /**
+   * 取数用的翻译函数走 ref，不进 `load` 的依赖。
+   *
+   * `t` 的身份由 i18n 决定，不是"用户换了筛选"。把它写进依赖里，任何一次
+   * 语言/命名空间重载都会让 `load` 换新身份、effect 跟着重跑——在慢库上就是
+   * 凭空多出一次几十秒的统计请求。历史上那两条相隔 3 秒、参数几乎相同的
+   * `/api/metrics/stats` 就是这么来的。
+   */
+  const tRef = useRef(t)
+  tRef.current = t
+
+  /**
+   * 在途请求。新的取数一开始就掐掉上一笔。
+   *
+   * 分析页在慢库上一次要几十秒：不掐的话，用户改完筛选后旧响应会盖掉新结果，
+   * 数字看起来"闪一下又变回去"；而且两个几十秒的读事务叠在一起还会一起拖住
+   * 写入（回滚日志模式读挡写）。
+   */
+  const inflight = useRef<AbortController | null>(null)
+
   const load = useCallback(
     async (silent = false) => {
       // 自定义范围还没填完或前后颠倒时**不发请求、也不清空**：正在编辑的半截
@@ -108,30 +141,45 @@ export default function AnalyticsPage() {
         return
       }
 
+      inflight.current?.abort()
+      const ac = new AbortController()
+      inflight.current = ac
+
       if (!silent) setLoading(true)
       try {
         const rangeOnly = buildStatsQuery({ ...span, granularity, filter: EMPTY_FILTER })
         const filtered = buildStatsQuery({ ...span, granularity, filter })
         const [data, base] = hasFilter
-          ? await Promise.all([getStats(filtered), getStats(rangeOnly)])
-          : [await getStats(filtered), null]
+          ? await Promise.all([getStats(filtered, ac.signal), getStats(rangeOnly, ac.signal)])
+          : [await getStats(filtered, ac.signal), null]
+        // 被取代的那一笔直接丢弃：它的数据对应的是一个已经不成立的筛选
+        if (ac.signal.aborted) return
         setStats(data)
         setUniverse(base)
         setError(null)
       } catch (err) {
+        // 主动取消不是失败：既不置错误态，也不弹提示
+        if (ac.signal.aborted || isAbortError(err)) return
         const message = err instanceof Error ? err.message : String(err)
         setError(message)
-        toast.error(t("analytics:load_failed", { message }))
+        toast.error(tRef.current("analytics:load_failed", { message }))
       } finally {
-        setLoading(false)
+        // 只有"还是我这一笔"才收尾：否则会把后来那笔的 loading 提前关掉
+        if (inflight.current === ac) {
+          inflight.current = null
+          setLoading(false)
+        }
       }
     },
-    [preset, customFrom, customTo, granularity, filter, hasFilter, t]
+    [preset, customFrom, customTo, granularity, filter, hasFilter]
   )
 
   useEffect(() => {
     void load()
   }, [load])
+
+  // 离开页面时掐掉在途请求：慢库上那一笔会一直挂着读事务
+  useEffect(() => () => inflight.current?.abort(), [])
 
   // 档位列表来自服务端（`service.BucketGranularities` 是档位的唯一真相来源）。
   // 拿不到时**不退回本地写死的一份**——那会造出第二份真相来源，在服务端改档位后

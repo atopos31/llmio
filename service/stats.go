@@ -554,6 +554,24 @@ func Aggregate(logs []models.ChatLog, f StatsFilter) StatsResult {
 // AggregateWithBucket 与 Aggregate 相同，但显式指定分桶宽度，
 // 便于测试与复用（调用方已解析过档位时避免重复解析）。
 func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Duration) StatsResult {
+	i := 0
+	return aggregateWithBucketIter(f, bucket, func() (models.ChatLog, bool) {
+		if i >= len(logs) {
+			return models.ChatLog{}, false
+		}
+		l := logs[i]
+		i++
+		return l, true
+	})
+}
+
+// aggregateWithBucketIter 就是原来那个 AggregateWithBucket，只把"行的来源"从
+// 切片换成了迭代器。
+//
+// 换成迭代器是为了让 30 天窗口不再一次把 9 万行（实测 51.7 MiB）读进内存：
+// 聚合本来就是单次遍历，喂一行算一行即可，常驻堆因此与窗口行数无关。
+// 语义零变化——同一份循环体，同一套口径，切片版只是把迭代器包在了切片上。
+func aggregateWithBucketIter(f StatsFilter, bucket time.Duration, next statsLogIter) StatsResult {
 	res := StatsResult{
 		GeneratedAt:     time.Now().UnixMilli(),
 		BucketMs:        bucket.Milliseconds(),
@@ -596,7 +614,7 @@ func AggregateWithBucket(logs []models.ChatLog, f StatsFilter, bucket time.Durat
 		leaderRecentErr []LogRow
 	)
 
-	for _, l := range logs {
+	for l, ok := next(); ok; l, ok = next() {
 		if !f.match(l) {
 			continue
 		}
@@ -1150,29 +1168,45 @@ func statsLogsQuery(tx *gorm.DB, f StatsFilter) *gorm.DB {
 	return q.Order("created_at DESC").Limit(StatsScanLimit + 1)
 }
 
-// LoadChatLogs 按筛选条件加载日志。这是本文件唯一触碰数据库的函数。
+// LoadChatLogs 按筛选条件把日志读成切片。
+//
+// 它现在只是流式读法的一个收集器：**生产路径（ComputeStats）不再走这里**，
+// 因为把整批行物化进切片正是 30 天窗口吃满内存的原因（见 statsLogStream）。
+// 保留它是为了给测试与调用方一个"看得见行"的入口，两边共用同一条 SQL 与
+// 同一个截断判据。
 func LoadChatLogs(ctx context.Context, f StatsFilter) ([]models.ChatLog, bool, error) {
-	var (
-		logs      []models.ChatLog
-		truncated bool
-	)
-	if err := statsLogsQuery(models.DB.WithContext(ctx), f).Find(&logs).Error; err != nil {
+	stream, err := openStatsLogs(ctx, f)
+	if err != nil {
 		return nil, false, err
 	}
-	if len(logs) > StatsScanLimit {
-		truncated = true
-		logs = logs[:StatsScanLimit]
+	// 不再按上限预分配：那等于照着上限占内存
+	var logs []models.ChatLog
+	for l, ok := stream.next(); ok; l, ok = stream.next() {
+		logs = append(logs, l)
+	}
+	truncated, err := stream.close()
+	if err != nil {
+		return nil, false, err
 	}
 	return logs, truncated, nil
 }
 
-// ComputeStats 加载并聚合。供 handler 直接调用。
+// ComputeStats 聚合分析数据。供 handler 直接调用。
+//
+// 行是**流式读进来**的：读一行算一行，全程不持有整批。所以内存占用只与
+// 分组数、分位样本和排行榜有关，与窗口里有多少行无关——30 天窗口与 1 小时
+// 窗口的常驻堆是同一个量级。
 func ComputeStats(ctx context.Context, f StatsFilter) (*StatsResult, bool, error) {
-	logs, truncated, err := LoadChatLogs(ctx, f)
+	stream, err := openStatsLogs(ctx, f)
 	if err != nil {
 		return nil, false, err
 	}
-	res := Aggregate(logs, f)
+	bucket, _ := ResolveBucket(f.Granularity, f.To.Sub(f.From))
+	res := aggregateWithBucketIter(f, bucket, stream.next)
+	truncated, err := stream.close()
+	if err != nil {
+		return nil, false, err
+	}
 	res.Truncated = truncated
 	fillTrendWindow(&res, f)
 	resolveKeyGroups(ctx, &res)

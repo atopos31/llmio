@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="920" viewBox="0 0 1360 920" role="img" aria-labelledby="title desc">
+  <title id="title">LLMIO 请求处理流程</title>
+  <desc id="desc">请求依次经过鉴权、解析、关联过滤、候选池、调度、构造上游请求与发送；右侧列出失败重试、备用关联与参数自愈规则。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94A3B8"/>
+    </marker>
+    <style>
+      .bg { fill: #FFFFFF; }
+      .card { fill: #FFFFFF; stroke: #CBD5E1; stroke-width: 1.2; }
+      .accent { fill: #FFF7ED; stroke: #FDBA74; stroke-width: 1.5; }
+      .rule { fill: #F8FAFC; stroke: #E2E8F0; stroke-width: 1.2; }
+      .title { font: 700 26px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #0F172A; }
+      .subtitle { font: 400 13px/1.4 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #64748B; }
+      .box-title { font: 600 15px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #0F172A; }
+      .box-sub { font: 400 12px/1.5 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #64748B; }
+      .panel-title { font: 700 17px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #0F172A; }
+      .rule-title { font: 600 13.5px/1.3 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #0F172A; }
+      .rule-text { font: 400 11.5px/1.5 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #475569; }
+      .num { font: 700 13px/1 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #C2410C; }
+      .arrow { fill: none; stroke: #94A3B8; stroke-width: 1.8; marker-end: url(#arrow); }
+      .dash { fill: none; stroke: #94A3B8; stroke-width: 1.6; stroke-dasharray: 6 5; marker-end: url(#arrow); }
+      .tag { font: 500 11px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #9A3412; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1360" height="920"/>
+  <text class="title" x="40" y="52">请求处理流程</text>
+  <text class="subtitle" x="40" y="78">一次聊天请求从进入网关到写回响应的路径</text>
+
+  <!-- Main flow -->
+  <rect class="card" x="60" y="118" width="540" height="72" rx="12"/>
+  <circle cx="92" cy="154" r="14" fill="#FFF7ED" stroke="#FDBA74"/>
+  <text class="num" x="92" y="159" text-anchor="middle">1</text>
+  <text class="box-title" x="120" y="149">客户端请求</text>
+  <text class="box-sub" x="120" y="171">OpenAI / Anthropic / Gemini 协议的 HTTP 或 SSE 请求</text>
+
+  <path class="arrow" d="M 330 190 L 330 224"/>
+  <rect class="card" x="60" y="224" width="540" height="72" rx="12"/>
+  <circle cx="92" cy="260" r="14" fill="#FFF7ED" stroke="#FDBA74"/>
+  <text class="num" x="92" y="265" text-anchor="middle">2</text>
+  <text class="box-title" x="120" y="255">鉴权</text>
+  <text class="box-sub" x="120" y="277">TOKEN 或 AuthKey；校验启用状态、过期时间与模型权限</text>
+
+  <path class="arrow" d="M 330 296 L 330 330"/>
+  <rect class="card" x="60" y="330" width="540" height="88" rx="12"/>
+  <circle cx="92" cy="366" r="14" fill="#FFF7ED" stroke="#FDBA74"/>
+  <text class="num" x="92" y="371" text-anchor="middle">3</text>
+  <text class="box-title" x="120" y="361">解析请求</text>
+  <text class="box-sub" x="120" y="383">提取模型名、流式开关、工具调用、结构化输出、视觉与 session_id</text>
+  <text class="box-sub" x="120" y="403">推导会话键：请求体 → 入站会话头 → 对话根哈希 → 随机串</text>
+
+  <path class="arrow" d="M 330 418 L 330 452"/>
+  <rect class="card" x="60" y="452" width="540" height="88" rx="12"/>
+  <circle cx="92" cy="488" r="14" fill="#FFF7ED" stroke="#FDBA74"/>
+  <text class="num" x="92" y="493" text-anchor="middle">4</text>
+  <text class="box-title" x="120" y="483">查询模型与关联</text>
+  <text class="box-sub" x="120" y="505">只保留已启用的关联；按工具调用、结构化输出、视觉能力过滤</text>
+  <text class="box-sub" x="120" y="525">按客户端协议选择可服务的上游类型，并应用「优先匹配相同协议」</text>
+
+  <path class="arrow" d="M 330 540 L 330 574"/>
+  <rect class="card" x="60" y="574" width="540" height="80" rx="12"/>
+  <circle cx="92" cy="610" r="14" fill="#FFF7ED" stroke="#FDBA74"/>
+  <text class="num" x="92" y="615" text-anchor="middle">5</text>
+  <text class="box-title" x="120" y="605">建立候选池</text>
+  <text class="box-sub" x="120" y="627">主关联与备用关联分成两个独立池；同协议优先时只保留本协议候选</text>
+
+  <path class="arrow" d="M 330 654 L 330 688"/>
+  <rect class="card" x="60" y="688" width="540" height="80" rx="12"/>
+  <circle cx="92" cy="724" r="14" fill="#FFF7ED" stroke="#FDBA74"/>
+  <text class="num" x="92" y="729" text-anchor="middle">6</text>
+  <text class="box-title" x="120" y="719">取出一条关联</text>
+  <text class="box-sub" x="120" y="741">Lottery 按权重随机；Rotor 按权重排序并固定队首；可叠加熔断包装</text>
+
+  <path class="arrow" d="M 330 768 L 330 802"/>
+  <rect class="accent" x="60" y="802" width="540" height="80" rx="12"/>
+  <circle cx="92" cy="838" r="14" fill="#FFFFFF" stroke="#FDBA74"/>
+  <text class="num" x="92" y="843" text-anchor="middle">7</text>
+  <text class="box-title" x="120" y="833">构造并发送上游请求</text>
+  <text class="box-sub" x="120" y="855">合并请求头、注入 extra_body、按需协议互转，然后写回响应与日志</text>
+
+  <!-- Right rules -->
+  <text class="panel-title" x="700" y="132">失败与重试规则</text>
+  <text class="rule-text" x="700" y="154">规则按顺序判断；每次尝试都会留下记录。</text>
+
+  <rect class="rule" x="700" y="176" width="620" height="96" rx="10"/>
+  <rect x="700" y="176" width="5" height="96" rx="2.5" fill="#C2410C"/>
+  <text class="rule-title" x="724" y="202">400 / 422 且上游点名了参数</text>
+  <text class="rule-text" x="724" y="225">从实发请求体中删除该参数，同一家上游立即重发。</text>
+  <text class="rule-text" x="724" y="245">每家最多删除 3 个参数；model、messages、stream、tools 等保护字段不删。</text>
+  <text class="tag" x="724" y="263">成功后在 bridge_notes 记 self_heal_dropped:参数名</text>
+
+  <rect class="rule" x="700" y="288" width="620" height="82" rx="10"/>
+  <rect x="700" y="288" width="5" height="82" rx="2.5" fill="#D97706"/>
+  <text class="rule-title" x="724" y="314">429 Too Many Requests</text>
+  <text class="rule-text" x="724" y="337">该关联的权重减去当前值的 1/3（整数除法），仍留在本轮候选中继续消耗重试次数。</text>
+  <text class="rule-text" x="724" y="357">不触发熔断的移出逻辑。</text>
+
+  <rect class="rule" x="700" y="386" width="620" height="82" rx="10"/>
+  <rect x="700" y="386" width="5" height="82" rx="2.5" fill="#DC2626"/>
+  <text class="rule-title" x="724" y="412">其他 4xx / 5xx / 网络错误</text>
+  <text class="rule-text" x="724" y="435">把该关联移出本次候选；开启熔断时计入失败次数。</text>
+  <text class="rule-text" x="724" y="455">客户端主动断开单独归因，不当作上游故障。</text>
+
+  <rect class="rule" x="700" y="484" width="620" height="82" rx="10"/>
+  <rect x="700" y="484" width="5" height="82" rx="2.5" fill="#2563EB"/>
+  <text class="rule-title" x="724" y="510">主关联池耗尽</text>
+  <text class="rule-text" x="724" y="533">切换到备用关联池；备用池只在主池清空后启用，接管后不回切。</text>
+  <text class="rule-text" x="724" y="553">日志的 Backup 字段标记本次响应是否由备用关联提供。</text>
+
+  <rect class="rule" x="700" y="582" width="620" height="82" rx="10"/>
+  <rect x="700" y="582" width="5" height="82" rx="2.5" fill="#475569"/>
+  <text class="rule-title" x="724" y="608">重试次数用尽</text>
+  <text class="rule-text" x="724" y="631">返回最后一次失败的真实原因；上游错误体截断到 500 字符。</text>
+  <text class="rule-text" x="724" y="651">终态错误会带上 TraceID 与备用池是否也已耗尽。</text>
+
+  <rect class="card" x="700" y="690" width="620" height="96" rx="10"/>
+  <text class="rule-title" x="724" y="716">记录</text>
+  <text class="rule-text" x="724" y="739">每次尝试写一条失败记录；最终结果写一条成功或错误记录。</text>
+  <text class="rule-text" x="724" y="759">TraceID、延迟分解、Token 与价格快照随正式日志落库；请求/响应正文由密钥的 IO 开关决定。</text>
+
+  <path class="dash" d="M 600 842 L 680 842 L 680 728 L 700 728"/>
+  <text class="tag" x="604" y="832">失败</text>
+  <path class="dash" d="M 700 650 L 670 650 L 670 728 L 600 728"/>
+  <rect x="604" y="628" width="92" height="18" rx="4" fill="#FFFFFF"/>
+  <text class="tag" x="608" y="641">换下一家或重发</text>
+
+  <text class="rule-text" x="700" y="846">熔断状态：Closed →（累计 5 次失败）→ Open（60 秒）→ HalfOpen →（连续 2 次成功）→ Closed。</text>
+  <text class="rule-text" x="700" y="870">Open 期间该关联不参与取号；HalfOpen 期间允许探测，任何一次失败都会重新回到 Open。</text>
+</svg>

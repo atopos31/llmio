@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="760" viewBox="0 0 1240 760" role="img" aria-labelledby="title desc">
+  <title id="title">LLMIO 数据模型</title>
+  <desc id="desc">提供商、模型、模型与提供商的关联、访问密钥、请求日志与请求正文之间的关系。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94A3B8"/>
+    </marker>
+    <style>
+      .bg { fill: #FFFFFF; }
+      .entity { fill: #FFFFFF; stroke: #CBD5E1; stroke-width: 1.3; }
+      .entity-head { fill: #F8FAFC; stroke: #CBD5E1; stroke-width: 1.3; }
+      .title { font: 700 26px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #0F172A; }
+      .subtitle { font: 400 13px/1.4 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #64748B; }
+      .name { font: 700 14px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #0F172A; }
+      .field { font: 400 11.5px/1.55 "SFMono-Regular", Consolas, "Liberation Mono", monospace; fill: #475569; }
+      .note { font: 400 11.5px/1.5 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #475569; }
+      .rel { font: 500 11px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #9A3412; }
+      .arrow { fill: none; stroke: #94A3B8; stroke-width: 1.7; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1240" height="760"/>
+  <text class="title" x="40" y="52">数据模型</text>
+  <text class="subtitle" x="40" y="78">配置对象、访问密钥与请求日志之间的关系</text>
+
+  <!-- Model -->
+  <rect class="entity" x="45" y="130" width="310" height="214" rx="12"/>
+  <path class="entity-head" d="M 45 142 Q 45 130 57 130 L 343 130 Q 355 130 355 142 L 355 168 L 45 168 Z"/>
+  <text class="name" x="65" y="156">Model（请求名）</text>
+  <text class="field" x="65" y="192">ID</text>
+  <text class="field" x="65" y="212">Name  ← 客户端请求里的 model</text>
+  <text class="field" x="65" y="232">Remark</text>
+  <text class="field" x="65" y="252">MaxRetry / TimeOut</text>
+  <text class="field" x="65" y="272">Strategy / Breaker</text>
+  <text class="field" x="65" y="292">PreferDirect</text>
+  <text class="field" x="65" y="312">DisplayOrder</text>
+
+  <!-- Association -->
+  <rect class="entity" x="455" y="112" width="380" height="330" rx="12"/>
+  <path class="entity-head" d="M 455 124 Q 455 112 467 112 L 823 112 Q 835 112 835 124 L 835 150 L 455 150 Z"/>
+  <text class="name" x="475" y="138">ModelWithProvider（关联）</text>
+  <text class="field" x="475" y="176">ID</text>
+  <text class="field" x="475" y="196">ModelID → Model</text>
+  <text class="field" x="475" y="216">ProviderID → Provider</text>
+  <text class="field" x="475" y="236">ProviderModel  发给上游的模型 id</text>
+  <text class="field" x="475" y="256">ToolCall / StructuredOutput / Image</text>
+  <text class="field" x="475" y="276">WithHeader / CustomerHeaders</text>
+  <text class="field" x="475" y="296">ExtraBody</text>
+  <text class="field" x="475" y="316">Weight / Backup / Status</text>
+  <text class="field" x="475" y="336">InputPrice / CacheReadPrice / OutputPrice</text>
+  <text class="field" x="475" y="356">Currency / Peak</text>
+  <text class="note" x="475" y="386">关联把「一个请求名」映射到「一家上游的模型」，</text>
+  <text class="note" x="475" y="404">并承载能力、权重、请求头、价格与峰谷条款。</text>
+
+  <!-- Provider -->
+  <rect class="entity" x="885" y="130" width="310" height="214" rx="12"/>
+  <path class="entity-head" d="M 885 142 Q 885 130 897 130 L 1183 130 Q 1195 130 1195 142 L 1195 168 L 885 168 Z"/>
+  <text class="name" x="905" y="156">Provider（上游）</text>
+  <text class="field" x="905" y="192">ID</text>
+  <text class="field" x="905" y="212">Name</text>
+  <text class="field" x="905" y="232">Type  openai / openai-res</text>
+  <text class="field" x="905" y="252">      anthropic / gemini</text>
+  <text class="field" x="905" y="272">Config  base_url / api_key / version</text>
+  <text class="field" x="905" y="292">Proxy</text>
+  <text class="field" x="905" y="312">ErrorMatcher / Console</text>
+
+  <!-- AuthKey -->
+  <rect class="entity" x="45" y="470" width="310" height="210" rx="12"/>
+  <path class="entity-head" d="M 45 482 Q 45 470 57 470 L 343 470 Q 355 470 355 482 L 355 508 L 45 508 Z"/>
+  <text class="name" x="65" y="496">AuthKey（访问密钥）</text>
+  <text class="field" x="65" y="532">ID / Name</text>
+  <text class="field" x="65" y="552">Key  sk-llmio-…</text>
+  <text class="field" x="65" y="572">Status / ExpiresAt</text>
+  <text class="field" x="65" y="592">AllowAll / Models[]</text>
+  <text class="field" x="65" y="612">IOLog</text>
+  <text class="field" x="65" y="632">UsageCount / LastUsedAt</text>
+
+  <!-- ChatLog -->
+  <rect class="entity" x="455" y="500" width="380" height="222" rx="12"/>
+  <path class="entity-head" d="M 455 512 Q 455 500 467 500 L 823 500 Q 835 500 835 512 L 835 538 L 455 538 Z"/>
+  <text class="name" x="475" y="526">ChatLog（请求日志）</text>
+  <text class="field" x="475" y="562">CreatedAt / Name / TraceID / SessionID</text>
+  <text class="field" x="475" y="582">ProviderName / ProviderModel</text>
+  <text class="field" x="475" y="602">Status / Style / UpstreamStyle / BridgeNotes</text>
+  <text class="field" x="475" y="622">Retry / Backup / AuthKeyID</text>
+  <text class="field" x="475" y="642">ProxyTime / FirstChunkTime / ChunkTime / TPS</text>
+  <text class="field" x="475" y="662">Tokens / Prices / Currency / PeakPeriod</text>
+  <text class="field" x="475" y="682">Error / Size / RemoteIP / UserAgent</text>
+  <text class="field" x="475" y="702">ChatIO  bool</text>
+
+  <!-- ChatIO -->
+  <rect class="entity" x="885" y="470" width="310" height="150" rx="12"/>
+  <path class="entity-head" d="M 885 482 Q 885 470 897 470 L 1183 470 Q 1195 470 1195 482 L 1195 508 L 885 508 Z"/>
+  <text class="name" x="905" y="496">ChatIO（正文）</text>
+  <text class="field" x="905" y="532">ID / LogID → ChatLog.ID</text>
+  <text class="field" x="905" y="552">Input  请求体</text>
+  <text class="field" x="905" y="572">OfString  非流式响应</text>
+  <text class="field" x="905" y="592">OfStringArray  流式片段</text>
+  <text class="note" x="905" y="616">正文按内容分块压缩后存储</text>
+
+  <!-- Relations -->
+  <path class="arrow" d="M 355 238 L 455 238"/>
+  <text class="rel" x="372" y="228">1 : N</text>
+
+  <path class="arrow" d="M 835 238 L 885 238"/>
+  <text class="rel" x="842" y="228">N : 1</text>
+
+  <path class="arrow" d="M 200 344 L 200 460 L 500 460 L 500 500"/>
+  <text class="rel" x="214" y="452">按 Name 关联历史日志</text>
+
+  <path class="arrow" d="M 355 575 L 455 575"/>
+  <text class="rel" x="372" y="565">1 : N</text>
+
+  <path class="arrow" d="M 835 610 L 885 560"/>
+  <text class="rel" x="838" y="640">1 : 0..1</text>
+
+  <text class="note" x="45" y="724">ChatLog 冗余保存请求名、提供商名与上游模型名。修改或删除配置不会改写历史日志的归属。</text>
+  <text class="note" x="885" y="648">正文压缩后存储；是否存在由 IOLog 决定</text>
+</svg>

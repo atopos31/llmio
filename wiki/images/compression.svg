@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="720" viewBox="0 0 1240 720" role="img" aria-labelledby="title desc">
+  <title id="title">数据库压缩：按内容分块与全局去重</title>
+  <desc id="desc">多轮请求正文先按内容切成块，相同内容在全局块表中只保留一份，每行保存自己的块编号序列；读取时按编号还原原文。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94A3B8"/>
+    </marker>
+    <style>
+      .bg { fill: #FFFFFF; }
+      .group { fill: #F8FAFC; stroke: #E2E8F0; stroke-width: 1.5; }
+      .card { fill: #FFFFFF; stroke: #CBD5E1; stroke-width: 1.2; }
+      .A { fill: #FEF3C7; stroke: #F59E0B; }
+      .B { fill: #DBEAFE; stroke: #3B82F6; }
+      .C { fill: #DCFCE7; stroke: #22C55E; }
+      .D { fill: #FCE7F3; stroke: #EC4899; }
+      .E { fill: #EDE9FE; stroke: #8B5CF6; }
+      .F { fill: #FFE4E6; stroke: #F43F5E; }
+      .title { font: 700 26px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #0F172A; }
+      .subtitle { font: 400 13px/1.4 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #64748B; }
+      .group-title { font: 700 14px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #334155; }
+      .box-title { font: 600 14px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #0F172A; }
+      .box-sub { font: 400 11.5px/1.5 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #64748B; }
+      .block { font: 700 12px/1 Inter, "SFMono-Regular", Consolas, monospace; fill: #334155; }
+      .seq { font: 500 12px/1 "SFMono-Regular", Consolas, monospace; fill: #475569; }
+      .arrow { fill: none; stroke: #94A3B8; stroke-width: 1.8; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1240" height="720"/>
+  <text class="title" x="40" y="52">数据库压缩：按内容分块与全局去重</text>
+  <text class="subtitle" x="40" y="78">同一段内容只保留一份；每行保存自己的块编号序列</text>
+
+  <!-- Rows -->
+  <rect class="group" x="40" y="112" width="420" height="328" rx="14"/>
+  <text class="group-title" x="60" y="142">请求正文（按轮次重复）</text>
+  <text class="box-sub" x="60" y="162">编码类客户端每轮都会重发整段对话历史</text>
+
+  <rect class="card" x="60" y="184" width="380" height="62" rx="9"/>
+  <text class="box-sub" x="74" y="204">第 1 轮</text>
+  <rect class="A" x="74" y="216" width="66" height="20" rx="4"/><text class="block" x="107" y="230" text-anchor="middle">A</text>
+  <rect class="B" x="150" y="216" width="66" height="20" rx="4"/><text class="block" x="183" y="230" text-anchor="middle">B</text>
+  <rect class="C" x="226" y="216" width="66" height="20" rx="4"/><text class="block" x="259" y="230" text-anchor="middle">C</text>
+  <rect class="D" x="302" y="216" width="66" height="20" rx="4"/><text class="block" x="335" y="230" text-anchor="middle">D</text>
+
+  <rect class="card" x="60" y="258" width="380" height="62" rx="9"/>
+  <text class="box-sub" x="74" y="278">第 2 轮</text>
+  <rect class="A" x="74" y="290" width="66" height="20" rx="4"/><text class="block" x="107" y="304" text-anchor="middle">A</text>
+  <rect class="B" x="150" y="290" width="66" height="20" rx="4"/><text class="block" x="183" y="304" text-anchor="middle">B</text>
+  <rect class="C" x="226" y="290" width="66" height="20" rx="4"/><text class="block" x="259" y="304" text-anchor="middle">C</text>
+  <rect class="E" x="302" y="290" width="66" height="20" rx="4"/><text class="block" x="335" y="304" text-anchor="middle">E</text>
+
+  <rect class="card" x="60" y="332" width="380" height="62" rx="9"/>
+  <text class="box-sub" x="74" y="352">第 3 轮</text>
+  <rect class="A" x="74" y="364" width="66" height="20" rx="4"/><text class="block" x="107" y="378" text-anchor="middle">A</text>
+  <rect class="B" x="150" y="364" width="66" height="20" rx="4"/><text class="block" x="183" y="378" text-anchor="middle">B</text>
+  <rect class="F" x="226" y="364" width="66" height="20" rx="4"/><text class="block" x="259" y="378" text-anchor="middle">F</text>
+  <rect class="D" x="302" y="364" width="66" height="20" rx="4"/><text class="block" x="335" y="378" text-anchor="middle">D</text>
+
+  <text class="box-sub" x="60" y="420">相同颜色代表内容相同的块</text>
+
+  <!-- Chunker -->
+  <rect class="group" x="500" y="112" width="300" height="328" rx="14"/>
+  <text class="group-title" x="520" y="142">按内容分块</text>
+  <text class="box-sub" x="520" y="162">FastCDC 滚动哈希，平均 4 KiB 一块</text>
+
+  <rect class="A" x="520" y="184" width="260" height="42" rx="8"/>
+  <text class="box-title" x="538" y="210">块 A · 只存一份</text>
+  <rect class="B" x="520" y="238" width="260" height="42" rx="8"/>
+  <text class="box-title" x="538" y="264">块 B · 只存一份</text>
+  <rect class="C" x="520" y="292" width="260" height="42" rx="8"/>
+  <text class="box-title" x="538" y="318">块 C · 只存一份</text>
+  <rect class="D" x="520" y="346" width="260" height="42" rx="8"/>
+  <text class="box-title" x="538" y="372">块 D / E / F · 只存一份</text>
+  <text class="box-sub" x="520" y="414">内容相同 → 命中同一个块编号</text>
+
+  <!-- Block table and row index -->
+  <rect class="group" x="840" y="112" width="360" height="328" rx="14"/>
+  <text class="group-title" x="860" y="142">全局块表 + 行索引</text>
+  <text class="box-sub" x="860" y="162">块按 256 KiB 组成组，每组一个压缩帧</text>
+
+  <rect class="card" x="860" y="184" width="320" height="112" rx="9"/>
+  <text class="box-title" x="878" y="208">全局块表</text>
+  <rect class="A" x="878" y="220" width="44" height="24" rx="4"/><text class="block" x="900" y="236" text-anchor="middle">A</text>
+  <rect class="B" x="930" y="220" width="44" height="24" rx="4"/><text class="block" x="952" y="236" text-anchor="middle">B</text>
+  <rect class="C" x="982" y="220" width="44" height="24" rx="4"/><text class="block" x="1004" y="236" text-anchor="middle">C</text>
+  <rect class="D" x="1034" y="220" width="44" height="24" rx="4"/><text class="block" x="1056" y="236" text-anchor="middle">D</text>
+  <rect class="E" x="1086" y="220" width="44" height="24" rx="4"/><text class="block" x="1108" y="236" text-anchor="middle">E</text>
+  <rect class="F" x="878" y="252" width="44" height="24" rx="4"/><text class="block" x="900" y="268" text-anchor="middle">F</text>
+  <text class="box-sub" x="930" y="268">……相同内容只保留一份</text>
+
+  <rect class="card" x="860" y="314" width="320" height="100" rx="9"/>
+  <text class="box-title" x="878" y="338">每行的块编号</text>
+  <text class="seq" x="878" y="360">第 1 轮：A B C D</text>
+  <text class="seq" x="878" y="380">第 2 轮：A B C E</text>
+  <text class="seq" x="878" y="400">第 3 轮：A B F D</text>
+
+  <path class="arrow" d="M 460 276 L 500 276"/>
+  <path class="arrow" d="M 800 276 L 840 276"/>
+
+  <!-- Read path -->
+  <rect class="card" x="40" y="478" width="1160" height="106" rx="12"/>
+  <text class="box-title" x="62" y="506">读取路径</text>
+  <text class="box-sub" x="62" y="530">行索引 → 全局块表 → 按 256 KiB 组解压 → 拼接块 → 原文逐字节一致</text>
+  <text class="box-sub" x="62" y="552">读取只认帧头；判断不确定时按明文处理。明文与压缩帧可以混装在同一列。</text>
+  <text class="box-sub" x="62" y="574">of_string 与 of_string_array 不进块表，直接使用逐行压缩帧。</text>
+
+  <text class="subtitle" x="40" y="626">压缩比取决于内容重复度。多轮对话的重复越多，块表命中越高。</text>
+  <text class="subtitle" x="40" y="650">迁移在原位置改写历史行，可暂停、可续跑、可回滚为明文。</text>
+</svg>

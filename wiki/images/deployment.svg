@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="660" viewBox="0 0 1240 660" role="img" aria-labelledby="title desc">
+  <title id="title">LLMIO 部署结构</title>
+  <desc id="desc">客户端经反向代理访问 LLMIO 容器，容器把配置与日志写入挂载的本地目录，并访问上游模型服务。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94A3B8"/>
+    </marker>
+    <style>
+      .bg { fill: #FFFFFF; }
+      .card { fill: #FFFFFF; stroke: #CBD5E1; stroke-width: 1.3; }
+      .accent { fill: #FFF7ED; stroke: #FDBA74; stroke-width: 1.6; }
+      .group { fill: #F8FAFC; stroke: #E2E8F0; stroke-width: 1.5; }
+      .title { font: 700 26px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #0F172A; }
+      .subtitle { font: 400 13px/1.4 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #64748B; }
+      .box-title { font: 600 15px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #0F172A; }
+      .box-sub { font: 400 11.5px/1.5 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #64748B; }
+      .label { font: 500 11.5px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #475569; }
+      .arrow { fill: none; stroke: #94A3B8; stroke-width: 1.8; marker-end: url(#arrow); }
+      .dash { fill: none; stroke: #94A3B8; stroke-width: 1.6; stroke-dasharray: 6 5; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1240" height="660"/>
+  <text class="title" x="40" y="52">部署结构</text>
+  <text class="subtitle" x="40" y="78">推荐形态：反向代理 + 单个 LLMIO 容器 + 本地数据卷</text>
+
+  <!-- Client -->
+  <rect class="card" x="50" y="150" width="230" height="120" rx="12"/>
+  <text class="box-title" x="70" y="180">客户端 / 浏览器</text>
+  <text class="box-sub" x="70" y="204">OpenAI SDK · Anthropic SDK</text>
+  <text class="box-sub" x="70" y="224">Gemini SDK · 编码工具</text>
+  <text class="box-sub" x="70" y="248">控制台页面</text>
+
+  <!-- Proxy -->
+  <rect class="card" x="350" y="130" width="250" height="160" rx="12"/>
+  <text class="box-title" x="370" y="160">反向代理</text>
+  <text class="box-sub" x="370" y="184">TLS 终止</text>
+  <text class="box-sub" x="370" y="204">关闭响应缓冲，放行 SSE</text>
+  <text class="box-sub" x="370" y="224">放宽读取超时</text>
+  <text class="box-sub" x="370" y="248">按需限制请求体大小</text>
+  <text class="box-sub" x="370" y="270">外部端口 443</text>
+
+  <!-- Container -->
+  <rect class="accent" x="660" y="110" width="330" height="240" rx="14"/>
+  <text class="box-title" x="682" y="142">LLMIO 容器</text>
+  <text class="box-sub" x="682" y="168">Web 控制台（内嵌静态资源）</text>
+  <text class="box-sub" x="682" y="190">/api 管理接口</text>
+  <text class="box-sub" x="682" y="212">聊天网关与上游适配器</text>
+  <text class="box-sub" x="682" y="234">日志清理 / 压缩 / 回收调度</text>
+  <text class="box-sub" x="682" y="264">监听 0.0.0.0:7070</text>
+  <text class="box-sub" x="682" y="286">环境变量：TOKEN、TZ、GIN_MODE 等</text>
+  <text class="box-sub" x="682" y="316">单个容器即可运行；SQLite 只允许一个进程写入</text>
+
+  <!-- Volume -->
+  <rect class="card" x="660" y="410" width="330" height="120" rx="12"/>
+  <text class="box-title" x="682" y="438">数据卷</text>
+  <text class="box-sub" x="682" y="462">宿主机 ./db → 容器 /app/db</text>
+  <text class="box-sub" x="682" y="484">llmio.db · quota.config.json · llmio.db.bak</text>
+  <text class="box-sub" x="682" y="506">升级或重建容器时保留此目录</text>
+
+  <!-- Upstream -->
+  <rect class="card" x="1040" y="140" width="160" height="190" rx="12"/>
+  <text class="box-title" x="1060" y="170">上游</text>
+  <text class="box-sub" x="1060" y="196">OpenAI</text>
+  <text class="box-sub" x="1060" y="218">Anthropic</text>
+  <text class="box-sub" x="1060" y="240">Gemini</text>
+  <text class="box-sub" x="1060" y="262">OpenAI Responses</text>
+  <text class="box-sub" x="1060" y="284">兼容 base_url</text>
+  <text class="box-sub" x="1060" y="310">HTTPS 出站</text>
+
+  <!-- Optional proxy -->
+  <rect class="card" x="1020" y="410" width="200" height="66" rx="10"/>
+  <text class="box-title" x="1040" y="436">可选 HTTP 代理</text>
+  <text class="box-sub" x="1040" y="458">按提供商配置出口代理</text>
+
+  <!-- Arrows -->
+  <path class="arrow" d="M 280 210 L 350 210"/>
+  <text class="label" x="288" y="198">HTTPS 443</text>
+
+  <path class="arrow" d="M 600 210 L 660 210"/>
+  <text class="label" x="606" y="198">HTTP 7070</text>
+
+  <path class="arrow" d="M 825 350 L 825 410"/>
+  <text class="label" x="834" y="386">挂载</text>
+
+  <path class="arrow" d="M 990 230 L 1040 230"/>
+  <text class="label" x="994" y="218">上游请求</text>
+
+  <path class="dash" d="M 990 300 L 1020 430"/>
+  <text class="label" x="1002" y="360">可选</text>
+
+  <text class="subtitle" x="40" y="590">反向代理与容器可以部署在同一台机器，也可以分开。持久化状态都在数据卷里。</text>
+  <text class="subtitle" x="40" y="614">不要对同一个数据卷启动多个 LLMIO 副本：SQLite 只有一个写入者。</text>
+</svg>

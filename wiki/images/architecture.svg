@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="760" viewBox="0 0 1240 760" role="img" aria-labelledby="title desc">
+  <title id="title">LLMIO 架构</title>
+  <desc id="desc">客户端通过 HTTP 或 SSE 访问 LLMIO 网关，网关完成鉴权、解析、调度、协议互转与日志记录，再访问上游提供商，并将配置与日志写入本地 SQLite。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94A3B8"/>
+    </marker>
+    <style>
+      .bg { fill: #FFFFFF; }
+      .group { fill: #F8FAFC; stroke: #E2E8F0; stroke-width: 1.5; }
+      .card { fill: #FFFFFF; stroke: #CBD5E1; stroke-width: 1.2; }
+      .accent { fill: #FFF7ED; stroke: #FDBA74; stroke-width: 1.5; }
+      .title { font: 700 26px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #0F172A; }
+      .subtitle { font: 400 13px/1.4 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #64748B; }
+      .group-title { font: 700 14px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #334155; }
+      .box-title { font: 600 14px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #0F172A; }
+      .box-sub { font: 400 11.5px/1.4 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #64748B; }
+      .label { font: 500 11.5px/1.2 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #475569; }
+      .tiny { font: 400 10.5px/1.3 Inter, "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif; fill: #64748B; }
+      .arrow { fill: none; stroke: #94A3B8; stroke-width: 1.8; marker-end: url(#arrow); }
+      .dash { fill: none; stroke: #94A3B8; stroke-width: 1.6; stroke-dasharray: 6 5; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1240" height="760"/>
+  <text class="title" x="40" y="52">LLMIO 架构</text>
+  <text class="subtitle" x="40" y="78">客户端、网关、上游与本地存储之间的关系</text>
+
+  <!-- Clients -->
+  <rect class="group" x="40" y="110" width="230" height="416" rx="16"/>
+  <text class="group-title" x="62" y="140">客户端</text>
+  <text class="tiny" x="62" y="158">OpenAI / Anthropic / Gemini 协议</text>
+
+  <rect class="card" x="60" y="176" width="190" height="62" rx="10"/>
+  <text class="box-title" x="76" y="202">OpenAI SDK</text>
+  <text class="box-sub" x="76" y="222">chat/completions · responses</text>
+
+  <rect class="card" x="60" y="250" width="190" height="62" rx="10"/>
+  <text class="box-title" x="76" y="276">Anthropic SDK</text>
+  <text class="box-sub" x="76" y="296">messages · count_tokens</text>
+
+  <rect class="card" x="60" y="324" width="190" height="62" rx="10"/>
+  <text class="box-title" x="76" y="350">Gemini SDK</text>
+  <text class="box-sub" x="76" y="370">generateContent · stream</text>
+
+  <rect class="card" x="60" y="398" width="190" height="62" rx="10"/>
+  <text class="box-title" x="76" y="424">编码工具</text>
+  <text class="box-sub" x="76" y="444">Claude Code · Codex 等</text>
+
+  <rect class="card" x="60" y="470" width="190" height="40" rx="10"/>
+  <text class="tiny" x="76" y="495">Bearer / x-api-key / x-goog-api-key</text>
+
+  <!-- Gateway -->
+  <rect class="group" x="330" y="110" width="560" height="492" rx="16"/>
+  <text class="group-title" x="352" y="140">LLMIO 网关（单二进制）</text>
+  <text class="tiny" x="352" y="158">控制台静态资源、REST API 与后台调度同进程运行</text>
+
+  <rect class="card" x="350" y="176" width="160" height="62" rx="10"/>
+  <text class="box-title" x="366" y="202">鉴权</text>
+  <text class="box-sub" x="366" y="222">TOKEN / AuthKey</text>
+
+  <rect class="card" x="525" y="176" width="160" height="62" rx="10"/>
+  <text class="box-title" x="541" y="202">请求解析</text>
+  <text class="box-sub" x="541" y="222">协议 · 能力 · 会话键</text>
+
+  <rect class="card" x="700" y="176" width="170" height="62" rx="10"/>
+  <text class="box-title" x="716" y="202">模型与关联</text>
+  <text class="box-sub" x="716" y="222">能力过滤 · 候选池</text>
+
+  <rect class="accent" x="350" y="258" width="520" height="92" rx="12"/>
+  <text class="box-title" x="370" y="286">调度与失败处理</text>
+  <text class="box-sub" x="370" y="308">Lottery / Rotor · 熔断 · 重试 · 备用关联 · 参数自愈</text>
+  <text class="box-sub" x="370" y="328">429 降权，其他失败移出本次候选；主池耗尽后备用池接管</text>
+
+  <rect class="card" x="350" y="370" width="250" height="76" rx="10"/>
+  <text class="box-title" x="366" y="396">协议互转</text>
+  <text class="box-sub" x="366" y="418">OpenAI ⇄ Anthropic，含流式事件</text>
+  <text class="box-sub" x="366" y="436">同协议时原样转发</text>
+
+  <rect class="card" x="620" y="370" width="250" height="76" rx="10"/>
+  <text class="box-title" x="636" y="396">日志与计费</text>
+  <text class="box-sub" x="636" y="418">TraceID · 延迟 · Token · 成本快照</text>
+  <text class="box-sub" x="636" y="436">ChatLog / ChatIO 异步落库</text>
+
+  <rect class="card" x="350" y="466" width="520" height="112" rx="10"/>
+  <text class="box-title" x="366" y="492">控制台</text>
+  <text class="box-sub" x="366" y="514">总览 · 分析 · 请求日志 · 请求对比 · 套餐余量</text>
+  <text class="box-sub" x="366" y="534">提供商 · 模型 · 密钥 · 系统配置 · 快速开发</text>
+  <text class="tiny" x="366" y="558">同一个端口提供页面与 /api 管理接口，默认 7070</text>
+
+  <!-- Upstreams -->
+  <rect class="group" x="930" y="110" width="270" height="416" rx="16"/>
+  <text class="group-title" x="952" y="140">上游提供商</text>
+  <text class="tiny" x="952" y="158">按关联行的提供商类型选择适配器</text>
+
+  <rect class="card" x="950" y="176" width="230" height="58" rx="10"/>
+  <text class="box-title" x="966" y="200">OpenAI / 兼容</text>
+  <text class="box-sub" x="966" y="220">base_url + api_key</text>
+
+  <rect class="card" x="950" y="246" width="230" height="58" rx="10"/>
+  <text class="box-title" x="966" y="270">Anthropic</text>
+  <text class="box-sub" x="966" y="290">base_url + api_key + version</text>
+
+  <rect class="card" x="950" y="316" width="230" height="58" rx="10"/>
+  <text class="box-title" x="966" y="340">Gemini</text>
+  <text class="box-sub" x="966" y="360">base_url + api_key</text>
+
+  <rect class="card" x="950" y="386" width="230" height="58" rx="10"/>
+  <text class="box-title" x="966" y="410">OpenAI Responses</text>
+  <text class="box-sub" x="966" y="430">base_url + api_key</text>
+
+  <rect class="card" x="950" y="456" width="230" height="44" rx="10"/>
+  <text class="tiny" x="966" y="482">可选 HTTP 代理；请求头在关联行配置</text>
+
+  <!-- Storage -->
+  <rect class="group" x="40" y="628" width="1160" height="100" rx="16"/>
+  <text class="group-title" x="62" y="656">本地持久化与运维资产</text>
+  <rect class="card" x="62" y="670" width="300" height="42" rx="8"/>
+  <text class="box-title" x="78" y="696">SQLite：db/llmio.db</text>
+  <rect class="card" x="382" y="670" width="250" height="42" rx="8"/>
+  <text class="box-title" x="398" y="696">配额配置：db/quota.config.json</text>
+  <rect class="card" x="652" y="670" width="250" height="42" rx="8"/>
+  <text class="box-title" x="668" y="696">备份：db/llmio.db.bak</text>
+  <rect class="card" x="922" y="670" width="256" height="42" rx="8"/>
+  <text class="box-title" x="938" y="696">容器卷：./db → /app/db</text>
+
+  <!-- Arrows -->
+  <path class="arrow" d="M 270 318 L 330 318"/>
+  <text class="label" x="274" y="306">HTTP / SSE</text>
+
+  <path class="arrow" d="M 890 318 L 930 318"/>
+  <text class="label" x="894" y="306">上游请求</text>
+
+  <path class="arrow" d="M 610 602 L 610 628"/>
+  <text class="label" x="618" y="620">读写</text>
+
+</svg>

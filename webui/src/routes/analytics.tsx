@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle } from "lucide-react"
+import { AlertTriangle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { CostTrendChart, RequestTrendChart, TokenTrendChart } from "@/components/charts/trend-charts"
 import { Panel } from "@/components/panel"
 import { EmptyState, ErrorState } from "@/components/state-views"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { FilterRow, type FilterOption, type FilterOptions, type RangeKey } from "@/routes/analytics-filters"
@@ -49,6 +50,15 @@ import { compactNumber, formatCost, formatNumber, formatPercent } from "@/lib/fo
  * （浏览器是 DOMException，测试环境里往往只是个带 name 的对象），所以只认 name，
  * 不认构造器。
  */
+/** 取数的三个可见阶段：首屏（无数据）、刷新（有旧数据）、空闲。 */
+type LoadPhase = "loading" | "refreshing" | "idle"
+
+/** 结果缓存有效期。慢库上"刚才看过的那一屏"不该因为切走再切回就消失。 */
+const cacheTTL = 60_000
+
+/** 超过这个秒数才提示"可以先缩小范围"——短请求闪一下提示反而更烦。 */
+const slowHintAfterSec = 10
+
 function isAbortError(err: unknown): boolean {
   return (
     typeof err === "object" && err !== null && (err as { name?: string }).name === "AbortError"
@@ -103,11 +113,45 @@ export default function AnalyticsPage() {
    */
   const [universe, setUniverse] = useState<StatsResult | null>(null)
   const [authKeys, setAuthKeys] = useState<AuthKeyItem[]>([])
-  const [loading, setLoading] = useState(true)
+  /**
+   * 取数的三个阶段。
+   *
+   * `refreshing` 与 `loading` 分开，是因为它们的**界面表现完全不同**：首屏没有
+   * 数据可看，只能给骨架和进度；刷新时旧数据还在，就不该把整页打成空白。
+   * 慢库上一次要几十秒，这个区别是"能用"和"看着像卡死"的区别。
+   */
+  const [phase, setPhase] = useState<LoadPhase>("loading")
+  /** 本次取数的起点，用来算已用时间；null 表示没在取数 */
+  const [startedAt, setStartedAt] = useState<number | null>(null)
+  const [elapsedSec, setElapsedSec] = useState(0)
+  /**
+   * 用户主动取消了取数。
+   *
+   * 必须与"查了但没有数据"区分开：取消之后数据压根没取回来，此时说
+   * 「所选范围内没有请求」是在撒谎，还会把人引去改时间范围/清筛选——
+   * 而真正该做的是重新加载。
+   */
+  const [canceled, setCanceled] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const hasFilter = activeFilterCount(filter) > 0
   const customError = preset === "custom" ? customRangeError(customFrom, customTo) : null
+
+  /**
+   * 已用时间只在取数期间跳动。
+   *
+   * 慢窗口下"转圈"不提供任何信息，而"已用 12 秒"至少让人知道它还在动、
+   * 大概还要一会儿。
+   */
+  useEffect(() => {
+    if (phase === "idle") return
+    const t0 = startedAt ?? Date.now()
+    setElapsedSec(Math.floor((Date.now() - t0) / 1000))
+    const timer = window.setInterval(() => {
+      setElapsedSec(Math.floor((Date.now() - t0) / 1000))
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [phase, startedAt])
 
   /**
    * 取数用的翻译函数走 ref，不进 `load` 的依赖。
@@ -129,6 +173,29 @@ export default function AnalyticsPage() {
    */
   const inflight = useRef<AbortController | null>(null)
 
+  /**
+   * 结果缓存（stale-while-revalidate）。
+   *
+   * 键取的是**用户意图**（范围档位 / 自定义两端 / 分桶档位 / 筛选），刻意不带
+   * `to=now` 算出来的时间戳——带上它每次键都不一样，缓存永远不会命中。
+   * 切回刚看过的范围时先出缓存、再后台刷新：慢库上一次几十秒，这一下能省掉
+   * 一次干等。
+   */
+  const cache = useRef(
+    new Map<string, { stats: StatsResult; universe: StatsResult | null; at: number }>()
+  )
+  /** 有无数据不能进 load 的依赖（否则每次取数回来就重建 load、effect 再跑一遍） */
+  const hasDataRef = useRef(false)
+  hasDataRef.current = stats !== null
+
+  const cancel = useCallback(() => {
+    inflight.current?.abort()
+    inflight.current = null
+    setPhase("idle")
+    setStartedAt(null)
+    setCanceled(true)
+  }, [])
+
   const load = useCallback(
     async (silent = false) => {
       // 自定义范围还没填完或前后颠倒时**不发请求、也不清空**：正在编辑的半截
@@ -137,15 +204,29 @@ export default function AnalyticsPage() {
       const span =
         preset === "custom" ? customSpan(customFrom, customTo) : presetRange(preset, new Date())
       if (!span) {
-        setLoading(false)
+        setPhase("idle")
+        setStartedAt(null)
         return
       }
 
       inflight.current?.abort()
       const ac = new AbortController()
       inflight.current = ac
+      setCanceled(false)
 
-      if (!silent) setLoading(true)
+      // 命中缓存就先上屏，再后台刷新——"看得见旧数据"比"骨架转圈"好得多
+      const key = `${preset}|${customFrom}|${customTo}|${granularity}|${JSON.stringify(filter)}`
+      const hit = cache.current.get(key)
+      if (hit && Date.now() - hit.at < cacheTTL) {
+        setStats(hit.stats)
+        setUniverse(hit.universe)
+      }
+
+      if (!silent) {
+        // 有东西看的时候只做"更新中"，别把整页换成骨架
+        setPhase(hasDataRef.current || hit ? "refreshing" : "loading")
+        setStartedAt(Date.now())
+      }
       try {
         const rangeOnly = buildStatsQuery({ ...span, granularity, filter: EMPTY_FILTER })
         const filtered = buildStatsQuery({ ...span, granularity, filter })
@@ -157,6 +238,7 @@ export default function AnalyticsPage() {
         setStats(data)
         setUniverse(base)
         setError(null)
+        cache.current.set(key, { stats: data, universe: base, at: Date.now() })
       } catch (err) {
         // 主动取消不是失败：既不置错误态，也不弹提示
         if (ac.signal.aborted || isAbortError(err)) return
@@ -167,7 +249,8 @@ export default function AnalyticsPage() {
         // 只有"还是我这一笔"才收尾：否则会把后来那笔的 loading 提前关掉
         if (inflight.current === ac) {
           inflight.current = null
-          setLoading(false)
+          setPhase("idle")
+          setStartedAt(null)
         }
       }
     },
@@ -264,6 +347,11 @@ export default function AnalyticsPage() {
   )
 
   const hasData = (stats?.kpi.total ?? 0) > 0
+  // FilterRow 的按钮/禁用态沿用原来的"是否在取数"语义
+  const loading = phase !== "idle"
+  const slow = loading && elapsedSec >= slowHintAfterSec
+  const rangeLabel =
+    preset === "custom" ? t("analytics:range.custom") : t(`analytics:range.${preset}` as never)
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-1">
@@ -285,6 +373,37 @@ export default function AnalyticsPage() {
         onRefresh={() => void load()}
         loading={loading}
       />
+
+      {/* 刷新时旧数据还在：给一条细进度条 + 已用时间 + 取消，而不是把整页换成骨架。
+          慢库上一次要几十秒，整页空白会让人以为页面坏了 */}
+      {phase === "refreshing" && (
+        <div
+          className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="h-0.5 min-w-16 flex-1 animate-pulse rounded bg-primary/40" />
+          <span>{t("analytics:refreshing", { seconds: elapsedSec })}</span>
+          <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={cancel}>
+            {t("analytics:cancel")}
+          </Button>
+        </div>
+      )}
+
+      {/* 慢窗口的出口：与其让人干等，不如给一个"先看 24 小时"的按钮 */}
+      {slow && preset !== "last_24h" && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-accent/40 px-3 py-2 text-sm">
+          <span>{t("analytics:slow_hint", { range: rangeLabel, seconds: elapsedSec })}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7"
+            onClick={() => handlePreset("last_24h")}
+          >
+            {t("analytics:view_last_24h")}
+          </Button>
+        </div>
+      )}
 
       {stats?.truncated && (
         <div className="flex items-start gap-2 rounded-md border border-border bg-accent/40 px-3 py-2 text-sm">
@@ -331,8 +450,27 @@ export default function AnalyticsPage() {
           // 否则加载态与"没有数据"在无障碍树上无法区分
           <div className="space-y-3" role="status" aria-busy="true">
             <span className="sr-only">{t("analytics:loading")}</span>
+            <div className="flex flex-wrap items-center gap-3">
+              <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+              <span className="text-sm text-muted-foreground">
+                {t("analytics:loading_window", { range: rangeLabel, seconds: elapsedSec })}
+              </span>
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={cancel}>
+                {t("analytics:cancel")}
+              </Button>
+            </div>
             <div className="h-16 animate-pulse rounded-lg bg-muted" />
             <Skeleton className="h-56 w-full" />
+          </div>
+        ) : !hasData && canceled ? (
+          // 取消 ≠ 空。数据没取回来时不能宣称"范围内没有请求"，
+          // 那样会把用户引去改时间范围/清筛选，而真正该做的是重新加载
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-border px-4 py-12 text-center">
+            <p className="text-sm font-medium">{t("analytics:canceled.title")}</p>
+            <p className="text-xs text-muted-foreground">{t("analytics:canceled.hint")}</p>
+            <Button size="sm" variant="outline" onClick={() => void load()}>
+              {t("analytics:retry")}
+            </Button>
           </div>
         ) : !hasData ? (
           <EmptyState title={t("analytics:empty.title")} hint={t("analytics:empty.hint")} />

@@ -635,3 +635,27 @@ describe("分析页 · 取数生命周期", () => {
     expect(screen.queryByText("999")).not.toBeInTheDocument()
   })
 })
+
+/**
+ * 取消 ≠ 空。
+ *
+ * 数据没取回来时说"所选范围内没有请求"，会把人引去改时间范围/清筛选——
+ * 而真正该做的是重新加载。这条断言守的就是这个区别。
+ */
+describe("分析页 · 取消取数", () => {
+  it("首屏取消后给出重新加载的出口，而不是宣称没有数据", async () => {
+    mocked.getStats.mockReturnValue(new Promise(() => {}))
+    const user = userEvent.setup()
+    renderPage()
+
+    expect(screen.getByRole("status")).toHaveTextContent("加载中")
+    await user.click(screen.getByRole("button", { name: "取消" }))
+
+    expect(await screen.findByText("已取消加载")).toBeInTheDocument()
+    expect(screen.queryByText("所选范围内没有请求")).not.toBeInTheDocument()
+
+    mocked.getStats.mockResolvedValue(fixture())
+    await user.click(screen.getByRole("button", { name: "重试" }))
+    expect(await screen.findByText("请求趋势")).toBeInTheDocument()
+  })
+})

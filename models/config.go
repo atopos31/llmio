@@ -31,7 +31,27 @@ const (
 	// KeySelfHealPolicy 是"上游拒收请求体参数时的同家删参重试"策略。
 	// 见 SelfHealPolicy。
 	KeySelfHealPolicy = "self_heal_policy"
+	// KeyTrafficCompressionPolicy 是出站传输压缩的策略。
+	// 见 TrafficCompressionPolicy。
+	KeyTrafficCompressionPolicy = "traffic_compression_policy"
 )
+
+// TrafficCompressionPolicy 是出站传输压缩的策略。
+//
+// 三项默认全部关闭。与其他默认开启的装饰性策略不同，这里改变的是
+// 实际发送到公网的数据形态：一旦上游或中间代理对压缩请求处理不一致，
+// 影响的是请求本身。因此总开关、功能开关、提供商开关必须逐层明确开启，
+// 任何一层关闭都退回现有的未压缩行为。
+type TrafficCompressionPolicy struct {
+	// Enabled 是总开关。关闭后，流式响应压缩和上游请求压缩都不生效；
+	// 已保存的探测结果和提供商设置保留，不会因此被清除。
+	Enabled bool `json:"enabled"`
+	// SSEResponse 控制是否压缩流式响应。仅在客户端声明支持 gzip 时生效。
+	SSEResponse bool `json:"sse_response"`
+	// UpstreamRequest 控制是否压缩发往上游的请求体。
+	// 仅对探测结果为支持且提供商级别已开启的提供商生效。
+	UpstreamRequest bool `json:"upstream_request"`
+}
 
 type AnthropicCountTokens struct {
 	BaseURL string `json:"base_url"`

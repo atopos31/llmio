@@ -145,6 +145,7 @@ func TestBalanceChatGzipsUpstreamRequest(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	meta, before := gzipChatFixture(t, server.URL)
+	statsBefore := GetCompressionStats()
 	res, _, err := BalanceChat(context.Background(), time.Now(), consts.StyleOpenAI, before, meta, models.ReqMeta{}, NewBridgeNotes())
 	if err != nil {
 		t.Fatalf("BalanceChat: %v", err)
@@ -162,6 +163,14 @@ func TestBalanceChatGzipsUpstreamRequest(t *testing.T) {
 	if got := gjson.GetBytes(up.bodyAt(0), "model").String(); got != "gzip-model" {
 		t.Fatalf("上游解压后的 model = %q, want gzip-model", got)
 	}
+	statsAfter := GetCompressionStats()
+	if statsAfter.Upstream.Count != statsBefore.Upstream.Count+1 {
+		t.Fatalf("upstream 统计未增加: before=%d after=%d", statsBefore.Upstream.Count, statsAfter.Upstream.Count)
+	}
+	if statsAfter.Upstream.BeforeBytes <= statsBefore.Upstream.BeforeBytes ||
+		statsAfter.Upstream.AfterBytes <= statsBefore.Upstream.AfterBytes {
+		t.Fatalf("upstream 字节未记录: before=%+v after=%+v", statsBefore.Upstream, statsAfter.Upstream)
+	}
 }
 
 func TestBalanceChatGzipDowngradesToPlaintext(t *testing.T) {
@@ -171,6 +180,7 @@ func TestBalanceChatGzipDowngradesToPlaintext(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	meta, before := gzipChatFixture(t, server.URL)
+	statsBefore := GetCompressionStats()
 	res, _, err := BalanceChat(context.Background(), time.Now(), consts.StyleOpenAI, before, meta, models.ReqMeta{}, NewBridgeNotes())
 	if err != nil {
 		t.Fatalf("BalanceChat: %v", err)
@@ -184,6 +194,9 @@ func TestBalanceChatGzipDowngradesToPlaintext(t *testing.T) {
 	}
 	if up.encodingAt(0) != "gzip" || up.encodingAt(1) != "" {
 		t.Fatalf("编码序列 = %q, want [gzip, plaintext]", up.encodings)
+	}
+	if after := GetCompressionStats(); after.Upstream.Count != statsBefore.Upstream.Count {
+		t.Fatalf("降级重试不应计入压缩效果: before=%d after=%d", statsBefore.Upstream.Count, after.Upstream.Count)
 	}
 
 	var stored models.Provider
@@ -207,6 +220,7 @@ func TestBalanceChatGzipServerErrorDoesNotDowngrade(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	meta, before := gzipChatFixture(t, server.URL)
+	statsBefore := GetCompressionStats()
 	res, _, err := BalanceChat(context.Background(), time.Now(), consts.StyleOpenAI, before, meta, models.ReqMeta{}, NewBridgeNotes())
 	if err == nil {
 		if res != nil {
@@ -216,6 +230,9 @@ func TestBalanceChatGzipServerErrorDoesNotDowngrade(t *testing.T) {
 	}
 	if up.requestCount() != 1 {
 		t.Fatalf("500 不应触发明文重试，实得 %d 发", up.requestCount())
+	}
+	if after := GetCompressionStats(); after.Upstream.Count != statsBefore.Upstream.Count+1 {
+		t.Fatalf("已发出的压缩请求应计入: before=%d after=%d", statsBefore.Upstream.Count, after.Upstream.Count)
 	}
 
 	var stored models.Provider
@@ -244,6 +261,7 @@ func TestBalanceChatMasterSwitchOffKeepsPlaintext(t *testing.T) {
 		Update("value", `{"enabled":false,"sse_response":true,"upstream_request":true}`).Error; err != nil {
 		t.Fatalf("disable master switch: %v", err)
 	}
+	statsBefore := GetCompressionStats()
 	res, _, err := BalanceChat(context.Background(), time.Now(), consts.StyleOpenAI, before, meta, models.ReqMeta{}, NewBridgeNotes())
 	if err != nil {
 		t.Fatalf("BalanceChat: %v", err)
@@ -251,5 +269,8 @@ func TestBalanceChatMasterSwitchOffKeepsPlaintext(t *testing.T) {
 	defer res.Body.Close()
 	if up.requestCount() != 1 || up.encodingAt(0) != "" {
 		t.Fatalf("总开关关闭时应明文发送，encodings = %q", up.encodings)
+	}
+	if after := GetCompressionStats(); after.Upstream.Count != statsBefore.Upstream.Count {
+		t.Fatalf("总开关关闭时不应记录压缩: before=%d after=%d", statsBefore.Upstream.Count, after.Upstream.Count)
 	}
 }

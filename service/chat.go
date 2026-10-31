@@ -362,12 +362,16 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				}
 
 				reqGzipped := false
+				gzipBefore := int64(0)
+				gzipAfter := int64(0)
 				if !gzipDowngraded && ShouldGzipUpstream(trafficCompression, provider, len(rawBody), headers) {
 					if err := providers.GzipRequestBody(req); err != nil {
 						slog.Warn("gzip upstream request body failed; sending plaintext",
 							"provider", provider.Name, "error", err)
 					} else {
 						reqGzipped = true
+						gzipBefore = int64(len(rawBody))
+						gzipAfter = req.ContentLength
 					}
 				}
 
@@ -384,6 +388,9 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				}
 
 				if res.StatusCode == http.StatusOK {
+					if reqGzipped {
+						RecordUpstreamCompression(gzipBefore, gzipAfter)
+					}
 					if gzipDowngraded {
 						persistCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 						if err := MarkProviderRequestGzipUnsupported(persistCtx, provider.ID,
@@ -409,6 +416,12 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 					log.Retry = retry + healed + 1
 					fail(fmt.Errorf("status: %d, body: %s (gzip downgrade: retry plaintext)", res.StatusCode, string(byteBody)))
 					continue
+				}
+
+				// 到这里说明压缩请求已经实际发出、且没有进入降级重试；
+				// 非 200 的失败尝试也计入，因为它确实占用了一次压缩上行。
+				if reqGzipped {
+					RecordUpstreamCompression(gzipBefore, gzipAfter)
 				}
 
 				// 自愈判定：判据三层全过（状态码 + 短语提取 + 四道闸）才删参

@@ -16,6 +16,7 @@ import (
 
 	"github.com/atopos31/llmio/consts"
 	"github.com/atopos31/llmio/models"
+	"github.com/atopos31/llmio/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -247,12 +248,25 @@ func TestChatHandlerSSEGzipNegotiation(t *testing.T) {
 				c.Request.Header.Set("Accept-Encoding", tc.accept)
 			}
 
+			statsBefore := service.GetCompressionStats()
 			ChatCompletionsHandler(c)
 			waitFor(t, "日志结算", func() bool {
 				var log models.ChatLog
 				err := models.DB.Where("status <> ?", consts.StatusRunning).First(&log).Error
 				return err == nil
 			})
+			statsAfter := service.GetCompressionStats()
+			if tc.wantGzip {
+				if statsAfter.SSE.Count != statsBefore.SSE.Count+1 {
+					t.Fatalf("SSE 统计未增加: before=%d after=%d", statsBefore.SSE.Count, statsAfter.SSE.Count)
+				}
+				if statsAfter.SSE.BeforeBytes <= statsBefore.SSE.BeforeBytes ||
+					statsAfter.SSE.AfterBytes <= statsBefore.SSE.AfterBytes {
+					t.Fatalf("SSE 字节未记录: before=%+v after=%+v", statsBefore.SSE, statsAfter.SSE)
+				}
+			} else if statsAfter.SSE.Count != statsBefore.SSE.Count {
+				t.Fatalf("未压缩流不应计入: before=%d after=%d", statsBefore.SSE.Count, statsAfter.SSE.Count)
+			}
 
 			bodyBytes := rec.Body.Bytes()
 			if tc.wantGzip {

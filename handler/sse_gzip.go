@@ -64,14 +64,24 @@ func acceptsGzip(header string) bool {
 // 但事件时序与未压缩时保持一致。
 type sseGzipWriter struct {
 	gin.ResponseWriter
-	gz     *gzip.Writer
-	closed bool
+	gz         *gzip.Writer
+	closed     bool
+	plainBytes int64
+	startSize  int
 }
 
 var _ gin.ResponseWriter = (*sseGzipWriter)(nil)
 
 func newSSEGzipWriter(w gin.ResponseWriter) *sseGzipWriter {
-	return &sseGzipWriter{ResponseWriter: w, gz: gzip.NewWriter(w)}
+	start := w.Size()
+	if start < 0 {
+		start = 0
+	}
+	return &sseGzipWriter{
+		ResponseWriter: w,
+		gz:             gzip.NewWriter(w),
+		startSize:      start,
+	}
 }
 
 func (w *sseGzipWriter) WriteHeader(code int) {
@@ -86,6 +96,7 @@ func (w *sseGzipWriter) WriteString(s string) (int, error) {
 func (w *sseGzipWriter) Write(p []byte) (int, error) {
 	w.Header().Del("Content-Length")
 	n, err := w.gz.Write(p)
+	w.plainBytes += int64(n)
 	if err != nil {
 		return n, err
 	}
@@ -94,6 +105,16 @@ func (w *sseGzipWriter) Write(p []byte) (int, error) {
 	}
 	w.ResponseWriter.Flush()
 	return n, nil
+}
+
+// Stats 返回本次流写入的明文与压缩后字节数。
+// compressed 包含 gzip 头尾，按底层 writer 的 Size 增量计算。
+func (w *sseGzipWriter) Stats() (plain, compressed int64) {
+	compressed = int64(w.ResponseWriter.Size() - w.startSize)
+	if compressed < 0 {
+		compressed = 0
+	}
+	return w.plainBytes, compressed
 }
 
 func (w *sseGzipWriter) Flush() {

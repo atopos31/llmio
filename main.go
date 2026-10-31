@@ -140,6 +140,8 @@ func main() {
 		// 保证一次请求对应一个时间切片（见 handler/stats.go 的说明）。
 		api.GET("/metrics/stats", handler.Stats)
 		api.GET("/metrics/granularities", handler.StatsGranularities)
+		// 传输压缩效果：进程内累计，重启归零。
+		api.GET("/metrics/compression", handler.GetTransportCompressionStats)
 		// Provider management
 		api.GET("/providers/template", handler.GetProviderTemplates)
 		api.GET("/providers", handler.GetProviders)

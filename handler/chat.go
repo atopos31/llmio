@@ -163,6 +163,16 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 
 	pw.Close()
 
+	// 正常完成的压缩流才计入效果统计；defer Close 仍负责错误路径的收尾。
+	if gzipWriter != nil {
+		if err := gzipWriter.Close(); err != nil {
+			slog.Warn("close sse gzip writer", "error", err)
+		} else {
+			plain, compressed := gzipWriter.Stats()
+			service.RecordSSECompression(plain, compressed)
+		}
+	}
+
 	// 这次转发改过什么（丢了参数、补了默认值）在这里提示一次：客户端从响应里看不出
 	// 差别，日志是唯一能对上号的地方。同协议路径没有记账，不会有这条
 	if notes := bridgeNotes.String(); notes != "" {

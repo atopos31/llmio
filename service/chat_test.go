@@ -87,6 +87,29 @@ func TestBuildHeadersStripsAcceptEncoding(t *testing.T) {
 	})
 }
 
+// 请求体会按上游协议重新序列化或改写，入站的长度与编码头不再对应当前字节。
+// 若不清理，压缩后的请求可能同时带两个 Content-Encoding，或让上游按旧长度读取。
+func TestBuildHeadersDropsStaleContentEncodingAndLength(t *testing.T) {
+	src := http.Header{}
+	src.Set("Content-Encoding", "gzip")
+	src.Set("Content-Length", "123")
+	src.Set("X-Trace", "keep-me")
+
+	header := BuildHeaders(src, true, nil, false, HeaderVars{})
+	if got := header.Get("Content-Encoding"); got != "" {
+		t.Errorf("Content-Encoding = %q, want empty", got)
+	}
+	if got := header.Get("Content-Length"); got != "" {
+		t.Errorf("Content-Length = %q, want empty", got)
+	}
+	if got := header.Get("X-Trace"); got != "keep-me" {
+		t.Errorf("X-Trace = %q, want keep-me", got)
+	}
+	if got := src.Get("Content-Encoding"); got != "gzip" {
+		t.Errorf("源 header 被修改: Content-Encoding = %q", got)
+	}
+}
+
 // 端到端复现：mock 一个按 Accept-Encoding 返回 gzip 的上游（真实网关/CDN 的常见行为），
 // 验证 BuildHeaders → Transport → ProcesserOpenAI 全链路拿到的是明文 JSON 且 usage 可解析。
 func TestBuildHeadersKeepsGzipResponseReadable(t *testing.T) {

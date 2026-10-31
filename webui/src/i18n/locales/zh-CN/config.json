@@ -296,6 +296,22 @@
     "upstream_help": "向模型服务商发送请求体前启用压缩。仅对检测结果为“支持”且在提供商页面开启的提供商生效；其他提供商仍发送未压缩请求。",
     "master_off_note": "总开关关闭时，以下两项压缩不会生效；检测仍可执行。",
     "save": "保存设置",
-    "save_failed": "保存传输压缩设置失败：{{message}}"
+    "save_failed": "保存传输压缩设置失败：{{message}}",
+    "stats_title": "压缩效果",
+    "stats_help_label": "压缩效果说明",
+    "stats_help": "统计自本次服务启动以来实际压缩发送的数据。上游请求按压缩发送次数统计，流式响应按正常完成的压缩流统计；服务重启后归零。压缩比 = 原始字节 ÷ 压缩后字节。",
+    "stats_refresh": "刷新统计",
+    "stats_loading": "正在读取压缩效果…",
+    "stats_load_failed": "读取压缩效果失败：{{message}}",
+    "stats_empty": "尚无压缩流量",
+    "stats_started": "统计开始时间：{{time}}",
+    "stats_link": "链路",
+    "stats_upstream": "上游请求",
+    "stats_sse": "流式响应",
+    "stats_count": "压缩次数",
+    "stats_before": "原始",
+    "stats_after": "压缩后",
+    "stats_saved": "节省",
+    "stats_ratio": "压缩比"
   }
 }

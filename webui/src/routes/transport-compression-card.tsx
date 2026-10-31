@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { InfoTip } from "@/components/info-tip";
@@ -24,8 +25,14 @@ import {
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { configAPI, defaultTrafficCompressionPolicy } from "@/lib/api";
-import type { TrafficCompressionPolicy } from "@/lib/api";
+import { useAutoRefresh } from "@/hooks/use-auto-refresh";
+import {
+  configAPI,
+  defaultTrafficCompressionPolicy,
+  getTransportCompressionStats,
+} from "@/lib/api";
+import type { TrafficCompressionPolicy, TransportCompressionStats } from "@/lib/api";
+import { formatBytes, formatFull } from "@/lib/format";
 
 const CONFIG_KEY = "traffic_compression_policy";
 
@@ -52,6 +59,9 @@ export function TransportCompressionCard() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [stats, setStats] = useState<TransportCompressionStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [statsError, setStatsError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -67,6 +77,24 @@ export function TransportCompressionCard() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadStats = useCallback(async () => {
+    try {
+      setStatsError(null);
+      setStats(await getTransportCompressionStats());
+    } catch (error) {
+      console.error("读取压缩效果失败：", error);
+      setStatsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setStatsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadStats();
+  }, [loadStats]);
+
+  useAutoRefresh(10, loadStats);
 
   const openDialog = () => {
     setDraft(policy);
@@ -94,6 +122,17 @@ export function TransportCompressionCard() {
   const statusText = (enabled: boolean) =>
     enabled ? t("transport.enabled") : t("transport.disabled");
   const statusVariant = (enabled: boolean) => (enabled ? "default" : "secondary");
+
+  const statsRows = stats
+    ? [
+        { key: "upstream", label: t("transport.stats_upstream"), metric: stats.upstream },
+        { key: "sse", label: t("transport.stats_sse"), metric: stats.sse },
+      ]
+    : [];
+  const hasStats = statsRows.some((row) => row.metric.count > 0);
+  const startedAtMs = stats ? new Date(stats.started_at).getTime() : Number.NaN;
+  const startedAt =
+    stats && !Number.isNaN(startedAtMs) ? formatFull(startedAtMs) : stats?.started_at ?? "";
 
   return (
     <Card>
@@ -139,6 +178,82 @@ export function TransportCompressionCard() {
         </div>
 
         <p className="text-xs text-muted-foreground">{t("transport.note")}</p>
+
+        <div className="space-y-2 border-t pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("transport.stats_title")}</Label>
+              <InfoTip label={t("transport.stats_help_label")}>
+                {t("transport.stats_help")}
+              </InfoTip>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void loadStats()}
+              disabled={statsLoading}
+            >
+              <RefreshCw className="mr-1 size-3.5" aria-hidden="true" />
+              {t("transport.stats_refresh")}
+            </Button>
+          </div>
+
+          {statsError ? (
+            <p className="text-xs text-status-warning-ink">
+              {t("transport.stats_load_failed", { message: statsError })}
+            </p>
+          ) : null}
+
+          {statsLoading && !stats ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />
+              {t("transport.stats_loading")}
+            </div>
+          ) : stats && hasStats ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[520px] text-xs">
+                <thead>
+                  <tr className="text-left text-muted-foreground">
+                    <th className="pb-2 pr-3 font-medium">{t("transport.stats_link")}</th>
+                    <th className="pb-2 pr-3 text-right font-medium">{t("transport.stats_count")}</th>
+                    <th className="pb-2 pr-3 text-right font-medium">{t("transport.stats_before")}</th>
+                    <th className="pb-2 pr-3 text-right font-medium">{t("transport.stats_after")}</th>
+                    <th className="pb-2 pr-3 text-right font-medium">{t("transport.stats_saved")}</th>
+                    <th className="pb-2 text-right font-medium">{t("transport.stats_ratio")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {statsRows.map((row) => (
+                    <tr key={row.key} className="border-t">
+                      <td className="py-2 pr-3 font-medium">{row.label}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums">{row.metric.count}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums">
+                        {formatBytes(row.metric.before_bytes)}
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums">
+                        {formatBytes(row.metric.after_bytes)}
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums">
+                        {formatBytes(row.metric.saved_bytes)}
+                      </td>
+                      <td className="py-2 text-right tabular-nums">
+                        {row.metric.ratio > 0 ? `${row.metric.ratio.toFixed(2)}x` : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : statsError && !stats ? null : (
+            <p className="text-xs text-muted-foreground">{t("transport.stats_empty")}</p>
+          )}
+
+          {stats ? (
+            <p className="text-[11px] text-muted-foreground">
+              {t("transport.stats_started", { time: startedAt })}
+            </p>
+          ) : null}
+        </div>
       </CardContent>
       <CardFooter>
         <Button onClick={openDialog}>{t("transport.edit")}</Button>

@@ -296,6 +296,22 @@
     "upstream_help": "Compresses the request body before it is sent to the model provider. Applies only to providers whose check result is “Supported” and whose provider-level switch is on. Other providers continue sending uncompressed requests.",
     "master_off_note": "When the master switch is off, neither compression setting takes effect. Checks still work.",
     "save": "Save settings",
-    "save_failed": "Failed to save transport compression settings: {{message}}"
+    "save_failed": "Failed to save transport compression settings: {{message}}",
+    "stats_title": "Compression results",
+    "stats_help_label": "Compression results help",
+    "stats_help": "Shows data actually compressed since this service started. Upstream requests are counted per compressed send; streaming responses are counted per completed compressed stream. Counters reset when the service restarts. Ratio = original bytes ÷ compressed bytes.",
+    "stats_refresh": "Refresh results",
+    "stats_loading": "Loading compression results…",
+    "stats_load_failed": "Failed to load compression results: {{message}}",
+    "stats_empty": "No compressed traffic yet",
+    "stats_started": "Counting since: {{time}}",
+    "stats_link": "Path",
+    "stats_upstream": "Upstream requests",
+    "stats_sse": "Streaming responses",
+    "stats_count": "Count",
+    "stats_before": "Original",
+    "stats_after": "Compressed",
+    "stats_saved": "Saved",
+    "stats_ratio": "Ratio"
   }
 }

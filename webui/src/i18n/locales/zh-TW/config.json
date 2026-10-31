@@ -296,6 +296,22 @@
     "upstream_help": "在傳送請求體給模型服務商前啟用壓縮。僅對偵測結果為「支援」且在供應商頁面開啟的供應商生效；其他供應商仍傳送未壓縮請求。",
     "master_off_note": "總開關關閉時，以下兩項壓縮不會生效；偵測仍可執行。",
     "save": "儲存設定",
-    "save_failed": "儲存傳輸壓縮設定失敗：{{message}}"
+    "save_failed": "儲存傳輸壓縮設定失敗：{{message}}",
+    "stats_title": "壓縮效果",
+    "stats_help_label": "壓縮效果說明",
+    "stats_help": "統計自本次服務啟動以來實際壓縮傳送的資料。上游請求按壓縮傳送次數統計，串流回應按正常完成的壓縮流統計；服務重新啟動後歸零。壓縮比 = 原始位元組 ÷ 壓縮後位元組。",
+    "stats_refresh": "重新整理統計",
+    "stats_loading": "正在讀取壓縮效果…",
+    "stats_load_failed": "讀取壓縮效果失敗：{{message}}",
+    "stats_empty": "尚無壓縮流量",
+    "stats_started": "統計開始時間：{{time}}",
+    "stats_link": "鏈路",
+    "stats_upstream": "上游請求",
+    "stats_sse": "串流回應",
+    "stats_count": "壓縮次數",
+    "stats_before": "原始",
+    "stats_after": "壓縮後",
+    "stats_saved": "節省",
+    "stats_ratio": "壓縮比"
   }
 }

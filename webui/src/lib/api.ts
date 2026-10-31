@@ -778,6 +778,24 @@ export const defaultTrafficCompressionPolicy: TrafficCompressionPolicy = {
   upstream_request: false,
 };
 
+export interface TransportCompressionMetric {
+  count: number;
+  before_bytes: number;
+  after_bytes: number;
+  saved_bytes: number;
+  ratio: number;
+}
+
+export interface TransportCompressionStats {
+  started_at: string;
+  upstream: TransportCompressionMetric;
+  sse: TransportCompressionMetric;
+}
+
+export async function getTransportCompressionStats(): Promise<TransportCompressionStats> {
+  return apiRequest<TransportCompressionStats>("/metrics/compression");
+}
+
 export interface ConfigResponse {
   key: string;
   value: string;

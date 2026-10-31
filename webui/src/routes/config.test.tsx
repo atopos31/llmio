@@ -20,6 +20,7 @@ import {
   getCleanupHistory,
   getCompression,
   getPeakCalendar,
+  getTransportCompressionStats,
   pauseCompression,
   reclaimStorage,
   rollbackCompression,
@@ -58,6 +59,7 @@ vi.mock("@/lib/api", () => ({
     upstream_request: false,
   },
   getCleanupHistory: vi.fn(),
+  getTransportCompressionStats: vi.fn(),
   testCountTokens: vi.fn(),
   // 峰谷计费卡片与数据库压缩卡片都自带取数，挂在这一页上。不给它们默认值的话，
   // 它们会渲染成错误态并各多出一个"重试"按钮，把这一页原有的重试断言搅成"找到多个"。
@@ -78,6 +80,7 @@ const mocked = {
   updateConfig: vi.mocked(configAPI.updateConfig),
   getCleanupHistory: vi.mocked(getCleanupHistory),
   getPeakCalendar: vi.mocked(getPeakCalendar),
+  getTransportCompressionStats: vi.mocked(getTransportCompressionStats),
   getCompression: vi.mocked(getCompression),
   runCompression: vi.mocked(runCompression),
   pauseCompression: vi.mocked(pauseCompression),
@@ -277,6 +280,11 @@ beforeEach(async () => {
     dateOverrides: {},
   })
   mocked.getCompression.mockResolvedValue(compressionStatus())
+  mocked.getTransportCompressionStats.mockResolvedValue({
+    started_at: "2026-10-31T12:00:00+08:00",
+    upstream: { count: 0, before_bytes: 0, after_bytes: 0, saved_bytes: 0, ratio: 0 },
+    sse: { count: 0, before_bytes: 0, after_bytes: 0, saved_bytes: 0, ratio: 0 },
+  })
   const i18n = (await import("@/i18n")).default
   await i18n.changeLanguage("zh-CN")
 })

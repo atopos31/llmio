@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,7 +6,9 @@ import { TransportCompressionCard } from "@/routes/transport-compression-card";
 import {
   configAPI,
   defaultTrafficCompressionPolicy,
+  getTransportCompressionStats,
   type TrafficCompressionPolicy,
+  type TransportCompressionStats,
 } from "@/lib/api";
 
 vi.mock("@/lib/api", () => ({
@@ -19,11 +21,19 @@ vi.mock("@/lib/api", () => ({
     sse_response: false,
     upstream_request: false,
   },
+  getTransportCompressionStats: vi.fn(),
 }));
 
 const mocked = {
   getConfig: vi.mocked(configAPI.getConfig),
   updateConfig: vi.mocked(configAPI.updateConfig),
+  getStats: vi.mocked(getTransportCompressionStats),
+};
+
+const emptyStats: TransportCompressionStats = {
+  started_at: "2026-10-31T12:00:00+08:00",
+  upstream: { count: 0, before_bytes: 0, after_bytes: 0, saved_bytes: 0, ratio: 0 },
+  sse: { count: 0, before_bytes: 0, after_bytes: 0, saved_bytes: 0, ratio: 0 },
 };
 
 beforeEach(async () => {
@@ -35,6 +45,7 @@ beforeEach(async () => {
     key: "traffic_compression_policy",
     value: JSON.stringify(defaultTrafficCompressionPolicy),
   });
+  mocked.getStats.mockResolvedValue(emptyStats);
 });
 
 describe("传输压缩设置卡", () => {
@@ -44,11 +55,30 @@ describe("传输压缩设置卡", () => {
     expect(await screen.findByText("传输压缩")).toBeInTheDocument();
     expect(screen.getAllByText("未启用")).toHaveLength(3);
     expect(screen.getByLabelText("传输压缩说明")).toBeInTheDocument();
+    expect(screen.getByLabelText("压缩效果说明")).toBeInTheDocument();
+    expect(await screen.findByText("尚无压缩流量")).toBeInTheDocument();
     expect(
       screen.getByText(
         "未声明支持压缩的客户端、检测结果为“不支持”或“无法判定”的提供商，均保持未压缩传输。"
       )
     ).toBeInTheDocument();
+  });
+
+  it("有数据时显示次数、字节与压缩比", async () => {
+    mocked.getStats.mockResolvedValue({
+      started_at: "2026-10-31T12:00:00+08:00",
+      upstream: { count: 2, before_bytes: 2048, after_bytes: 1024, saved_bytes: 1024, ratio: 2 },
+      sse: { count: 1, before_bytes: 4096, after_bytes: 1024, saved_bytes: 3072, ratio: 4 },
+    });
+
+    render(<TransportCompressionCard />);
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("2.00x")).toBeInTheDocument();
+    expect(within(table).getByText("4.00x")).toBeInTheDocument();
+    expect(within(table).getByText("2 KB")).toBeInTheDocument();
+    expect(within(table).getByText("4 KB")).toBeInTheDocument();
+    expect(mocked.getStats).toHaveBeenCalled();
   });
 
   it("保存时提交三个开关的完整策略", async () => {

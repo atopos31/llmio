@@ -27,9 +27,24 @@ function Tooltip({
 }
 
 function TooltipTrigger({
+  onFocus,
   ...props
 }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      onFocus={(event) => {
+        // Radix 在悬停和聚焦时都会展开。弹窗/页面打开时浏览器会自动聚焦
+        // 第一个可聚焦元素；若它正好是“？”图标，帮助文案会无故弹出。
+        // :focus-visible 区分键盘聚焦：Tab 仍展开，程序/鼠标聚焦不展开。
+        if (!event.currentTarget.matches(":focus-visible")) {
+          event.preventDefault()
+        }
+        onFocus?.(event)
+      }}
+      {...props}
+    />
+  )
 }
 
 function TooltipContent({

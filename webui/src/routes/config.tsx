@@ -31,6 +31,7 @@ import { configAPI, type AnthropicCountTokens, type LogCleanupPolicy, type LogCl
 import { PeakCalendarCard } from '@/routes/peak-calendar';
 import { CompressionCard } from '@/routes/compression-card';
 import { ModelAutofillCard } from '@/routes/model-autofill-card';
+import { TransportCompressionCard } from '@/routes/transport-compression-card';
 import {
   Table,
   TableBody,
@@ -329,6 +330,15 @@ export default function ConfigPage() {
         */}
         <div className="mt-4">
           <PeakCalendarCard />
+        </div>
+
+        {/*
+          出站传输压缩。默认全关；自带取数，避免它读失败时把整页
+          说成"读取现有配置失败"。放在数据库压缩之前，便于区分
+          "网络传输压缩"与"数据库存储压缩"。
+        */}
+        <div className="mt-4">
+          <TransportCompressionCard />
         </div>
 
         {/*

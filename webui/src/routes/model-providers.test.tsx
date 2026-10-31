@@ -119,6 +119,11 @@ function provider(over: Partial<Provider> = {}): Provider {
     Console: "",
     Proxy: "",
     ErrorMatcher: "",
+    RequestGzipEnabled: false,
+    RequestGzipSupported: null,
+    RequestGzipProbedAt: null,
+    RequestGzipProbeDetail: "",
+    RequestGzipProbeHash: "",
     ...over,
   }
 }

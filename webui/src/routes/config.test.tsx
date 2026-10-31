@@ -52,6 +52,11 @@ vi.mock("@/lib/api", () => ({
     allow_deprecated: false,
     sources: ["models.dev", "litellm"],
   },
+  defaultTrafficCompressionPolicy: {
+    enabled: false,
+    sse_response: false,
+    upstream_request: false,
+  },
   getCleanupHistory: vi.fn(),
   testCountTokens: vi.fn(),
   // 峰谷计费卡片与数据库压缩卡片都自带取数，挂在这一页上。不给它们默认值的话，
@@ -244,9 +249,20 @@ function configReplies(
   anthropic: AnthropicCountTokens | "" = "",
   cleanup: Partial<LogCleanupPolicy> | "" = ""
 ) {
-  mocked.getConfig.mockImplementation(async (key: string) =>
-    key === "anthropic_count_tokens" ? config(anthropic) : config(cleanup)
-  )
+  mocked.getConfig.mockImplementation(async (key: string) => {
+    if (key === "anthropic_count_tokens") return config(anthropic)
+    // 传输压缩卡片有自己的策略键；不能拿日志清理的值去喂它，
+    // 否则它的"已启用"徽标会与日志清理的断言重名。
+    if (key === "traffic_compression_policy") return config("")
+    return config(cleanup)
+  })
+}
+
+/** 日志清理卡片的状态徽标与传输压缩卡片重名，断言必须限定在卡片内。 */
+function cleanupCardScope() {
+  const card = screen.getByText("日志定时清理").closest('[data-slot="card"]')
+  if (!card) throw new Error("找不到日志清理卡片")
+  return within(card as HTMLElement)
 }
 
 beforeEach(async () => {
@@ -282,7 +298,7 @@ describe("系统配置页 · 空", () => {
 
     // base_url / api_key / version 三项都没有
     expect(await screen.findAllByText("未配置")).toHaveLength(3)
-    expect(screen.getByText("未启用")).toBeInTheDocument()
+    expect(cleanupCardScope().getByText("未启用")).toBeInTheDocument()
     expect(screen.getByText("保留最近 30 天")).toBeInTheDocument()
   })
 })
@@ -1409,7 +1425,7 @@ describe("系统配置页 · 有数据", () => {
     expect(screen.getByText("sk-ant-a...")).toBeInTheDocument()
     // 整串不出现在页面上
     expect(screen.queryByText("sk-ant-api03-secret")).not.toBeInTheDocument()
-    expect(screen.getByText("已启用")).toBeInTheDocument()
+    expect(cleanupCardScope().getByText("已启用")).toBeInTheDocument()
     expect(screen.getByText("保留最近 7 天")).toBeInTheDocument()
   })
 

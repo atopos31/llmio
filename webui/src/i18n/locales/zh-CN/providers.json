@@ -63,5 +63,53 @@
     "copy_model": "已复制模型名称: {{name}}",
     "copy_failed": "复制失败",
     "fetch_model_failed": "获取提供商模型失败: {{message}}"
+  },
+  "gzip": {
+    "action": "检测上游请求压缩",
+    "title": "检测上游请求压缩",
+    "desc": "向所选提供商发送一次最小请求，判断其是否接受压缩的请求体。该请求会真实调用上游，可能产生少量费用。",
+    "target": "提供商：{{name}}",
+    "association": "用于检测的模型关联",
+    "association_help_label": "模型关联说明",
+    "association_help": "检测需要借用一条模型关联的模型名称和自定义请求头。检测结果保存在提供商级别，不区分模型。",
+    "associations_loading": "正在读取模型关联…",
+    "associations_load_failed": "读取模型关联失败：{{message}}",
+    "no_association": "该提供商没有可用的模型关联，无法检测。请先在模型关联页面添加一条关联。",
+    "association_placeholder": "选择模型关联",
+    "association_item": "{{model}}（上游模型：{{providerModel}}）",
+    "last_success": "该关联最近一次成功请求：{{time}}",
+    "status_label": "检测结果",
+    "status": {
+      "supported": "支持",
+      "unsupported": "不支持",
+      "inconclusive": "无法判定",
+      "unknown": "尚未检测",
+      "supported_help": "模型服务商（上游）接受了压缩的请求体。可在提供商页面开启“允许压缩该提供商的请求”。",
+      "unsupported_help": "模型服务商（上游）拒绝了压缩的请求体。系统会保持未压缩发送，不影响正常调用。",
+      "inconclusive_help": "本次检测未能确认模型服务商（上游）是否支持，可能由凭证、限流、网络或模型服务商故障导致。请稍后重新检测；确认前不会启用压缩。",
+      "unknown_help": "尚未执行检测。该提供商保持未压缩发送。"
+    },
+    "status_help_label": "检测结果说明",
+    "probed_at": "最近检测时间：{{time}}",
+    "detail": "检测详情",
+    "detail_help_label": "检测详情说明",
+    "detail_help": "记录本次检测的网络状态码和上游返回的摘要，不包含请求头或密钥。",
+    "provider_switch": "允许压缩该提供商的请求",
+    "provider_switch_help_label": "提供商开关说明",
+    "provider_switch_help": "仅在检测结果为“支持”时可开启。开启后，还需在设置页打开“启用传输压缩”和“压缩上游请求”才会生效。",
+    "provider_switch_note": "仅在检测结果为“支持”时可开启。",
+    "master_off": "设置页的总开关已关闭。检测仍可执行，但压缩不会生效。",
+    "probe": "开始检测",
+    "retry": "重新检测",
+    "probing": "检测中…",
+    "probe_failed": "检测未完成：{{message}}。该提供商保持未压缩发送。",
+    "toast": {
+      "supported": "检测完成：支持",
+      "unsupported": "检测完成：不支持",
+      "inconclusive": "检测完成：无法判定",
+      "enable_success": "已开启该提供商的请求压缩",
+      "disable_success": "已关闭该提供商的请求压缩",
+      "update_failed": "保存失败：{{message}}"
+    }
   }
 }

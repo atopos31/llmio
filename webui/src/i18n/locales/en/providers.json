@@ -63,5 +63,53 @@
     "copy_model": "Copied model name: {{name}}",
     "copy_failed": "Copy failed",
     "fetch_model_failed": "Failed to fetch provider models: {{message}}"
+  },
+  "gzip": {
+    "action": "Check upstream request compression",
+    "title": "Check upstream request compression",
+    "desc": "Sends one minimal request to the selected provider to determine whether it accepts a compressed request body. This request calls the upstream and may incur a small fee.",
+    "target": "Provider: {{name}}",
+    "association": "Model association for the check",
+    "association_help_label": "Model association help",
+    "association_help": "The check borrows the model name and custom headers from one model association. The result is stored at the provider level and does not vary by model.",
+    "associations_loading": "Loading model associations…",
+    "associations_load_failed": "Failed to load model associations: {{message}}",
+    "no_association": "This provider has no model association, so it cannot be checked. Add an association on the model association page first.",
+    "association_placeholder": "Select a model association",
+    "association_item": "{{model}} (upstream model: {{providerModel}})",
+    "last_success": "Last successful request for this association: {{time}}",
+    "status_label": "Check result",
+    "status": {
+      "supported": "Supported",
+      "unsupported": "Not supported",
+      "inconclusive": "Inconclusive",
+      "unknown": "Not checked",
+      "supported_help": "The model provider (upstream) accepted the compressed request body. You can enable “Allow request compression for this provider” on the provider page.",
+      "unsupported_help": "The model provider (upstream) rejected the compressed request body. Requests remain uncompressed and normal calls are not affected.",
+      "inconclusive_help": "This check could not confirm whether the model provider (upstream) supports compression. The cause may be credentials, rate limiting, network, or a provider failure. Try again later; compression remains disabled until confirmed.",
+      "unknown_help": "No check has been run. This provider remains uncompressed."
+    },
+    "status_help_label": "Check result help",
+    "probed_at": "Last checked: {{time}}",
+    "detail": "Check details",
+    "detail_help_label": "Check details help",
+    "detail_help": "Shows the network status code and a summary of the upstream response. Request headers and keys are not stored.",
+    "provider_switch": "Allow request compression for this provider",
+    "provider_switch_help_label": "Provider switch help",
+    "provider_switch_help": "Available only when the check result is “Supported”. It also requires “Enable transport compression” and “Compress upstream requests” on the settings page.",
+    "provider_switch_note": "Available only when the check result is “Supported”.",
+    "master_off": "The master switch on the settings page is off. Checks still work, but compression will not take effect.",
+    "probe": "Run check",
+    "retry": "Run check again",
+    "probing": "Checking…",
+    "probe_failed": "Check did not complete: {{message}}. This provider remains uncompressed.",
+    "toast": {
+      "supported": "Check complete: supported",
+      "unsupported": "Check complete: not supported",
+      "inconclusive": "Check complete: inconclusive",
+      "enable_success": "Request compression enabled for this provider",
+      "disable_success": "Request compression disabled for this provider",
+      "update_failed": "Save failed: {{message}}"
+    }
   }
 }

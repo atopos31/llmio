@@ -19,6 +19,12 @@ export interface Provider {
   Console: string;
   Proxy: string;
   ErrorMatcher: string;
+  RequestGzipEnabled: boolean;
+  /** null 表示尚未检测或无法判定。 */
+  RequestGzipSupported: boolean | null;
+  RequestGzipProbedAt: string | null;
+  RequestGzipProbeDetail: string;
+  RequestGzipProbeHash: string;
 }
 
 export interface Model {
@@ -656,6 +662,47 @@ export async function testModelProvider(id: number): Promise<ConnectivityTestRes
   return apiRequest<ConnectivityTestResult>(`/test/${id}`);
 }
 
+export interface ProviderGzipAssociation {
+  id: number;
+  model: string;
+  provider_model: string;
+  last_success_at: string | null;
+}
+
+export interface ProviderGzipAssociations {
+  suggested_id: number;
+  items: ProviderGzipAssociation[];
+}
+
+export type ProviderGzipProbeStatus = "supported" | "unsupported" | "inconclusive";
+
+export interface ProviderGzipProbeResult {
+  status: ProviderGzipProbeStatus;
+  http_status: number;
+  detail: string;
+  probed_at: string;
+  model_provider_id: number;
+  provider: Provider;
+}
+
+export async function getProviderGzipAssociations(id: number): Promise<ProviderGzipAssociations> {
+  return apiRequest<ProviderGzipAssociations>(`/providers/gzip-probe/${id}/associations`);
+}
+
+export async function probeProviderGzip(id: number, modelProviderId?: number): Promise<ProviderGzipProbeResult> {
+  return apiRequest<ProviderGzipProbeResult>(`/providers/${id}/gzip-probe`, {
+    method: "POST",
+    body: JSON.stringify(modelProviderId ? { model_provider_id: modelProviderId } : {}),
+  });
+}
+
+export async function setProviderRequestGzip(id: number, enabled: boolean): Promise<Provider> {
+  return apiRequest<Provider>(`/providers/${id}/request-gzip`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
 // Provider Templates API functions
 export interface ProviderTemplate {
   type: string;
@@ -713,6 +760,22 @@ export const defaultModelAutofillPolicy: ModelAutofillPolicy = {
   overwrite: false,
   allow_deprecated: false,
   sources: ["models.dev", "litellm"],
+};
+
+/**
+ * 出站传输压缩策略。三项全部默认关闭：
+ * 压缩改变的是实际发往公网的数据形态，必须逐层明确开启。
+ */
+export interface TrafficCompressionPolicy {
+  enabled: boolean;
+  sse_response: boolean;
+  upstream_request: boolean;
+}
+
+export const defaultTrafficCompressionPolicy: TrafficCompressionPolicy = {
+  enabled: false,
+  sse_response: false,
+  upstream_request: false,
 };
 
 export interface ConfigResponse {

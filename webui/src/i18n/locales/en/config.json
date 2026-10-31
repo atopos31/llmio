@@ -272,5 +272,30 @@
     "status_on": "Current state: enabled. New associations are filled with capabilities and prices, all editable before saving.",
     "status_off": "Current state: disabled. The association dialog does not fill anything; capabilities and prices must be entered by hand.",
     "load_failed": "Failed to read the auto-fill policy: {{message}}"
+  },
+  "transport": {
+    "title": "Transport compression",
+    "title_help_label": "Transport compression help",
+    "title_help": "Compresses responses between the gateway and clients and requests between the gateway and upstreams to reduce egress. Egress is traffic sent from this service to the public internet. Off by default.",
+    "desc": "Compresses responses between the gateway and clients and requests between the gateway and upstreams to reduce egress. Off by default.",
+    "load_failed": "Failed to load transport compression settings: {{message}}",
+    "master": "Enable transport compression",
+    "sse": "Compress streaming responses",
+    "upstream": "Compress upstream requests",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "note": "Clients that do not declare support, and providers whose check result is “Not supported” or “Inconclusive”, remain uncompressed.",
+    "edit": "Edit settings",
+    "edit_title": "Transport compression settings",
+    "edit_desc": "Choose which outbound data to compress. When the master switch is off, neither compression setting takes effect.",
+    "master_help_label": "Master switch help",
+    "master_help": "Master switch. When off, streaming response compression and upstream request compression do not take effect. Saved check results and provider settings are preserved.",
+    "sse_help_label": "Streaming response compression help",
+    "sse_help": "Streaming responses (SSE) continuously return events, commonly used for incremental chat output. This setting compresses those responses. gzip is a common network compression format; it applies only when the client declares gzip support. Clients that do not declare support still receive uncompressed data, with no functional change.",
+    "upstream_help_label": "Upstream request compression help",
+    "upstream_help": "Compresses the request body before it is sent to the model provider. Applies only to providers whose check result is “Supported” and whose provider-level switch is on. Other providers continue sending uncompressed requests.",
+    "master_off_note": "When the master switch is off, neither compression setting takes effect. Checks still work.",
+    "save": "Save settings",
+    "save_failed": "Failed to save transport compression settings: {{message}}"
   }
 }

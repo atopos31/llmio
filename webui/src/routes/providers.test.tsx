@@ -15,11 +15,18 @@ import {
 // 子组件（表单对话框、模型列表对话框、useProviderForm）也从这里取函数，
 // 清单必须完整——漏一个会让它在运行时是 undefined 而不是"没被调用"。
 vi.mock("@/lib/api", () => ({
+  configAPI: {
+    getConfig: vi.fn(),
+    updateConfig: vi.fn(),
+  },
   createProvider: vi.fn(),
   deleteProvider: vi.fn(),
+  getProviderGzipAssociations: vi.fn(),
   getProviderModels: vi.fn(),
   getProviderTemplates: vi.fn(),
   getProviders: vi.fn(),
+  probeProviderGzip: vi.fn(),
+  setProviderRequestGzip: vi.fn(),
   updateProvider: vi.fn(),
 }))
 
@@ -47,6 +54,11 @@ function provider(over: Partial<Provider> = {}): Provider {
     Console: "https://console.example.com",
     Proxy: "",
     ErrorMatcher: "",
+    RequestGzipEnabled: false,
+    RequestGzipSupported: null,
+    RequestGzipProbedAt: null,
+    RequestGzipProbeDetail: "",
+    RequestGzipProbeHash: "",
     ...over,
   }
 }

@@ -186,7 +186,8 @@ func UpdateProvider(c *gin.Context) {
 	}
 
 	// Check if provider exists
-	if _, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).First(c.Request.Context()); err != nil {
+	existing, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).First(c.Request.Context())
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			common.NotFound(c, "Provider not found")
 			return
@@ -208,6 +209,23 @@ func UpdateProvider(c *gin.Context) {
 	if _, err := gorm.G[models.Provider](models.DB).Where("id = ?", id).Updates(c.Request.Context(), updates); err != nil {
 		common.InternalServerError(c, "Failed to update provider: "+err.Error())
 		return
+	}
+
+	// 上游端点变化后旧探测结论不再可信。用 map 更新，否则 GORM 会跳过
+	// false / nil 这些零值，导致关闭开关和清空结论都写不进去。
+	if existing.Type != req.Type || existing.Config != req.Config || existing.Proxy != req.Proxy {
+		if err := models.DB.WithContext(c.Request.Context()).Model(&models.Provider{}).
+			Where("id = ?", id).
+			Updates(map[string]any{
+				"request_gzip_enabled":      false,
+				"request_gzip_supported":    gorm.Expr("NULL"),
+				"request_gzip_probed_at":    gorm.Expr("NULL"),
+				"request_gzip_probe_detail": "",
+				"request_gzip_probe_hash":   "",
+			}).Error; err != nil {
+			common.InternalServerError(c, "Failed to reset provider gzip capability: "+err.Error())
+			return
+		}
 	}
 
 	// Get updated provider

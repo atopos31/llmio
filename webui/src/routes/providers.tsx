@@ -34,8 +34,10 @@ import {
 import type { Provider, ProviderTemplate, ProviderModel } from "@/lib/api";
 import { copyToClipboard } from "@/lib/utils";
 import { toast } from "sonner";
-import { ExternalLink, Pencil, Trash2, Boxes } from "lucide-react";
+import { ExternalLink, Gauge, Pencil, Trash2, Boxes } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ProviderFormDialog } from "@/routes/providers/provider-form-dialog";
+import { ProviderGzipDialog } from "@/routes/providers/provider-gzip-dialog";
 import { ProviderModelsDialog } from "@/routes/providers/provider-models-dialog";
 import { useProviderForm } from "@/routes/providers/use-provider-form";
 import { getConfigBaseUrl } from "@/routes/providers/provider-form-utils";
@@ -51,6 +53,8 @@ export default function ProvidersPage() {
   const [modelsOpenId, setModelsOpenId] = useState<number | null>(null);
   const [providerModels, setProviderModels] = useState<ProviderModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [gzipOpen, setGzipOpen] = useState(false);
+  const [gzipProvider, setGzipProvider] = useState<Provider | null>(null);
 
   // 筛选条件。名称有 300ms 防抖：不防抖就是每敲一个字符发一次请求
   const [nameFilter, setNameFilter] = useState<string>("");
@@ -140,6 +144,16 @@ export default function ProvidersPage() {
     setModelsOpen(true);
     setModelsOpenId(providerId);
     await fetchProviderModels(providerId);
+  };
+
+  const openGzipDialog = (provider: Provider) => {
+    setGzipProvider(provider);
+    setGzipOpen(true);
+  };
+
+  const handleGzipUpdated = (updated: Provider) => {
+    setGzipProvider(updated);
+    setProviders((prev) => prev.map((item) => (item.ID === updated.ID ? updated : item)));
   };
 
   const copyModelName = async (modelName: string) => {
@@ -285,6 +299,19 @@ export default function ProvidersPage() {
                             <Button variant="secondary" size="icon" onClick={() => openModelsDialog(provider.ID)}>
                               <Boxes className="h-4 w-4" />
                             </Button>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  aria-label={t('gzip.action')}
+                                  onClick={() => openGzipDialog(provider)}
+                                >
+                                  <Gauge className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>{t('gzip.action')}</TooltipContent>
+                            </Tooltip>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button variant="destructive" size="icon" onClick={() => openDeleteDialog(provider.ID)}>
@@ -346,6 +373,20 @@ export default function ProvidersPage() {
                       <Button variant="secondary" size="icon" className="h-7 w-7" onClick={() => openModelsDialog(provider.ID)}>
                         <Boxes className="h-3.5 w-3.5" />
                       </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-7 w-7"
+                            aria-label={t('gzip.action')}
+                            onClick={() => openGzipDialog(provider)}
+                          >
+                            <Gauge className="h-3.5 w-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('gzip.action')}</TooltipContent>
+                      </Tooltip>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button variant="destructive" size="icon" className="h-7 w-7" onClick={() => openDeleteDialog(provider.ID)}>
@@ -396,6 +437,15 @@ export default function ProvidersPage() {
         providerModels={providerModels}
         onCopyModelName={copyModelName}
       />
+
+      {gzipProvider ? (
+        <ProviderGzipDialog
+          open={gzipOpen}
+          onOpenChange={setGzipOpen}
+          provider={gzipProvider}
+          onUpdated={handleGzipUpdated}
+        />
+      ) : null}
     </div>
   );
 }

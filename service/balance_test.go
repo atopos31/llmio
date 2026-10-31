@@ -148,6 +148,10 @@ func TestBalanceChatFallsBackAfterPrimaryExhausted(t *testing.T) {
 	if got := atomic.LoadInt32(backupCalls); got != 1 {
 		t.Errorf("备用上游调用次数 = %d, want 1", got)
 	}
+
+	// 失败行由后台协程落库；不等它结束，t.TempDir 的清理会撞上仍在写库的
+	// 连接（CI 上表现为 directory not empty）。
+	waitForFailRows(t, "test-model", 1)
 }
 
 // 连备用也挂掉时，错误信息必须标明已经用过备用，
@@ -168,6 +172,8 @@ func TestBalanceChatReportsBackupExhausted(t *testing.T) {
 	if !strings.Contains(err.Error(), "backup boom") {
 		t.Fatalf("error = %q, 期望保留最后一轮的真实原因 \"backup boom\"", err.Error())
 	}
+
+	waitForFailRows(t, "test-model", 2)
 }
 
 // 没配备用关联时行为与改动前一致：主关联耗尽即失败，且错误信息不带降级标记。
@@ -190,6 +196,8 @@ func TestBalanceChatWithoutBackupKeepsLegacyBehavior(t *testing.T) {
 	if got := atomic.LoadInt32(primaryCalls); got != 1 {
 		t.Errorf("主上游调用次数 = %d, want 1", got)
 	}
+
+	waitForFailRows(t, "test-model", 1)
 }
 
 // 备用标记必须能活到日志页：Backup 只在 BalanceChat 里随 insert 落库，

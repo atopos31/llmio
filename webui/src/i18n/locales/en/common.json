@@ -52,5 +52,14 @@
   "table": {
     "view": "View",
     "no_data": "No data"
+  },
+  "terms": {
+    "gzip": "A common network data compression format. Clients and servers negotiate its use through request headers.",
+    "sse": "A response style in which the server continuously returns events, commonly used for incremental chat output.",
+    "upstream": "The model service provider, such as OpenAI, Anthropic, or a compatible gateway.",
+    "provider": "An organization or gateway that provides model services. Manage it on the Providers page.",
+    "probe": "Sends one minimal real request upstream to confirm whether it accepts a compressed request body.",
+    "egress": "Traffic sent from this service to the public internet. Inbound requests are usually not billed.",
+    "provider_label": "Provider help"
   }
 }

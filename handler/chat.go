@@ -132,11 +132,23 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	authKeyIOLog, _ := ctx.Value(consts.ContextKeyAuthKeyIOLog).(bool)
 	slog.Info("start recording log", "logId", logId, "authKeyIOLog", authKeyIOLog)
 	go service.RecordLog(context.Background(), startReq, pr, postProcessor, logId, *before, authKeyIOLog, bridgeNotes)
-	writeHeader(c, before.Stream, res.Header)
 
-	// 流式响应使用 flushWriter 确保数据实时发送
+	policy := service.GetTrafficCompressionPolicy(c.Request.Context())
+	gzipOn := before.Stream &&
+		policy.Enabled && policy.SSEResponse &&
+		res.Header.Get("Content-Encoding") == "" &&
+		acceptsGzip(c.Request.Header.Get("Accept-Encoding"))
+	var gzipWriter *sseGzipWriter
+	if gzipOn {
+		gzipWriter = newSSEGzipWriter(c.Writer)
+		c.Writer = gzipWriter
+		defer gzipWriter.Close()
+	}
+	writeHeader(c, before.Stream, gzipOn, res.Header)
+
+	// 流式响应使用 flushWriter 确保数据实时发送；gzip 包装器已在每次 Write 后刷新
 	var writer io.Writer = c.Writer
-	if before.Stream {
+	if before.Stream && !gzipOn {
 		writer = &flushWriter{w: c.Writer}
 	}
 
@@ -151,6 +163,16 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 
 	pw.Close()
 
+	// 正常完成的压缩流才计入效果统计；defer Close 仍负责错误路径的收尾。
+	if gzipWriter != nil {
+		if err := gzipWriter.Close(); err != nil {
+			slog.Warn("close sse gzip writer", "error", err)
+		} else {
+			plain, compressed := gzipWriter.Stats()
+			service.RecordSSECompression(plain, compressed)
+		}
+	}
+
 	// 这次转发改过什么（丢了参数、补了默认值）在这里提示一次：客户端从响应里看不出
 	// 差别，日志是唯一能对上号的地方。同协议路径没有记账，不会有这条
 	if notes := bridgeNotes.String(); notes != "" {
@@ -159,7 +181,7 @@ func chatHandler(c *gin.Context, preProcessor service.Beforer, postProcessor ser
 	}
 }
 
-func writeHeader(c *gin.Context, stream bool, header http.Header) {
+func writeHeader(c *gin.Context, stream, gzipOn bool, header http.Header) {
 	for k, values := range header {
 		for _, value := range values {
 			c.Writer.Header().Add(k, value)
@@ -171,6 +193,11 @@ func writeHeader(c *gin.Context, stream bool, header http.Header) {
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Connection", "keep-alive")
 		c.Header("X-Accel-Buffering", "no")
+	}
+	if gzipOn {
+		c.Writer.Header().Del("Content-Length")
+		c.Writer.Header().Set("Content-Encoding", "gzip")
+		c.Writer.Header().Add("Vary", "Accept-Encoding")
 	}
 	c.Writer.Flush()
 }

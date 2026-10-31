@@ -16,6 +16,22 @@ type Provider struct {
 	Console      string // 控制台地址
 	Proxy        string // HTTP 代理地址
 	ErrorMatcher string // 响应体错误识别规则，多行或分号分隔 sample
+
+	// RequestGzipEnabled 是提供商级别的请求压缩开关。
+	// 只有探测结果为支持时才允许打开；总开关或功能开关关闭时不会生效。
+	RequestGzipEnabled bool
+	// RequestGzipSupported 是探测结论：nil 表示尚未探测或无法判定。
+	// 不能用 bool 的零值表示未知，否则"没探测"和"不支持"会混在一起。
+	RequestGzipSupported *bool
+	// RequestGzipProbedAt 是最近一次探测时间。无法判定时也会更新，
+	// 用于界面展示"检测过但没有结论"。
+	RequestGzipProbedAt *time.Time
+	// RequestGzipProbeDetail 是探测证据摘要（状态码与上游返回片段），
+	// 不保存请求头、密钥等敏感内容。
+	RequestGzipProbeDetail string `gorm:"size:255"`
+	// RequestGzipProbeHash 是探测时的 provider 配置指纹。
+	// 类型、基础地址或代理变化后，旧结论不再可信。
+	RequestGzipProbeHash string `gorm:"size:64"`
 }
 
 type AnthropicConfig struct {

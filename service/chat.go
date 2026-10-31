@@ -179,6 +179,9 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 	// 无从下手的 "All retry failed"，真实原因要进库翻 chat_logs.error 才有。
 	lastErr := error(nil)
 
+	// 传输压缩策略在一次请求内只读一次；开关按请求生效，不做进程级缓存。
+	trafficCompression := GetTrafficCompressionPolicy(ctx)
+
 	// 会话键在重试循环外解析一次：同一次请求的各次重试共用同一会话��，
 	// 避免重试期间会话漂移（随机兜底分支尤其需要）
 	sessionKey := ResolveSessionKey(reqMeta.Header, before.SessionID, before.Model, authKeyID, before.raw)
@@ -333,6 +336,8 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 			drops := map[string]bool{}
 			healed := 0
 			downgraded := false
+			gzipDowngraded := false
+			gzipRejectStatus := 0
 
 			var res *http.Response
 			nextProvider := false // 跳出内层后是否换下一家
@@ -356,6 +361,20 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 					break
 				}
 
+				reqGzipped := false
+				gzipBefore := int64(0)
+				gzipAfter := int64(0)
+				if !gzipDowngraded && ShouldGzipUpstream(trafficCompression, provider, len(rawBody), headers) {
+					if err := providers.GzipRequestBody(req); err != nil {
+						slog.Warn("gzip upstream request body failed; sending plaintext",
+							"provider", provider.Name, "error", err)
+					} else {
+						reqGzipped = true
+						gzipBefore = int64(len(rawBody))
+						gzipAfter = req.ContentLength
+					}
+				}
+
 				res, err = client.Do(req)
 				if err != nil {
 					// client.Do 失败常常是裸的 "context canceled"：客户端一断开，绑定在
@@ -369,6 +388,17 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				}
 
 				if res.StatusCode == http.StatusOK {
+					if reqGzipped {
+						RecordUpstreamCompression(gzipBefore, gzipAfter)
+					}
+					if gzipDowngraded {
+						persistCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						if err := MarkProviderRequestGzipUnsupported(persistCtx, provider.ID,
+							fmt.Sprintf("runtime %d on gzip; plaintext ok", gzipRejectStatus)); err != nil {
+							slog.Warn("persist gzip downgrade failed", "provider", provider.Name, "error", err)
+						}
+						cancel()
+					}
 					break
 				}
 
@@ -376,6 +406,22 @@ func BalanceChat(ctx context.Context, start time.Time, style string, before Befo
 				res.Body.Close()
 				if rerr != nil {
 					slog.Error("read body error", "error", rerr)
+				}
+
+				// 压缩请求体被上游拒绝时先回退明文，再进入自愈判定。
+				// 400/422 同时也是自愈的候选状态码，顺序不能反。
+				if reqGzipped && !gzipDowngraded && isGzipRejectionStatus(res.StatusCode) {
+					gzipDowngraded = true
+					gzipRejectStatus = res.StatusCode
+					log.Retry = retry + healed + 1
+					fail(fmt.Errorf("status: %d, body: %s (gzip downgrade: retry plaintext)", res.StatusCode, string(byteBody)))
+					continue
+				}
+
+				// 到这里说明压缩请求已经实际发出、且没有进入降级重试；
+				// 非 200 的失败尝试也计入，因为它确实占用了一次压缩上行。
+				if reqGzipped {
+					RecordUpstreamCompression(gzipBefore, gzipAfter)
 				}
 
 				// 自愈判定：判据三层全过（状态码 + 短语提取 + 四道闸）才删参
@@ -668,6 +714,12 @@ func BuildHeaders(source http.Header, withHeader bool, customHeaders map[string]
 		}
 		header.Set(key, rendered)
 	}
+
+	// 请求体会按上游协议重新序列化或改写，入站的 Content-Length / Content-Encoding
+	// 已经不再对应当前字节。压缩在 BuildReq 之后单独处理，这里先清掉旧值，
+	// 避免把客户端的长度或编码头带到上游。
+	header.Del("Content-Length")
+	header.Del("Content-Encoding")
 
 	// Accept-Encoding 必须留给 Go Transport 自行协商：一旦该头被显式设置（透传客户端头或自定义头），
 	// Transport 就不再透明解压上游响应，压缩后的字节会被原样记录进 ChatIO（乱码），

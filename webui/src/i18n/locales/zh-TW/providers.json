@@ -63,5 +63,53 @@
     "copy_model": "已複製模型名稱: {{name}}",
     "copy_failed": "複製失敗",
     "fetch_model_failed": "取得供應商模型失敗: {{message}}"
+  },
+  "gzip": {
+    "action": "偵測上游請求壓縮",
+    "title": "偵測上游請求壓縮",
+    "desc": "對所選供應商傳送一次最小請求，判斷其是否接受壓縮的請求體。此請求會實際呼叫上游，可能產生少量費用。",
+    "target": "供應商：{{name}}",
+    "association": "用於偵測的模型關聯",
+    "association_help_label": "模型關聯說明",
+    "association_help": "偵測需要借用一條模型關聯的模型名稱與自訂請求標頭。偵測結果保存在供應商層級，不區分模型。",
+    "associations_loading": "正在讀取模型關聯…",
+    "associations_load_failed": "讀取模型關聯失敗：{{message}}",
+    "no_association": "此供應商沒有可用的模型關聯，無法偵測。請先在模型關聯頁面新增一條關聯。",
+    "association_placeholder": "選擇模型關聯",
+    "association_item": "{{model}}（上游模型：{{providerModel}}）",
+    "last_success": "此關聯最近一次成功請求：{{time}}",
+    "status_label": "偵測結果",
+    "status": {
+      "supported": "支援",
+      "unsupported": "不支援",
+      "inconclusive": "無法判定",
+      "unknown": "尚未偵測",
+      "supported_help": "模型服務商（上游）接受了壓縮的請求體。可在供應商頁面開啟「允許壓縮此供應商的請求」。",
+      "unsupported_help": "模型服務商（上游）拒絕了壓縮的請求體。系統會保持未壓縮傳送，不影響正常呼叫。",
+      "inconclusive_help": "本次偵測未能確認模型服務商（上游）是否支援，可能由憑證、限流、網路或模型服務商故障導致。請稍後重新偵測；確認前不會啟用壓縮。",
+      "unknown_help": "尚未執行偵測。此供應商保持未壓縮傳送。"
+    },
+    "status_help_label": "偵測結果說明",
+    "probed_at": "最近偵測時間：{{time}}",
+    "detail": "偵測詳情",
+    "detail_help_label": "偵測詳情說明",
+    "detail_help": "記錄本次偵測的網路狀態碼與上游回應摘要，不包含請求標頭或金鑰。",
+    "provider_switch": "允許壓縮此供應商的請求",
+    "provider_switch_help_label": "供應商開關說明",
+    "provider_switch_help": "僅在偵測結果為「支援」時可開啟。開啟後，還需在設定頁打開「啟用傳輸壓縮」與「壓縮上游請求」才會生效。",
+    "provider_switch_note": "僅在偵測結果為「支援」時可開啟。",
+    "master_off": "設定頁的總開關已關閉。偵測仍可執行，但壓縮不會生效。",
+    "probe": "開始偵測",
+    "retry": "重新偵測",
+    "probing": "偵測中…",
+    "probe_failed": "偵測未完成：{{message}}。此供應商保持未壓縮傳送。",
+    "toast": {
+      "supported": "偵測完成：支援",
+      "unsupported": "偵測完成：不支援",
+      "inconclusive": "偵測完成：無法判定",
+      "enable_success": "已開啟此供應商的請求壓縮",
+      "disable_success": "已關閉此供應商的請求壓縮",
+      "update_failed": "儲存失敗：{{message}}"
+    }
   }
 }

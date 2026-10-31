@@ -140,10 +140,17 @@ func main() {
 		// 保证一次请求对应一个时间切片（见 handler/stats.go 的说明）。
 		api.GET("/metrics/stats", handler.Stats)
 		api.GET("/metrics/granularities", handler.StatsGranularities)
+		// 传输压缩效果：进程内累计，重启归零。
+		api.GET("/metrics/compression", handler.GetTransportCompressionStats)
 		// Provider management
 		api.GET("/providers/template", handler.GetProviderTemplates)
 		api.GET("/providers", handler.GetProviders)
 		api.GET("/providers/models/:id", handler.GetProviderModels)
+		// 上游请求压缩：探测与 provider 级开关。
+		// 探测不受传输压缩总开关影响，结果按 provider 保存。
+		api.GET("/providers/gzip-probe/:id/associations", handler.GetProviderGzipAssociations)
+		api.POST("/providers/:id/gzip-probe", handler.ProbeProviderGzip)
+		api.PATCH("/providers/:id/request-gzip", handler.UpdateProviderRequestGzip)
 		api.POST("/providers", handler.CreateProvider)
 		api.PUT("/providers/:id", handler.UpdateProvider)
 		api.DELETE("/providers/:id", handler.DeleteProvider)
@@ -263,6 +270,7 @@ func seedPolicyConfigs(ctx context.Context) {
 		{"log_compress_policy", service.EnsureLogCompressPolicyConfig},
 		{"log_reclaim_policy", service.EnsureLogReclaimPolicyConfig},
 		{"self_heal_policy", service.EnsureSelfHealPolicyConfig},
+		{"traffic_compression_policy", service.EnsureTrafficCompressionPolicyConfig},
 	} {
 		if err := seed.fn(ctx); err != nil {
 			slog.Error("策略配置种子写失败（读侧会回默认值，服务不受影响）",

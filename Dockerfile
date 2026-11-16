@@ -16,7 +16,7 @@ RUN pnpm run build
 # Build stage for the backend
 # 同样跑在原生平台：Go 可直接交叉编译出目标架构的二进制，
 # 无需在 QEMU 模拟环境中执行
-FROM --platform=$BUILDPLATFORM golang:1.26.6 AS backend-build
+FROM --platform=$BUILDPLATFORM golang:1.26.11 AS backend-build
 ARG VERSION=dev
 ARG TARGETOS
 ARG TARGETARCH
@@ -33,7 +33,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -X github.com/atopos31/llmio/consts.Version=${VERSION}" -o llmio .
 
 # Final stage
-FROM alpine:latest
+# 固定 alpine 小版本：保证基础层可复现，zlib 等系统包随 3.24 稳定分支更新
+FROM alpine:3.24
 
 WORKDIR /app
 

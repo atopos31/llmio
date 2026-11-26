@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/atopos31/llmio/service"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
+	"gorm.io/gorm"
 )
 
 // 用于系统数据操作相关鉴权
@@ -104,7 +107,24 @@ func checkAuthKey(c *gin.Context, key string, adminToken string) {
 	}
 	authKey, err := service.GetAuthKey(ctx, key)
 	if err != nil {
-		common.ErrorWithHttpStatus(c, http.StatusUnauthorized, http.StatusUnauthorized, "Invalid token")
+		// 库错误不是键错误：一律回 401 会让客户端丢掉可用的键
+		//（线上：读事务挡写 → SELECT auth_keys 撞 SQLITE_BUSY → 401）。
+		switch {
+		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+			// 等待者自己的 ctx 断了或 lookup 预算用完：重试可解，不是键的问题
+			c.Header("Retry-After", "1")
+			common.ErrorWithHttpStatus(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "auth key lookup canceled, retry")
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			// 键不存在/已停用——确实是无效令牌
+			common.ErrorWithHttpStatus(c, http.StatusUnauthorized, http.StatusUnauthorized, "Invalid token")
+		case service.IsBusyErr(err):
+			// 撞锁：让客户端稍后重试，而不是丢掉钥匙
+			c.Header("Retry-After", "1")
+			common.ErrorWithHttpStatus(c, http.StatusServiceUnavailable, http.StatusServiceUnavailable, "auth key lookup failed: database is busy, retry")
+		default:
+			slog.Error("auth key lookup failed", "error", err)
+			common.ErrorWithHttpStatus(c, http.StatusInternalServerError, http.StatusInternalServerError, "auth key lookup failed")
+		}
 		c.Abort()
 		return
 	}

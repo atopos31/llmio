@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -575,5 +577,146 @@ func TestAuthOpenAI_BearerUnchanged(t *testing.T) {
 	}
 	if v := c.Request.Context().Value(consts.ContextKeyAllowAllModel); v != true {
 		t.Fatalf("AllowAllModel=%v，期望 true", v)
+	}
+}
+
+// TestCheckAuthKey_BusyDBIsNotUnauthorized 回归 2026-11-25 事故：
+// 库被读事务占住时 SELECT auth_keys 撞 SQLITE_BUSY，中间件却回 401，
+// 客户端据此丢掉可用的键、每隔一次请求就断线。撞锁不是键的错：应回 503。
+func TestCheckAuthKey_BusyDBIsNotUnauthorized(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.db")
+	// busy_timeout 调小：测试不必每条语句等满 5 秒。
+	db, err := gorm.Open(sqlite.Open(path+"?_pragma=busy_timeout(50)"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	if err := db.AutoMigrate(&models.AuthKey{}); err != nil {
+		t.Fatalf("failed to migrate database: %v", err)
+	}
+	if err := db.Create(&models.AuthKey{
+		Name:     "Test Project",
+		Key:      "busy-test-key",
+		Status:   new(true),
+		AllowAll: new(true),
+	}).Error; err != nil {
+		t.Fatalf("failed to create test auth key: %v", err)
+	}
+	models.DB = db
+	defer func() { models.DB = nil }()
+
+	// 另一条连接持 EXCLUSIVE：读者必撞 SQLITE_BUSY。
+	locker, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("failed to open locker connection: %v", err)
+	}
+	defer locker.Close()
+	if _, err := locker.Exec("BEGIN EXCLUSIVE"); err != nil {
+		t.Fatalf("failed to take exclusive lock: %v", err)
+	}
+	defer locker.Exec("ROLLBACK")
+
+	r := httptest.NewRecorder()
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(r)
+	c.Request = httptest.NewRequest("POST", "/", nil)
+
+	checkAuthKey(c, "busy-test-key", "admin-token")
+
+	if !c.IsAborted() {
+		t.Error("expected request to be aborted")
+	}
+	if got := c.Writer.Status(); got != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d (retryable), got %d — 401 would make clients drop a working key", http.StatusServiceUnavailable, got)
+	}
+	if got := r.Header().Get("Retry-After"); got != "1" {
+		t.Errorf("expected Retry-After \"1\", got %q", got)
+	}
+}
+
+// TestCheckAuthKey_RetriesInstantBusy — 瞬时 BUSY（SQLite 不等 busy_timeout
+// 直接返回）在退避期间锁已释放：第二次尝试应当成功，而不是回 503。
+func TestCheckAuthKey_RetriesInstantBusy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.db")
+	db, err := gorm.Open(sqlite.Open(path+"?_pragma=busy_timeout(50)"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	if err := db.AutoMigrate(&models.AuthKey{}); err != nil {
+		t.Fatalf("failed to migrate database: %v", err)
+	}
+	if err := db.Create(&models.AuthKey{
+		Name:     "Test Project",
+		Key:      "retry-test-key",
+		Status:   new(true),
+		AllowAll: new(true),
+	}).Error; err != nil {
+		t.Fatalf("failed to create test auth key: %v", err)
+	}
+	models.DB = db
+	defer func() { models.DB = nil }()
+
+	locker, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("failed to open locker connection: %v", err)
+	}
+	defer locker.Close()
+	if _, err := locker.Exec("BEGIN EXCLUSIVE"); err != nil {
+		t.Fatalf("failed to take exclusive lock: %v", err)
+	}
+	// 退避（150ms）期间释放锁：第一次撞锁、第二次成功。
+	released := make(chan struct{})
+	go func() {
+		defer close(released)
+		time.Sleep(100 * time.Millisecond)
+		if _, err := locker.Exec("ROLLBACK"); err != nil {
+			t.Errorf("failed to release lock: %v", err)
+		}
+	}()
+
+	r := httptest.NewRecorder()
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(r)
+	c.Request = httptest.NewRequest("POST", "/", nil)
+
+	checkAuthKey(c, "retry-test-key", "admin-token")
+	<-released
+
+	if c.IsAborted() {
+		t.Fatalf("expected retry to succeed after the lock was released, got status %d", c.Writer.Status())
+	}
+	if got := c.Request.Context().Value(consts.ContextKeyAuthKeyID); got == nil {
+		t.Error("expected auth key id in context")
+	}
+}
+
+// TestCheckAuthKey_OtherDBErrorIsInternalServerError — 非撞锁的库错误
+// （表被删）既不是键的错也不是重试能解：500，且不伪装成 401。
+func TestCheckAuthKey_OtherDBErrorIsInternalServerError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auth.db")
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	if err := db.AutoMigrate(&models.AuthKey{}); err != nil {
+		t.Fatalf("failed to migrate database: %v", err)
+	}
+	if err := db.Migrator().DropTable(&models.AuthKey{}); err != nil {
+		t.Fatalf("failed to drop auth_keys table: %v", err)
+	}
+	models.DB = db
+	defer func() { models.DB = nil }()
+
+	r := httptest.NewRecorder()
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(r)
+	c.Request = httptest.NewRequest("POST", "/", nil)
+
+	checkAuthKey(c, "any-key", "admin-token")
+
+	if !c.IsAborted() {
+		t.Error("expected request to be aborted")
+	}
+	if got := c.Writer.Status(); got != http.StatusInternalServerError {
+		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, got)
 	}
 }
